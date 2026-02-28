@@ -1,0 +1,23 @@
+# Xcode
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+DerivedData/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# libVLC build artifacts (21GB+ — rebuild with ./build-libvlc.sh)
+.build-libvlc/
+
+# Pre-built xcframework (1.2GB — rebuild with ./build-libvlc.sh)
+Vendor/
+
+# macOS
+.DS_Store
+
+# IDE
+*.swp
+*~

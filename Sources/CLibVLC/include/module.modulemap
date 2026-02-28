@@ -1,0 +1,4 @@
+module CLibVLC [system] {
+    header "CLibVLC.h"
+    export *
+}
