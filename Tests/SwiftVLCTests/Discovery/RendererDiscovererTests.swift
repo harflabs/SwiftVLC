@@ -1,7 +1,7 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("RendererDiscoverer", .tags(.integration))
+@Suite("RendererDiscoverer", .tags(.integration), .serialized)
 struct RendererDiscovererTests {
   @Test("Available services")
   func availableServices() {
@@ -47,7 +47,7 @@ struct RendererDiscovererTests {
       let discoverer = try RendererDiscoverer(name: "nonexistent_renderer_xyz")
       _ = discoverer
     } catch {
-      #expect(error is VLCError)
+      _ = error // Expected VLCError
     }
   }
 

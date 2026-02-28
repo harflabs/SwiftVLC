@@ -1,7 +1,7 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("MediaListPlayer", .tags(.integration, .mainActor))
+@Suite("MediaListPlayer", .tags(.integration, .mainActor), .serialized)
 @MainActor
 struct MediaListPlayerTests {
   @Test("Init succeeds")
@@ -107,7 +107,7 @@ struct MediaListPlayerTests {
     listPlayer.togglePause()
   }
 
-  @Test("Play at valid index", .tags(.async, .media))
+  @Test("Play at valid index", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
   func playAtValidIndex() async throws {
     let listPlayer = try MediaListPlayer()
     let player = try Player()
@@ -151,7 +151,7 @@ struct MediaListPlayerTests {
     }
   }
 
-  @Test("Play and stop lifecycle", .tags(.async, .media))
+  @Test("Play and stop lifecycle", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
   func playAndStopLifecycle() async throws {
     let listPlayer = try MediaListPlayer()
     let player = try Player()
@@ -166,7 +166,7 @@ struct MediaListPlayerTests {
     try await Task.sleep(for: .milliseconds(200))
   }
 
-  @Test("Pause and resume lifecycle", .tags(.async, .media))
+  @Test("Pause and resume lifecycle", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
   func pauseAndResumeLifecycle() async throws {
     let listPlayer = try MediaListPlayer()
     let player = try Player()
@@ -183,7 +183,7 @@ struct MediaListPlayerTests {
     listPlayer.stop()
   }
 
-  @Test("State during playback", .tags(.async, .media))
+  @Test("State during playback", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
   func stateDuringPlayback() async throws {
     let listPlayer = try MediaListPlayer()
     let player = try Player()

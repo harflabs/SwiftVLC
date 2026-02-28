@@ -9,14 +9,15 @@ DerivedData/
 .swiftpm/
 Package.resolved
 
-# libVLC build artifacts (21GB+ — rebuild with ./build-libvlc.sh)
+# libVLC build artifacts (21GB+ — rebuild with ./scripts/build-libvlc.sh)
 .build-libvlc/
 
-# Pre-built xcframework (1.2GB — rebuild with ./build-libvlc.sh)
+# Pre-built xcframework (1.2GB — rebuild with ./scripts/build-libvlc.sh)
 Vendor/
 
 # Release artifacts
 *.xcframework.zip
+coverage-report/
 
 # macOS
 .DS_Store

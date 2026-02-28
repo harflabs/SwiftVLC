@@ -1,7 +1,7 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("Logo", .tags(.integration, .mainActor))
+@Suite("Logo", .tags(.integration, .mainActor), .serialized)
 @MainActor
 struct LogoTests {
   @Test("isEnabled default")

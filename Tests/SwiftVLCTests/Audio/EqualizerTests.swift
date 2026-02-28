@@ -1,7 +1,7 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("Equalizer", .tags(.integration, .mainActor))
+@Suite("Equalizer", .tags(.integration, .mainActor), .serialized)
 @MainActor
 struct EqualizerTests {
   @Test("Flat init has preamp zero and all bands zero")

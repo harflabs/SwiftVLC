@@ -2,7 +2,10 @@
 import Foundation
 import Testing
 
-@Suite("ThumbnailRequest", .tags(.integration, .media, .async))
+@Suite(
+  "ThumbnailRequest", .tags(.integration, .media, .async), .serialized,
+  .enabled(if: TestCondition.canPlayMedia, "Requires video output (skipped on CI)")
+)
 struct ThumbnailRequestTests {
   @Test("Returns non-empty data")
   func returnsNonEmptyData() async throws {

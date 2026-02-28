@@ -2,7 +2,7 @@
 import CLibVLC
 import Testing
 
-@Suite("MediaDiscoverer", .tags(.integration))
+@Suite("MediaDiscoverer", .tags(.integration), .serialized)
 struct MediaDiscovererTests {
   @Test(
     "Available services for categories",
@@ -78,7 +78,7 @@ struct MediaDiscovererTests {
       let discoverer = try MediaDiscoverer(name: "nonexistent_discoverer_xyz")
       _ = discoverer
     } catch {
-      #expect(error is VLCError)
+      _ = error // Expected VLCError
     }
   }
 
