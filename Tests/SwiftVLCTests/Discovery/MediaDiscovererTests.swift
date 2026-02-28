@@ -2,7 +2,7 @@
 import CLibVLC
 import Testing
 
-@Suite("MediaDiscoverer", .tags(.integration))
+@Suite("MediaDiscoverer", .tags(.integration), .serialized)
 struct MediaDiscovererTests {
   @Test(
     "Available services for categories",

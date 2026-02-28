@@ -1,7 +1,7 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("RendererDiscoverer", .tags(.integration))
+@Suite("RendererDiscoverer", .tags(.integration), .serialized)
 struct RendererDiscovererTests {
   @Test("Available services")
   func availableServices() {

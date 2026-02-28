@@ -1,7 +1,7 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("EventBridge", .tags(.integration, .mainActor, .async))
+@Suite("EventBridge", .tags(.integration, .mainActor, .async), .serialized)
 @MainActor
 struct EventBridgeTests {
   @Test("Independent streams")

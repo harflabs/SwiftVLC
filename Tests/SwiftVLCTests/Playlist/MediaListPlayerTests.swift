@@ -1,7 +1,7 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("MediaListPlayer", .tags(.integration, .mainActor))
+@Suite("MediaListPlayer", .tags(.integration, .mainActor), .serialized)
 @MainActor
 struct MediaListPlayerTests {
   @Test("Init succeeds")

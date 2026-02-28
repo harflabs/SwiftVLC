@@ -39,14 +39,12 @@ import SwiftUI
 import SwiftVLC
 
 struct PlayerView: View {
-    @State private var player = Player()
+    @State private var player = try! Player()
 
     var body: some View {
         VideoView(player)
             .onAppear {
-                let media = Media(url: URL(string: "https://example.com/video.mp4")!)
-                player.setMedia(media)
-                player.play()
+                try? player.play(url: URL(string: "https://example.com/video.mp4")!)
             }
     }
 }
@@ -56,7 +54,8 @@ struct PlayerView: View {
 
 ```swift
 // Playback control
-player.play()
+let player = try Player()
+try player.play(url: videoURL)
 player.pause()
 player.stop()
 player.position = 0.5       // Seek to 50%
@@ -66,19 +65,18 @@ player.isMuted = true
 
 // Track selection
 let subtitles = player.subtitleTracks
-player.selectTrack(subtitles[1])
+player.selectedSubtitleTrack = subtitles[1]
 
 // Metadata
-let media = Media(url: videoURL)
+let media = try Media(url: videoURL)
 let metadata = try await media.parse()
 print(metadata.title, metadata.duration)
 
 // Observe state changes
-for await event in player.events() {
+for await event in player.events {
     switch event {
     case .stateChanged(let state): ...
     case .timeChanged(let time): ...
-    case .endReached: ...
     default: break
     }
 }
