@@ -12,14 +12,15 @@
 #   ./build-libvlc.sh              # Build for iOS device + simulator
 #   ./build-libvlc.sh --all        # Build for iOS, tvOS, macOS, Catalyst
 #   ./build-libvlc.sh --ios-only   # iOS device + simulator only
-#   ./build-libvlc.sh --macos      # macOS only (fastest for dev)
+#   ./build-libvlc.sh --macos-only # macOS only (fastest for dev)
 #   ./build-libvlc.sh --catalyst   # Add Mac Catalyst (arm64 + x86_64)
-#
-# The script clones the official VLC source from code.videolan.org,
-# compiles libVLC as a static library, and packages it with the C headers
-# into a standalone xcframework. No VLCKit Objective-C code is included.
+#   ./build-libvlc.sh --clean      # Remove build directory
+#   ./build-libvlc.sh --hash=abc   # Pin to a specific VLC commit
 
 set -e
+
+# --- Error trap for better failure reporting ---
+trap 'error "Build failed at line $LINENO (exit code $?)"' ERR
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/.build-libvlc"
@@ -30,19 +31,95 @@ VLC_BRANCH="master"
 # Update this hash when upgrading libVLC
 VLC_HASH="c833c4be0"
 
-# Directory containing patches from VLCKit (optional)
-PATCHES_DIR="${SCRIPT_DIR}/../VLCKit/libvlc/patches"
+# Directory containing patches from VLCKit (optional, user must opt in)
+PATCHES_DIR=""
 
 BUILD_IOS=yes
 BUILD_TVOS=no
 BUILD_MACOS=no
 BUILD_CATALYST=no
 
+BUILD_START_TIME=$(date +%s)
+
 if [ -z "$MAKEFLAGS" ]; then
     MAKEFLAGS="-j$(sysctl -n machdep.cpu.core_count || nproc)"
 fi
 
-# Parse arguments
+# --- Terminal color support ---
+# Guard tput calls for non-terminal contexts (CI runners, piped output)
+if [ -t 1 ] && command -v tput >/dev/null 2>&1 && tput colors >/dev/null 2>&1; then
+    COLOR_GREEN=$(tput setaf 2)
+    COLOR_RED=$(tput setaf 1)
+    COLOR_YELLOW=$(tput setaf 3)
+    COLOR_RESET=$(tput sgr0)
+else
+    COLOR_GREEN=""
+    COLOR_RED=""
+    COLOR_YELLOW=""
+    COLOR_RESET=""
+fi
+
+elapsed() {
+    local now=$(date +%s)
+    local secs=$((now - BUILD_START_TIME))
+    local mins=$((secs / 60))
+    local remaining_secs=$((secs % 60))
+    printf "%dm%02ds" "$mins" "$remaining_secs"
+}
+
+info() {
+    echo "[${COLOR_GREEN}info${COLOR_RESET}] [$(elapsed)] $1"
+}
+
+warn() {
+    echo "[${COLOR_YELLOW}warn${COLOR_RESET}] [$(elapsed)] $1" >&2
+}
+
+error() {
+    echo "[${COLOR_RED}error${COLOR_RESET}] [$(elapsed)] $1" >&2
+    exit 1
+}
+
+# --- Prerequisite validation ---
+check_prerequisites() {
+    local missing=()
+
+    for cmd in autoconf automake libtool python3; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            missing+=("$cmd")
+        fi
+    done
+
+    if ! xcode-select -p >/dev/null 2>&1; then
+        echo "${COLOR_RED}Error: Xcode command line tools not installed.${COLOR_RESET}" >&2
+        echo "  Install with: xcode-select --install" >&2
+        exit 1
+    fi
+
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo "${COLOR_RED}Error: Missing required tools: ${missing[*]}${COLOR_RESET}" >&2
+        echo "" >&2
+        echo "  Install with:" >&2
+        echo "    brew install ${missing[*]}" >&2
+        echo "" >&2
+        exit 1
+    fi
+}
+
+# --- Disk space check ---
+check_disk_space() {
+    local required_gb=40
+    local available_kb
+    available_kb=$(df -k "$SCRIPT_DIR" | awk 'NR==2 {print $4}')
+    local available_gb=$((available_kb / 1024 / 1024))
+
+    if [ "$available_gb" -lt "$required_gb" ]; then
+        warn "Low disk space: ${available_gb}GB available, ~${required_gb}GB recommended for a full build."
+        warn "The build may fail if disk space runs out."
+    fi
+}
+
+# --- Parse arguments ---
 for arg in "$@"; do
     case $arg in
         --all)
@@ -81,21 +158,74 @@ for arg in "$@"; do
             BUILD_MACOS=no
             BUILD_CATALYST=yes
             ;;
-        --help)
-            echo "Usage: $0 [--all|--ios-only|--macos-only|--tvos-only|--catalyst-only|--tvos|--macos|--catalyst]"
+        --clean)
+            echo "Removing build directory: ${BUILD_DIR}"
+            rm -rf "${BUILD_DIR}"
+            echo "Done."
             exit 0
+            ;;
+        --clean-build)
+            echo "Removing build directory: ${BUILD_DIR}"
+            rm -rf "${BUILD_DIR}"
+            echo "Continuing with fresh build..."
+            ;;
+        --hash=*)
+            VLC_HASH="${arg#--hash=}"
+            if [ -z "$VLC_HASH" ]; then
+                echo "Error: --hash requires a commit hash value" >&2
+                exit 1
+            fi
+            ;;
+        --patches-dir=*)
+            PATCHES_DIR="${arg#--patches-dir=}"
+            if [ ! -d "$PATCHES_DIR" ]; then
+                echo "Error: Patches directory not found: ${PATCHES_DIR}" >&2
+                exit 1
+            fi
+            ;;
+        --help)
+            cat <<HELPEOF
+Usage: $0 [OPTIONS]
+
+Platform selection:
+  --all              Build for iOS, tvOS, macOS, and Mac Catalyst
+  --ios-only         iOS device + simulator only (default)
+  --macos-only       macOS only (fastest for development)
+  --tvos-only        tvOS device + simulator only
+  --catalyst-only    Mac Catalyst only
+  --tvos             Add tvOS to the build
+  --macos            Add macOS to the build
+  --catalyst         Add Mac Catalyst to the build
+
+Build options:
+  --clean            Remove the build directory and exit
+  --clean-build      Remove the build directory, then build
+  --hash=COMMIT      Pin to a specific VLC commit (default: ${VLC_HASH})
+  --patches-dir=DIR  Directory containing .patch files to apply
+
+Other:
+  --help             Show this help message
+
+Examples:
+  $0                          # Build for iOS (default)
+  $0 --macos-only             # Quick macOS build for development
+  $0 --all                    # Full build for all platforms
+  $0 --hash=abc123 --all      # Build all platforms from a specific commit
+  $0 --clean-build --all      # Fresh build for all platforms
+HELPEOF
+            exit 0
+            ;;
+        *)
+            echo "Error: Unknown argument '${arg}'" >&2
+            echo "Run '$0 --help' for usage information." >&2
+            exit 1
             ;;
     esac
 done
 
-info() {
-    echo "[$(tput setaf 2)info$(tput sgr0)] $1"
-}
-
-error() {
-    echo "[$(tput setaf 1)error$(tput sgr0)] $1" >&2
-    exit 1
-}
+# --- Run startup checks ---
+check_prerequisites
+check_disk_space
 
 # Normalize architecture name for directory naming
 # VLC's build.sh accepts "aarch64" but creates "arm64" directories internally
@@ -421,7 +551,7 @@ if [ ! -d "vlc" ]; then
 else
     info "VLC source already cloned, resetting to ${VLC_HASH}..."
     cd vlc
-    git fetch --all
+    git fetch origin "$VLC_HASH"
     git reset --hard "${VLC_HASH}"
     cd ..
 fi
@@ -429,8 +559,8 @@ fi
 VLC_SRC="${BUILD_DIR}/vlc"
 
 # --- Step 1b: Apply patches ---
-if [ -d "${PATCHES_DIR}" ]; then
-    info "Applying VLCKit patches..."
+if [ -n "${PATCHES_DIR}" ] && [ -d "${PATCHES_DIR}" ]; then
+    info "Applying patches from ${PATCHES_DIR}..."
     cd "${VLC_SRC}"
     for patch in "${PATCHES_DIR}"/*.patch; do
         if [ -f "$patch" ]; then
@@ -444,14 +574,58 @@ if [ -d "${PATCHES_DIR}" ]; then
         fi
     done
     cd "${BUILD_DIR}"
-else
-    info "No patches directory found at ${PATCHES_DIR}, skipping patches"
 fi
 
 # --- Step 1c: Patch VLC for Mac Catalyst support ---
 if [ "$BUILD_CATALYST" = "yes" ]; then
     patch_vlc_for_catalyst
 fi
+
+# --- Step 1d: Patch LDFLAGS to include -isysroot ---
+# On newer Xcode versions (26+), the linker requires an explicit -isysroot
+# to find system libraries (libSystem, etc.). VLC's build.sh omits this from
+# LDFLAGS, causing FFmpeg's configure (and others) to fail with:
+#   ld: library 'System' not found
+patch_vlc_ldflags() {
+    local BUILD_SH="${VLC_SRC}/extras/package/apple/build.sh"
+
+    if grep -q 'LDFLAGS=.*-isysroot.*VLC_APPLE_SDK_PATH' "$BUILD_SH"; then
+        info "VLC build.sh LDFLAGS already patched"
+        return 0
+    fi
+
+    info "Patching VLC build.sh to add -isysroot to LDFLAGS..."
+
+    python3 - "$BUILD_SH" << 'PYEOF'
+import sys
+
+build_sh_path = sys.argv[1]
+
+with open(build_sh_path, 'r') as f:
+    content = f.read()
+
+# 1. Fix LDFLAGS in set_host_envvars(): add -isysroot $VLC_APPLE_SDK_PATH
+content = content.replace(
+    '    export LDFLAGS="$VLC_DEPLOYMENT_TARGET_LDFLAG $VLC_DEPLOYMENT_TARGET_CFLAG -arch $VLC_HOST_ARCH ${bitcode_flag}"',
+    '    export LDFLAGS="$VLC_DEPLOYMENT_TARGET_LDFLAG $VLC_DEPLOYMENT_TARGET_CFLAG -arch $VLC_HOST_ARCH -isysroot $VLC_APPLE_SDK_PATH ${bitcode_flag}"'
+)
+
+# 2. Fix vlc_ldflags in write_config_mak(): add -isysroot $VLC_APPLE_SDK_PATH
+content = content.replace(
+    '    local vlc_ldflags="$VLC_DEPLOYMENT_TARGET_LDFLAG $VLC_DEPLOYMENT_TARGET_CFLAG  -arch $VLC_HOST_ARCH"',
+    '    local vlc_ldflags="$VLC_DEPLOYMENT_TARGET_LDFLAG $VLC_DEPLOYMENT_TARGET_CFLAG  -arch $VLC_HOST_ARCH -isysroot $VLC_APPLE_SDK_PATH"'
+)
+
+with open(build_sh_path, 'w') as f:
+    f.write(content)
+
+print('LDFLAGS patched successfully')
+PYEOF
+
+    info "VLC build.sh LDFLAGS patched"
+}
+
+patch_vlc_ldflags
 
 # --- Step 2: Build tools ---
 info "Building VLC build tools..."
@@ -472,6 +646,7 @@ compile_libvlc() {
     SDK_VERSION=$(xcrun --sdk "${PLATFORM}" --show-sdk-version)
 
     info "Compiling libVLC for ${ACTUAL_ARCH} (${PLATFORM}, SDK ${SDK_VERSION})..."
+    local platform_start=$(date +%s)
 
     # Use the normalized arch name for the build directory
     # This matches what VLC's build.sh creates internally
@@ -485,7 +660,11 @@ compile_libvlc() {
         ${MAKEFLAGS}
 
     cd "${BUILD_DIR}"
-    info "Finished compiling libVLC for ${ACTUAL_ARCH} (${PLATFORM})"
+
+    local platform_end=$(date +%s)
+    local platform_secs=$((platform_end - platform_start))
+    local platform_mins=$((platform_secs / 60))
+    info "Finished ${ACTUAL_ARCH} (${PLATFORM}) in ${platform_mins}m$((platform_secs % 60))s"
 }
 
 # Compile libVLC for Mac Catalyst.
@@ -499,6 +678,7 @@ compile_libvlc_catalyst() {
     SDK_VERSION=$(xcrun --sdk macosx --show-sdk-version)
 
     info "Compiling libVLC for ${ACTUAL_ARCH} (Mac Catalyst, macOS SDK ${SDK_VERSION})..."
+    local platform_start=$(date +%s)
 
     # Use a separate build directory to avoid colliding with native macOS builds
     local BUILDDIR="${VLC_SRC}/build-maccatalyst-${ACTUAL_ARCH}"
@@ -512,10 +692,14 @@ compile_libvlc_catalyst() {
         ${MAKEFLAGS}
 
     cd "${BUILD_DIR}"
-    info "Finished compiling libVLC for ${ACTUAL_ARCH} (Mac Catalyst)"
+
+    local platform_end=$(date +%s)
+    local platform_secs=$((platform_end - platform_start))
+    local platform_mins=$((platform_secs / 60))
+    info "Finished ${ACTUAL_ARCH} (Mac Catalyst) in ${platform_mins}m$((platform_secs % 60))s"
 }
 
-XCFRAMEWORK_ARGS=""
+XCFRAMEWORK_ARGS=()
 
 if [ "$BUILD_IOS" = "yes" ]; then
     # iOS device (arm64)
@@ -537,8 +721,8 @@ if [ "$BUILD_IOS" = "yes" ]; then
     cp "${VLC_SRC}/build-iphoneos-arm64/static-lib/libvlc-full-static.a" \
        "${BUILD_DIR}/libs/ios-device/libvlc.a"
 
-    XCFRAMEWORK_ARGS="${XCFRAMEWORK_ARGS} -library ${BUILD_DIR}/libs/ios-device/libvlc.a -headers ${SCRIPT_DIR}/Sources/CLibVLC/include"
-    XCFRAMEWORK_ARGS="${XCFRAMEWORK_ARGS} -library ${BUILD_DIR}/libs/ios-simulator/libvlc.a -headers ${SCRIPT_DIR}/Sources/CLibVLC/include"
+    XCFRAMEWORK_ARGS+=(-library "${BUILD_DIR}/libs/ios-device/libvlc.a" -headers "${SCRIPT_DIR}/Sources/CLibVLC/include")
+    XCFRAMEWORK_ARGS+=(-library "${BUILD_DIR}/libs/ios-simulator/libvlc.a" -headers "${SCRIPT_DIR}/Sources/CLibVLC/include")
 fi
 
 if [ "$BUILD_TVOS" = "yes" ]; then
@@ -556,8 +740,8 @@ if [ "$BUILD_TVOS" = "yes" ]; then
     cp "${VLC_SRC}/build-appletvos-arm64/static-lib/libvlc-full-static.a" \
        "${BUILD_DIR}/libs/tvos-device/libvlc.a"
 
-    XCFRAMEWORK_ARGS="${XCFRAMEWORK_ARGS} -library ${BUILD_DIR}/libs/tvos-device/libvlc.a -headers ${SCRIPT_DIR}/Sources/CLibVLC/include"
-    XCFRAMEWORK_ARGS="${XCFRAMEWORK_ARGS} -library ${BUILD_DIR}/libs/tvos-simulator/libvlc.a -headers ${SCRIPT_DIR}/Sources/CLibVLC/include"
+    XCFRAMEWORK_ARGS+=(-library "${BUILD_DIR}/libs/tvos-device/libvlc.a" -headers "${SCRIPT_DIR}/Sources/CLibVLC/include")
+    XCFRAMEWORK_ARGS+=(-library "${BUILD_DIR}/libs/tvos-simulator/libvlc.a" -headers "${SCRIPT_DIR}/Sources/CLibVLC/include")
 fi
 
 if [ "$BUILD_MACOS" = "yes" ]; then
@@ -570,7 +754,7 @@ if [ "$BUILD_MACOS" = "yes" ]; then
         "${VLC_SRC}/build-macosx-x86_64/static-lib/libvlc-full-static.a" \
         -create -output "${BUILD_DIR}/libs/macos/libvlc.a"
 
-    XCFRAMEWORK_ARGS="${XCFRAMEWORK_ARGS} -library ${BUILD_DIR}/libs/macos/libvlc.a -headers ${SCRIPT_DIR}/Sources/CLibVLC/include"
+    XCFRAMEWORK_ARGS+=(-library "${BUILD_DIR}/libs/macos/libvlc.a" -headers "${SCRIPT_DIR}/Sources/CLibVLC/include")
 fi
 
 if [ "$BUILD_CATALYST" = "yes" ]; then
@@ -586,11 +770,11 @@ if [ "$BUILD_CATALYST" = "yes" ]; then
         "${VLC_SRC}/build-maccatalyst-x86_64/static-lib/libvlc-full-static.a" \
         -create -output "${BUILD_DIR}/libs/maccatalyst/libvlc.a"
 
-    XCFRAMEWORK_ARGS="${XCFRAMEWORK_ARGS} -library ${BUILD_DIR}/libs/maccatalyst/libvlc.a -headers ${SCRIPT_DIR}/Sources/CLibVLC/include"
+    XCFRAMEWORK_ARGS+=(-library "${BUILD_DIR}/libs/maccatalyst/libvlc.a" -headers "${SCRIPT_DIR}/Sources/CLibVLC/include")
 fi
 
 # --- Step 4: Create XCFramework ---
-if [ -z "${XCFRAMEWORK_ARGS}" ]; then
+if [ ${#XCFRAMEWORK_ARGS[@]} -eq 0 ]; then
     error "No platforms were built. Use --macos, --ios-only, --tvos-only, --catalyst-only, --tvos, --macos, --catalyst, or --all"
 fi
 
@@ -599,7 +783,7 @@ mkdir -p "${OUTPUT_DIR}"
 rm -rf "${OUTPUT_DIR}/libvlc.xcframework"
 
 xcodebuild -create-xcframework \
-    ${XCFRAMEWORK_ARGS} \
+    "${XCFRAMEWORK_ARGS[@]}" \
     -output "${OUTPUT_DIR}/libvlc.xcframework"
 
 # Remove the CLibVLC module.modulemap from xcframework headers to avoid
@@ -617,5 +801,11 @@ info "Build complete!"
 echo "  XCFramework: ${OUTPUT_DIR}/libvlc.xcframework"
 echo "  Architectures:"
 find "${OUTPUT_DIR}/libvlc.xcframework" -name "*.a" -exec lipo -info {} \;
+
+local_end=$(date +%s)
+local_total=$((local_end - BUILD_START_TIME))
+local_mins=$((local_total / 60))
+echo ""
+echo "  Total time: ${local_mins}m$((local_total % 60))s"
 echo ""
 echo "To use: run 'swift build' in the SwiftVLC directory"
