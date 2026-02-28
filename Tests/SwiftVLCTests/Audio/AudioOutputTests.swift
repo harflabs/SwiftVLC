@@ -1,7 +1,7 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("AudioOutput", .tags(.integration), .serialized)
+@Suite("AudioOutput", .tags(.integration), .serialized, .timeLimit(.minutes(1)))
 struct AudioOutputTests {
   @Test("AudioOutput id is name")
   func audioOutputId() {

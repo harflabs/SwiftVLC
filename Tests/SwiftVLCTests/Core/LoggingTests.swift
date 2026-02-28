@@ -1,7 +1,7 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("Logging", .tags(.integration), .serialized)
+@Suite("Logging", .tags(.integration), .serialized, .timeLimit(.minutes(1)))
 struct LoggingTests {
   @Test(
     "Log level raw values",

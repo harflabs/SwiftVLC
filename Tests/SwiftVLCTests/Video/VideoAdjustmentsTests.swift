@@ -1,7 +1,7 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("VideoAdjustments", .tags(.integration, .mainActor), .serialized)
+@Suite("VideoAdjustments", .tags(.integration, .mainActor), .serialized, .timeLimit(.minutes(1)))
 @MainActor
 struct VideoAdjustmentsTests {
   @Test("isEnabled default false")

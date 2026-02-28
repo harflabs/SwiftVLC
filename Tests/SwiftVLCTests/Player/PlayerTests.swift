@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-@Suite("Player", .tags(.integration, .mainActor), .serialized)
+@Suite("Player", .tags(.integration, .mainActor), .serialized, .timeLimit(.minutes(1)))
 @MainActor
 struct PlayerTests {
   @Test("Init succeeds")

@@ -1,7 +1,7 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("VLCInstance", .tags(.integration), .serialized)
+@Suite("VLCInstance", .tags(.integration), .serialized, .timeLimit(.minutes(1)))
 struct VLCInstanceTests {
   @Test("Shared instance returns the same object")
   func sharedInstanceReturnsSameObject() {

@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-@Suite("MediaList", .tags(.integration), .serialized)
+@Suite("MediaList", .tags(.integration), .serialized, .timeLimit(.minutes(1)))
 struct MediaListTests {
   @Test("Init empty has count zero")
   func initEmptyCountZero() {

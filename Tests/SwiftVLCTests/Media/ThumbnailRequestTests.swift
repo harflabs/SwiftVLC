@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-@Suite("ThumbnailRequest", .tags(.integration, .media, .async), .serialized)
+@Suite("ThumbnailRequest", .tags(.integration, .media, .async), .serialized, .timeLimit(.minutes(1)))
 struct ThumbnailRequestTests {
   @Test("Returns non-empty data")
   func returnsNonEmptyData() async throws {

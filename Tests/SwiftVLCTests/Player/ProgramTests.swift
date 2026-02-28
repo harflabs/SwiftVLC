@@ -3,7 +3,7 @@ import CLibVLC
 import Foundation
 import Testing
 
-@Suite("Program", .tags(.integration), .serialized)
+@Suite("Program", .tags(.integration), .serialized, .timeLimit(.minutes(1)))
 struct ProgramTests {
   @Test("Programs empty for simple media", .tags(.mainActor))
   @MainActor

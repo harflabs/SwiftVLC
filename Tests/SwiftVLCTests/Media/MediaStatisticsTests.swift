@@ -1,7 +1,7 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("MediaStatistics", .tags(.integration), .serialized)
+@Suite("MediaStatistics", .tags(.integration), .serialized, .timeLimit(.minutes(1)))
 struct MediaStatisticsTests {
   @Test("Nil before playback")
   func nilBeforePlayback() throws {

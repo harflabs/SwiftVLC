@@ -1,7 +1,7 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("DialogHandler", .tags(.integration), .serialized)
+@Suite("DialogHandler", .tags(.integration), .serialized, .timeLimit(.minutes(1)))
 struct DialogHandlerTests {
   @Test("Init creates dialogs stream")
   func initCreatesDialogsStream() throws {
