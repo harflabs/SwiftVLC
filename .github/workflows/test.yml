@@ -15,5 +15,4 @@ jobs:
           restore-keys: spm-${{ runner.os }}-
       - run: swift package resolve
       - run: swift test
-        env:
-          SWT_MAX_PARALLELISM: 1
+        timeout-minutes: 10
