@@ -15,6 +15,9 @@ Package.resolved
 # Pre-built xcframework (1.2GB — rebuild with ./build-libvlc.sh)
 Vendor/
 
+# Release artifacts
+*.xcframework.zip
+
 # macOS
 .DS_Store
 

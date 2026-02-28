@@ -1,0 +1,9 @@
+name: Tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift package resolve
+      - run: swift test

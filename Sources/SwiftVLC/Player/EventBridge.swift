@@ -122,11 +122,13 @@ private final class ContinuationStore: Sendable {
   }
 
   func finishAll() {
-    continuations.withLock { dict in
-      for cont in dict.values {
-        cont.finish()
-      }
+    let snapshot = continuations.withLock { dict -> [AsyncStream<PlayerEvent>.Continuation] in
+      let values = Array(dict.values)
       dict.removeAll()
+      return values
+    }
+    for cont in snapshot {
+      cont.finish()
     }
   }
 }

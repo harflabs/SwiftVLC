@@ -55,7 +55,8 @@ let package = Package(
     ),
     .testTarget(
       name: "SwiftVLCTests",
-      dependencies: ["SwiftVLC"]
+      dependencies: ["SwiftVLC"],
+      resources: [.copy("Fixtures")]
     )
   ]
 )

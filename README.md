@@ -25,10 +25,12 @@ VLCKit is Objective-C, callback-heavy, and requires manual thread management. Sw
 Add SwiftVLC as a Swift Package dependency:
 
 ```swift
-.package(url: "https://github.com/AlexxIT/SwiftVLC.git", from: "0.1.0")
+.package(url: "https://github.com/harflabs/SwiftVLC.git", from: "0.1.0")
 ```
 
-Or add it in Xcode via File > Add Package Dependencies.
+Or add it in Xcode via **File > Add Package Dependencies** and enter the URL above.
+
+The pre-built libVLC xcframework downloads automatically when SPM resolves the package — no manual setup needed.
 
 ## Quick Start
 
@@ -147,6 +149,69 @@ Each platform has its own player UI tailored to the input method:
 - **macOS** — Desktop player with hover controls, keyboard shortcuts (space, arrows, M, F, brackets for speed), right-click context menu, floating settings panel.
 - **tvOS** — 10-foot UI with Siri Remote navigation, swipe-to-scrub, click for play/pause, swipe-down info panel with focusable buttons (no sliders).
 - **Mac Catalyst** — Runs the iOS player on Mac via Catalyst.
+
+## Testing
+
+SwiftVLC includes 397 tests across 32 suites using the [Swift Testing](https://developer.apple.com/xcode/swift-testing/) framework. Tests cover all non-UI source files with real libVLC integration (no mocking).
+
+### Run All Tests
+
+```bash
+swift test
+```
+
+### Filter by Tag
+
+Tests are tagged for selective execution:
+
+| Tag | Description |
+|---|---|
+| `logic` | Pure Swift logic — no libVLC needed |
+| `integration` | Requires a real libVLC instance |
+| `media` | Requires bundled media fixtures |
+| `mainActor` | Runs on `@MainActor` |
+| `async` | Async tests |
+
+```bash
+# Fast logic-only tests (no media or libVLC dependencies)
+swift test --filter "logic"
+
+# Run a specific suite
+swift test --filter "PlayerTests"
+swift test --filter "EqualizerTests"
+```
+
+### Test Structure
+
+```
+Tests/SwiftVLCTests/
+├── Support/           # TestMedia (fixture URLs), Tags
+├── Fixtures/          # Bundled test media (~50KB)
+│   ├── test.mp4       # 1s 64x64 video with metadata
+│   ├── twosec.mp4     # 2s video for seeking/duration tests
+│   ├── silence.wav    # Silent audio
+│   └── test.srt       # Minimal subtitle file
+├── Core/              # VLCInstance, VLCError, Logging, Duration, DialogHandler
+├── Player/            # Player, PlayerState, PlayerEvent, EventBridge, etc.
+├── Media/             # Media, Track, Metadata, Statistics, Thumbnail
+├── Audio/             # Equalizer, AudioOutput, AudioChannelMode
+├── Video/             # AspectRatio, Viewpoint, VideoAdjustments, Marquee, Logo
+├── Playlist/          # MediaList, MediaListPlayer, PlaybackMode
+└── Discovery/         # MediaDiscoverer, RendererDiscoverer
+```
+
+## Development Setup
+
+To contribute or build locally, clone the repo and run the setup script to download the xcframework:
+
+```bash
+git clone https://github.com/harflabs/SwiftVLC.git
+cd SwiftVLC
+./scripts/setup-dev.sh
+swift test
+```
+
+The setup script downloads the pre-built xcframework from the latest GitHub Release and switches `Package.swift` to use a local path for development.
 
 ## License
 
