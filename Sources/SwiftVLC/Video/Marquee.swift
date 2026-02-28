@@ -10,71 +10,71 @@ import CLibVLC
 /// ```
 @MainActor
 public struct Marquee {
-    private let pointer: OpaquePointer
+  private let pointer: OpaquePointer
 
-    init(pointer: OpaquePointer) {
-        self.pointer = pointer
-    }
+  init(pointer: OpaquePointer) {
+    self.pointer = pointer
+  }
 
-    /// Whether the marquee overlay is enabled.
-    public var isEnabled: Bool {
-        get { libvlc_video_get_marquee_int(pointer, UInt32(libvlc_marquee_Enable.rawValue)) != 0 }
-        nonmutating set { libvlc_video_set_marquee_int(pointer, UInt32(libvlc_marquee_Enable.rawValue), newValue ? 1 : 0) }
-    }
+  /// Whether the marquee overlay is enabled.
+  public var isEnabled: Bool {
+    get { libvlc_video_get_marquee_int(pointer, UInt32(libvlc_marquee_Enable.rawValue)) != 0 }
+    nonmutating set { libvlc_video_set_marquee_int(pointer, UInt32(libvlc_marquee_Enable.rawValue), newValue ? 1 : 0) }
+  }
 
-    /// Marquee text content.
-    public var text: String {
-        get { "" }
-        nonmutating set {
-            libvlc_video_set_marquee_string(pointer, UInt32(libvlc_marquee_Text.rawValue), newValue)
-        }
+  /// Marquee text content (write-only — libVLC provides no getter for marquee text).
+  public var text: String {
+    get { "" }
+    nonmutating set {
+      libvlc_video_set_marquee_string(pointer, UInt32(libvlc_marquee_Text.rawValue), newValue)
     }
+  }
 
-    /// Text color as an RGB integer (e.g. 0xFF0000 for red).
-    public var color: Int {
-        get { Int(libvlc_video_get_marquee_int(pointer, UInt32(libvlc_marquee_Color.rawValue))) }
-        nonmutating set { libvlc_video_set_marquee_int(pointer, UInt32(libvlc_marquee_Color.rawValue), Int32(newValue)) }
-    }
+  /// Text color as an RGB integer (e.g. 0xFF0000 for red).
+  public var color: Int {
+    get { Int(libvlc_video_get_marquee_int(pointer, UInt32(libvlc_marquee_Color.rawValue))) }
+    nonmutating set { libvlc_video_set_marquee_int(pointer, UInt32(libvlc_marquee_Color.rawValue), Int32(newValue)) }
+  }
 
-    /// Text opacity (0-255).
-    public var opacity: Int {
-        get { Int(libvlc_video_get_marquee_int(pointer, UInt32(libvlc_marquee_Opacity.rawValue))) }
-        nonmutating set { libvlc_video_set_marquee_int(pointer, UInt32(libvlc_marquee_Opacity.rawValue), Int32(newValue)) }
-    }
+  /// Text opacity (0-255).
+  public var opacity: Int {
+    get { Int(libvlc_video_get_marquee_int(pointer, UInt32(libvlc_marquee_Opacity.rawValue))) }
+    nonmutating set { libvlc_video_set_marquee_int(pointer, UInt32(libvlc_marquee_Opacity.rawValue), Int32(newValue)) }
+  }
 
-    /// Font size in pixels.
-    public var fontSize: Int {
-        get { Int(libvlc_video_get_marquee_int(pointer, UInt32(libvlc_marquee_Size.rawValue))) }
-        nonmutating set { libvlc_video_set_marquee_int(pointer, UInt32(libvlc_marquee_Size.rawValue), Int32(newValue)) }
-    }
+  /// Font size in pixels.
+  public var fontSize: Int {
+    get { Int(libvlc_video_get_marquee_int(pointer, UInt32(libvlc_marquee_Size.rawValue))) }
+    nonmutating set { libvlc_video_set_marquee_int(pointer, UInt32(libvlc_marquee_Size.rawValue), Int32(newValue)) }
+  }
 
-    /// X position offset.
-    public var x: Int {
-        get { Int(libvlc_video_get_marquee_int(pointer, UInt32(libvlc_marquee_X.rawValue))) }
-        nonmutating set { libvlc_video_set_marquee_int(pointer, UInt32(libvlc_marquee_X.rawValue), Int32(newValue)) }
-    }
+  /// Horizontal pixel offset from the ``position`` anchor (positive = rightward).
+  public var x: Int {
+    get { Int(libvlc_video_get_marquee_int(pointer, UInt32(libvlc_marquee_X.rawValue))) }
+    nonmutating set { libvlc_video_set_marquee_int(pointer, UInt32(libvlc_marquee_X.rawValue), Int32(newValue)) }
+  }
 
-    /// Y position offset.
-    public var y: Int {
-        get { Int(libvlc_video_get_marquee_int(pointer, UInt32(libvlc_marquee_Y.rawValue))) }
-        nonmutating set { libvlc_video_set_marquee_int(pointer, UInt32(libvlc_marquee_Y.rawValue), Int32(newValue)) }
-    }
+  /// Vertical pixel offset from the ``position`` anchor (positive = downward).
+  public var y: Int {
+    get { Int(libvlc_video_get_marquee_int(pointer, UInt32(libvlc_marquee_Y.rawValue))) }
+    nonmutating set { libvlc_video_set_marquee_int(pointer, UInt32(libvlc_marquee_Y.rawValue), Int32(newValue)) }
+  }
 
-    /// Timeout in milliseconds (0 for permanent).
-    public var timeout: Int {
-        get { Int(libvlc_video_get_marquee_int(pointer, UInt32(libvlc_marquee_Timeout.rawValue))) }
-        nonmutating set { libvlc_video_set_marquee_int(pointer, UInt32(libvlc_marquee_Timeout.rawValue), Int32(newValue)) }
-    }
+  /// Timeout in milliseconds (0 for permanent).
+  public var timeout: Int {
+    get { Int(libvlc_video_get_marquee_int(pointer, UInt32(libvlc_marquee_Timeout.rawValue))) }
+    nonmutating set { libvlc_video_set_marquee_int(pointer, UInt32(libvlc_marquee_Timeout.rawValue), Int32(newValue)) }
+  }
 
-    /// Refresh interval in milliseconds.
-    public var refresh: Int {
-        get { Int(libvlc_video_get_marquee_int(pointer, UInt32(libvlc_marquee_Refresh.rawValue))) }
-        nonmutating set { libvlc_video_set_marquee_int(pointer, UInt32(libvlc_marquee_Refresh.rawValue), Int32(newValue)) }
-    }
+  /// Refresh interval in milliseconds for time-based format strings (e.g. `%H:%M:%S`).
+  public var refresh: Int {
+    get { Int(libvlc_video_get_marquee_int(pointer, UInt32(libvlc_marquee_Refresh.rawValue))) }
+    nonmutating set { libvlc_video_set_marquee_int(pointer, UInt32(libvlc_marquee_Refresh.rawValue), Int32(newValue)) }
+  }
 
-    /// Position preset (see libvlc_position_t).
-    public var position: Int {
-        get { Int(libvlc_video_get_marquee_int(pointer, UInt32(libvlc_marquee_Position.rawValue))) }
-        nonmutating set { libvlc_video_set_marquee_int(pointer, UInt32(libvlc_marquee_Position.rawValue), Int32(newValue)) }
-    }
+  /// Screen position preset (0 = center, 1 = left, 2 = right, 4 = top, 8 = bottom; combine with addition).
+  public var position: Int {
+    get { Int(libvlc_video_get_marquee_int(pointer, UInt32(libvlc_marquee_Position.rawValue))) }
+    nonmutating set { libvlc_video_set_marquee_int(pointer, UInt32(libvlc_marquee_Position.rawValue), Int32(newValue)) }
+  }
 }

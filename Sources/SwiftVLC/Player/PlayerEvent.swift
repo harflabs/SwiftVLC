@@ -1,31 +1,52 @@
-/// Events emitted by the ``Player`` event bridge.
+/// Raw events from the libVLC event bridge.
 ///
-/// Most consumers don't need to observe raw events — `@Observable` properties
-/// on ``Player`` are updated automatically. Use ``Player/events`` only for
-/// custom event processing.
+/// Most consumers should use ``Player``'s `@Observable` properties instead.
+/// Use ``Player/events`` only when you need event-level granularity.
 public enum PlayerEvent: Sendable {
-    case stateChanged(PlayerState)
-    case timeChanged(Duration)
-    case positionChanged(Double)
-    case lengthChanged(Duration)
-    case seekableChanged(Bool)
-    case pausableChanged(Bool)
-    case tracksChanged
-    case mediaChanged
-    case endReached
-    case encounteredError
-    case volumeChanged(Float)
-    case muted
-    case unmuted
-    case voutChanged(Int)
-    case bufferingProgress(Float) // 0.0...1.0
-    case chapterChanged(Int)
-    case recordingChanged(isRecording: Bool, filePath: String?)
-    case titleListChanged
-    case titleSelectionChanged(Int)
-    case snapshotTaken(String)
-    case programAdded(Int)
-    case programDeleted(Int)
-    case programSelected(unselectedId: Int, selectedId: Int)
-    case programUpdated(Int)
+  /// Playback state changed.
+  case stateChanged(PlayerState)
+  /// Current playback time updated.
+  case timeChanged(Duration)
+  /// Fractional position updated (0.0–1.0).
+  case positionChanged(Double)
+  /// Media duration became known or changed.
+  case lengthChanged(Duration)
+  /// Seekability changed.
+  case seekableChanged(Bool)
+  /// Pausability changed.
+  case pausableChanged(Bool)
+  /// Track list was modified (added, removed, or updated).
+  case tracksChanged
+  /// A different media was set on the player.
+  case mediaChanged
+  /// The player encountered an unrecoverable error.
+  case encounteredError
+  /// Audio volume changed. The value is normalized (0.0 = silent, 1.0 = 100%).
+  case volumeChanged(Float)
+  /// Audio was muted.
+  case muted
+  /// Audio was unmuted.
+  case unmuted
+  /// Number of active video outputs changed.
+  case voutChanged(Int)
+  /// Buffer fill level during initial load (0.0–1.0).
+  case bufferingProgress(Float)
+  /// Current chapter changed.
+  case chapterChanged(Int)
+  /// Recording state changed, with the output file path when stopped.
+  case recordingChanged(isRecording: Bool, filePath: String?)
+  /// The list of available titles changed.
+  case titleListChanged
+  /// A different title was selected.
+  case titleSelectionChanged(Int)
+  /// A video snapshot was saved to disk at the given file path.
+  case snapshotTaken(String)
+  /// A DVB/MPEG-TS program was added (value is the program group ID).
+  case programAdded(Int)
+  /// A DVB/MPEG-TS program was removed (value is the program group ID).
+  case programDeleted(Int)
+  /// The selected program changed.
+  case programSelected(unselectedId: Int, selectedId: Int)
+  /// A DVB/MPEG-TS program's metadata was updated (value is the program group ID).
+  case programUpdated(Int)
 }

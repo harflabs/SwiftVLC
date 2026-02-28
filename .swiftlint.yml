@@ -1,0 +1,23 @@
+disabled_rules:
+- line_length
+- identifier_name
+- large_tuple
+- force_try
+- nesting
+- force_cast
+- trailing_comma
+- function_body_length
+- unused_closure_parameter
+- type_name
+- cyclomatic_complexity
+- multiple_closures_with_trailing_closure
+
+type_body_length:
+  warning: 500
+
+file_length:
+  warning: 500
+
+excluded:
+- .build
+- Modules

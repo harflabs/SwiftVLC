@@ -1,0 +1,27 @@
+# file options
+
+--symlinks ignore
+--swiftversion 6.2
+
+# rules
+
+--indent 2
+--enable isEmpty
+--disable andOperator
+--disable wrapMultilineStatementBraces
+
+# format options
+
+--closingparen balanced
+--commas inline
+--extensionacl on-declarations
+--ifdef no-indent
+--importgrouping testable-top
+--nospaceoperators ..<, ...
+--selfrequired validate
+--stripunusedargs closure-only
+--wraparguments before-first
+--wrapreturntype preserve
+--wrapconditions before-first
+--wrapeffects if-multiline
+--patternlet inline
