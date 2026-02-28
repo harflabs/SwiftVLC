@@ -61,15 +61,18 @@ fi
 
 echo "Switching Package.swift to local path..."
 
-sed -i '' -E \
-  '/\.binaryTarget\($/,/\)/c\
-    .binaryTarget(name: "libvlc", path: "Vendor/libvlc.xcframework")' \
-  Package.swift
-
-# Also handle single-line form
-sed -i '' -E \
-  's|\.binaryTarget\(name: "libvlc", url: "[^"]*", checksum: "[^"]*"\)|.binaryTarget(name: "libvlc", path: "Vendor/libvlc.xcframework")|' \
-  Package.swift
+# Replace binaryTarget (handles both single-line path and multi-line url+checksum forms)
+python3 -c "
+import re, sys
+text = open('Package.swift').read()
+pattern = r'\.binaryTarget\(\s*name:\s*\"libvlc\"[^)]*\)'
+replacement = '.binaryTarget(name: \"libvlc\", path: \"Vendor/libvlc.xcframework\")'
+result = re.sub(pattern, replacement, text, count=1, flags=re.DOTALL)
+if result == text:
+    print('ERROR: binaryTarget pattern not found in Package.swift', file=sys.stderr)
+    sys.exit(1)
+open('Package.swift', 'w').write(result)
+"
 
 echo "  Package.swift now uses local path."
 echo ""

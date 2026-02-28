@@ -124,15 +124,23 @@ fi
 echo ""
 echo "Updating Package.swift..."
 
-# Replace the binaryTarget line (handles both local-path and url+checksum forms)
-sed -i '' -E \
-  '/\.binaryTarget\(name: "libvlc"/,/\)/c\
-    .binaryTarget(\
-      name: "libvlc",\
-      url: "'"$RELEASE_URL"'",\
-      checksum: "'"$CHECKSUM"'"\
-    )' \
-  Package.swift
+# Replace the binaryTarget line (handles both single-line path and multi-line url+checksum forms)
+python3 -c "
+import re, sys
+text = open('Package.swift').read()
+# Match single-line .binaryTarget(name: \"libvlc\", path: ...) or multi-line url+checksum form
+pattern = r'\.binaryTarget\(\s*name:\s*\"libvlc\"[^)]*\)'
+replacement = '''.binaryTarget(
+      name: \"libvlc\",
+      url: \"$RELEASE_URL\",
+      checksum: \"$CHECKSUM\"
+    )'''
+result = re.sub(pattern, replacement, text, count=1, flags=re.DOTALL)
+if result == text:
+    print('ERROR: binaryTarget pattern not found in Package.swift', file=sys.stderr)
+    sys.exit(1)
+open('Package.swift', 'w').write(result)
+"
 
 echo "  Package.swift updated to remote URL."
 

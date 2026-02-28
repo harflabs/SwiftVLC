@@ -9,11 +9,14 @@ let package = Package(
     .library(name: "SwiftVLC", targets: ["SwiftVLC"])
   ],
   targets: [
-    .binaryTarget(
-      name: "libvlc",
-      url: "https://github.com/harflabs/SwiftVLC/releases/download/v0.1.0/libvlc.xcframework.zip",
-      checksum: "cc1f21b154d0ea6ddf0dc87cd543bb933b19c369878fbf5143b725ea00f6f136"
-    )
+    .binaryTarget(name: "libvlc", path: "Vendor/libvlc.xcframework"),
+    .target(
+      name: "CLibVLC",
+      dependencies: ["libvlc"],
+      publicHeadersPath: "include",
+      linkerSettings: [
+        // System frameworks required by libVLC
+        .linkedFramework("AudioToolbox"),
         .linkedFramework("AudioUnit", .when(platforms: [.macOS])),
         .linkedFramework("AVFoundation"),
         .linkedFramework("AVKit"),

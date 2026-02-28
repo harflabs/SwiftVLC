@@ -7,7 +7,7 @@ struct MediaListTests {
   @Test("Init empty has count zero")
   func initEmptyCountZero() {
     let list = MediaList()
-    #expect(list.isEmpty) // swiftlint:disable:this empty_count
+    #expect(list.count == 0)
   }
 
   @Test("Append increases count")
@@ -91,7 +91,7 @@ struct MediaListTests {
   @Test("Count matches items added")
   func countMatchesItemsAdded() throws {
     let list = MediaList()
-    #expect(list.isEmpty) // swiftlint:disable:this empty_count
+    #expect(list.count == 0)
     try list.append(Media(url: TestMedia.testMP4URL))
     #expect(list.count == 1)
     try list.append(Media(url: TestMedia.twosecURL))
@@ -99,7 +99,7 @@ struct MediaListTests {
     try list.remove(at: 0)
     #expect(list.count == 1)
     try list.remove(at: 0)
-    #expect(list.isEmpty) // swiftlint:disable:this empty_count
+    #expect(list.count == 0)
   }
 
   @Test("Insert at beginning")
@@ -121,6 +121,6 @@ struct MediaListTests {
     try list.remove(at: 1) // Remove new last
     #expect(list.count == 1)
     try list.remove(at: 0) // Remove remaining
-    #expect(list.isEmpty) // swiftlint:disable:this empty_count
+    #expect(list.count == 0)
   }
 }
