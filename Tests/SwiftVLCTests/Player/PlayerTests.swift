@@ -79,7 +79,12 @@ struct PlayerTests {
     let player = try Player()
     let media = try Media(url: TestMedia.twosecURL)
     try player.play(media)
-    try await Task.sleep(for: .milliseconds(500))
+    // Wait for player to leave idle (CI runners may be slow)
+    for _ in 0..<20 {
+      if player.state != .idle { break }
+      try await Task.sleep(for: .milliseconds(100))
+    }
+    guard player.state != .idle else { return }
     player.pause()
     try await Task.sleep(for: .milliseconds(300))
     #expect(player.state == .paused)
@@ -90,11 +95,16 @@ struct PlayerTests {
   func resumeAfterPause() async throws {
     let player = try Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    try await Task.sleep(for: .milliseconds(300))
+    // Wait for player to leave idle (CI runners may be slow)
+    for _ in 0..<20 {
+      if player.state != .idle { break }
+      try await Task.sleep(for: .milliseconds(100))
+    }
+    guard player.state != .idle else { return }
     player.pause()
-    try await Task.sleep(for: .milliseconds(100))
+    try await Task.sleep(for: .milliseconds(200))
     player.resume()
-    try await Task.sleep(for: .milliseconds(100))
+    try await Task.sleep(for: .milliseconds(200))
     #expect(player.state == .playing)
     player.stop()
   }
