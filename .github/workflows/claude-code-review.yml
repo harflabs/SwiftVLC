@@ -1,0 +1,45 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+    paths:
+      - "Sources/**/*.swift"
+      - "Tests/**/*.swift"
+      - "Package.swift"
+
+jobs:
+  claude-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code Review
+        id: claude-review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
+          plugins: 'code-review@claude-code-plugins'
+          claude_args: '--model claude-opus-4-6'
+          prompt: |
+            /code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
+
+            This is a Swift 6 wrapper around libVLC 4.0 for iOS, macOS, tvOS, and Mac Catalyst.
+
+            Focus your review on:
+            1. Swift 6 concurrency — verify @MainActor isolation, Sendable conformance, async/await patterns, and isolated deinit usage
+            2. Memory management — libVLC objects use manual reference counting (libvlc_*_release), check for leaks and use-after-free
+            3. API safety — typed throws (throws(VLCError)), proper error propagation, and safe C interop via UnsafePointer
+            4. Thread safety — libVLC callbacks fire on internal threads, ensure AsyncStream.Continuation.yield is used correctly
+            5. Cross-platform compatibility — verify code works on iOS 18+, macOS 15+, tvOS 18+, and Mac Catalyst
+            6. Observable correctness — @Observable macro usage, access/withMutation tracking for SwiftUI integration

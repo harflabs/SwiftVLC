@@ -1,0 +1,56 @@
+name: Claude Code
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  claude:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+      actions: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: '--model claude-opus-4-6'
+          additional_permissions: |
+            actions: read
+          settings: |
+            system: >
+              This is SwiftVLC — a Swift 6 wrapper around libVLC 4.0 for iOS, macOS, tvOS, and Mac Catalyst.
+
+              Key architecture:
+              - Sources/CLibVLC/ — C bridging shim with libVLC 4.0 headers
+              - Sources/SwiftVLC/ — Swift wrapper using @Observable, typed throws, isolated deinit
+              - Vendor/libvlc.xcframework — pre-built static library (downloaded via SPM binary target)
+              - Tests use Swift Testing framework with .serialized trait for libVLC thread safety
+
+              Code conventions:
+              - @MainActor isolation on Player, MediaListPlayer, and UI types
+              - Typed throws: throws(VLCError) throughout the API
+              - AsyncStream for event broadcasting from C callbacks
+              - Manual reference counting for libVLC C objects (init/release pairs)
+              - Swift 6 strict concurrency — Sendable, nonisolated(unsafe) for C pointers
