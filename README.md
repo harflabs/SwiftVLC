@@ -18,7 +18,7 @@ VLCKit is Objective-C, callback-heavy, and requires manual thread management. Sw
 
 - Swift 6.2+ / Xcode 16+
 - iOS 18+ / macOS 15+ / tvOS 18+
-- The pre-built `libvlc.xcframework` in `Vendor/` (or build it yourself — see below)
+- The pre-built `libvlc.xcframework` (downloaded automatically via SPM, or build it yourself — see below)
 
 ## Installation
 
@@ -102,8 +102,11 @@ SwiftVLC/
 │   └── CLibVLC/            # C bridging shim + libVLC headers
 ├── Vendor/
 │   └── libvlc.xcframework  # Pre-built libVLC static library
-├── Demo/                    # Multi-platform demo app
-└── build-libvlc.sh         # Script to compile libVLC from source
+├── Showcase/                # Multi-platform demo app
+└── scripts/
+    ├── build-libvlc.sh      # Script to compile libVLC from source
+    ├── release.sh            # Strip, zip, checksum, publish xcframework
+    └── setup-dev.sh          # Download xcframework for local development
 ```
 
 ## Building libVLC from Source
@@ -120,28 +123,28 @@ brew install autoconf automake libtool
 
 ```bash
 # iOS device + simulator (default)
-./build-libvlc.sh
+./scripts/build-libvlc.sh
 
 # All platforms
-./build-libvlc.sh --all
+./scripts/build-libvlc.sh --all
 
 # Individual platforms
-./build-libvlc.sh --ios-only
-./build-libvlc.sh --macos-only
-./build-libvlc.sh --tvos-only
-./build-libvlc.sh --catalyst-only
+./scripts/build-libvlc.sh --ios-only
+./scripts/build-libvlc.sh --macos-only
+./scripts/build-libvlc.sh --tvos-only
+./scripts/build-libvlc.sh --catalyst-only
 
 # Combine flags
-./build-libvlc.sh --ios-only --macos --catalyst
+./scripts/build-libvlc.sh --ios-only --macos --catalyst
 ```
 
 The script clones the official VLC repository, compiles libVLC as a static library for each architecture, and packages everything into an xcframework. Mac Catalyst builds are automatically patched to handle OpenGLES unavailability.
 
 Build times vary: ~15 minutes per platform on Apple Silicon.
 
-## Demo App
+## Showcase App
 
-The `Demo/` directory contains a full-featured video player app that runs on all supported platforms. Open `Demo/SwiftVLCDemo.xcodeproj` in Xcode.
+The `Showcase/` directory contains a full-featured video player app that runs on all supported platforms. Open `Showcase/SwiftVLCShowcase.xcodeproj` in Xcode.
 
 Each platform has its own player UI tailored to the input method:
 

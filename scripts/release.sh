@@ -38,7 +38,7 @@ cd "$ROOT_DIR"
 # ── Preflight ─────────────────────────────────────────────────────────────────
 
 if [[ ! -d "$XCFW_PATH" ]]; then
-  echo "Error: $XCFW_PATH not found. Build it first with ./build-libvlc.sh"
+  echo "Error: $XCFW_PATH not found. Build it first with ./scripts/build-libvlc.sh"
   exit 1
 fi
 
