@@ -10,7 +10,9 @@ jobs:
           xcode-version: latest-stable
       - uses: actions/cache@v4
         with:
-          path: .build
+          path: |
+            .build/artifacts
+            .build/checkouts
           key: spm-${{ runner.os }}-${{ hashFiles('Package.swift') }}
           restore-keys: spm-${{ runner.os }}-
       - run: swift package resolve
