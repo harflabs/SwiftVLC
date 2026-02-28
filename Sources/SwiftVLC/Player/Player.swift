@@ -225,6 +225,7 @@ public final class Player {
     private let eventBridge: EventBridge
     private var eventTask: Task<Void, Never>?
     private var _position: Double = 0
+    private var _equalizer: Equalizer?
 
     let instance: VLCInstance
 
@@ -264,6 +265,17 @@ public final class Player {
     }
 
     // MARK: - Playback Control
+
+    /// Loads media and starts playback in one step.
+    public func play(_ media: sending Media) throws(VLCError) {
+        load(media)
+        try play()
+    }
+
+    /// Creates media from a URL and starts playback.
+    public func play(url: URL) throws(VLCError) {
+        try play(Media(url: url))
+    }
 
     /// Starts playback.
     /// - Throws: `VLCError.playbackFailed` if playback cannot start.
@@ -310,19 +322,19 @@ public final class Player {
         libvlc_media_player_next_frame(pointer)
     }
 
-    // MARK: - External Slaves
+    // MARK: - External Tracks
 
     /// Adds an external subtitle or audio file to the player.
     ///
     /// - Parameters:
-    ///   - url: URL of the slave file (must use a valid scheme like `file://`).
-    ///   - type: Whether this is a subtitle or audio slave.
-    ///   - select: If `true`, the slave is selected immediately when loaded.
-    /// - Returns: `true` if the slave was added successfully.
-    @discardableResult
-    public func addSlave(url: URL, type: MediaSlaveType, select: Bool = true) -> Bool {
-        let uri = url.isFileURL ? url.absoluteString : url.absoluteString
-        return libvlc_media_player_add_slave(pointer, type.cValue, uri, select) == 0
+    ///   - url: URL of the external track file (must use a valid scheme like `file://`).
+    ///   - type: Whether this is a subtitle or audio track.
+    ///   - select: If `true`, the track is selected immediately when loaded.
+    public func addExternalTrack(from url: URL, type: MediaSlaveType, select: Bool = true) throws(VLCError) {
+        let uri = url.absoluteString
+        guard libvlc_media_player_add_slave(pointer, type.cValue, uri, select) == 0 else {
+            throw .operationFailed
+        }
     }
 
     // MARK: - Snapshot
@@ -333,10 +345,10 @@ public final class Player {
     ///   - path: File path to save the snapshot.
     ///   - width: Desired width (0 to preserve aspect ratio or use original).
     ///   - height: Desired height (0 to preserve aspect ratio or use original).
-    /// - Returns: `true` if the snapshot was initiated successfully.
-    @discardableResult
-    public func takeSnapshot(to path: String, width: UInt32 = 0, height: UInt32 = 0) -> Bool {
-        libvlc_video_take_snapshot(pointer, 0, path, width, height) == 0
+    public func takeSnapshot(to path: String, width: Int = 0, height: Int = 0) throws(VLCError) {
+        guard libvlc_video_take_snapshot(pointer, 0, path, UInt32(width), UInt32(height)) == 0 else {
+            throw .operationFailed
+        }
     }
 
     // MARK: - Recording
@@ -455,21 +467,24 @@ public final class Player {
     // MARK: - A-B Loop
 
     /// Sets an A-B loop using absolute times.
-    @discardableResult
-    public func setABLoop(a: Duration, b: Duration) -> Bool {
-        libvlc_media_player_set_abloop_time(pointer, a.milliseconds, b.milliseconds) == 0
+    public func setABLoop(a: Duration, b: Duration) throws(VLCError) {
+        guard libvlc_media_player_set_abloop_time(pointer, a.milliseconds, b.milliseconds) == 0 else {
+            throw .operationFailed
+        }
     }
 
     /// Sets an A-B loop using fractional positions (0.0...1.0).
-    @discardableResult
-    public func setABLoop(aPosition: Double, bPosition: Double) -> Bool {
-        libvlc_media_player_set_abloop_position(pointer, aPosition, bPosition) == 0
+    public func setABLoop(aPosition: Double, bPosition: Double) throws(VLCError) {
+        guard libvlc_media_player_set_abloop_position(pointer, aPosition, bPosition) == 0 else {
+            throw .operationFailed
+        }
     }
 
     /// Resets (disables) the A-B loop.
-    @discardableResult
-    public func resetABLoop() -> Bool {
-        libvlc_media_player_reset_abloop(pointer) == 0
+    public func resetABLoop() throws(VLCError) {
+        guard libvlc_media_player_reset_abloop(pointer) == 0 else {
+            throw .operationFailed
+        }
     }
 
     /// Current A-B loop state.
@@ -504,15 +519,16 @@ public final class Player {
     /// - Parameters:
     ///   - viewpoint: The new viewpoint values.
     ///   - absolute: If `true`, replaces the current viewpoint. If `false`, adjusts relative to current.
-    @discardableResult
-    public func updateViewpoint(_ viewpoint: Viewpoint, absolute: Bool = true) -> Bool {
-        guard let vp = libvlc_video_new_viewpoint() else { return false }
+    public func updateViewpoint(_ viewpoint: Viewpoint, absolute: Bool = true) throws(VLCError) {
+        guard let vp = libvlc_video_new_viewpoint() else { throw .operationFailed }
         defer { free(vp) }
         vp.pointee.f_yaw = viewpoint.yaw
         vp.pointee.f_pitch = viewpoint.pitch
         vp.pointee.f_roll = viewpoint.roll
         vp.pointee.f_field_of_view = viewpoint.fieldOfView
-        return libvlc_video_update_viewpoint(pointer, vp, absolute) == 0
+        guard libvlc_video_update_viewpoint(pointer, vp, absolute) == 0 else {
+            throw .operationFailed
+        }
     }
 
     // MARK: - Teletext
@@ -532,18 +548,22 @@ public final class Player {
 
     // MARK: - Equalizer
 
-    /// Applies an equalizer to this player. Pass `nil` to disable.
-    @discardableResult
-    public func setEqualizer(_ equalizer: Equalizer?) -> Bool {
-        libvlc_media_player_set_equalizer(pointer, equalizer?.pointer) == 0
+    /// The audio equalizer applied to this player. Set `nil` to disable.
+    public var equalizer: Equalizer? {
+        get { _equalizer }
+        set {
+            _equalizer = newValue
+            libvlc_media_player_set_equalizer(pointer, newValue?.pointer)
+        }
     }
 
     // MARK: - Audio Output & Devices
 
     /// Sets the audio output module.
-    @discardableResult
-    public func setAudioOutput(_ name: String) -> Bool {
-        libvlc_audio_output_set(pointer, name) == 0
+    public func setAudioOutput(_ name: String) throws(VLCError) {
+        guard libvlc_audio_output_set(pointer, name) == 0 else {
+            throw .operationFailed
+        }
     }
 
     /// Lists available audio output devices for the current output.
@@ -565,9 +585,10 @@ public final class Player {
     }
 
     /// Sets the audio output device.
-    @discardableResult
-    public func setAudioDevice(_ deviceId: String) -> Bool {
-        libvlc_audio_output_device_set(pointer, deviceId) == 0
+    public func setAudioDevice(_ deviceId: String) throws(VLCError) {
+        guard libvlc_audio_output_device_set(pointer, deviceId) == 0 else {
+            throw .operationFailed
+        }
     }
 
     /// Current audio output device identifier.
@@ -644,14 +665,13 @@ public final class Player {
     ///
     /// Pass `nil` to revert to local playback.
     /// - Parameter renderer: A ``RendererItem`` discovered by ``RendererDiscoverer``, or `nil`.
-    /// - Returns: `true` if the renderer was set successfully.
-    @discardableResult
-    public func setRenderer(_ renderer: RendererItem?) -> Bool {
-        if let renderer {
-            return libvlc_media_player_set_renderer(pointer, renderer.pointer) == 0
+    public func setRenderer(_ renderer: RendererItem?) throws(VLCError) {
+        let result = if let renderer {
+            libvlc_media_player_set_renderer(pointer, renderer.pointer)
         } else {
-            return libvlc_media_player_set_renderer(pointer, nil) == 0
+            libvlc_media_player_set_renderer(pointer, nil)
         }
+        guard result == 0 else { throw .operationFailed }
     }
 
     // MARK: - Deinterlacing
@@ -661,13 +681,13 @@ public final class Player {
     /// - Parameters:
     ///   - state: `-1` for auto, `0` to disable, `1` to enable.
     ///   - mode: Deinterlace filter name (e.g. "blend", "bob", "x", "yadif"), or nil for default.
-    @discardableResult
-    public func setDeinterlace(state: Int = -1, mode: String? = nil) -> Bool {
-        if let mode {
-            return libvlc_video_set_deinterlace(pointer, Int32(state), mode) == 0
+    public func setDeinterlace(state: Int = -1, mode: String? = nil) throws(VLCError) {
+        let result = if let mode {
+            libvlc_video_set_deinterlace(pointer, Int32(state), mode)
         } else {
-            return libvlc_video_set_deinterlace(pointer, Int32(state), nil) == 0
+            libvlc_video_set_deinterlace(pointer, Int32(state), nil)
         }
+        guard result == 0 else { throw .operationFailed }
     }
 
     // MARK: - Track Selection

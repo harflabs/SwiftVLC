@@ -111,8 +111,8 @@ public final class Media: Sendable {
     /// The file descriptor must be open for reading. libVLC will **not** close it.
     /// - Parameter fileDescriptor: An open file descriptor.
     /// - Throws: `VLCError.mediaCreationFailed` if creation fails.
-    public init(fileDescriptor fd: Int32) throws(VLCError) {
-        guard let media = libvlc_media_new_fd(fd) else {
+    public init(fileDescriptor fd: Int) throws(VLCError) {
+        guard let media = libvlc_media_new_fd(Int32(fd)) else {
             throw .mediaCreationFailed(source: "fd:\(fd)")
         }
         pointer = media
@@ -133,10 +133,10 @@ public final class Media: Sendable {
     }
 
     /// Persists metadata changes to the media file.
-    /// - Returns: `true` if the save was successful.
-    @discardableResult
-    public func saveMetadata(instance: VLCInstance = .shared) -> Bool {
-        libvlc_media_save_meta(instance.pointer, pointer) != 0
+    public func saveMetadata(instance: VLCInstance = .shared) throws(VLCError) {
+        guard libvlc_media_save_meta(instance.pointer, pointer) != 0 else {
+            throw .operationFailed
+        }
     }
 
     deinit {

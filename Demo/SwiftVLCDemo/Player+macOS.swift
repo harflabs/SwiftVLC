@@ -21,9 +21,7 @@
         @State private var showSettings = false
         @State private var flashIcon: String?
 
-        @State private var equalizer: Equalizer?
-        @State private var eqEnabled = false
-        @State private var selectedPreset: UInt32 = 0
+        @State private var selectedPreset: Int = 0
 
         @State private var listPlayer: MediaListPlayer?
         @State private var mediaList = MediaList()
@@ -31,7 +29,6 @@
         @State private var abPointA: Duration?
 
         @State private var parsedMetadata: Metadata?
-        @State private var liveStats: MediaStatistics?
 
         var body: some View {
             ZStack {
@@ -137,17 +134,17 @@
             }
             .popover(isPresented: $showURLPopover) {
                 if let player {
-                    macOSURLInput(urlString: $urlString, player: player, errorMessage: $errorMessage, parsedMetadata: $parsedMetadata, liveStats: $liveStats)
+                    macOSURLInput(urlString: $urlString, player: player, errorMessage: $errorMessage, parsedMetadata: $parsedMetadata)
                 }
             }
             .sheet(isPresented: $showSettings) {
                 if let player {
                     macOSSettingsPanel(
                         player: player,
-                        equalizer: $equalizer, eqEnabled: $eqEnabled, selectedPreset: $selectedPreset,
+                        selectedPreset: $selectedPreset,
                         listPlayer: $listPlayer, mediaList: $mediaList, playlistURLs: $playlistURLs,
                         abPointA: $abPointA,
-                        parsedMetadata: $parsedMetadata, liveStats: $liveStats,
+                        parsedMetadata: $parsedMetadata,
                         errorMessage: $errorMessage, urlString: urlString
                     )
                 }
@@ -379,14 +376,14 @@
                 Menu("Advanced") {
                     Button(abPointA == nil ? "Set Point A" : "Set Point B") {
                         if let a = abPointA {
-                            _ = player.setABLoop(a: a, b: player.currentTime)
+                            try? player.setABLoop(a: a, b: player.currentTime)
                             abPointA = nil
                         } else {
                             abPointA = player.currentTime
                         }
                     }
                     Button("Reset A-B Loop") {
-                        _ = player.resetABLoop()
+                        try? player.resetABLoop()
                         abPointA = nil
                     }
                     Divider()
@@ -397,7 +394,7 @@
                     }
                     Button("Take Snapshot") {
                         let path = NSTemporaryDirectory() + "snapshot.png"
-                        _ = player.takeSnapshot(to: path)
+                        try? player.takeSnapshot(to: path)
                     }
                     Button("Next Frame") { player.nextFrame() }
                 }
@@ -435,7 +432,6 @@
                 try player.play()
                 errorMessage = nil
                 parsedMetadata = nil
-                liveStats = nil
             } catch {
                 errorMessage = "Error: \(error)"
             }
@@ -526,7 +522,6 @@
         let player: Player
         @Binding var errorMessage: String?
         @Binding var parsedMetadata: Metadata?
-        @Binding var liveStats: MediaStatistics?
         @Environment(\.dismiss) private var dismiss
 
         var body: some View {
@@ -557,7 +552,6 @@
                 try player.play()
                 errorMessage = nil
                 parsedMetadata = nil
-                liveStats = nil
                 dismiss()
             } catch {
                 errorMessage = "Error: \(error)"
@@ -579,17 +573,15 @@
 
     private struct macOSSettingsPanel: View {
         let player: Player
-        @Binding var equalizer: Equalizer?
-        @Binding var eqEnabled: Bool
-        @Binding var selectedPreset: UInt32
+        @Binding var selectedPreset: Int
         @Binding var listPlayer: MediaListPlayer?
         @Binding var mediaList: MediaList
         @Binding var playlistURLs: [String]
         @Binding var abPointA: Duration?
         @Binding var parsedMetadata: Metadata?
-        @Binding var liveStats: MediaStatistics?
         @Binding var errorMessage: String?
         let urlString: String
+        @State private var liveStats: MediaStatistics?
         @Environment(\.dismiss) private var dismiss
 
         @State private var selectedTab = 0
@@ -634,31 +626,31 @@
 
         private var equalizerTab: some View {
             VStack(spacing: 12) {
-                Toggle("Enable Equalizer", isOn: $eqEnabled)
-                    .onChange(of: eqEnabled) { _, enabled in
+                Toggle("Enable Equalizer", isOn: Binding(
+                    get: { player.equalizer != nil },
+                    set: { enabled in
                         if enabled {
-                            if equalizer == nil { equalizer = Equalizer(preset: selectedPreset) }
-                            _ = player.setEqualizer(equalizer)
+                            player.equalizer = Equalizer(preset: selectedPreset)
                         } else {
-                            _ = player.setEqualizer(nil)
+                            player.equalizer = nil
                         }
                     }
+                ))
 
-                if eqEnabled {
+                if player.equalizer != nil {
                     Picker("Preset", selection: $selectedPreset) {
                         ForEach(0 ..< Equalizer.presetCount, id: \.self) { i in
                             Text(Equalizer.presetName(at: i) ?? "Preset \(i)").tag(i)
                         }
                     }
                     .onChange(of: selectedPreset) { _, preset in
-                        equalizer = Equalizer(preset: preset)
-                        _ = player.setEqualizer(equalizer)
+                        player.equalizer = Equalizer(preset: preset)
                     }
 
-                    if let equalizer {
+                    if let equalizer = player.equalizer {
                         sliderRow("Preamp", value: Binding(
                             get: { equalizer.preamp },
-                            set: { equalizer.preamp = $0; _ = player.setEqualizer(equalizer) }
+                            set: { equalizer.preamp = $0; player.equalizer = player.equalizer }
                         ), range: -20 ... 20, format: "%.1f dB")
 
                         ForEach(0 ..< Equalizer.bandCount, id: \.self) { band in
@@ -666,7 +658,7 @@
                                 String(format: "%.0f Hz", Equalizer.bandFrequency(at: band)),
                                 value: Binding(
                                     get: { equalizer.amplification(forBand: band) },
-                                    set: { _ = equalizer.setAmplification($0, forBand: band); _ = player.setEqualizer(equalizer) }
+                                    set: { try? equalizer.setAmplification($0, forBand: band); player.equalizer = player.equalizer }
                                 ),
                                 range: -20 ... 20,
                                 format: "%.1f dB"
@@ -755,7 +747,7 @@
                 if !outputs.isEmpty {
                     Picker("Output", selection: Binding(
                         get: { outputs.first?.name ?? "" },
-                        set: { _ = player.setAudioOutput($0) }
+                        set: { try? player.setAudioOutput($0) }
                     )) {
                         ForEach(outputs) { output in
                             Text(output.outputDescription).tag(output.name)
@@ -767,7 +759,7 @@
                 if !devices.isEmpty {
                     Picker("Device", selection: Binding(
                         get: { player.currentAudioDevice ?? "" },
-                        set: { _ = player.setAudioDevice($0) }
+                        set: { try? player.setAudioDevice($0) }
                     )) {
                         ForEach(devices) { device in
                             Text(device.deviceDescription).tag(device.deviceId)

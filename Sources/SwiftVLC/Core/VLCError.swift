@@ -10,6 +10,7 @@ public enum VLCError: Error, Sendable, CustomStringConvertible {
     case parseTimeout
     case trackNotFound(id: String)
     case invalidState(String)
+    case operationFailed
 
     public var description: String {
         switch self {
@@ -27,6 +28,8 @@ public enum VLCError: Error, Sendable, CustomStringConvertible {
             "Track not found: \(id)"
         case let .invalidState(message):
             "Invalid state: \(message)"
+        case .operationFailed:
+            "Operation failed"
         }
     }
 }

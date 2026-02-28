@@ -23,8 +23,11 @@ public struct Marquee {
     }
 
     /// Marquee text content.
-    public nonmutating func setText(_ text: String) {
-        libvlc_video_set_marquee_string(pointer, UInt32(libvlc_marquee_Text.rawValue), text)
+    public var text: String {
+        get { "" }
+        nonmutating set {
+            libvlc_video_set_marquee_string(pointer, UInt32(libvlc_marquee_Text.rawValue), newValue)
+        }
     }
 
     /// Text color as an RGB integer (e.g. 0xFF0000 for red).

@@ -109,14 +109,17 @@ public final class RendererItem: Sendable {
         return String(cString: cstr)
     }
 
+    private static let audioFlag: Int32 = 0x0001 // LIBVLC_RENDERER_CAN_AUDIO
+    private static let videoFlag: Int32 = 0x0002 // LIBVLC_RENDERER_CAN_VIDEO
+
     /// Whether the renderer supports audio.
     public var canAudio: Bool {
-        libvlc_renderer_item_flags(pointer) & 0x0001 != 0
+        libvlc_renderer_item_flags(pointer) & Self.audioFlag != 0
     }
 
     /// Whether the renderer supports video.
     public var canVideo: Bool {
-        libvlc_renderer_item_flags(pointer) & 0x0002 != 0
+        libvlc_renderer_item_flags(pointer) & Self.videoFlag != 0
     }
 }
 

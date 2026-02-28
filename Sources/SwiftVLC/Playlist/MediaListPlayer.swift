@@ -7,16 +7,19 @@ import CLibVLC
 ///
 /// ```swift
 /// let list = MediaList()
-/// list.append(media1)
-/// list.append(media2)
+/// try list.append(media1)
+/// try list.append(media2)
 ///
 /// let player = try Player()
 /// let listPlayer = try MediaListPlayer(player: player)
-/// listPlayer.setMediaList(list)
+/// listPlayer.mediaList = list
 /// listPlayer.play()
 /// ```
 public final class MediaListPlayer: Sendable {
     nonisolated(unsafe) let pointer: OpaquePointer // libvlc_media_list_player_t*
+    private nonisolated(unsafe) var _mediaPlayer: Player?
+    private nonisolated(unsafe) var _mediaList: MediaList?
+    private nonisolated(unsafe) var _playbackMode: PlaybackMode = .default
 
     /// Creates a new media list player.
     /// - Parameter instance: The VLC instance to use.
@@ -32,16 +35,35 @@ public final class MediaListPlayer: Sendable {
         libvlc_media_list_player_release(pointer)
     }
 
-    /// Associates a ``Player`` with this list player.
-    ///
-    /// The list player will use the given player for actual playback.
-    public func setMediaPlayer(_ player: Player) {
-        libvlc_media_list_player_set_media_player(pointer, player.pointer)
+    /// The ``Player`` used for actual playback.
+    public var mediaPlayer: Player? {
+        get { _mediaPlayer }
+        set {
+            _mediaPlayer = newValue
+            if let newValue {
+                libvlc_media_list_player_set_media_player(pointer, newValue.pointer)
+            }
+        }
     }
 
-    /// Sets the media list to play.
-    public func setMediaList(_ list: MediaList) {
-        libvlc_media_list_player_set_media_list(pointer, list.pointer)
+    /// The media list to play.
+    public var mediaList: MediaList? {
+        get { _mediaList }
+        set {
+            _mediaList = newValue
+            if let newValue {
+                libvlc_media_list_player_set_media_list(pointer, newValue.pointer)
+            }
+        }
+    }
+
+    /// The playback mode (default, loop, or repeat).
+    public var playbackMode: PlaybackMode {
+        get { _playbackMode }
+        set {
+            _playbackMode = newValue
+            libvlc_media_list_player_set_playback_mode(pointer, newValue.cValue)
+        }
     }
 
     /// Starts playing the media list from the beginning.
@@ -75,17 +97,17 @@ public final class MediaListPlayer: Sendable {
     }
 
     /// Plays the item at the specified index.
-    /// - Returns: `true` if the item was found and playback started.
-    @discardableResult
-    public func play(at index: Int) -> Bool {
-        libvlc_media_list_player_play_item_at_index(pointer, Int32(index)) == 0
+    public func play(at index: Int) throws(VLCError) {
+        guard libvlc_media_list_player_play_item_at_index(pointer, Int32(index)) == 0 else {
+            throw .operationFailed
+        }
     }
 
     /// Plays a specific media item from the list.
-    /// - Returns: `true` if the item was found in the list.
-    @discardableResult
-    public func play(_ media: Media) -> Bool {
-        libvlc_media_list_player_play_item(pointer, media.pointer) == 0
+    public func play(_ media: Media) throws(VLCError) {
+        guard libvlc_media_list_player_play_item(pointer, media.pointer) == 0 else {
+            throw .operationFailed
+        }
     }
 
     /// Stops playback asynchronously.
@@ -94,21 +116,16 @@ public final class MediaListPlayer: Sendable {
     }
 
     /// Advances to the next item in the list.
-    /// - Returns: `true` if there is a next item.
-    @discardableResult
-    public func next() -> Bool {
-        libvlc_media_list_player_next(pointer) == 0
+    public func next() throws(VLCError) {
+        guard libvlc_media_list_player_next(pointer) == 0 else {
+            throw .operationFailed
+        }
     }
 
     /// Goes back to the previous item in the list.
-    /// - Returns: `true` if there is a previous item.
-    @discardableResult
-    public func previous() -> Bool {
-        libvlc_media_list_player_previous(pointer) == 0
-    }
-
-    /// Sets the playback mode (default, loop, or repeat).
-    public func setPlaybackMode(_ mode: PlaybackMode) {
-        libvlc_media_list_player_set_playback_mode(pointer, mode.cValue)
+    public func previous() throws(VLCError) {
+        guard libvlc_media_list_player_previous(pointer) == 0 else {
+            throw .operationFailed
+        }
     }
 }

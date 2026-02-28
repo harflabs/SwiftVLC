@@ -1,7 +1,7 @@
 import CLibVLC
 
 /// Playback statistics for a media item.
-public struct MediaStatistics: Sendable {
+public struct MediaStatistics: Sendable, Equatable {
     // Input
     public let readBytes: UInt64
     public let inputBitrate: Float

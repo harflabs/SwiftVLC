@@ -8,7 +8,7 @@ import Foundation
 /// ```swift
 /// let title = metadata[.title]
 /// ```
-public struct Metadata: Sendable {
+public struct Metadata: Sendable, Equatable {
     public let title: String?
     public let artist: String?
     public let album: String?
@@ -69,7 +69,7 @@ public struct Metadata: Sendable {
 }
 
 /// All libVLC metadata keys.
-public enum MetadataKey: UInt32, Sendable, CaseIterable, Hashable {
+public enum MetadataKey: Int, Sendable, CaseIterable, Hashable {
     case title = 0
     case artist = 1
     case genre = 2
@@ -98,6 +98,6 @@ public enum MetadataKey: UInt32, Sendable, CaseIterable, Hashable {
     case discTotal = 25
 
     var cValue: libvlc_meta_t {
-        libvlc_meta_t(rawValue: rawValue)
+        libvlc_meta_t(rawValue: UInt32(rawValue))
     }
 }

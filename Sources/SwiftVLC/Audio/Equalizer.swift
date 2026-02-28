@@ -6,8 +6,8 @@ import CLibVLC
 /// ```swift
 /// let eq = Equalizer()
 /// eq.preamp = 5.0
-/// eq.setAmplification(10.0, forBand: 0)
-/// player.setEqualizer(eq)
+/// try eq.setAmplification(10.0, forBand: 0)
+/// player.equalizer = eq
 /// ```
 public final class Equalizer: Sendable {
     nonisolated(unsafe) let pointer: OpaquePointer // libvlc_equalizer_t*
@@ -19,8 +19,8 @@ public final class Equalizer: Sendable {
 
     /// Creates an equalizer from a preset.
     /// - Parameter presetIndex: Index of the preset (0 ..< `presetCount`).
-    public init(preset presetIndex: UInt32) {
-        pointer = libvlc_audio_equalizer_new_from_preset(presetIndex)!
+    public init(preset presetIndex: Int) {
+        pointer = libvlc_audio_equalizer_new_from_preset(UInt32(presetIndex))!
     }
 
     deinit {
@@ -38,36 +38,37 @@ public final class Equalizer: Sendable {
     // MARK: - Bands
 
     /// Number of frequency bands.
-    public static var bandCount: UInt32 {
-        libvlc_audio_equalizer_get_band_count()
+    public static var bandCount: Int {
+        Int(libvlc_audio_equalizer_get_band_count())
     }
 
     /// Gets the center frequency (Hz) for a band.
-    public static func bandFrequency(at index: UInt32) -> Float {
-        libvlc_audio_equalizer_get_band_frequency(index)
+    public static func bandFrequency(at index: Int) -> Float {
+        libvlc_audio_equalizer_get_band_frequency(UInt32(index))
     }
 
     /// Gets the amplification for a specific band.
-    public func amplification(forBand band: UInt32) -> Float {
-        libvlc_audio_equalizer_get_amp_at_index(pointer, band)
+    public func amplification(forBand band: Int) -> Float {
+        libvlc_audio_equalizer_get_amp_at_index(pointer, UInt32(band))
     }
 
     /// Sets the amplification for a specific band (-20.0 to +20.0 dB).
-    @discardableResult
-    public func setAmplification(_ amp: Float, forBand band: UInt32) -> Bool {
-        libvlc_audio_equalizer_set_amp_at_index(pointer, amp, band) == 0
+    public func setAmplification(_ amp: Float, forBand band: Int) throws(VLCError) {
+        guard libvlc_audio_equalizer_set_amp_at_index(pointer, amp, UInt32(band)) == 0 else {
+            throw .operationFailed
+        }
     }
 
     // MARK: - Presets
 
     /// Number of available presets.
-    public static var presetCount: UInt32 {
-        libvlc_audio_equalizer_get_preset_count()
+    public static var presetCount: Int {
+        Int(libvlc_audio_equalizer_get_preset_count())
     }
 
     /// Name of a preset at the given index.
-    public static func presetName(at index: UInt32) -> String? {
-        libvlc_audio_equalizer_get_preset_name(index).map { String(cString: $0) }
+    public static func presetName(at index: Int) -> String? {
+        libvlc_audio_equalizer_get_preset_name(UInt32(index)).map { String(cString: $0) }
     }
 
     /// All available preset names.

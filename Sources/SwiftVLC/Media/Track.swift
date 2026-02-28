@@ -20,8 +20,8 @@ public struct Track: Sendable, Identifiable, Hashable {
     /// Human-readable track name.
     public let name: String
 
-    /// Codec FourCC string (e.g. "H264", "AAC").
-    public let codec: UInt32
+    /// Codec FourCC value.
+    public let codec: Int
 
     /// ISO 639 language code.
     public let language: String?
@@ -33,21 +33,21 @@ public struct Track: Sendable, Identifiable, Hashable {
     public let isSelected: Bool
 
     /// Bitrate in bits/second (0 if unknown).
-    public let bitrate: UInt32
+    public let bitrate: Int
 
     /// Audio-specific
     /// Number of audio channels (nil for non-audio tracks).
-    public let channels: UInt32?
+    public let channels: Int?
 
     /// Audio sample rate in Hz (nil for non-audio tracks).
-    public let sampleRate: UInt32?
+    public let sampleRate: Int?
 
     /// Video-specific
     /// Video width in pixels (nil for non-video tracks).
-    public let width: UInt32?
+    public let width: Int?
 
     /// Video height in pixels (nil for non-video tracks).
-    public let height: UInt32?
+    public let height: Int?
 
     /// Video frame rate as a double (nil for non-video tracks).
     public let frameRate: Double?
@@ -93,25 +93,25 @@ extension Track {
         name = t.psz_name.map { String(cString: $0) }
             ?? t.psz_description.map { String(cString: $0) }
             ?? "Track \(t.i_id)"
-        codec = t.i_codec
+        codec = Int(t.i_codec)
         language = t.psz_language.map { String(cString: $0) }
         trackDescription = t.psz_description.map { String(cString: $0) }
         isSelected = t.selected
-        bitrate = t.i_bitrate
+        bitrate = Int(t.i_bitrate)
 
         switch t.i_type {
         case libvlc_track_audio:
             let audio = t.audio.pointee
-            channels = audio.i_channels
-            sampleRate = audio.i_rate
+            channels = Int(audio.i_channels)
+            sampleRate = Int(audio.i_rate)
             width = nil
             height = nil
             frameRate = nil
             encoding = nil
         case libvlc_track_video:
             let video = t.video.pointee
-            width = video.i_width
-            height = video.i_height
+            width = Int(video.i_width)
+            height = Int(video.i_height)
             if video.i_frame_rate_den > 0 {
                 frameRate = Double(video.i_frame_rate_num) / Double(video.i_frame_rate_den)
             } else {

@@ -12,9 +12,7 @@
 
         @State private var uiState = TVPlayerUIState()
 
-        @State private var equalizer: Equalizer?
-        @State private var eqEnabled = false
-        @State private var selectedPreset: UInt32 = 0
+        @State private var selectedPreset: Int = 0
         @State private var abPointA: Duration?
 
         var body: some View {
@@ -410,24 +408,24 @@
                 // EQ Presets
                 Text("Equalizer").font(.title3.weight(.medium)).foregroundStyle(.white)
 
-                Toggle("Enable Equalizer", isOn: $eqEnabled)
-                    .font(.title3)
-                    .onChange(of: eqEnabled) { _, enabled in
+                Toggle("Enable Equalizer", isOn: Binding(
+                    get: { player.equalizer != nil },
+                    set: { enabled in
                         if enabled {
-                            if equalizer == nil { equalizer = Equalizer(preset: selectedPreset) }
-                            _ = player.setEqualizer(equalizer)
+                            player.equalizer = Equalizer(preset: selectedPreset)
                         } else {
-                            _ = player.setEqualizer(nil)
+                            player.equalizer = nil
                         }
                     }
+                ))
+                .font(.title3)
 
-                if eqEnabled {
+                if player.equalizer != nil {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12)], spacing: 12) {
                         ForEach(0 ..< Equalizer.presetCount, id: \.self) { i in
                             Button {
                                 selectedPreset = i
-                                equalizer = Equalizer(preset: i)
-                                _ = player.setEqualizer(equalizer)
+                                player.equalizer = Equalizer(preset: i)
                             } label: {
                                 Text(Equalizer.presetName(at: i) ?? "Preset \(i)")
                                     .font(.callout)
@@ -497,7 +495,7 @@
                 HStack(spacing: 16) {
                     Button(abPointA == nil ? "Set A" : "Set B") {
                         if let a = abPointA {
-                            _ = player.setABLoop(a: a, b: player.currentTime)
+                            try? player.setABLoop(a: a, b: player.currentTime)
                             abPointA = nil
                         } else {
                             abPointA = player.currentTime
@@ -506,7 +504,7 @@
                     .font(.title3)
 
                     Button("Clear") {
-                        _ = player.resetABLoop()
+                        try? player.resetABLoop()
                         abPointA = nil
                     }
                     .font(.title3)
@@ -520,7 +518,7 @@
                 HStack(spacing: 12) {
                     ForEach(deinterlaceOptions, id: \.0) { name, state, mode in
                         Button {
-                            _ = player.setDeinterlace(state: state, mode: mode)
+                            try? player.setDeinterlace(state: state, mode: mode)
                         } label: {
                             Text(name).font(.callout).frame(maxWidth: .infinity).padding(.vertical, 10)
                         }

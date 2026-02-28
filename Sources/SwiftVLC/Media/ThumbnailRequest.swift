@@ -19,8 +19,8 @@ public extension Media {
     /// - Returns: The raw image data (PNG format).
     func thumbnail(
         at time: Duration,
-        width: UInt32 = 320,
-        height: UInt32 = 0,
+        width: Int = 320,
+        height: Int = 0,
         crop: Bool = false,
         timeout: Duration = .seconds(10),
         instance: VLCInstance = .shared
@@ -45,8 +45,8 @@ public extension Media {
                 media,
                 time.milliseconds,
                 libvlc_media_thumbnail_seek_fast,
-                width,
-                height,
+                UInt32(width),
+                UInt32(height),
                 crop,
                 libvlc_picture_Png,
                 timeout.milliseconds

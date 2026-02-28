@@ -20,7 +20,7 @@ public enum PlayerEvent: Sendable {
     case voutChanged(Int)
     case bufferingProgress(Float) // 0.0...1.0
     case chapterChanged(Int)
-    case recordingChanged(Bool, String?)
+    case recordingChanged(isRecording: Bool, filePath: String?)
     case titleListChanged
     case titleSelectionChanged(Int)
     case snapshotTaken(String)

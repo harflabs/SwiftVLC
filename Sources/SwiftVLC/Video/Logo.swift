@@ -22,10 +22,13 @@ public struct Logo {
         nonmutating set { libvlc_video_set_logo_int(pointer, UInt32(libvlc_logo_enable.rawValue), newValue ? 1 : 0) }
     }
 
-    /// Sets the logo image file path.
+    /// Logo image file path.
     /// Format: "file" or "file,delay,transparency;file,delay,transparency;..."
-    public nonmutating func setFile(_ path: String) {
-        libvlc_video_set_logo_string(pointer, UInt32(libvlc_logo_file.rawValue), path)
+    public var file: String {
+        get { "" }
+        nonmutating set {
+            libvlc_video_set_logo_string(pointer, UInt32(libvlc_logo_file.rawValue), newValue)
+        }
     }
 
     /// X position offset.

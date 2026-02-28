@@ -42,26 +42,29 @@ public final class MediaList: Sendable {
     }
 
     /// Appends a media item to the end of the list.
-    @discardableResult
-    public func append(_ media: Media) -> Bool {
+    public func append(_ media: Media) throws(VLCError) {
         libvlc_media_list_lock(pointer)
         defer { libvlc_media_list_unlock(pointer) }
-        return libvlc_media_list_add_media(pointer, media.pointer) == 0
+        guard libvlc_media_list_add_media(pointer, media.pointer) == 0 else {
+            throw .operationFailed
+        }
     }
 
     /// Inserts a media item at the specified index.
-    @discardableResult
-    public func insert(_ media: Media, at index: Int) -> Bool {
+    public func insert(_ media: Media, at index: Int) throws(VLCError) {
         libvlc_media_list_lock(pointer)
         defer { libvlc_media_list_unlock(pointer) }
-        return libvlc_media_list_insert_media(pointer, media.pointer, Int32(index)) == 0
+        guard libvlc_media_list_insert_media(pointer, media.pointer, Int32(index)) == 0 else {
+            throw .operationFailed
+        }
     }
 
     /// Removes the media item at the specified index.
-    @discardableResult
-    public func remove(at index: Int) -> Bool {
+    public func remove(at index: Int) throws(VLCError) {
         libvlc_media_list_lock(pointer)
         defer { libvlc_media_list_unlock(pointer) }
-        return libvlc_media_list_remove_index(pointer, Int32(index)) == 0
+        guard libvlc_media_list_remove_index(pointer, Int32(index)) == 0 else {
+            throw .operationFailed
+        }
     }
 }

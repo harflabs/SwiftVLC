@@ -17,11 +17,8 @@
 
         @State private var showSettings = false
         @State private var showURLInput = false
-        @State private var volume: Float = 1.0
 
-        @State private var equalizer: Equalizer?
-        @State private var eqEnabled = false
-        @State private var selectedPreset: UInt32 = 0
+        @State private var selectedPreset: Int = 0
 
         @State private var listPlayer: MediaListPlayer?
         @State private var mediaList = MediaList()
@@ -29,7 +26,6 @@
         @State private var abPointA: Duration?
 
         @State private var parsedMetadata: Metadata?
-        @State private var liveStats: MediaStatistics?
 
         @Environment(\.scenePhase) private var scenePhase
         @Environment(\.dismiss) private var dismiss
@@ -45,7 +41,6 @@
                         .onAppear {
                             if !didAutoLoad {
                                 didAutoLoad = true
-                                volume = player.volume
                                 loadMedia(player: player)
                             }
                         }
@@ -105,10 +100,10 @@
                 if let player {
                     iOSSettingsSheet(
                         player: player,
-                        equalizer: $equalizer, eqEnabled: $eqEnabled, selectedPreset: $selectedPreset,
+                        selectedPreset: $selectedPreset,
                         listPlayer: $listPlayer, mediaList: $mediaList, playlistURLs: $playlistURLs,
                         abPointA: $abPointA,
-                        parsedMetadata: $parsedMetadata, liveStats: $liveStats,
+                        parsedMetadata: $parsedMetadata,
                         errorMessage: $errorMessage, urlString: urlString
                     )
                 }
@@ -262,10 +257,9 @@
                         }
                         .buttonStyle(.plain)
 
-                        Slider(value: $volume, in: 0 ... 1)
+                        Slider(value: Binding(get: { player.volume }, set: { player.volume = $0 }), in: 0 ... 1)
                             .tint(.white)
                             .frame(maxWidth: 120)
-                            .onChange(of: volume) { _, val in player.volume = val }
                     }
                 }
             }
@@ -281,7 +275,6 @@
                 try player.play()
                 errorMessage = nil
                 parsedMetadata = nil
-                liveStats = nil
             } catch {
                 errorMessage = "Error: \(error)"
             }
@@ -357,15 +350,12 @@
 
     private struct iOSSettingsSheet: View {
         let player: Player
-        @Binding var equalizer: Equalizer?
-        @Binding var eqEnabled: Bool
-        @Binding var selectedPreset: UInt32
+        @Binding var selectedPreset: Int
         @Binding var listPlayer: MediaListPlayer?
         @Binding var mediaList: MediaList
         @Binding var playlistURLs: [String]
         @Binding var abPointA: Duration?
         @Binding var parsedMetadata: Metadata?
-        @Binding var liveStats: MediaStatistics?
         @Binding var errorMessage: String?
         let urlString: String
         @Environment(\.dismiss) private var dismiss
@@ -375,7 +365,7 @@
                 List {
                     NavigationLink { iOSPlaybackSettings(player: player) }
                         label: { Label("Playback", systemImage: "play.circle") }
-                    NavigationLink { iOSAudioSettings(player: player, equalizer: $equalizer, eqEnabled: $eqEnabled, selectedPreset: $selectedPreset) }
+                    NavigationLink { iOSAudioSettings(player: player, selectedPreset: $selectedPreset) }
                         label: { Label("Audio", systemImage: "speaker.wave.3") }
                     NavigationLink { iOSVideoSettings(player: player) }
                         label: { Label("Video", systemImage: "tv") }
@@ -383,7 +373,7 @@
                         label: { Label("Overlays", systemImage: "text.bubble") }
                     NavigationLink { iOSAdvancedSettings(player: player, abPointA: $abPointA, errorMessage: $errorMessage) }
                         label: { Label("Advanced", systemImage: "gearshape.2") }
-                    NavigationLink { iOSInfoSettings(player: player, parsedMetadata: $parsedMetadata, liveStats: $liveStats, errorMessage: $errorMessage) }
+                    NavigationLink { iOSInfoSettings(player: player, parsedMetadata: $parsedMetadata, errorMessage: $errorMessage) }
                         label: { Label("Info", systemImage: "info.circle") }
                     NavigationLink { iOSNetworkSettings(player: player, listPlayer: $listPlayer, mediaList: $mediaList, playlistURLs: $playlistURLs, errorMessage: $errorMessage, urlString: urlString) }
                         label: { Label("Network", systemImage: "network") }
@@ -489,9 +479,7 @@
 
     private struct iOSAudioSettings: View {
         let player: Player
-        @Binding var equalizer: Equalizer?
-        @Binding var eqEnabled: Bool
-        @Binding var selectedPreset: UInt32
+        @Binding var selectedPreset: Int
 
         @State private var stereoMode: StereoMode = .unset
         @State private var mixMode: MixMode = .unset
@@ -500,23 +488,24 @@
         @State private var selectedAudioDevice = ""
         @State private var role: PlayerRole = .none
         @State private var preamp: Float = 0
-        @State private var bandAmps: [Float] = Array(repeating: 0, count: Int(Equalizer.bandCount))
+        @State private var bandAmps: [Float] = Array(repeating: 0, count: Equalizer.bandCount)
 
         var body: some View {
             List {
                 Section("Equalizer") {
-                    Toggle("Enable Equalizer", isOn: $eqEnabled)
-                        .onChange(of: eqEnabled) { _, enabled in
+                    Toggle("Enable Equalizer", isOn: Binding(
+                        get: { player.equalizer != nil },
+                        set: { enabled in
                             if enabled {
-                                if equalizer == nil { equalizer = Equalizer(preset: selectedPreset) }
-                                _ = player.setEqualizer(equalizer)
+                                player.equalizer = Equalizer(preset: selectedPreset)
                                 syncEQState()
                             } else {
-                                _ = player.setEqualizer(nil)
+                                player.equalizer = nil
                             }
                         }
+                    ))
 
-                    if eqEnabled {
+                    if player.equalizer != nil {
                         Picker("Preset", selection: $selectedPreset) {
                             ForEach(0 ..< Equalizer.presetCount, id: \.self) { i in
                                 Text(Equalizer.presetName(at: i) ?? "Preset \(i)").tag(i)
@@ -524,12 +513,11 @@
                         }
                         .pickerStyle(.navigationLink)
                         .onChange(of: selectedPreset) { _, preset in
-                            equalizer = Equalizer(preset: preset)
-                            _ = player.setEqualizer(equalizer)
+                            player.equalizer = Equalizer(preset: preset)
                             syncEQState()
                         }
 
-                        if equalizer != nil {
+                        if player.equalizer != nil {
                             VStack(spacing: 4) {
                                 HStack {
                                     Text("Preamp")
@@ -539,23 +527,23 @@
                                 .font(.caption)
                                 Slider(value: $preamp, in: -20 ... 20)
                                     .onChange(of: preamp) { _, val in
-                                        equalizer?.preamp = val
-                                        _ = player.setEqualizer(equalizer)
+                                        player.equalizer?.preamp = val
+                                        player.equalizer = player.equalizer
                                     }
                             }
 
-                            ForEach(0 ..< Int(Equalizer.bandCount), id: \.self) { band in
+                            ForEach(0 ..< Equalizer.bandCount, id: \.self) { band in
                                 VStack(spacing: 4) {
                                     HStack {
-                                        Text(String(format: "%.0f Hz", Equalizer.bandFrequency(at: UInt32(band))))
+                                        Text(String(format: "%.0f Hz", Equalizer.bandFrequency(at: band)))
                                         Spacer()
                                         Text(String(format: "%.1f dB", bandAmps[band])).monospacedDigit()
                                     }
                                     .font(.caption)
                                     Slider(value: $bandAmps[band], in: -20 ... 20)
                                         .onChange(of: bandAmps[band]) { _, val in
-                                            _ = equalizer?.setAmplification(val, forBand: UInt32(band))
-                                            _ = player.setEqualizer(equalizer)
+                                            try? player.equalizer?.setAmplification(val, forBand: band)
+                                            player.equalizer = player.equalizer
                                         }
                                 }
                             }
@@ -613,7 +601,7 @@
                         }
                         .pickerStyle(.menu)
                         .onChange(of: selectedAudioOutput) { _, name in
-                            _ = player.setAudioOutput(name)
+                            try? player.setAudioOutput(name)
                         }
                     } else {
                         Text("No audio outputs").foregroundStyle(.secondary)
@@ -628,7 +616,7 @@
                         }
                         .pickerStyle(.menu)
                         .onChange(of: selectedAudioDevice) { _, deviceId in
-                            _ = player.setAudioDevice(deviceId)
+                            try? player.setAudioDevice(deviceId)
                         }
                     }
                 }
@@ -664,10 +652,10 @@
         }
 
         private func syncEQState() {
-            guard let eq = equalizer else { return }
+            guard let eq = player.equalizer else { return }
             preamp = eq.preamp
-            for i in 0 ..< Int(Equalizer.bandCount) {
-                bandAmps[i] = eq.amplification(forBand: UInt32(i))
+            for i in 0 ..< Equalizer.bandCount {
+                bandAmps[i] = eq.amplification(forBand: i)
             }
         }
     }
@@ -751,12 +739,12 @@
                     .pickerStyle(.menu)
                     .onChange(of: deinterlace) { _, option in
                         switch option {
-                        case .auto: _ = player.setDeinterlace(state: -1)
-                        case .off: _ = player.setDeinterlace(state: 0)
-                        case .blend: _ = player.setDeinterlace(state: 1, mode: "blend")
-                        case .bob: _ = player.setDeinterlace(state: 1, mode: "bob")
-                        case .x: _ = player.setDeinterlace(state: 1, mode: "x")
-                        case .yadif: _ = player.setDeinterlace(state: 1, mode: "yadif")
+                        case .auto: try? player.setDeinterlace(state: -1)
+                        case .off: try? player.setDeinterlace(state: 0)
+                        case .blend: try? player.setDeinterlace(state: 1, mode: "blend")
+                        case .bob: try? player.setDeinterlace(state: 1, mode: "bob")
+                        case .x: try? player.setDeinterlace(state: 1, mode: "x")
+                        case .yadif: try? player.setDeinterlace(state: 1, mode: "yadif")
                         }
                     }
                 }
@@ -810,7 +798,7 @@
                         HStack {
                             TextField("Text", text: $marqueeText)
                                 .textFieldStyle(.roundedBorder)
-                            Button("Set") { player.marquee.setText(marqueeText) }
+                            Button("Set") { player.marquee.text = marqueeText }
                                 .buttonStyle(.bordered)
                         }
 
@@ -844,7 +832,7 @@
                         HStack {
                             TextField("Image file path", text: $logoPath)
                                 .textFieldStyle(.roundedBorder)
-                            Button("Set") { player.logo.setFile(logoPath) }
+                            Button("Set") { player.logo.file = logoPath }
                                 .buttonStyle(.bordered)
                         }
 
@@ -902,12 +890,12 @@
                             .buttonStyle(.bordered)
                         Button("Set B") {
                             guard let a = abPointA else { return }
-                            _ = player.setABLoop(a: a, b: player.currentTime)
+                            try? player.setABLoop(a: a, b: player.currentTime)
                         }
                         .buttonStyle(.bordered)
                         .disabled(abPointA == nil)
                         Button("Reset") {
-                            _ = player.resetABLoop()
+                            try? player.resetABLoop()
                             abPointA = nil
                         }
                         .buttonStyle(.bordered)
@@ -960,7 +948,12 @@
                         .textFieldStyle(.roundedBorder)
                     Button("Take Snapshot") {
                         let path = snapshotPath.isEmpty ? NSTemporaryDirectory() + "snapshot.png" : snapshotPath
-                        snapshotStatus = player.takeSnapshot(to: path) ? "Saved to \(path)" : "Failed"
+                        do {
+                            try player.takeSnapshot(to: path)
+                            snapshotStatus = "Saved to \(path)"
+                        } catch {
+                            snapshotStatus = "Failed"
+                        }
                     }
                     .buttonStyle(.bordered)
                     if !snapshotStatus.isEmpty {
@@ -974,11 +967,11 @@
                     sliderRow("Roll", value: $viewpoint.roll, range: -180 ... 180)
                     sliderRow("FOV", value: $viewpoint.fieldOfView, range: 1 ... 180)
                     HStack(spacing: 12) {
-                        Button("Apply") { _ = player.updateViewpoint(viewpoint) }
+                        Button("Apply") { try? player.updateViewpoint(viewpoint) }
                             .buttonStyle(.bordered)
                         Button("Reset") {
                             viewpoint = Viewpoint()
-                            _ = player.updateViewpoint(viewpoint)
+                            try? player.updateViewpoint(viewpoint)
                         }
                         .buttonStyle(.bordered)
                     }
@@ -1021,8 +1014,8 @@
     private struct iOSInfoSettings: View {
         let player: Player
         @Binding var parsedMetadata: Metadata?
-        @Binding var liveStats: MediaStatistics?
         @Binding var errorMessage: String?
+        @State private var liveStats: MediaStatistics?
 
         var body: some View {
             List {
@@ -1203,7 +1196,8 @@
                             guard let url = URL(string: urlString) else { return }
                             do {
                                 let media = try Media(url: url)
-                                if mediaList.append(media) { playlistURLs.append(urlString) }
+                                try mediaList.append(media)
+                                playlistURLs.append(urlString)
                             } catch { errorMessage = "Failed to add: \(error)" }
                         }
                         .buttonStyle(.bordered)
@@ -1225,17 +1219,17 @@
                         Button("Play") {
                             if listPlayer == nil {
                                 listPlayer = try? MediaListPlayer()
-                                listPlayer?.setMediaPlayer(player)
+                                listPlayer?.mediaPlayer = player
                             }
-                            listPlayer?.setMediaList(mediaList)
+                            listPlayer?.mediaList = mediaList
                             listPlayer?.play()
                         }
                         .buttonStyle(.bordered)
                         .disabled(mediaList.count == 0)
 
-                        Button { _ = listPlayer?.previous() } label: { Image(systemName: "backward.fill") }
+                        Button { try? listPlayer?.previous() } label: { Image(systemName: "backward.fill") }
                             .buttonStyle(.bordered).disabled(listPlayer == nil)
-                        Button { _ = listPlayer?.next() } label: { Image(systemName: "forward.fill") }
+                        Button { try? listPlayer?.next() } label: { Image(systemName: "forward.fill") }
                             .buttonStyle(.bordered).disabled(listPlayer == nil)
 
                         Spacer()
@@ -1254,7 +1248,7 @@
                         Text("Repeat").tag(PlaybackMode.repeat)
                     }
                     .pickerStyle(.menu)
-                    .onChange(of: selectedPlaybackMode) { _, mode in listPlayer?.setPlaybackMode(mode) }
+                    .onChange(of: selectedPlaybackMode) { _, mode in listPlayer?.playbackMode = mode }
                 }
 
                 Section("Media Discovery") {
@@ -1352,13 +1346,13 @@
                                 .font(.caption2).foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Button("Cast") { _ = player.setRenderer(renderer) }
+                            Button("Cast") { try? player.setRenderer(renderer) }
                                 .buttonStyle(.bordered).controlSize(.small)
                         }
                     }
 
                     if !discoveredRenderers.isEmpty {
-                        Button("Stop Casting") { _ = player.setRenderer(nil) }
+                        Button("Stop Casting") { try? player.setRenderer(nil) }
                             .buttonStyle(.bordered)
                     }
                 }
@@ -1488,13 +1482,14 @@
         }
     }
 
-    private func codecString(_ fourcc: UInt32) -> String {
+    private func codecString(_ fourcc: Int) -> String {
         guard fourcc != 0 else { return "---" }
+        let v = UInt32(fourcc)
         let bytes = [
-            UInt8((fourcc >> 24) & 0xFF),
-            UInt8((fourcc >> 16) & 0xFF),
-            UInt8((fourcc >> 8) & 0xFF),
-            UInt8(fourcc & 0xFF),
+            UInt8((v >> 24) & 0xFF),
+            UInt8((v >> 16) & 0xFF),
+            UInt8((v >> 8) & 0xFF),
+            UInt8(v & 0xFF),
         ]
         return String(bytes.map { $0 >= 0x20 && $0 < 0x7F ? Character(UnicodeScalar($0)) : Character("?") })
             .trimmingCharacters(in: .whitespaces)

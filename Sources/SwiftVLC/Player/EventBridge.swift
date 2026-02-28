@@ -213,7 +213,7 @@ private func mapEvent(_ event: libvlc_event_t) -> PlayerEvent? {
         let recording = event.u.media_player_record_changed.recording
         let path = event.u.media_player_record_changed.recorded_file_path
             .map { String(cString: $0) }
-        return .recordingChanged(recording, path)
+        return .recordingChanged(isRecording: recording, filePath: path)
 
     case libvlc_MediaPlayerTitleListChanged:
         return .titleListChanged
