@@ -110,6 +110,7 @@ struct LoggingTests {
     await t2.value
   }
 
+  @available(*, deprecated, message: "Tests deprecated API")
   @Test("Deprecated logStream function", .tags(.async))
   func deprecatedLogStreamFunction() async {
     // Verify the deprecated free function still works

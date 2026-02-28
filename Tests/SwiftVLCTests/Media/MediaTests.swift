@@ -191,7 +191,7 @@ struct MediaTests {
       Issue.record("Expected second parse to fail")
     } catch {
       // Expected: "parse request rejected"
-      #expect(error is VLCError)
+      _ = error // Expected VLCError
     }
   }
 

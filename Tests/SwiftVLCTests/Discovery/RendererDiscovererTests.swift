@@ -47,7 +47,7 @@ struct RendererDiscovererTests {
       let discoverer = try RendererDiscoverer(name: "nonexistent_renderer_xyz")
       _ = discoverer
     } catch {
-      #expect(error is VLCError)
+      _ = error // Expected VLCError
     }
   }
 

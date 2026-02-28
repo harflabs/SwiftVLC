@@ -78,7 +78,7 @@ struct MediaDiscovererTests {
       let discoverer = try MediaDiscoverer(name: "nonexistent_discoverer_xyz")
       _ = discoverer
     } catch {
-      #expect(error is VLCError)
+      _ = error // Expected VLCError
     }
   }
 

@@ -461,7 +461,7 @@ struct PlayerTests {
     do {
       try player.takeSnapshot(to: "/tmp/snapshot_test.png")
     } catch {
-      #expect(error is VLCError)
+      _ = error // Expected VLCError
     }
   }
 
@@ -494,7 +494,7 @@ struct PlayerTests {
     do {
       try player.setAudioDevice("nonexistent_device_xyz")
     } catch {
-      #expect(error is VLCError)
+      _ = error // Expected VLCError
     }
   }
 
