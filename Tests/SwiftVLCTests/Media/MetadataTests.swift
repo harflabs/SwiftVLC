@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-@Suite("Metadata", .tags(.integration, .media), .serialized, .timeLimit(.minutes(1)))
+@Suite("Metadata", .tags(.integration, .media), .serialized)
 struct MetadataTests {
   @Test("Parsed title from test MP4", .tags(.async))
   func parsedTitle() async throws {

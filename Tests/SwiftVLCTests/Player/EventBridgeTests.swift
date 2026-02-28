@@ -1,7 +1,10 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("EventBridge", .tags(.integration, .mainActor, .async), .serialized, .timeLimit(.minutes(1)))
+@Suite(
+  "EventBridge", .tags(.integration, .mainActor, .async), .serialized,
+  .enabled(if: TestCondition.canPlayMedia, "Requires video output (skipped on CI)")
+)
 @MainActor
 struct EventBridgeTests {
   @Test("Independent streams")

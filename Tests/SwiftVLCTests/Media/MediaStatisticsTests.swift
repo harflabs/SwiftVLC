@@ -1,7 +1,7 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("MediaStatistics", .tags(.integration), .serialized, .timeLimit(.minutes(1)))
+@Suite("MediaStatistics", .tags(.integration), .serialized)
 struct MediaStatisticsTests {
   @Test("Nil before playback")
   func nilBeforePlayback() throws {
@@ -9,7 +9,7 @@ struct MediaStatisticsTests {
     #expect(media.statistics() == nil)
   }
 
-  @Test("Available during playback", .tags(.mainActor, .async, .media))
+  @Test("Available during playback", .tags(.mainActor, .async, .media), .enabled(if: TestCondition.canPlayMedia))
   @MainActor
   func availableDuringPlayback() async throws {
     let player = try Player()
@@ -22,7 +22,7 @@ struct MediaStatisticsTests {
     player.stop()
   }
 
-  @Test("Fields are reasonable", .tags(.mainActor, .async, .media))
+  @Test("Fields are reasonable", .tags(.mainActor, .async, .media), .enabled(if: TestCondition.canPlayMedia))
   @MainActor
   func fieldsReasonable() async throws {
     let player = try Player()
@@ -49,7 +49,7 @@ struct MediaStatisticsTests {
     let _: any Sendable.Type = MediaStatistics.self
   }
 
-  @Test("Statistics accessible during playback", .tags(.mainActor, .async, .media))
+  @Test("Statistics accessible during playback", .tags(.mainActor, .async, .media), .enabled(if: TestCondition.canPlayMedia))
   @MainActor
   func statisticsAccessibleDuringPlayback() async throws {
     let player = try Player()

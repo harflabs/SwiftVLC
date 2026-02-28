@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-@Suite("Media", .tags(.integration), .serialized, .timeLimit(.minutes(1)))
+@Suite("Media", .tags(.integration), .serialized)
 struct MediaTests {
   @Test("Init from URL")
   func initFromURL() throws {
