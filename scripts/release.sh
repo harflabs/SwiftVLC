@@ -144,6 +144,14 @@ open('Package.swift', 'w').write(result)
 
 echo "  Package.swift updated to remote URL."
 
+# ── Validate Package.swift ───────────────────────────────────────────────
+
+if ! grep -q 'name: "CLibVLC"' Package.swift; then
+  echo "Error: Package.swift corrupted — CLibVLC target missing."
+  git checkout Package.swift
+  exit 1
+fi
+
 # ── Tag & Push ────────────────────────────────────────────────────────────────
 
 echo "Committing, tagging, and pushing..."
