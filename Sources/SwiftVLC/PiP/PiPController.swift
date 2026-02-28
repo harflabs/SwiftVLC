@@ -24,6 +24,26 @@ public final class PiPController: NSObject {
   private var controlTimebase: CMTimebase?
   private var stateObserverTask: Task<Void, Never>?
 
+  /// Tracks the playback state as PiP sees it. Updated synchronously
+  /// in `setPlaying` (PiP-initiated) and by the observer (VLC-initiated,
+  /// e.g. end-of-media). This ensures `isPlaybackPaused` returns a
+  /// consistent value immediately, without waiting for VLC's async
+  /// state transitions — which is critical because PiP queries state
+  /// right after calling `setPlaying` and gets confused by stale values.
+  private var pipPlaybackActive: Bool = false
+
+  /// Deferred pause task. PiP calls `setPlaying(false)` before every skip,
+  /// then `setPlaying(true)` after. Pausing VLC synchronously causes a
+  /// visible blink. By deferring the actual `player.pause()` to the next
+  /// run-loop iteration, `skipByInterval` can cancel it — avoiding a
+  /// pointless pause→seek→resume cycle.
+  private var deferredPauseTask: Task<Void, Never>?
+
+  /// Timestamp of the last PiP skip. The observer uses this to avoid
+  /// overwriting the skip handler's timebase position with stale
+  /// `currentTime` data that hasn't caught up to the seek yet.
+  private var lastSkipTimestamp: CFAbsoluteTime = 0
+
   /// Whether PiP can be activated.
   public var isPossible: Bool {
     pipController?.isPictureInPicturePossible ?? false
@@ -50,7 +70,7 @@ public final class PiPController: NSObject {
 
     super.init()
 
-    displayLayer.videoGravity = .resizeAspectFill
+    displayLayer.videoGravity = .resizeAspect
     displayLayer.backgroundColor = CGColor(red: 0, green: 0, blue: 0, alpha: 1)
 
     configureAudioSession()
@@ -61,6 +81,7 @@ public final class PiPController: NSObject {
   }
 
   isolated deinit {
+    deferredPauseTask?.cancel()
     stateObserverTask?.cancel()
     libvlc_video_set_callbacks(player.pointer, nil, nil, nil, nil)
     libvlc_video_set_format_callbacks(player.pointer, nil, nil)
@@ -157,25 +178,60 @@ public final class PiPController: NSObject {
 
   // MARK: - State Observation
 
-  /// Observes player.state via @Observable and keeps the controlTimebase
-  /// rate in sync. This is critical for PiP: the system checks the timebase
-  /// rate to determine if content is actively playing.
+  /// Observes player state, currentTime, and duration to keep the
+  /// controlTimebase and PiP UI in sync.
   private func startStateObserver() {
     stateObserverTask = Task { @MainActor [weak self] in
-      var wasPlaying = false
+      var wasActive = false
+      var lastDurationMs: Int64?
       while !Task.isCancelled {
         guard let self else { return }
 
-        let isPlaying = player.state == .playing
+        let active = player.isActive
+        let durationMs = player.duration?.milliseconds
 
-        if isPlaying != wasPlaying {
-          wasPlaying = isPlaying
-          syncTimebase(playing: isPlaying)
+        // State transition — sync timebase rate
+        if active != wasActive {
+          wasActive = active
+          syncTimebase(playing: active)
+
+          // Only update pipPlaybackActive and notify PiP for
+          // VLC-initiated changes (end-of-media, error). For
+          // PiP-initiated changes (from setPlaying), the value
+          // is already correct — don't override it with VLC's
+          // delayed state which causes blinking.
+          if active != pipPlaybackActive {
+            pipPlaybackActive = active
+            pipController?.invalidatePlaybackState()
+          }
+        }
+
+        // Duration became known or changed — re-query timeRange
+        if durationMs != lastDurationMs {
+          lastDurationMs = durationMs
+          pipController?.invalidatePlaybackState()
+        }
+
+        // Sync timebase when player position diverges significantly
+        // (e.g., seek from the app's own controls outside PiP).
+        // Guard against overwriting the skip handler's timebase.
+        if active, let tb = controlTimebase {
+          let timeSinceSkip = CFAbsoluteTimeGetCurrent() - lastSkipTimestamp
+          if timeSinceSkip > 1.0 {
+            let t = player.currentTime
+            let playerSec = Double(t.components.seconds) + Double(t.components.attoseconds) / 1e18
+            let tbSec = CMTimebaseGetTime(tb).seconds
+            if abs(playerSec - tbSec) > 2.0 {
+              CMTimebaseSetTime(tb, time: CMTime(seconds: playerSec, preferredTimescale: 1000))
+            }
+          }
         }
 
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
           withObservationTracking {
             _ = self.player.state
+            _ = self.player.currentTime
+            _ = self.player.duration
           } onChange: {
             cont.resume()
           }
@@ -184,10 +240,18 @@ public final class PiPController: NSObject {
     }
   }
 
-  /// Updates the controlTimebase rate to match playback state.
-  /// Rate 1.0 = playing, 0.0 = paused/stopped.
+  /// Sets the controlTimebase time to the player's current position.
+  private func syncTimebaseTime() {
+    guard let tb = controlTimebase else { return }
+    let t = player.currentTime
+    let seconds = Double(t.components.seconds) + Double(t.components.attoseconds) / 1e18
+    CMTimebaseSetTime(tb, time: CMTime(seconds: seconds, preferredTimescale: 1000))
+  }
+
+  /// Updates the controlTimebase time and rate to match playback state.
   private func syncTimebase(playing: Bool) {
     guard let tb = controlTimebase else { return }
+    syncTimebaseTime()
     CMTimebaseSetRate(tb, rate: playing ? 1.0 : 0.0)
   }
 }
@@ -212,17 +276,41 @@ extension PiPController: AVPictureInPictureControllerDelegate {
 // MARK: - AVPictureInPictureSampleBufferPlaybackDelegate
 
 extension PiPController: AVPictureInPictureSampleBufferPlaybackDelegate {
+  // NOTE: All delegate methods are called by the PiP system on the main thread.
+  // They MUST execute synchronously (MainActor.assumeIsolated) — not via
+  // Task { @MainActor in }, which defers to the next run-loop iteration.
+  // The PiP system queries state immediately after calling these; if the
+  // action hasn't executed yet the UI reverts to stale state.
+
   public nonisolated func pictureInPictureController(
     _: AVPictureInPictureController,
     setPlaying playing: Bool
   ) {
-    Task { @MainActor in
-      syncTimebase(playing: playing)
+    MainActor.assumeIsolated {
+      deferredPauseTask?.cancel()
+      deferredPauseTask = nil
+
+      // Set immediately so isPlaybackPaused returns the correct value
+      // when PiP queries it right after this call (before VLC catches up).
+      pipPlaybackActive = playing
+
       if playing {
-        try? player.play()
+        // Use resume (unpause) rather than play (restart) — the player
+        // was paused, not stopped, so unpause is the correct operation.
+        player.resume()
       } else {
-        player.pause()
+        // Defer the actual VLC pause to the next run-loop iteration.
+        // PiP calls setPlaying(false) before every skip, then
+        // setPlaying(true) after. If skipByInterval arrives before
+        // this executes, it cancels the task — so VLC never pauses
+        // and there's no visible blink.
+        deferredPauseTask = Task { @MainActor [weak self] in
+          guard let self, !Task.isCancelled else { return }
+          player.pause()
+        }
       }
+      syncTimebase(playing: playing)
+      pipController?.invalidatePlaybackState()
     }
   }
 
@@ -230,33 +318,27 @@ extension PiPController: AVPictureInPictureSampleBufferPlaybackDelegate {
     _: AVPictureInPictureController
   ) -> CMTimeRange {
     let duration: Duration? = MainActor.assumeIsolated { player.duration }
-    let currentTime: Duration = MainActor.assumeIsolated { player.currentTime }
 
     let durationSeconds = duration.map {
       Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18
     } ?? 0
 
-    let currentSeconds = Double(currentTime.components.seconds) +
-      Double(currentTime.components.attoseconds) / 1e18
+    // When duration is unknown (nil → 0), use a large sentinel so the
+    // scrubber doesn't show 100% before the real duration is known.
+    // Once known, the observer invalidates and PiP re-queries.
+    let cmDuration = if durationSeconds > 0 {
+      CMTime(seconds: durationSeconds, preferredTimescale: 1000)
+    } else {
+      CMTime(seconds: 86400, preferredTimescale: 1000)
+    }
 
-    let cmDuration = CMTime(seconds: max(durationSeconds, 1), preferredTimescale: 1000)
-    let cmCurrent = CMTime(seconds: currentSeconds, preferredTimescale: 1000)
-
-    return CMTimeRange(start: cmCurrent, duration: cmDuration - cmCurrent)
+    return CMTimeRange(start: .zero, duration: cmDuration)
   }
 
   public nonisolated func pictureInPictureControllerIsPlaybackPaused(
     _: AVPictureInPictureController
   ) -> Bool {
-    let state: PlayerState = MainActor.assumeIsolated { player.state }
-    // Only report paused for actual pause/stop states.
-    // Buffering and opening are NOT paused — content is loading.
-    switch state {
-    case .paused, .stopped, .stopping, .error, .idle:
-      return true
-    case .playing, .opening, .buffering:
-      return false
-    }
+    MainActor.assumeIsolated { !pipPlaybackActive }
   }
 
   public nonisolated func pictureInPictureController(
@@ -264,9 +346,31 @@ extension PiPController: AVPictureInPictureSampleBufferPlaybackDelegate {
     skipByInterval skipInterval: CMTime,
     completion completionHandler: @escaping @Sendable () -> Void
   ) {
-    Task { @MainActor in
-      let ms = Int64(skipInterval.seconds * 1000)
-      player.seek(by: .milliseconds(ms))
+    MainActor.assumeIsolated {
+      // Cancel the deferred pause — VLC should keep playing through the skip
+      deferredPauseTask?.cancel()
+      deferredPauseTask = nil
+
+      let currentMs = player.currentTime.milliseconds
+      let durationMs = player.duration?.milliseconds ?? Int64.max
+      let offsetMs = Int64(skipInterval.seconds * 1000)
+      let targetMs = max(0, min(currentMs + offsetMs, durationMs))
+
+      // Relative seek — same API the demo app skip buttons use
+      player.seek(by: .milliseconds(offsetMs))
+
+      lastSkipTimestamp = CFAbsoluteTimeGetCurrent()
+
+      // Apple docs: "the control timebase should reflect the current
+      // playback time and rate when the closure is invoked"
+      if let tb = controlTimebase {
+        CMTimebaseSetTime(tb, time: CMTime(
+          seconds: Double(targetMs) / 1000.0,
+          preferredTimescale: 1000
+        ))
+        CMTimebaseSetRate(tb, rate: 1.0)
+      }
+
       completionHandler()
     }
   }

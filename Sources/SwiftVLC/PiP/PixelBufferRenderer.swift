@@ -187,10 +187,11 @@ func pixelBufferDisplayCallback(
   // CMSampleBuffer is a CF type that lacks Sendable conformance but is thread-safe for read access
   nonisolated(unsafe) let sample = sb
   DispatchQueue.main.async { [layer] in
-    if layer.status == .failed {
-      layer.flush()
+    let renderer = layer.sampleBufferRenderer
+    if renderer.status == .failed {
+      renderer.flush()
     }
-    layer.enqueue(sample)
+    renderer.enqueue(sample)
   }
 }
 
