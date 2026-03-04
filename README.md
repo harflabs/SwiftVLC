@@ -1,4 +1,8 @@
-# SwiftVLC
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="Assets/logo-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="Assets/logo-light.svg">
+  <img alt="SwiftVLC" src="Assets/logo-light.svg" width="260">
+</picture>
 
 A modern Swift wrapper around [libVLC](https://www.videolan.org/vlc/libvlc.html) for iOS, macOS, tvOS, and Mac Catalyst.
 
