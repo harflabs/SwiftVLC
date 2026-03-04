@@ -58,7 +58,7 @@ struct ViewpointTests {
   @Test("Player updateViewpoint safety", .tags(.mainActor, .integration))
   @MainActor
   func playerUpdateViewpointSafety() throws {
-    let player = try Player()
+    let player = Player()
     // updateViewpoint on idle player should not crash (may throw but won't crash)
     let vp = Viewpoint(yaw: 45, pitch: 0)
     do {

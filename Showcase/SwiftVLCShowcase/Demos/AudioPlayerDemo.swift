@@ -41,7 +41,7 @@ struct AudioPlayerDemo: View {
     #endif
       .task {
         do {
-          let p = try Player()
+          let p = Player()
           player = p
 
           let media = try Media(url: TestMedia.bigBuckBunny)

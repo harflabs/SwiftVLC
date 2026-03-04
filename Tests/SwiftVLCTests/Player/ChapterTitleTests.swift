@@ -51,7 +51,7 @@ struct ChapterTitleTests {
   @Test("Player titles empty for simple media", .tags(.mainActor, .async, .integration))
   @MainActor
   func playerTitlesEmpty() throws {
-    let player = try Player()
+    let player = Player()
     #expect(player.titles.isEmpty)
     #expect(player.titleCount <= 0)
   }
@@ -59,7 +59,7 @@ struct ChapterTitleTests {
   @Test("Player chapters empty for simple media", .tags(.mainActor, .async, .integration))
   @MainActor
   func playerChaptersEmpty() throws {
-    let player = try Player()
+    let player = Player()
     #expect(player.chapters().isEmpty)
     #expect(player.chapterCount <= 0)
   }

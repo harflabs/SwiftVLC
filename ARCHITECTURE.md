@@ -376,22 +376,22 @@ flowchart TB
 ```swift
 // Internal: EventBridge
 func makeStream() -> AsyncStream<PlayerEvent> {
-    let id = UUID()
-    return AsyncStream { continuation in
-        store.withLock { $0[id] = continuation }
-        continuation.onTermination = { _ in
-            store.withLock { $0.removeValue(forKey: id) }
-        }
+  let id = UUID()
+  return AsyncStream { continuation in
+    store.withLock { $0[id] = continuation }
+    continuation.onTermination = { _ in
+      store.withLock { $0.removeValue(forKey: id) }
     }
+  }
 }
 
 // From C callback:
 func broadcast(_ event: PlayerEvent) {
-    store.withLock { continuations in
-        for (_, continuation) in continuations {
-            continuation.yield(event)
-        }
+  store.withLock { continuations in
+    for (_, continuation) in continuations {
+      continuation.yield(event)
     }
+  }
 }
 ```
 
@@ -524,14 +524,14 @@ All fallible operations use `throws(VLCError)`:
 
 ```swift
 func play() throws(VLCError) {
-    guard libvlc_media_player_play(pointer) == 0 else {
-        throw .playbackFailed
-    }
+  guard libvlc_media_player_play(pointer) == 0 else {
+    throw .playbackFailed
+  }
 }
 
 func parse(timeout: Duration) async throws(VLCError) -> Metadata {
-    // ...
-    throw .parseTimeout
+  // ...
+  throw .parseTimeout
 }
 ```
 
@@ -588,9 +588,9 @@ Tests/SwiftVLCTests/
 ```swift
 @Test(.tags(.integration, .media, .async))
 func playAndWaitForState() async throws {
-    let player = try Player()
-    try player.play(url: TestMedia.videoURL)
-    // Wait for state change...
+  let player = Player()
+  try player.play(url: TestMedia.videoURL)
+  // Wait for state change...
 }
 ```
 

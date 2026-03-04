@@ -140,10 +140,10 @@ struct PlaylistDemo: View {
 
   private func setupPlaylist() async {
     do {
-      let p = try Player()
+      let p = Player()
       player = p
 
-      let lp = try MediaListPlayer()
+      let lp = MediaListPlayer()
       lp.mediaPlayer = p
       listPlayer = lp
 

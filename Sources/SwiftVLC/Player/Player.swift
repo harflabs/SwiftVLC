@@ -239,10 +239,9 @@ public final class Player {
 
   /// Creates a new player.
   /// - Parameter instance: The VLC instance to use.
-  /// - Throws: `VLCError.instanceCreationFailed` if the player cannot be allocated.
-  public init(instance: VLCInstance = .shared) throws(VLCError) {
+  public init(instance: VLCInstance = .shared) {
     guard let p = libvlc_media_player_new(instance.pointer) else {
-      throw .instanceCreationFailed
+      preconditionFailure("Failed to create libvlc media player. Is the libvlc.xcframework linked correctly?")
     }
     pointer = p
     self.instance = instance

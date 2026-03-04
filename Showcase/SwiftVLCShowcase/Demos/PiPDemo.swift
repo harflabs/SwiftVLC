@@ -88,7 +88,7 @@ struct PiPDemo: View {
     #endif
       .task {
         do {
-          let p = try Player()
+          let p = Player()
           player = p
           try p.play(url: TestMedia.bigBuckBunny)
         } catch {

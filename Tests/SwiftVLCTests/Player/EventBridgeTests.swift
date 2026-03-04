@@ -9,7 +9,7 @@ import Testing
 struct EventBridgeTests {
   @Test("Independent streams")
   func independentStreams() async throws {
-    let player = try Player()
+    let player = Player()
     let stream1 = player.events
     let stream2 = player.events
     // Both streams should be independent
@@ -27,7 +27,7 @@ struct EventBridgeTests {
 
   @Test("Events arrive on playback")
   func eventsArriveOnPlayback() async throws {
-    let player = try Player()
+    let player = Player()
     let stream = player.events
     let media = try Media(url: TestMedia.testMP4URL)
 
@@ -49,7 +49,7 @@ struct EventBridgeTests {
 
   @Test("Multiple consumers receive same events")
   func multipleConsumersSameEvents() async throws {
-    let player = try Player()
+    let player = Player()
     let stream1 = player.events
     let stream2 = player.events
 
@@ -85,7 +85,7 @@ struct EventBridgeTests {
 
   @Test("Terminated stream cleanup")
   func terminatedStreamCleanup() async throws {
-    let player = try Player()
+    let player = Player()
     let stream = player.events
     let task = Task {
       for await _ in stream {
@@ -111,7 +111,7 @@ struct EventBridgeTests {
     // Scope the player so it deinits on the main actor.
     let stream: AsyncStream<PlayerEvent>
     do {
-      let player = try Player()
+      let player = Player()
       stream = player.events
     }
     // Player is now deinitialized — stream should finish
@@ -125,7 +125,7 @@ struct EventBridgeTests {
 
   @Test("State transitions received during playback")
   func stateTransitionsDuringPlayback() async throws {
-    let player = try Player()
+    let player = Player()
     let stream = player.events
 
     var receivedStates: [PlayerState] = []
@@ -153,7 +153,7 @@ struct EventBridgeTests {
 
   @Test("Time and position events during playback")
   func timeAndPositionEventsDuringPlayback() async throws {
-    let player = try Player()
+    let player = Player()
     let stream = player.events
 
     var receivedTime = false
@@ -184,7 +184,7 @@ struct EventBridgeTests {
 
   @Test("Length changed event during playback")
   func lengthChangedDuringPlayback() async throws {
-    let player = try Player()
+    let player = Player()
     let stream = player.events
 
     var receivedLength = false
@@ -208,7 +208,7 @@ struct EventBridgeTests {
 
   @Test("Seekable and pausable events during playback")
   func seekablePausableEventsDuringPlayback() async throws {
-    let player = try Player()
+    let player = Player()
     let stream = player.events
 
     var receivedSeekable = false
@@ -240,7 +240,7 @@ struct EventBridgeTests {
 
   @Test("Mute events")
   func muteEvents() async throws {
-    let player = try Player()
+    let player = Player()
     let stream = player.events
 
     var receivedMuted = false
@@ -275,7 +275,7 @@ struct EventBridgeTests {
 
   @Test("Volume changed event")
   func volumeChangedEvent() async throws {
-    let player = try Player()
+    let player = Player()
     let stream = player.events
 
     var receivedVolumeChanged = false
@@ -301,7 +301,7 @@ struct EventBridgeTests {
 
   @Test("Stopped event resets player state")
   func stoppedEventResetsState() async throws {
-    let player = try Player()
+    let player = Player()
     let stream = player.events
 
     var receivedStopped = false
@@ -329,7 +329,7 @@ struct EventBridgeTests {
 
   @Test("Tracks changed event after load")
   func tracksChangedAfterLoad() async throws {
-    let player = try Player()
+    let player = Player()
     let stream = player.events
 
     var receivedTracksChanged = false
@@ -360,7 +360,7 @@ struct EventBridgeTests {
 
   @Test("Buffering progress event during playback")
   func bufferingProgressDuringPlayback() async throws {
-    let player = try Player()
+    let player = Player()
     let stream = player.events
 
     var receivedBuffering = false

@@ -10,8 +10,8 @@ import CLibVLC
 /// try list.append(media1)
 /// try list.append(media2)
 ///
-/// let player = try Player()
-/// let listPlayer = try MediaListPlayer(player: player)
+/// let player = Player()
+/// let listPlayer = MediaListPlayer(player: player)
 /// listPlayer.mediaList = list
 /// listPlayer.play()
 /// ```
@@ -24,10 +24,9 @@ public final class MediaListPlayer {
 
   /// Creates a new media list player.
   /// - Parameter instance: The VLC instance to use.
-  /// - Throws: `VLCError.instanceCreationFailed` if allocation fails.
-  public init(instance: VLCInstance = .shared) throws(VLCError) {
+  public init(instance: VLCInstance = .shared) {
     guard let p = libvlc_media_list_player_new(instance.pointer) else {
-      throw .instanceCreationFailed
+      preconditionFailure("Failed to create libvlc media list player. Is the libvlc.xcframework linked correctly?")
     }
     pointer = p
   }

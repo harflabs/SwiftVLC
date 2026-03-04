@@ -12,7 +12,7 @@ struct MediaStatisticsTests {
   @Test("Available during playback", .tags(.mainActor, .async, .media), .enabled(if: TestCondition.canPlayMedia))
   @MainActor
   func availableDuringPlayback() async throws {
-    let player = try Player()
+    let player = Player()
     let media = try Media(url: TestMedia.testMP4URL)
     try player.play(media)
     // Give player time to start
@@ -25,7 +25,7 @@ struct MediaStatisticsTests {
   @Test("Fields are reasonable", .tags(.mainActor, .async, .media), .enabled(if: TestCondition.canPlayMedia))
   @MainActor
   func fieldsReasonable() async throws {
-    let player = try Player()
+    let player = Player()
     let media = try Media(url: TestMedia.twosecURL)
     try player.play(media)
     try await Task.sleep(for: .milliseconds(800))
@@ -52,7 +52,7 @@ struct MediaStatisticsTests {
   @Test("Statistics accessible during playback", .tags(.mainActor, .async, .media), .enabled(if: TestCondition.canPlayMedia))
   @MainActor
   func statisticsAccessibleDuringPlayback() async throws {
-    let player = try Player()
+    let player = Player()
     let media = try Media(url: TestMedia.twosecURL)
     try player.play(media)
     try await Task.sleep(for: .milliseconds(800))
