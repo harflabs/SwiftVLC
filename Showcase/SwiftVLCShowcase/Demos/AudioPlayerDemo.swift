@@ -35,6 +35,8 @@ struct AudioPlayerDemo: View {
     #if os(iOS)
     .listStyle(.insetGrouped)
     #endif
+    .frame(maxWidth: 700)
+    .frame(maxWidth: .infinity)
     .navigationTitle("Audio Player")
     #if os(iOS)
       .navigationBarTitleDisplayMode(.inline)

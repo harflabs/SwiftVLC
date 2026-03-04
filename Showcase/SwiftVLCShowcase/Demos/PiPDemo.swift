@@ -82,6 +82,8 @@ struct PiPDemo: View {
     #if os(iOS)
     .listStyle(.insetGrouped)
     #endif
+    .frame(maxWidth: 700)
+    .frame(maxWidth: .infinity)
     .navigationTitle("Picture in Picture")
     #if os(iOS)
       .navigationBarTitleDisplayMode(.inline)

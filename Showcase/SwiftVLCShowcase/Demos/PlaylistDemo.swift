@@ -36,6 +36,14 @@ struct PlaylistDemo: View {
 
   #if !os(tvOS)
   private var defaultBody: some View {
+    #if targetEnvironment(macCatalyst)
+    catalystBody
+    #else
+    phoneBody
+    #endif
+  }
+
+  private var phoneBody: some View {
     VStack(spacing: .zero) {
       if let player {
         VideoView(player)
@@ -67,6 +75,42 @@ struct PlaylistDemo: View {
     #if os(iOS)
       .navigationBarTitleDisplayMode(.inline)
     #endif
+  }
+
+  private var catalystBody: some View {
+    HStack(spacing: 0) {
+      // Left: video + transport
+      VStack(spacing: 16) {
+        if let player {
+          VideoView(player)
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .clipShape(.rect(cornerRadius: 12))
+            .clipped()
+
+          PlayerStatusBar(player: player)
+        } else if error != nil {
+          ContentUnavailableView(
+            "Playlist Failed",
+            systemImage: "exclamationmark.triangle",
+            description: Text("Could not set up the playlist.")
+          )
+        } else {
+          ProgressView("Loading playlist...")
+            .frame(maxHeight: .infinity)
+        }
+
+        if let player, let listPlayer {
+          transportControls(player: player, listPlayer: listPlayer)
+        }
+      }
+      .frame(maxWidth: .infinity)
+      .padding()
+
+      // Right: track list
+      trackList
+        .frame(width: 300)
+    }
+    .navigationTitle("Playlist")
   }
   #endif
 
