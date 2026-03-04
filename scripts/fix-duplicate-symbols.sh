@@ -29,14 +29,24 @@ fix_static_lib() {
   local SYMS_FILE="${WORK_DIR}/localize_syms.txt"
   printf "_json_parse_error\n_json_read\n" > "$SYMS_FILE"
 
+  local LIPO_INFO
+  LIPO_INFO=$(lipo -info "$LIB_PATH" 2>/dev/null)
   local ARCHS
-  ARCHS=$(lipo -info "$LIB_PATH" 2>/dev/null | sed 's/.*: //')
+  ARCHS=$(echo "$LIPO_INFO" | sed 's/.*: //')
+  local IS_FAT=true
+  if echo "$LIPO_INFO" | grep -q "Non-fat"; then
+    IS_FAT=false
+  fi
 
   local CHANGED=false
 
   for ARCH in $ARCHS; do
     local THIN="${WORK_DIR}/${ARCH}.a"
-    lipo -thin "$ARCH" "$LIB_PATH" -output "$THIN"
+    if $IS_FAT; then
+      lipo -thin "$ARCH" "$LIB_PATH" -output "$THIN"
+    else
+      cp "$LIB_PATH" "$THIN"
+    fi
 
     local COUNT
     COUNT=$(nm "$THIN" 2>/dev/null | grep -c 'T _json_parse_error' || true)
@@ -51,11 +61,15 @@ fix_static_lib() {
   done
 
   if $CHANGED; then
-    local THIN_FILES=()
-    for ARCH in $ARCHS; do
-      THIN_FILES+=("${WORK_DIR}/${ARCH}.a")
-    done
-    lipo -create "${THIN_FILES[@]}" -output "$LIB_PATH"
+    if $IS_FAT; then
+      local THIN_FILES=()
+      for ARCH in $ARCHS; do
+        THIN_FILES+=("${WORK_DIR}/${ARCH}.a")
+      done
+      lipo -create "${THIN_FILES[@]}" -output "$LIB_PATH"
+    else
+      cp "${WORK_DIR}/${ARCHS}.a" "$LIB_PATH"
+    fi
     echo "  Fixed: $LIB_PATH"
   fi
 }
