@@ -91,13 +91,14 @@ private struct MacOSOverlayContent: View {
       Spacer()
 
       // Bottom bar — seek slider with time, volume, and rate in one row below
-      VStack(spacing: 4) {
+      VStack(spacing: 6) {
         SeekBar(player: player, showTimeLabels: false, onEditingChanged: onSeekEditingChanged)
-        HStack {
+        HStack(spacing: 12) {
           Text(player.currentTime.formatted)
             .monospacedDigit()
             .font(.caption)
             .contentTransition(.numericText())
+            .frame(width: 48, alignment: .leading)
 
           volumeSlider
 
@@ -109,10 +110,11 @@ private struct MacOSOverlayContent: View {
             .monospacedDigit()
             .font(.caption)
             .contentTransition(.numericText())
+            .frame(width: 56, alignment: .trailing)
         }
       }
       .padding(.horizontal)
-      .padding(.bottom)
+      .padding(.bottom, 12)
       .background(alignment: .bottom) { GradientOverlay.bottom }
     }
     .foregroundStyle(.white)
@@ -161,7 +163,7 @@ private struct MacOSOverlayContent: View {
         get: { Double(player.volume) },
         set: { player.volume = Float($0); onInteraction() }
       ), in: 0...1.25)
-        .frame(width: 80)
+        .frame(width: 100)
     }
     .font(.caption)
   }

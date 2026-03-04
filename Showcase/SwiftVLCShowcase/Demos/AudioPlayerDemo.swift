@@ -35,6 +35,8 @@ struct AudioPlayerDemo: View {
     #if os(iOS)
     .listStyle(.insetGrouped)
     #endif
+    .frame(maxWidth: 700)
+    .frame(maxWidth: .infinity)
     .navigationTitle("Audio Player")
     #if os(iOS)
       .navigationBarTitleDisplayMode(.inline)
@@ -97,7 +99,7 @@ struct AudioPlayerDemo: View {
         artworkPlaceholder
       }
     }
-    .frame(maxWidth: 280, maxHeight: 280)
+    .frame(maxWidth: 200, maxHeight: 200)
     .clipShape(.rect(cornerRadius: 16))
     .shadow(radius: 8)
   }
@@ -200,39 +202,41 @@ struct AudioPlayerDemo: View {
           in: -20...20
         )
 
-        VStack(spacing: 2) {
-          HStack(alignment: .bottom, spacing: 4) {
-            ForEach(0..<Equalizer.bandCount, id: \.self) { band in
-              VStack(spacing: 2) {
-                bandSlider(band: band)
-                Text(bandLabel(band))
-                  .font(.caption2)
-                  .foregroundStyle(.tertiary)
-              }
-            }
-          }
-          .frame(height: 140)
+        // Band sliders — horizontal rows
+        ForEach(0..<Equalizer.bandCount, id: \.self) { band in
+          bandRow(band: band, equalizer: equalizer)
         }
-        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
       }
     } header: {
       Text("Equalizer")
     }
   }
 
-  private func bandSlider(band: Int) -> some View {
-    Slider(
-      value: Binding(
-        get: { Double(equalizer?.amplification(forBand: band) ?? 0) },
-        set: {
-          try? equalizer?.setAmplification(Float($0), forBand: band)
-          applyEqualizer()
-        }
-      ),
-      in: -20...20
-    )
-    .rotationEffect(.degrees(-90))
-    .frame(width: 20, height: 100)
+  private func bandRow(band: Int, equalizer: Equalizer) -> some View {
+    HStack(spacing: 8) {
+      Text(bandLabel(band))
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .frame(width: 36, alignment: .trailing)
+        .monospacedDigit()
+
+      Slider(
+        value: Binding(
+          get: { Double(equalizer.amplification(forBand: band)) },
+          set: {
+            try? equalizer.setAmplification(Float($0), forBand: band)
+            applyEqualizer()
+          }
+        ),
+        in: -20...20
+      )
+
+      Text("\(equalizer.amplification(forBand: band), specifier: "%+.0f")")
+        .font(.caption)
+        .foregroundStyle(.tertiary)
+        .frame(width: 28, alignment: .trailing)
+        .monospacedDigit()
+    }
   }
 
   private func bandLabel(_ band: Int) -> String {

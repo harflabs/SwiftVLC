@@ -98,6 +98,8 @@ struct DebugConsoleDemo: View {
     #if os(iOS)
     .listStyle(.insetGrouped)
     #endif
+    .frame(maxWidth: 900)
+    .frame(maxWidth: .infinity)
     .navigationTitle("Debug Console")
     #if os(iOS)
       .navigationBarTitleDisplayMode(.inline)
@@ -150,17 +152,17 @@ struct DebugConsoleDemo: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
           Text("[\(entry.entry.level.description)]")
             .foregroundStyle(levelColor(entry.entry.level))
-            .font(.caption2)
+            .font(logFont)
             .frame(width: 60, alignment: .leading)
           if let module = entry.entry.module {
             Text(module)
               .foregroundStyle(.tertiary)
-              .font(.caption2)
-              .frame(width: 60, alignment: .leading)
+              .font(logFont)
+              .frame(width: 80, alignment: .leading)
           }
           Text(entry.entry.message)
-            .font(.caption2)
-            .lineLimit(2)
+            .font(logFont)
+            .lineLimit(3)
         }
       }
     } header: {
@@ -187,6 +189,14 @@ struct DebugConsoleDemo: View {
   }
 
   // MARK: - Helpers
+
+  private var logFont: Font {
+    #if targetEnvironment(macCatalyst)
+    .caption
+    #else
+    .caption2
+    #endif
+  }
 
   private func stateLabel(_ state: PlayerState) -> String {
     switch state {

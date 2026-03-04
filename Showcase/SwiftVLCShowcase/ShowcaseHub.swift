@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct ShowcaseHub: View {
+  @State private var showingPlayer = false
+
   var body: some View {
     NavigationStack {
       #if os(tvOS)
@@ -9,6 +11,11 @@ struct ShowcaseHub: View {
       demoList
       #endif
     }
+    #if os(iOS)
+    .fullScreenCover(isPresented: $showingPlayer) {
+      PolishedPlayerDemo()
+    }
+    #endif
   }
 
   // MARK: - iOS / macOS — Clean list
@@ -17,23 +24,23 @@ struct ShowcaseHub: View {
   private var demoList: some View {
     List {
       ForEach(ShowcaseItem.available) { item in
-        NavigationLink(value: item) {
-          Label {
-            VStack(alignment: .leading, spacing: 2) {
-              Text(item.title)
-              Text(item.subtitle)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-          } icon: {
-            Image(systemName: item.systemImage)
-              .font(.body)
-              .foregroundStyle(.white)
-              .frame(width: 40, height: 40)
-              .background(item.accentColor.gradient, in: .rect(cornerRadius: 10))
+        #if os(iOS)
+        if item == .polishedPlayer {
+          Button {
+            showingPlayer = true
+          } label: {
+            demoLabel(item)
           }
-          .padding(.vertical, 4)
+        } else {
+          NavigationLink(value: item) {
+            demoLabel(item)
+          }
         }
+        #else
+        NavigationLink(value: item) {
+          demoLabel(item)
+        }
+        #endif
       }
     }
     #if os(iOS)
@@ -44,6 +51,24 @@ struct ShowcaseHub: View {
       destinationView(for: item)
     }
   }
+
+  private func demoLabel(_ item: ShowcaseItem) -> some View {
+    Label {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(item.title)
+        Text(item.subtitle)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+    } icon: {
+      Image(systemName: item.systemImage)
+        .font(.body)
+        .foregroundStyle(.white)
+        .frame(width: 40, height: 40)
+        .background(item.accentColor.gradient, in: .rect(cornerRadius: 10))
+    }
+    .padding(.vertical, 4)
+  }
   #endif
 
   // MARK: - tvOS — Focus-driven grid
@@ -51,29 +76,28 @@ struct ShowcaseHub: View {
   #if os(tvOS)
   private var tvOSGrid: some View {
     ScrollView {
-      LazyVGrid(columns: [GridItem(.adaptive(minimum: 300))], spacing: 40) {
+      LazyVGrid(columns: [GridItem(.adaptive(minimum: 400))], spacing: 48) {
         ForEach(ShowcaseItem.available) { item in
           NavigationLink(value: item) {
-            VStack(spacing: 12) {
+            VStack(spacing: 16) {
               Image(systemName: item.systemImage)
-                .font(.largeTitle)
+                .font(.system(size: 48))
                 .foregroundStyle(item.accentColor)
               Text(item.title)
-                .font(.headline)
+                .font(.title3)
               Text(item.subtitle)
-                .font(.caption)
+                .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
-            .padding()
-            .padding()
-            .background(.regularMaterial, in: .rect(cornerRadius: 16))
+            .padding(32)
+            .background(.regularMaterial, in: .rect(cornerRadius: 20))
           }
           .buttonStyle(.card)
         }
       }
-      .padding()
+      .padding(48)
     }
     .navigationTitle("SwiftVLC Showcase")
     .navigationDestination(for: ShowcaseItem.self) { item in
