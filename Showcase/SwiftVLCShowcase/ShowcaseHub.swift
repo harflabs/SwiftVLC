@@ -1,84 +1,67 @@
 import SwiftUI
 
 struct ShowcaseHub: View {
-  #if os(macOS)
-  @State private var selection: ShowcaseItem? = .polishedPlayer
-  #endif
+  @State private var showingPlayer = false
 
   var body: some View {
-    #if os(macOS)
-    macOSSplitView
-    #elseif os(tvOS)
-    NavigationStack { tvOSGrid }
-    #else
-    NavigationStack { demoList }
+    NavigationStack {
+      #if os(tvOS)
+      tvOSGrid
+      #else
+      demoList
+      #endif
+    }
+    #if !os(tvOS)
+    .fullScreenCover(isPresented: $showingPlayer) {
+      PolishedPlayerDemo()
+    }
     #endif
   }
 
-  // MARK: - macOS — Sidebar + Detail
+  // MARK: - iOS / macOS — Clean list
 
-  #if os(macOS)
-  private var macOSSplitView: some View {
-    NavigationSplitView {
-      List(ShowcaseItem.available, selection: $selection) { item in
-        Label {
-          VStack(alignment: .leading, spacing: 2) {
-            Text(item.title)
-            Text(item.subtitle)
-              .font(.caption)
-              .foregroundStyle(.secondary)
-          }
-        } icon: {
-          Image(systemName: item.systemImage)
-            .font(.body)
-            .foregroundStyle(.white)
-            .frame(width: 32, height: 32)
-            .background(item.accentColor.gradient, in: .rect(cornerRadius: 8))
-        }
-        .padding(.vertical, 4)
-        .tag(item)
-      }
-      .navigationTitle("SwiftVLC")
-    } detail: {
-      if let selection {
-        destinationView(for: selection)
-      } else {
-        ContentUnavailableView("Select a Demo", systemImage: "play.rectangle.fill")
-      }
-    }
-  }
-  #endif
-
-  // MARK: - iOS — Clean list
-
-  #if os(iOS)
+  #if !os(tvOS)
   private var demoList: some View {
     List {
       ForEach(ShowcaseItem.available) { item in
-        NavigationLink(value: item) {
-          Label {
-            VStack(alignment: .leading, spacing: 2) {
-              Text(item.title)
-              Text(item.subtitle)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-          } icon: {
-            Image(systemName: item.systemImage)
-              .font(.body)
-              .foregroundStyle(.white)
-              .frame(width: 40, height: 40)
-              .background(item.accentColor.gradient, in: .rect(cornerRadius: 10))
+        if item == .polishedPlayer {
+          Button {
+            showingPlayer = true
+          } label: {
+            demoLabel(item)
           }
-          .padding(.vertical, 4)
+        } else {
+          NavigationLink(value: item) {
+            demoLabel(item)
+          }
         }
       }
     }
+    #if os(iOS)
     .listStyle(.insetGrouped)
+    #endif
     .navigationTitle("SwiftVLC Showcase")
     .navigationDestination(for: ShowcaseItem.self) { item in
       destinationView(for: item)
     }
+  }
+
+  private func demoLabel(_ item: ShowcaseItem) -> some View {
+    Label {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(item.title)
+        Text(item.subtitle)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+    } icon: {
+      Image(systemName: item.systemImage)
+        .font(.body)
+        .foregroundStyle(.white)
+        .frame(width: 40, height: 40)
+        .background(item.accentColor.gradient, in: .rect(cornerRadius: 10))
+    }
+    .padding(.vertical, 4)
   }
   #endif
 
