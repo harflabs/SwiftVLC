@@ -786,6 +786,12 @@ xcodebuild -create-xcframework \
     "${XCFRAMEWORK_ARGS[@]}" \
     -output "${OUTPUT_DIR}/libvlc.xcframework"
 
+# Fix duplicate symbols (json_parse_error/json_read) in the static library.
+# Two VLC plugins (ytdl, chromecast) each compile their own copy. The Apple
+# linker in Xcode 16+ treats these as errors on some platforms (Mac Catalyst).
+info "Fixing duplicate symbols in static libraries..."
+"${SCRIPT_DIR}/fix-duplicate-symbols.sh" "${OUTPUT_DIR}/libvlc.xcframework"
+
 # Remove the CLibVLC module.modulemap from xcframework headers to avoid
 # "redefinition of module" errors when building with xcodebuild. The CLibVLC
 # SPM target provides its own module map; the xcframework only needs the raw

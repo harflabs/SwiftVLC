@@ -22,6 +22,9 @@ coverage-report/
 # macOS
 .DS_Store
 
+# Claude Code
+.claude/
+
 # IDE
 *.swp
 *~

@@ -55,6 +55,12 @@ if [[ ! -d "$XCFW_DIR" ]]; then
   echo "Extracting..."
   (cd Vendor && ditto -x -k "$ZIP_NAME" . && rm "$ZIP_NAME")
   echo "  Installed to $XCFW_DIR"
+
+  # Fix duplicate symbols (json_parse_error/json_read) in the static library.
+  # Two VLC plugins (ytdl, chromecast) each compile their own copy. The Apple
+  # linker in Xcode 16+ treats these as errors on some platforms (Mac Catalyst).
+  echo "Fixing duplicate symbols in static libraries..."
+  "$SCRIPT_DIR/fix-duplicate-symbols.sh" "$XCFW_DIR"
 fi
 
 # ── Switch Package.swift to local path ────────────────────────────────────────
