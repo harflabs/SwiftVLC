@@ -2,6 +2,14 @@ import SwiftUI
 
 /// Dark gradient overlays for text legibility over video content.
 enum GradientOverlay {
+  #if os(tvOS)
+  private static let topHeight: CGFloat = 180
+  private static let bottomHeight: CGFloat = 200
+  #else
+  private static let topHeight: CGFloat = 120
+  private static let bottomHeight: CGFloat = 140
+  #endif
+
   /// Top-down gradient for title bars over video.
   static var top: some View {
     LinearGradient(
@@ -9,7 +17,7 @@ enum GradientOverlay {
       startPoint: .top,
       endPoint: .bottom
     )
-    .frame(height: 120)
+    .frame(height: topHeight)
     .allowsHitTesting(false)
   }
 
@@ -20,7 +28,7 @@ enum GradientOverlay {
       startPoint: .top,
       endPoint: .bottom
     )
-    .frame(height: 140)
+    .frame(height: bottomHeight)
     .allowsHitTesting(false)
   }
 }

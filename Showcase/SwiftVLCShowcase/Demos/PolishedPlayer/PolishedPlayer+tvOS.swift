@@ -50,23 +50,23 @@ private struct TVOSOverlayContent: View {
       // Top bar
       HStack {
         Text("Big Buck Bunny")
-          .font(.title3)
+          .font(.title2)
         Spacer()
       }
-      .padding(.horizontal)
-      .padding(.top)
+      .padding(.horizontal, 64)
+      .padding(.top, 48)
       .background(alignment: .top) { GradientOverlay.top }
 
       Spacer()
 
       // Center transport
-      HStack(spacing: 60) {
+      HStack(spacing: 80) {
         Button {
           player.seek(by: .seconds(-10))
           onInteraction()
         } label: {
           Image(systemName: "gobackward.10")
-            .font(.title)
+            .font(.system(size: 46))
         }
         .focused($focusedControl, equals: .skipBack)
 
@@ -75,7 +75,7 @@ private struct TVOSOverlayContent: View {
           onInteraction()
         } label: {
           Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-            .font(.largeTitle)
+            .font(.system(size: 64))
             .contentTransition(.symbolEffect(.replace))
         }
         .focused($focusedControl, equals: .playPause)
@@ -85,7 +85,7 @@ private struct TVOSOverlayContent: View {
           onInteraction()
         } label: {
           Image(systemName: "goforward.10")
-            .font(.title)
+            .font(.system(size: 46))
         }
         .focused($focusedControl, equals: .skipForward)
       }
@@ -94,9 +94,18 @@ private struct TVOSOverlayContent: View {
       Spacer()
 
       // Bottom bar
-      VStack(spacing: 4) {
-        ProgressView(value: player.position, total: 1.0)
-          .tint(.accentColor)
+      VStack(spacing: 12) {
+        GeometryReader { geo in
+          ZStack(alignment: .leading) {
+            Capsule()
+              .fill(.white.opacity(0.3))
+              .frame(height: 6)
+            Capsule()
+              .fill(Color.accentColor)
+              .frame(width: max(0, geo.size.width * player.position), height: 6)
+          }
+        }
+        .frame(height: 6)
         HStack {
           Text(player.currentTime.formatted)
             .contentTransition(.numericText())
@@ -105,10 +114,10 @@ private struct TVOSOverlayContent: View {
             .contentTransition(.numericText())
         }
         .monospacedDigit()
-        .font(.caption)
+        .font(.body)
       }
-      .padding(.horizontal)
-      .padding(.bottom)
+      .padding(.horizontal, 64)
+      .padding(.bottom, 48)
       .background(alignment: .bottom) { GradientOverlay.bottom }
     }
     .foregroundStyle(.white)

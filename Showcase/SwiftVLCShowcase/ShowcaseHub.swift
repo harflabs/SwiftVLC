@@ -1,19 +1,57 @@
 import SwiftUI
 
 struct ShowcaseHub: View {
+  #if os(macOS)
+  @State private var selection: ShowcaseItem? = .polishedPlayer
+  #endif
+
   var body: some View {
-    NavigationStack {
-      #if os(tvOS)
-      tvOSGrid
-      #else
-      demoList
-      #endif
-    }
+    #if os(macOS)
+    macOSSplitView
+    #elseif os(tvOS)
+    NavigationStack { tvOSGrid }
+    #else
+    NavigationStack { demoList }
+    #endif
   }
 
-  // MARK: - iOS / macOS — Clean list
+  // MARK: - macOS — Sidebar + Detail
 
-  #if !os(tvOS)
+  #if os(macOS)
+  private var macOSSplitView: some View {
+    NavigationSplitView {
+      List(ShowcaseItem.available, selection: $selection) { item in
+        Label {
+          VStack(alignment: .leading, spacing: 2) {
+            Text(item.title)
+            Text(item.subtitle)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+        } icon: {
+          Image(systemName: item.systemImage)
+            .font(.body)
+            .foregroundStyle(.white)
+            .frame(width: 32, height: 32)
+            .background(item.accentColor.gradient, in: .rect(cornerRadius: 8))
+        }
+        .padding(.vertical, 4)
+        .tag(item)
+      }
+      .navigationTitle("SwiftVLC")
+    } detail: {
+      if let selection {
+        destinationView(for: selection)
+      } else {
+        ContentUnavailableView("Select a Demo", systemImage: "play.rectangle.fill")
+      }
+    }
+  }
+  #endif
+
+  // MARK: - iOS — Clean list
+
+  #if os(iOS)
   private var demoList: some View {
     List {
       ForEach(ShowcaseItem.available) { item in
@@ -36,9 +74,7 @@ struct ShowcaseHub: View {
         }
       }
     }
-    #if os(iOS)
     .listStyle(.insetGrouped)
-    #endif
     .navigationTitle("SwiftVLC Showcase")
     .navigationDestination(for: ShowcaseItem.self) { item in
       destinationView(for: item)
@@ -51,29 +87,28 @@ struct ShowcaseHub: View {
   #if os(tvOS)
   private var tvOSGrid: some View {
     ScrollView {
-      LazyVGrid(columns: [GridItem(.adaptive(minimum: 300))], spacing: 40) {
+      LazyVGrid(columns: [GridItem(.adaptive(minimum: 400))], spacing: 48) {
         ForEach(ShowcaseItem.available) { item in
           NavigationLink(value: item) {
-            VStack(spacing: 12) {
+            VStack(spacing: 16) {
               Image(systemName: item.systemImage)
-                .font(.largeTitle)
+                .font(.system(size: 48))
                 .foregroundStyle(item.accentColor)
               Text(item.title)
-                .font(.headline)
+                .font(.title3)
               Text(item.subtitle)
-                .font(.caption)
+                .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
-            .padding()
-            .padding()
-            .background(.regularMaterial, in: .rect(cornerRadius: 16))
+            .padding(32)
+            .background(.regularMaterial, in: .rect(cornerRadius: 20))
           }
           .buttonStyle(.card)
         }
       }
-      .padding()
+      .padding(48)
     }
     .navigationTitle("SwiftVLC Showcase")
     .navigationDestination(for: ShowcaseItem.self) { item in
