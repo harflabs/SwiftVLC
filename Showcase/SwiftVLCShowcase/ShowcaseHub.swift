@@ -11,7 +11,7 @@ struct ShowcaseHub: View {
       demoList
       #endif
     }
-    #if !os(tvOS)
+    #if os(iOS)
     .fullScreenCover(isPresented: $showingPlayer) {
       PolishedPlayerDemo()
     }
@@ -24,6 +24,7 @@ struct ShowcaseHub: View {
   private var demoList: some View {
     List {
       ForEach(ShowcaseItem.available) { item in
+        #if os(iOS)
         if item == .polishedPlayer {
           Button {
             showingPlayer = true
@@ -35,6 +36,11 @@ struct ShowcaseHub: View {
             demoLabel(item)
           }
         }
+        #else
+        NavigationLink(value: item) {
+          demoLabel(item)
+        }
+        #endif
       }
     }
     #if os(iOS)
