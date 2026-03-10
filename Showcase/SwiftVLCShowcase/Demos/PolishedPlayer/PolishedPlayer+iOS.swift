@@ -67,6 +67,11 @@ private struct IOSOverlayContent: View {
             onTap()
           }
       }
+      #if targetEnvironment(macCatalyst)
+      .onContinuousHover { phase in
+        if case .active = phase { onInteraction() }
+      }
+      #endif
 
       // Skip indicator
       if let direction = skipIndicator {
@@ -95,6 +100,31 @@ private struct IOSOverlayContent: View {
           .transition(.opacity)
       }
     }
+    #if targetEnvironment(macCatalyst)
+    .focusable()
+    .onKeyPress(.space) {
+      player.togglePlayPause()
+      onInteraction()
+      return .handled
+    }
+    .onKeyPress(.leftArrow) {
+      onSkipBack()
+      return .handled
+    }
+    .onKeyPress(.rightArrow) {
+      onSkipForward()
+      return .handled
+    }
+    .onKeyPress("m") {
+      player.isMuted.toggle()
+      onInteraction()
+      return .handled
+    }
+    .onKeyPress(.escape) {
+      dismiss()
+      return .handled
+    }
+    #endif
   }
 
   private var controlsOverlay: some View {
@@ -162,14 +192,25 @@ private struct IOSOverlayContent: View {
   }
 
   private var volumeControls: some View {
-    Button {
-      player.isMuted.toggle()
-      onInteraction()
-    } label: {
-      Image(systemName: player.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-        .contentTransition(.symbolEffect(.replace))
+    HStack(spacing: 4) {
+      Button {
+        player.isMuted.toggle()
+        onInteraction()
+      } label: {
+        Image(systemName: player.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+          .contentTransition(.symbolEffect(.replace))
+      }
+      .buttonStyle(.plain)
+
+      #if targetEnvironment(macCatalyst)
+      Slider(value: Binding(
+        get: { Double(player.volume) },
+        set: { player.volume = Float($0); onInteraction() }
+      ), in: 0...1.25)
+        .frame(width: 100)
+        .tint(.white)
+      #endif
     }
-    .buttonStyle(.plain)
   }
 
   private var rateMenu: some View {
