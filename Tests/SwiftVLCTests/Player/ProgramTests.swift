@@ -3,35 +3,35 @@ import CLibVLC
 import Foundation
 import Testing
 
-@Suite("Program", .tags(.integration), .serialized)
+@Suite(.tags(.integration))
 struct ProgramTests {
-  @Test("Programs empty for simple media", .tags(.mainActor))
+  @Test(.tags(.mainActor))
   @MainActor
-  func programsEmptyForSimpleMedia() throws {
+  func `Programs empty for simple media`() {
     let player = Player()
     #expect(player.programs.isEmpty)
   }
 
-  @Test("Selected program nil", .tags(.mainActor))
+  @Test(.tags(.mainActor))
   @MainActor
-  func selectedProgramNil() throws {
+  func `Selected program nil`() {
     let player = Player()
     #expect(player.selectedProgram == nil)
   }
 
-  @Test("Program is Sendable")
-  func programIsSendable() {
+  @Test
+  func `Program is Sendable`() {
     let _: any Sendable.Type = Program.self
   }
 
-  @Test("Program conforms to Identifiable and Hashable")
-  func conformances() {
+  @Test
+  func `Program conforms to Identifiable and Hashable`() {
     let _: any Identifiable.Type = Program.self
     let _: any Hashable.Type = Program.self
   }
 
-  @Test("Init from C struct", .tags(.logic))
-  func initFromCStruct() throws {
+  @Test(.tags(.logic))
+  func `Init from C struct`() throws {
     let name = try #require(strdup("Test Program"))
     defer { free(name) }
 
@@ -48,8 +48,8 @@ struct ProgramTests {
     #expect(program.isScrambled == false)
   }
 
-  @Test("Init from C struct scrambled", .tags(.logic))
-  func initFromCStructScrambled() throws {
+  @Test(.tags(.logic))
+  func `Init from C struct scrambled`() throws {
     let name = try #require(strdup("Encrypted Channel"))
     defer { free(name) }
 
@@ -66,8 +66,8 @@ struct ProgramTests {
     #expect(program.isScrambled == true)
   }
 
-  @Test("Hashable with same values", .tags(.logic))
-  func hashableWithSameValues() throws {
+  @Test(.tags(.logic))
+  func `Hashable with same values`() throws {
     let nameA = try #require(strdup("Channel"))
     let nameB = try #require(strdup("Channel"))
     defer { free(nameA); free(nameB) }

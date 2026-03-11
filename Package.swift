@@ -55,7 +55,11 @@ let package = Package(
     .target(
       name: "SwiftVLC",
       dependencies: ["CLibVLC"],
-      swiftSettings: [.swiftLanguageMode(.v6)]
+      swiftSettings: [
+        .swiftLanguageMode(.v6),
+        .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+        .enableExperimentalFeature("Lifetimes")
+      ]
     ),
     .testTarget(
       name: "SwiftVLCTests",

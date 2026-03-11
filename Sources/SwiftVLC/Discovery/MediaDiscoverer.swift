@@ -1,5 +1,4 @@
 import CLibVLC
-import Foundation
 
 /// Discovers media sources on the local network, devices, or local directories.
 ///
@@ -12,7 +11,7 @@ import Foundation
 ///     // Monitor mediaList for discovered items
 /// }
 /// ```
-public final class MediaDiscoverer: @unchecked Sendable {
+public final class MediaDiscoverer: Sendable {
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_media_discoverer_t*
 
   /// Creates a media discoverer by service name.
@@ -119,15 +118,13 @@ extension MediaDiscoverer {
     guard count > 0, let ppp else { return [] }
     defer { libvlc_media_discoverer_list_release(ppp, count) }
 
-    var results: [DiscoveryService] = []
-    for i in 0..<Int(count) {
-      guard let desc = ppp[i]?.pointee else { continue }
-      results.append(DiscoveryService(
+    return (0..<Int(count)).compactMap { i -> DiscoveryService? in
+      guard let desc = ppp[i]?.pointee else { return nil }
+      return DiscoveryService(
         name: String(cString: desc.psz_name),
         longName: String(cString: desc.psz_longname),
         category: DiscoveryCategory(from: desc.i_cat)
-      ))
+      )
     }
-    return results
   }
 }

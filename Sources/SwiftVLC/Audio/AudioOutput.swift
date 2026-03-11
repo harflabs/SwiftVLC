@@ -34,16 +34,11 @@ extension VLCInstance {
     guard let list = libvlc_audio_output_list_get(pointer) else { return [] }
     defer { libvlc_audio_output_list_release(list) }
 
-    var results: [AudioOutput] = []
-    var current: UnsafeMutablePointer<libvlc_audio_output_t>? = list
-    while let node = current {
-      let p = node.pointee
-      results.append(AudioOutput(
-        name: String(cString: p.psz_name),
-        outputDescription: String(cString: p.psz_description)
-      ))
-      current = p.p_next
+    return sequence(first: list, next: { $0.pointee.p_next }).map { node in
+      AudioOutput(
+        name: String(cString: node.pointee.psz_name),
+        outputDescription: String(cString: node.pointee.psz_description)
+      )
     }
-    return results
   }
 }

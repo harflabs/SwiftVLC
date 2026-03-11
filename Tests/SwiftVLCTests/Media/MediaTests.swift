@@ -2,22 +2,22 @@
 import Foundation
 import Testing
 
-@Suite("Media", .tags(.integration), .serialized)
+@Suite(.tags(.integration))
 struct MediaTests {
-  @Test("Init from URL")
-  func initFromURL() throws {
+  @Test
+  func `Init from URL`() throws {
     let media = try Media(url: TestMedia.testMP4URL)
     #expect(media.mrl != nil)
   }
 
-  @Test("Init from file path")
-  func initFromPath() throws {
+  @Test
+  func `Init from file path`() throws {
     let media = try Media(path: TestMedia.testMP4URL.path)
     #expect(media.mrl != nil)
   }
 
-  @Test("Init from file descriptor")
-  func initFromFileDescriptor() throws {
+  @Test
+  func `Init from file descriptor`() throws {
     let fd = open(TestMedia.testMP4URL.path, O_RDONLY)
     #expect(fd >= 0)
     defer { close(fd) }
@@ -25,38 +25,38 @@ struct MediaTests {
     #expect(media.mrl != nil)
   }
 
-  @Test("MRL is non-nil")
-  func mrlIsNonNil() throws {
+  @Test
+  func `MRL is non-nil`() throws {
     let media = try Media(url: TestMedia.testMP4URL)
     let mrl = try #require(media.mrl)
     #expect(!mrl.isEmpty)
   }
 
-  @Test("Duration nil before parsing")
-  func durationNilBeforeParsing() throws {
+  @Test
+  func `Duration nil before parsing`() throws {
     let media = try Media(url: TestMedia.testMP4URL)
     // Duration may or may not be available before parsing
     // This test just ensures the property doesn't crash
     _ = media.duration
   }
 
-  @Test("Parse returns metadata", .tags(.async, .media))
-  func parseReturnsMetadata() async throws {
+  @Test(.tags(.async, .media))
+  func `Parse returns metadata`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     let metadata = try await media.parse()
     // test.mp4 has title="Test" embedded
     #expect(metadata.title == "Test")
   }
 
-  @Test("Tracks empty before parsing")
-  func tracksEmptyBeforeParsing() throws {
+  @Test
+  func `Tracks empty before parsing`() throws {
     let media = try Media(url: TestMedia.testMP4URL)
     // Tracks may be empty before parse
     _ = media.tracks()
   }
 
-  @Test("Tracks available after parsing", .tags(.async, .media))
-  func tracksAfterParsing() async throws {
+  @Test(.tags(.async, .media))
+  func `Tracks available after parsing`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     _ = try await media.parse()
     let tracks = media.tracks()
@@ -66,33 +66,33 @@ struct MediaTests {
     #expect(tracks.contains(where: { $0.type == .audio }))
   }
 
-  @Test("Add option doesn't crash")
-  func addOption() throws {
+  @Test
+  func `Add option doesn't crash`() throws {
     let media = try Media(url: TestMedia.testMP4URL)
     media.addOption(":network-caching=1000")
   }
 
-  @Test("Set metadata doesn't crash")
-  func setMetadata() throws {
+  @Test
+  func `Set metadata doesn't crash`() throws {
     let media = try Media(url: TestMedia.testMP4URL)
     media.setMetadata(.title, value: "New Title")
   }
 
-  @Test("Statistics nil before playback")
-  func statisticsNilBeforePlayback() throws {
+  @Test
+  func `Statistics nil before playback`() throws {
     let media = try Media(url: TestMedia.testMP4URL)
     #expect(media.statistics() == nil)
   }
 
-  @Test("Is Sendable")
-  func isSendable() throws {
+  @Test
+  func `Is Sendable`() throws {
     let media = try Media(url: TestMedia.testMP4URL)
     let sendable: any Sendable = media
     _ = sendable
   }
 
-  @Test("Multiple media objects parse independently", .tags(.async, .media))
-  func multipleMediaParseIndependently() async throws {
+  @Test(.tags(.async, .media))
+  func `Multiple media objects parse independently`() async throws {
     // libVLC rejects a second parse on the same media object,
     // so verify two separate media objects parse independently.
     let media1 = try Media(url: TestMedia.testMP4URL)
@@ -102,8 +102,8 @@ struct MediaTests {
     #expect(meta1.title == meta2.title)
   }
 
-  @Test("Init from nonexistent path succeeds")
-  func initFromNonexistentPath() throws {
+  @Test
+  func `Init from nonexistent path succeeds`() throws {
     // libVLC accepts non-existent paths (it creates the media object;
     // failure surfaces later during parse/playback). Empty paths cause
     // an internal abort, so we test with a valid-looking but nonexistent path.
@@ -111,24 +111,24 @@ struct MediaTests {
     #expect(media.mrl != nil)
   }
 
-  @Test("MRL contains file path for local files")
-  func mrlContainsPath() throws {
+  @Test
+  func `MRL contains file path for local files`() throws {
     let path = TestMedia.testMP4URL.path
     let media = try Media(path: path)
     let mrl = try #require(media.mrl)
     #expect(mrl.contains("test.mp4"))
   }
 
-  @Test("Parse with short timeout", .tags(.async, .media))
-  func parseWithShortTimeout() async throws {
+  @Test(.tags(.async, .media))
+  func `Parse with short timeout`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     // Local files should parse quickly even with short timeout
     let metadata = try await media.parse(timeout: .seconds(2))
     #expect(metadata.title != nil)
   }
 
-  @Test("Duration available after parsing", .tags(.async, .media))
-  func durationAfterParsing() async throws {
+  @Test(.tags(.async, .media))
+  func `Duration available after parsing`() async throws {
     let media = try Media(url: TestMedia.twosecURL)
     _ = try await media.parse()
     let duration = try #require(media.duration)
@@ -137,8 +137,8 @@ struct MediaTests {
     #expect(duration.milliseconds < 3000)
   }
 
-  @Test("Init from remote URL")
-  func initFromRemoteURL() throws {
+  @Test
+  func `Init from remote URL`() throws {
     // libVLC accepts remote URLs (uses libvlc_media_new_location)
     let url = try #require(URL(string: "http://example.com/video.mp4"))
     let media = try Media(url: url)
@@ -146,23 +146,23 @@ struct MediaTests {
     #expect(mrl.contains("example.com"))
   }
 
-  @Test("Save metadata fails for non-writable media")
-  func saveMetadataFails() throws {
+  @Test
+  func `Save metadata fails for non-writable media`() throws {
     let media = try Media(path: "/nonexistent/file.mp4")
     #expect(throws: VLCError.self) {
       try media.saveMetadata()
     }
   }
 
-  @Test("File descriptor init with invalid fd succeeds")
-  func invalidFileDescriptorSucceeds() throws {
+  @Test
+  func `File descriptor init with invalid fd succeeds`() throws {
     // libVLC accepts -1 fd (failure surfaces later during playback)
     let media = try Media(fileDescriptor: -1)
     #expect(media.mrl != nil)
   }
 
-  @Test("Parse cancellation", .tags(.async, .media))
-  func parseCancellation() async {
+  @Test(.tags(.async, .media))
+  func `Parse cancellation`() async {
     do {
       let media = try Media(url: TestMedia.testMP4URL)
       let task = Task {
@@ -181,8 +181,8 @@ struct MediaTests {
     }
   }
 
-  @Test("Parse same media twice fails", .tags(.async, .media))
-  func parseSameMediaTwiceFails() async throws {
+  @Test(.tags(.async, .media))
+  func `Parse same media twice fails`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     _ = try await media.parse()
     // Second parse on same media should fail (libVLC rejects it)
@@ -195,29 +195,29 @@ struct MediaTests {
     }
   }
 
-  @Test("Duration nil for unparsed media")
-  func durationNilForUnparsed() throws {
+  @Test
+  func `Duration nil for unparsed media`() throws {
     let media = try Media(path: "/nonexistent/file.mp4")
     // Duration is -1 before parsing, which maps to nil
     #expect(media.duration == nil)
   }
 
-  @Test("Tracks empty for unparsed local media")
-  func tracksEmptyForUnparsed() throws {
+  @Test
+  func `Tracks empty for unparsed local media`() throws {
     let media = try Media(path: "/nonexistent/file.mp4")
     #expect(media.tracks().isEmpty)
   }
 
-  @Test("Set and read metadata roundtrip")
-  func setAndReadMetadata() throws {
+  @Test
+  func `Set and read metadata roundtrip`() throws {
     let media = try Media(url: TestMedia.testMP4URL)
     media.setMetadata(.title, value: "Custom Title")
     // Note: setMetadata is in-memory; reading back may or may not
     // reflect the change without save+reparse
   }
 
-  @Test("Add multiple options")
-  func addMultipleOptions() throws {
+  @Test
+  func `Add multiple options`() throws {
     let media = try Media(url: TestMedia.testMP4URL)
     media.addOption(":network-caching=1000")
     media.addOption(":no-video")

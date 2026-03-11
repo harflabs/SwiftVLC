@@ -1,4 +1,5 @@
 import CLibVLC
+import Foundation
 
 /// A playlist player that plays media from a ``MediaList``.
 ///
@@ -32,8 +33,13 @@ public final class MediaListPlayer {
   }
 
   isolated deinit {
-    libvlc_media_list_player_stop_async(pointer)
-    libvlc_media_list_player_release(pointer)
+    // Release off the main actor — stop_async and release can block
+    // waiting for VLC internal threads, stalling all async work.
+    nonisolated(unsafe) let p = pointer
+    DispatchQueue.global(qos: .utility).async {
+      libvlc_media_list_player_stop_async(p)
+      libvlc_media_list_player_release(p)
+    }
   }
 
   /// The ``Player`` used for actual playback.
@@ -107,7 +113,7 @@ public final class MediaListPlayer {
 
   /// Plays a specific media item from the list.
   /// - Throws: `VLCError.operationFailed` if the item is not in the list.
-  public func play(_ media: Media) throws(VLCError) {
+  public func play(_ media: borrowing Media) throws(VLCError) {
     guard libvlc_media_list_player_play_item(pointer, media.pointer) == 0 else {
       throw .operationFailed("Play media item")
     }

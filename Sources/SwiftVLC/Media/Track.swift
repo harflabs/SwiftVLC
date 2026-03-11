@@ -106,41 +106,26 @@ extension Track {
     isSelected = t.selected
     bitrate = Int(t.i_bitrate)
 
+    // Extract type-specific info, defaulting to nil for non-matching types.
     switch t.i_type {
     case libvlc_track_audio where t.audio != nil:
-      let audio = t.audio.pointee
-      channels = Int(audio.i_channels)
-      sampleRate = Int(audio.i_rate)
-      width = nil
-      height = nil
-      frameRate = nil
-      encoding = nil
+      let a = t.audio.pointee
+      channels = Int(a.i_channels)
+      sampleRate = Int(a.i_rate)
+      (width, height, frameRate, encoding) = (nil, nil, nil, nil)
     case libvlc_track_video where t.video != nil:
-      let video = t.video.pointee
-      width = Int(video.i_width)
-      height = Int(video.i_height)
-      if video.i_frame_rate_den > 0 {
-        frameRate = Double(video.i_frame_rate_num) / Double(video.i_frame_rate_den)
-      } else {
-        frameRate = nil
-      }
-      channels = nil
-      sampleRate = nil
-      encoding = nil
+      let v = t.video.pointee
+      width = Int(v.i_width)
+      height = Int(v.i_height)
+      frameRate = v.i_frame_rate_den > 0
+        ? Double(v.i_frame_rate_num) / Double(v.i_frame_rate_den)
+        : nil
+      (channels, sampleRate, encoding) = (nil, nil, nil)
     case libvlc_track_text where t.subtitle != nil:
       encoding = t.subtitle.pointee.psz_encoding.map { String(cString: $0) }
-      channels = nil
-      sampleRate = nil
-      width = nil
-      height = nil
-      frameRate = nil
+      (channels, sampleRate, width, height, frameRate) = (nil, nil, nil, nil, nil)
     default:
-      channels = nil
-      sampleRate = nil
-      width = nil
-      height = nil
-      frameRate = nil
-      encoding = nil
+      (channels, sampleRate, width, height, frameRate, encoding) = (nil, nil, nil, nil, nil, nil)
     }
   }
 }

@@ -1,5 +1,3 @@
-import Foundation
-
 /// A title in structured media (DVD, Blu-ray, etc.).
 public struct Title: Sendable, Identifiable, Hashable {
   /// Title index.

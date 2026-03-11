@@ -2,10 +2,9 @@
 import CLibVLC
 import Testing
 
-@Suite("PlayerState", .tags(.logic))
+@Suite(.tags(.logic))
 struct PlayerStateTests {
   @Test(
-    "Descriptions",
     arguments: [
       (PlayerState.idle, "idle"),
       (.opening, "opening"),
@@ -21,25 +20,24 @@ struct PlayerStateTests {
   }
 
   @Test(
-    "Buffering percentage formatting",
     arguments: [
       (Float(0.0), "buffering(0%)"),
       (Float(0.5), "buffering(50%)"),
       (Float(1.0), "buffering(100%)"),
     ] as [(Float, String)]
   )
-  func bufferingPercentageFormatting(pct: Float, expected: String) {
+  func `Buffering percentage formatting`(pct: Float, expected: String) {
     #expect(PlayerState.buffering(pct).description == expected)
   }
 
-  @Test("Hashable")
+  @Test
   func hashable() {
     let set: Set<PlayerState> = [.idle, .playing, .paused, .idle]
     #expect(set.count == 3)
   }
 
-  @Test("Buffering hashability")
-  func bufferingHashability() {
+  @Test
+  func `Buffering hashability`() {
     let a = PlayerState.buffering(0.5)
     let b = PlayerState.buffering(0.5)
     let c = PlayerState.buffering(0.7)
@@ -47,8 +45,8 @@ struct PlayerStateTests {
     #expect(a != c)
   }
 
-  @Test("Init from C state")
-  func initFromCState() {
+  @Test
+  func `Init from C state`() {
     #expect(PlayerState(from: libvlc_NothingSpecial) == .idle)
     #expect(PlayerState(from: libvlc_Opening) == .opening)
     #expect(PlayerState(from: libvlc_Playing) == .playing)
@@ -58,20 +56,20 @@ struct PlayerStateTests {
     #expect(PlayerState(from: libvlc_Error) == .error)
   }
 
-  @Test("Init from C Buffering state")
-  func initFromCBufferingState() {
+  @Test
+  func `Init from C Buffering state`() {
     let state = PlayerState(from: libvlc_Buffering)
     #expect(state == .buffering(0))
   }
 
-  @Test("Init from unknown C state defaults to idle")
-  func initFromUnknownCState() {
+  @Test
+  func `Init from unknown C state defaults to idle`() {
     let state = PlayerState(from: libvlc_state_t(rawValue: 999))
     #expect(state == .idle)
   }
 
-  @Test("Is Sendable")
-  func isSendable() {
+  @Test
+  func `Is Sendable`() {
     let state: PlayerState = .playing
     let sendable: any Sendable = state
     _ = sendable

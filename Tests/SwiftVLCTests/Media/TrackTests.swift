@@ -2,10 +2,9 @@
 import CLibVLC
 import Testing
 
-@Suite("Track", .tags(.logic))
+@Suite(.tags(.logic))
 struct TrackTests {
   @Test(
-    "TrackType descriptions",
     arguments: [
       (TrackType.audio, "audio"),
       (.video, "video"),
@@ -13,27 +12,27 @@ struct TrackTests {
       (.unknown, "unknown")
     ] as [(TrackType, String)]
   )
-  func trackTypeDescriptions(type: TrackType, expected: String) {
+  func `TrackType descriptions`(type: TrackType, expected: String) {
     #expect(type.description == expected)
   }
 
-  @Test("Equality by id")
-  func equalityById() {
+  @Test
+  func `Equality by id`() {
     let a = makeTrack(id: "audio-0", type: .audio, name: "English")
     let b = makeTrack(id: "audio-0", type: .audio, name: "French")
     #expect(a == b) // Equal by id, even though name differs
   }
 
-  @Test("Hashable by id")
-  func hashableById() {
+  @Test
+  func `Hashable by id`() {
     let a = makeTrack(id: "video-0", type: .video)
     let b = makeTrack(id: "video-0", type: .video)
     let set: Set<Track> = [a, b]
     #expect(set.count == 1)
   }
 
-  @Test("Parsed audio track properties", .tags(.integration, .async, .media))
-  func parsedAudioTrackProperties() async throws {
+  @Test(.tags(.integration, .async, .media))
+  func `Parsed audio track properties`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     _ = try await media.parse()
     let tracks = media.tracks().filter { $0.type == .audio }
@@ -45,8 +44,8 @@ struct TrackTests {
     #expect(audio.height == nil)
   }
 
-  @Test("Parsed video track properties", .tags(.integration, .async, .media))
-  func parsedVideoTrackProperties() async throws {
+  @Test(.tags(.integration, .async, .media))
+  func `Parsed video track properties`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     _ = try await media.parse()
     let tracks = media.tracks().filter { $0.type == .video }
@@ -59,18 +58,17 @@ struct TrackTests {
   }
 
   @Test(
-    "MediaSlaveType descriptions",
     arguments: [
       (MediaSlaveType.subtitle, "subtitle"),
       (.audio, "audio")
     ] as [(MediaSlaveType, String)]
   )
-  func mediaSlaveTypeDescriptions(type: MediaSlaveType, expected: String) {
+  func `MediaSlaveType descriptions`(type: MediaSlaveType, expected: String) {
     #expect(type.description == expected)
   }
 
-  @Test("Nil cross-type properties")
-  func nilCrossTypeProperties() {
+  @Test
+  func `Nil cross-type properties`() {
     let audioTrack = makeTrack(id: "a-0", type: .audio, channels: 2, sampleRate: 44100)
     #expect(audioTrack.width == nil)
     #expect(audioTrack.height == nil)
@@ -83,27 +81,26 @@ struct TrackTests {
     #expect(videoTrack.encoding == nil)
   }
 
-  @Test("Track is Identifiable")
-  func trackIsIdentifiable() {
+  @Test
+  func `Track is Identifiable`() {
     let track = makeTrack(id: "sub-0", type: .subtitle)
     #expect(track.id == "sub-0")
   }
 
-  @Test("Track is Sendable")
-  func trackIsSendable() {
+  @Test
+  func `Track is Sendable`() {
     let track = makeTrack(id: "a-0", type: .audio)
     let sendable: any Sendable = track
     _ = sendable
   }
 
-  @Test("TrackType Hashable")
-  func trackTypeHashable() {
+  @Test
+  func `TrackType Hashable`() {
     let set: Set<TrackType> = [.audio, .video, .subtitle, .unknown, .audio]
     #expect(set.count == 4)
   }
 
   @Test(
-    "TrackType cValue round-trip",
     arguments: [
       (TrackType.audio, libvlc_track_audio),
       (.video, libvlc_track_video),
@@ -111,24 +108,23 @@ struct TrackTests {
       (.unknown, libvlc_track_unknown),
     ] as [(TrackType, libvlc_track_type_t)]
   )
-  func trackTypeCValueRoundTrip(type: TrackType, expected: libvlc_track_type_t) {
+  func `TrackType cValue round-trip`(type: TrackType, expected: libvlc_track_type_t) {
     #expect(type.cValue == expected)
     #expect(TrackType(from: expected) == type)
   }
 
   @Test(
-    "MediaSlaveType cValue",
     arguments: [
       (MediaSlaveType.subtitle, libvlc_media_slave_type_subtitle),
       (.audio, libvlc_media_slave_type_audio),
     ] as [(MediaSlaveType, libvlc_media_slave_type_t)]
   )
-  func mediaSlaveTypeCValue(type: MediaSlaveType, expected: libvlc_media_slave_type_t) {
+  func `MediaSlaveType cValue`(type: MediaSlaveType, expected: libvlc_media_slave_type_t) {
     #expect(type.cValue == expected)
   }
 
-  @Test("Track with all properties")
-  func trackWithAllProperties() {
+  @Test
+  func `Track with all properties`() {
     let track = Track(
       id: "sub-0",
       type: .subtitle,
@@ -151,8 +147,8 @@ struct TrackTests {
     #expect(track.isSelected == true)
   }
 
-  @Test("Video track with frame rate")
-  func videoTrackWithFrameRate() {
+  @Test
+  func `Video track with frame rate`() {
     let track = Track(
       id: "v-0",
       type: .video,
@@ -173,8 +169,8 @@ struct TrackTests {
     #expect(track.bitrate == 5_000_000)
   }
 
-  @Test("Track with language and description")
-  func trackWithLanguageAndDescription() {
+  @Test
+  func `Track with language and description`() {
     let track = Track(
       id: "a-0",
       type: .audio,
@@ -197,8 +193,8 @@ struct TrackTests {
     #expect(track.bitrate == 128_000)
   }
 
-  @Test("Subtitle track with encoding")
-  func subtitleTrackWithEncoding() {
+  @Test
+  func `Subtitle track with encoding`() {
     let track = Track(
       id: "sub-0",
       type: .subtitle,
@@ -221,8 +217,8 @@ struct TrackTests {
     #expect(track.width == nil)
   }
 
-  @Test("Parsed tracks from media have properties", .tags(.integration, .async, .media))
-  func parsedTracksHaveProperties() async throws {
+  @Test(.tags(.integration, .async, .media))
+  func `Parsed tracks from media have properties`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     _ = try await media.parse()
     let tracks = media.tracks()

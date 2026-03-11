@@ -2,18 +2,22 @@ import CLibVLC
 
 /// Video color adjustment controls (contrast, brightness, hue, saturation, gamma).
 ///
-/// Access via `player.adjustments`:
+/// `~Copyable` and `~Escapable` — must be used inline, cannot be stored
+/// in properties or captured in closures. This prevents dangling pointer access
+/// if the player is deallocated.
+///
 /// ```swift
 /// player.adjustments.isEnabled = true
 /// player.adjustments.contrast = 1.2
 /// player.adjustments.brightness = 1.1
 /// ```
 @MainActor
-public struct VideoAdjustments {
+public struct VideoAdjustments: ~Copyable, ~Escapable {
   private let pointer: OpaquePointer
 
-  init(pointer: OpaquePointer) {
-    self.pointer = pointer
+  @_lifetime(borrow player)
+  init(player: borrowing Player) {
+    pointer = player.pointer
   }
 
   /// Whether video adjustments are enabled.

@@ -1,17 +1,17 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("Marquee", .tags(.integration, .mainActor), .serialized)
+@Suite(.tags(.integration, .mainActor))
 @MainActor
 struct MarqueeTests {
-  @Test("isEnabled default")
-  func isEnabledDefault() throws {
+  @Test
+  func `isEnabled default`() {
     let player = Player()
     #expect(player.marquee.isEnabled == false)
   }
 
-  @Test("Enable and disable")
-  func enableDisable() throws {
+  @Test
+  func `Enable and disable`() {
     let player = Player()
     player.marquee.isEnabled = true
     #expect(player.marquee.isEnabled == true)
@@ -19,65 +19,65 @@ struct MarqueeTests {
     #expect(player.marquee.isEnabled == false)
   }
 
-  @Test("Text set")
-  func textSet() throws {
+  @Test
+  func `Text set`() {
     let player = Player()
     player.marquee.text = "Hello World"
     // text getter always returns "" (write-only)
     #expect(player.marquee.text == "")
   }
 
-  @Test("Color get and set")
-  func colorGetSet() throws {
+  @Test
+  func `Color get and set`() {
     let player = Player()
     player.marquee.color = 0xFF0000
     #expect(player.marquee.color == 0xFF0000)
   }
 
-  @Test("Opacity get and set")
-  func opacityGetSet() throws {
+  @Test
+  func `Opacity get and set`() {
     let player = Player()
     player.marquee.opacity = 128
     #expect(player.marquee.opacity == 128)
   }
 
-  @Test("Font size get and set")
-  func fontSizeGetSet() throws {
+  @Test
+  func `Font size get and set`() {
     let player = Player()
     player.marquee.fontSize = 24
     #expect(player.marquee.fontSize == 24)
   }
 
-  @Test("X get and set")
-  func xGetSet() throws {
+  @Test
+  func `X get and set`() {
     let player = Player()
     player.marquee.x = 100
     #expect(player.marquee.x == 100)
   }
 
-  @Test("Y get and set")
-  func yGetSet() throws {
+  @Test
+  func `Y get and set`() {
     let player = Player()
     player.marquee.y = 50
     #expect(player.marquee.y == 50)
   }
 
-  @Test("Timeout get and set")
-  func timeoutGetSet() throws {
+  @Test
+  func `Timeout get and set`() {
     let player = Player()
     player.marquee.timeout = 5000
     #expect(player.marquee.timeout == 5000)
   }
 
-  @Test("Refresh get and set")
-  func refreshGetSet() throws {
+  @Test
+  func `Refresh get and set`() {
     let player = Player()
     player.marquee.refresh = 1000
     #expect(player.marquee.refresh == 1000)
   }
 
-  @Test("Position get and set")
-  func positionGetSet() throws {
+  @Test
+  func `Position get and set`() {
     let player = Player()
     player.marquee.position = 8 // bottom
     #expect(player.marquee.position == 8)

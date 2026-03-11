@@ -1,42 +1,42 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("AudioOutput", .tags(.integration), .serialized)
+@Suite(.tags(.integration))
 struct AudioOutputTests {
-  @Test("AudioOutput id is name")
-  func audioOutputId() {
+  @Test
+  func `AudioOutput id is name`() {
     let output = AudioOutput(name: "auhal", outputDescription: "CoreAudio")
     #expect(output.id == "auhal")
   }
 
-  @Test("AudioOutput is Hashable")
-  func audioOutputHashable() {
+  @Test
+  func `AudioOutput is Hashable`() {
     let a = AudioOutput(name: "auhal", outputDescription: "CoreAudio")
     let b = AudioOutput(name: "auhal", outputDescription: "CoreAudio")
     #expect(a == b)
   }
 
-  @Test("AudioDevice id is deviceId")
-  func audioDeviceId() {
+  @Test
+  func `AudioDevice id is deviceId`() {
     let device = AudioDevice(deviceId: "default", deviceDescription: "Default")
     #expect(device.id == "default")
   }
 
-  @Test("AudioDevice is Hashable")
-  func audioDeviceHashable() {
+  @Test
+  func `AudioDevice is Hashable`() {
     let a = AudioDevice(deviceId: "default", deviceDescription: "Default")
     let b = AudioDevice(deviceId: "default", deviceDescription: "Default")
     #expect(a == b)
   }
 
-  @Test("Instance audio outputs are non-empty")
-  func instanceOutputsNonEmpty() {
+  @Test
+  func `Instance audio outputs are non-empty`() {
     let outputs = VLCInstance.shared.audioOutputs()
     #expect(!outputs.isEmpty)
   }
 
-  @Test("Audio output names are non-empty")
-  func namesNonEmpty() {
+  @Test
+  func `Audio output names are non-empty`() {
     let outputs = VLCInstance.shared.audioOutputs()
     for output in outputs {
       #expect(!output.name.isEmpty)
@@ -44,8 +44,8 @@ struct AudioOutputTests {
     }
   }
 
-  @Test("AudioOutput is Sendable")
-  func audioOutputSendable() {
+  @Test
+  func `AudioOutput is Sendable`() {
     let output = AudioOutput(name: "test", outputDescription: "Test")
     let sendable: any Sendable = output
     _ = sendable

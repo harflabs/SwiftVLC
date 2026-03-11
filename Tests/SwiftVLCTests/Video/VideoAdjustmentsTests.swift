@@ -1,17 +1,17 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("VideoAdjustments", .tags(.integration, .mainActor), .serialized)
+@Suite(.tags(.integration, .mainActor))
 @MainActor
 struct VideoAdjustmentsTests {
-  @Test("isEnabled default false")
-  func isEnabledDefaultFalse() throws {
+  @Test
+  func `isEnabled default false`() {
     let player = Player()
     #expect(player.adjustments.isEnabled == false)
   }
 
-  @Test("Enable and disable doesn't crash")
-  func enableDisable() throws {
+  @Test
+  func `Enable and disable doesn't crash`() {
     let player = Player()
     // libVLC may not persist adjust flag without active video output,
     // so just verify the calls don't crash
@@ -21,48 +21,48 @@ struct VideoAdjustmentsTests {
     _ = player.adjustments.isEnabled
   }
 
-  @Test("Contrast get and set")
-  func contrastGetSet() throws {
+  @Test
+  func `Contrast get and set`() {
     let player = Player()
     player.adjustments.isEnabled = true
     player.adjustments.contrast = 1.5
     #expect(player.adjustments.contrast == 1.5)
   }
 
-  @Test("Brightness get and set")
-  func brightnessGetSet() throws {
+  @Test
+  func `Brightness get and set`() {
     let player = Player()
     player.adjustments.isEnabled = true
     player.adjustments.brightness = 0.8
     #expect(player.adjustments.brightness == 0.8)
   }
 
-  @Test("Hue get and set")
-  func hueGetSet() throws {
+  @Test
+  func `Hue get and set`() {
     let player = Player()
     player.adjustments.isEnabled = true
     player.adjustments.hue = 180
     #expect(player.adjustments.hue == 180)
   }
 
-  @Test("Saturation get and set")
-  func saturationGetSet() throws {
+  @Test
+  func `Saturation get and set`() {
     let player = Player()
     player.adjustments.isEnabled = true
     player.adjustments.saturation = 2.0
     #expect(player.adjustments.saturation == 2.0)
   }
 
-  @Test("Gamma get and set")
-  func gammaGetSet() throws {
+  @Test
+  func `Gamma get and set`() {
     let player = Player()
     player.adjustments.isEnabled = true
     player.adjustments.gamma = 1.5
     #expect(player.adjustments.gamma == 1.5)
   }
 
-  @Test("Default values")
-  func defaultValues() throws {
+  @Test
+  func `Default values`() {
     let player = Player()
     // Default values before enabling
     #expect(player.adjustments.contrast == 1.0)

@@ -2,10 +2,9 @@
 import CLibVLC
 import Testing
 
-@Suite("ABLoopState", .tags(.logic))
+@Suite(.tags(.logic))
 struct ABLoopTests {
   @Test(
-    "Descriptions",
     arguments: [
       (ABLoopState.none, "none"),
       (.pointASet, "point A set"),
@@ -16,21 +15,21 @@ struct ABLoopTests {
     #expect(state.description == expected)
   }
 
-  @Test("Hashable")
+  @Test
   func hashable() {
     let set: Set<ABLoopState> = [.none, .pointASet, .active, .none]
     #expect(set.count == 3)
   }
 
-  @Test("Init from C values")
-  func initFromCValues() {
+  @Test
+  func `Init from C values`() {
     #expect(ABLoopState(from: libvlc_abloop_a) == .pointASet)
     #expect(ABLoopState(from: libvlc_abloop_b) == .active)
     #expect(ABLoopState(from: libvlc_abloop_none) == .none)
   }
 
-  @Test("Is Sendable")
-  func isSendable() {
+  @Test
+  func `Is Sendable`() {
     let state: ABLoopState = .active
     let sendable: any Sendable = state
     _ = sendable

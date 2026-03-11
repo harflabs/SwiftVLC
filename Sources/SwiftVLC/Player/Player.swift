@@ -253,12 +253,23 @@ public final class Player {
 
   isolated deinit {
     eventTask?.cancel()
-    // Detach events while the player pointer is still valid.
-    // EventBridge.deinit would also detach, but by then the player
-    // (and its event manager) may already be freed → use-after-free.
-    eventBridge.invalidate()
-    libvlc_media_player_stop_async(pointer)
-    libvlc_media_player_release(pointer)
+    // Move ALL VLC cleanup off the main actor to avoid blocking it.
+    // libvlc_event_detach waits for any in-progress C callback to
+    // finish, and libvlc_media_player_release can block waiting for
+    // internal threads — both can stall the main actor for seconds
+    // under load.
+    //
+    // Safety: `bridge` keeps the EventBridge (and its ContinuationStore)
+    // alive until cleanup completes. The C player pointer is a plain
+    // value. invalidate() MUST run before release() so the event
+    // manager is still valid when detaching callbacks.
+    let bridge = eventBridge
+    nonisolated(unsafe) let p = pointer
+    DispatchQueue.global(qos: .utility).async {
+      bridge.invalidate()
+      libvlc_media_player_stop_async(p)
+      libvlc_media_player_release(p)
+    }
   }
 
   // MARK: - Media Loading
@@ -441,18 +452,16 @@ public final class Player {
     guard count > 0, let cTitles else { return [] }
     defer { libvlc_title_descriptions_release(cTitles, UInt32(count)) }
 
-    var result: [Title] = []
-    for i in 0..<Int(count) {
-      guard let desc = cTitles[i]?.pointee else { continue }
-      result.append(Title(
+    return (0..<Int(count)).compactMap { i -> Title? in
+      guard let desc = cTitles[i]?.pointee else { return nil }
+      return Title(
         index: i,
         duration: .milliseconds(desc.i_duration),
         name: desc.psz_name.map { String(cString: $0) },
         isMenu: desc.i_flags & UInt32(libvlc_title_menu) != 0,
         isInteractive: desc.i_flags & UInt32(libvlc_title_interactive) != 0
-      ))
+      )
     }
-    return result
   }
 
   /// Full chapter descriptions for a title.
@@ -465,17 +474,15 @@ public final class Player {
     guard count > 0, let cChapters else { return [] }
     defer { libvlc_chapter_descriptions_release(cChapters, UInt32(count)) }
 
-    var result: [Chapter] = []
-    for i in 0..<Int(count) {
-      guard let desc = cChapters[i]?.pointee else { continue }
-      result.append(Chapter(
+    return (0..<Int(count)).compactMap { i -> Chapter? in
+      guard let desc = cChapters[i]?.pointee else { return nil }
+      return Chapter(
         index: i,
         timeOffset: .milliseconds(desc.i_time_offset),
         duration: .milliseconds(desc.i_duration),
         name: desc.psz_name.map { String(cString: $0) }
-      ))
+      )
     }
-    return result
   }
 
   // MARK: - A-B Loop
@@ -518,17 +525,61 @@ public final class Player {
 
   /// Video color adjustments (contrast, brightness, hue, saturation, gamma).
   public var adjustments: VideoAdjustments {
-    VideoAdjustments(pointer: pointer)
+    VideoAdjustments(player: self)
+  }
+
+  /// Scoped access to video adjustments for batch operations.
+  ///
+  /// More efficient than repeated `player.adjustments.x = ...` calls
+  /// when setting multiple values:
+  /// ```swift
+  /// player.withAdjustments { adj in
+  ///     adj.isEnabled = true
+  ///     adj.contrast = 1.2
+  ///     adj.brightness = 1.1
+  /// }
+  /// ```
+  public func withAdjustments<R>(_ body: (borrowing VideoAdjustments) throws -> R) rethrows -> R {
+    let adj = VideoAdjustments(player: self)
+    return try body(adj)
   }
 
   /// Text overlay (marquee) controls.
   public var marquee: Marquee {
-    Marquee(pointer: pointer)
+    Marquee(player: self)
+  }
+
+  /// Scoped access to marquee controls for batch operations.
+  ///
+  /// ```swift
+  /// player.withMarquee { m in
+  ///     m.isEnabled = true
+  ///     m.text = "Now Playing"
+  ///     m.fontSize = 24
+  /// }
+  /// ```
+  public func withMarquee<R>(_ body: (borrowing Marquee) throws -> R) rethrows -> R {
+    let m = Marquee(player: self)
+    return try body(m)
   }
 
   /// Image overlay (logo) controls.
   public var logo: Logo {
-    Logo(pointer: pointer)
+    Logo(player: self)
+  }
+
+  /// Scoped access to logo controls for batch operations.
+  ///
+  /// ```swift
+  /// player.withLogo { logo in
+  ///     logo.isEnabled = true
+  ///     logo.file = "/path/to/logo.png"
+  ///     logo.opacity = 200
+  /// }
+  /// ```
+  public func withLogo<R>(_ body: (borrowing Logo) throws -> R) rethrows -> R {
+    let l = Logo(player: self)
+    return try body(l)
   }
 
   /// Updates the 360/VR video viewpoint.
@@ -590,17 +641,12 @@ public final class Player {
     guard let list = libvlc_audio_output_device_enum(pointer) else { return [] }
     defer { libvlc_audio_output_device_list_release(list) }
 
-    var results: [AudioDevice] = []
-    var current: UnsafeMutablePointer<libvlc_audio_output_device_t>? = list
-    while let node = current {
-      let d = node.pointee
-      results.append(AudioDevice(
-        deviceId: String(cString: d.psz_device),
-        deviceDescription: String(cString: d.psz_description)
-      ))
-      current = d.p_next
+    return sequence(first: list, next: { $0.pointee.p_next }).map { node in
+      AudioDevice(
+        deviceId: String(cString: node.pointee.psz_device),
+        deviceDescription: String(cString: node.pointee.psz_description)
+      )
     }
-    return results
   }
 
   /// Sets the audio output device.
@@ -653,13 +699,10 @@ public final class Player {
     guard let list = libvlc_media_player_get_programlist(pointer) else { return [] }
     defer { libvlc_player_programlist_delete(list) }
 
-    var result: [Program] = []
     let count = libvlc_player_programlist_count(list)
-    for i in 0..<count {
-      guard let prog = libvlc_player_programlist_at(list, i) else { continue }
-      result.append(Program(from: prog.pointee))
+    return (0..<count).compactMap { i in
+      libvlc_player_programlist_at(list, i).map { Program(from: $0.pointee) }
     }
-    return result
   }
 
   /// The currently selected program.
@@ -687,11 +730,7 @@ public final class Player {
   /// - Parameter renderer: A ``RendererItem`` discovered by ``RendererDiscoverer``, or `nil`.
   /// - Throws: `VLCError.operationFailed` if the renderer cannot be set.
   public func setRenderer(_ renderer: RendererItem?) throws(VLCError) {
-    let result = if let renderer {
-      libvlc_media_player_set_renderer(pointer, renderer.pointer)
-    } else {
-      libvlc_media_player_set_renderer(pointer, nil)
-    }
+    let result = libvlc_media_player_set_renderer(pointer, renderer?.pointer)
     guard result == 0 else { throw .operationFailed("Set renderer") }
   }
 
@@ -704,12 +743,9 @@ public final class Player {
   ///   - mode: Deinterlace filter name (e.g. "blend", "bob", "x", "yadif"), or `nil` for default.
   /// - Throws: `VLCError.operationFailed` if the filter cannot be applied.
   public func setDeinterlace(state: Int = -1, mode: String? = nil) throws(VLCError) {
-    let result = if let mode {
-      libvlc_video_set_deinterlace(pointer, Int32(state), mode)
-    } else {
-      libvlc_video_set_deinterlace(pointer, Int32(state), nil)
+    guard libvlc_video_set_deinterlace(pointer, Int32(state), mode) == 0 else {
+      throw .operationFailed("Set deinterlace")
     }
-    guard result == 0 else { throw .operationFailed("Set deinterlace") }
   }
 
   // MARK: - Track Selection
@@ -759,13 +795,10 @@ public final class Player {
     }
     defer { libvlc_media_tracklist_delete(tracklist) }
 
-    var tracks: [Track] = []
     let count = libvlc_media_tracklist_count(tracklist)
-    for i in 0..<count {
-      guard let cTrack = libvlc_media_tracklist_at(tracklist, i) else { continue }
-      tracks.append(Track(from: cTrack))
+    return (0..<count).compactMap { i in
+      libvlc_media_tracklist_at(tracklist, i).map { Track(from: $0) }
     }
-    return tracks
   }
 
   // MARK: - Event Consumer
@@ -780,6 +813,9 @@ public final class Player {
       for await event in bridge.makeStream() {
         guard !Task.isCancelled else { return }
         self?.handleEvent(event)
+        // Yield after each event so other main-actor work (UI updates,
+        // tests, etc.) isn't starved when VLC produces events rapidly.
+        await Task.yield()
       }
     }
   }

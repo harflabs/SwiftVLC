@@ -1,17 +1,17 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("Logo", .tags(.integration, .mainActor), .serialized)
+@Suite(.tags(.integration, .mainActor))
 @MainActor
 struct LogoTests {
-  @Test("isEnabled default")
-  func isEnabledDefault() throws {
+  @Test
+  func `isEnabled default`() {
     let player = Player()
     #expect(player.logo.isEnabled == false)
   }
 
-  @Test("Enable and disable")
-  func enableDisable() throws {
+  @Test
+  func `Enable and disable`() {
     let player = Player()
     player.logo.isEnabled = true
     #expect(player.logo.isEnabled == true)
@@ -19,51 +19,51 @@ struct LogoTests {
     #expect(player.logo.isEnabled == false)
   }
 
-  @Test("File set")
-  func fileSet() throws {
+  @Test
+  func `File set`() {
     let player = Player()
     player.logo.file = "/tmp/logo.png"
     // file getter always returns "" (write-only)
     #expect(player.logo.file == "")
   }
 
-  @Test("X get and set")
-  func xGetSet() throws {
+  @Test
+  func `X get and set`() {
     let player = Player()
     player.logo.x = 10
     #expect(player.logo.x == 10)
   }
 
-  @Test("Y get and set")
-  func yGetSet() throws {
+  @Test
+  func `Y get and set`() {
     let player = Player()
     player.logo.y = 20
     #expect(player.logo.y == 20)
   }
 
-  @Test("Opacity get and set")
-  func opacityGetSet() throws {
+  @Test
+  func `Opacity get and set`() {
     let player = Player()
     player.logo.opacity = 200
     #expect(player.logo.opacity == 200)
   }
 
-  @Test("Delay get and set")
-  func delayGetSet() throws {
+  @Test
+  func `Delay get and set`() {
     let player = Player()
     player.logo.delay = 1000
     #expect(player.logo.delay == 1000)
   }
 
-  @Test("Repeat count get and set")
-  func repeatCountGetSet() throws {
+  @Test
+  func `Repeat count get and set`() {
     let player = Player()
     player.logo.repeatCount = -1
     #expect(player.logo.repeatCount == -1)
   }
 
-  @Test("Position get and set")
-  func positionGetSet() throws {
+  @Test
+  func `Position get and set`() {
     let player = Player()
     player.logo.position = 5 // top+left
     #expect(player.logo.position == 5)

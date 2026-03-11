@@ -1,5 +1,4 @@
 import CLibVLC
-import Foundation
 
 /// Discovers available renderers (Chromecast, AirPlay, etc.) on the local network.
 ///
@@ -19,7 +18,7 @@ import Foundation
 ///     }
 /// }
 /// ```
-public final class RendererDiscoverer: @unchecked Sendable {
+public final class RendererDiscoverer: Sendable {
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_renderer_discoverer_t*
   private let continuation: AsyncStream<RendererEvent>.Continuation
   private nonisolated(unsafe) let opaque: UnsafeMutableRawPointer
@@ -156,21 +155,19 @@ extension RendererDiscoverer {
     guard count > 0, let ppp else { return [] }
     defer { libvlc_renderer_discoverer_list_release(ppp, count) }
 
-    var results: [RendererService] = []
-    for i in 0..<Int(count) {
-      guard let desc = ppp[i]?.pointee else { continue }
-      results.append(RendererService(
+    return (0..<Int(count)).compactMap { i -> RendererService? in
+      guard let desc = ppp[i]?.pointee else { return nil }
+      return RendererService(
         name: String(cString: desc.psz_name),
         longName: String(cString: desc.psz_longname)
-      ))
+      )
     }
-    return results
   }
 }
 
 // MARK: - Internals
 
-private final class RendererContinuationBox: @unchecked Sendable {
+private final class RendererContinuationBox: Sendable {
   let continuation: AsyncStream<RendererEvent>.Continuation
   init(continuation: AsyncStream<RendererEvent>.Continuation) {
     self.continuation = continuation

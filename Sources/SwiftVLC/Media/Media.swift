@@ -94,18 +94,15 @@ public final class Media: Sendable {
   ///
   /// Call ``parse(timeout:instance:)`` first, or tracks may be empty.
   public func tracks() -> [Track] {
-    var result: [Track] = []
-    for type in [libvlc_track_audio, libvlc_track_video, libvlc_track_text] {
-      guard let tracklist = libvlc_media_get_tracklist(pointer, type) else { continue }
+    [libvlc_track_audio, libvlc_track_video, libvlc_track_text].flatMap { type -> [Track] in
+      guard let tracklist = libvlc_media_get_tracklist(pointer, type) else { return [] }
       defer { libvlc_media_tracklist_delete(tracklist) }
 
       let count = libvlc_media_tracklist_count(tracklist)
-      for i in 0..<count {
-        guard let track = libvlc_media_tracklist_at(tracklist, i) else { continue }
-        result.append(Track(from: track))
+      return (0..<count).compactMap { i in
+        libvlc_media_tracklist_at(tracklist, i).map { Track(from: $0) }
       }
     }
-    return result
   }
 
   /// The media resource locator (URL or file path used to create this media).
@@ -120,6 +117,15 @@ public final class Media: Sendable {
     let ms = libvlc_media_get_duration(pointer)
     guard ms >= 0 else { return nil }
     return .milliseconds(ms)
+  }
+
+  /// Wraps an already-retained `libvlc_media_t` pointer.
+  ///
+  /// The caller must have already called `libvlc_media_retain` or obtained
+  /// the pointer from an API that returns a retained reference.
+  /// `Media` will call `libvlc_media_release` on deinit.
+  init(retaining ptr: OpaquePointer) {
+    pointer = ptr
   }
 
   /// Creates media from an open file descriptor.
@@ -163,9 +169,9 @@ public final class Media: Sendable {
 
 // MARK: - Parse Internals
 
-private final class ParseContinuation: @unchecked Sendable {
+private final class ParseContinuation: Sendable {
   let continuation: CheckedContinuation<Result<Metadata, VLCError>, Never>
-  let media: OpaquePointer
+  nonisolated(unsafe) let media: OpaquePointer
 
   init(continuation: CheckedContinuation<Result<Metadata, VLCError>, Never>, media: OpaquePointer) {
     self.continuation = continuation

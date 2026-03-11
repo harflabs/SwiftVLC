@@ -2,46 +2,46 @@
 import Foundation
 import Testing
 
-@Suite("Metadata", .tags(.integration, .media), .serialized)
+@Suite(.tags(.integration, .media))
 struct MetadataTests {
-  @Test("Parsed title from test MP4", .tags(.async))
-  func parsedTitle() async throws {
+  @Test(.tags(.async))
+  func `Parsed title from test MP4`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     let metadata = try await media.parse()
     #expect(metadata.title == "Test")
   }
 
-  @Test("Parsed artist from test MP4", .tags(.async))
-  func parsedArtist() async throws {
+  @Test(.tags(.async))
+  func `Parsed artist from test MP4`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     let metadata = try await media.parse()
     #expect(metadata.artist == "SwiftVLC")
   }
 
-  @Test("Parsed genre from test MP4", .tags(.async))
-  func parsedGenre() async throws {
+  @Test(.tags(.async))
+  func `Parsed genre from test MP4`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     let metadata = try await media.parse()
     #expect(metadata.genre == "Testing")
   }
 
-  @Test("Parsed track number from test MP4", .tags(.async))
-  func parsedTrackNumber() async throws {
+  @Test(.tags(.async))
+  func `Parsed track number from test MP4`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     let metadata = try await media.parse()
     #expect(metadata.trackNumber == 1)
   }
 
-  @Test("Subscript access", .tags(.async))
-  func subscriptAccess() async throws {
+  @Test(.tags(.async))
+  func `Subscript access`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     let metadata = try await media.parse()
     #expect(metadata[.title] == "Test")
     #expect(metadata[.artist] == "SwiftVLC")
   }
 
-  @Test("Missing keys return nil", .tags(.async))
-  func missingKeysNil() async throws {
+  @Test(.tags(.async))
+  func `Missing keys return nil`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     let metadata = try await media.parse()
     // These fields shouldn't be set in our test file
@@ -50,13 +50,12 @@ struct MetadataTests {
     #expect(metadata.episode == nil)
   }
 
-  @Test("MetadataKey allCases count")
-  func allCasesCount() {
+  @Test
+  func `MetadataKey allCases count`() {
     #expect(MetadataKey.allCases.count == 26)
   }
 
   @Test(
-    "MetadataKey raw values",
     arguments: [
       (MetadataKey.title, 0),
       (.artist, 1),
@@ -67,12 +66,12 @@ struct MetadataTests {
       (.discTotal, 25),
     ] as [(MetadataKey, Int)]
   )
-  func rawValues(key: MetadataKey, expected: Int) {
+  func `MetadataKey raw values`(key: MetadataKey, expected: Int) {
     #expect(key.rawValue == expected)
   }
 
-  @Test("Metadata is Equatable")
-  func equatable() async throws {
+  @Test
+  func `Metadata is Equatable`() async throws {
     // Use two separate media objects since libVLC rejects
     // a second parse on the same media object.
     let media1 = try Media(url: TestMedia.testMP4URL)
@@ -82,8 +81,8 @@ struct MetadataTests {
     #expect(meta1 == meta2)
   }
 
-  @Test("Duration from parsed metadata", .tags(.async))
-  func durationFromMetadata() async throws {
+  @Test(.tags(.async))
+  func `Duration from parsed metadata`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     let metadata = try await media.parse()
     // 1-second file
@@ -93,32 +92,32 @@ struct MetadataTests {
     }
   }
 
-  @Test("Optional int fields", .tags(.async))
-  func optionalIntFields() async throws {
+  @Test(.tags(.async))
+  func `Optional int fields`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     let metadata = try await media.parse()
     // discNumber should be nil for our simple test file
     #expect(metadata.discNumber == nil)
   }
 
-  @Test("Metadata is Sendable")
-  func isSendable() async throws {
+  @Test
+  func `Metadata is Sendable`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     let metadata = try await media.parse()
     let sendable: any Sendable = metadata
     _ = sendable
   }
 
-  @Test("Artwork URL nil for simple media", .tags(.async))
-  func artworkURLNil() async throws {
+  @Test(.tags(.async))
+  func `Artwork URL nil for simple media`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     let metadata = try await media.parse()
     // Simple test files have no artwork
     #expect(metadata.artworkURL == nil)
   }
 
-  @Test("All string fields accessible", .tags(.async))
-  func allStringFields() async throws {
+  @Test(.tags(.async))
+  func `All string fields accessible`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     let metadata = try await media.parse()
     // Just verify all string properties are accessible without crash
@@ -131,15 +130,15 @@ struct MetadataTests {
     _ = metadata.language
   }
 
-  @Test("Disc number nil for simple media", .tags(.async))
-  func discNumberNil() async throws {
+  @Test(.tags(.async))
+  func `Disc number nil for simple media`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     let metadata = try await media.parse()
     #expect(metadata.discNumber == nil)
   }
 
-  @Test("All MetadataKey subscripts accessible", .tags(.async))
-  func allSubscriptsAccessible() async throws {
+  @Test(.tags(.async))
+  func `All MetadataKey subscripts accessible`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     let metadata = try await media.parse()
     // Access every key via subscript
@@ -148,16 +147,16 @@ struct MetadataTests {
     }
   }
 
-  @Test("MetadataKey cValue round-trip")
-  func cValueRoundTrip() {
+  @Test
+  func `MetadataKey cValue round-trip`() {
     for key in MetadataKey.allCases {
       let cval = key.cValue
       #expect(cval.rawValue == UInt32(key.rawValue))
     }
   }
 
-  @Test("Season and episode nil for music", .tags(.async))
-  func seasonAndEpisodeNil() async throws {
+  @Test(.tags(.async))
+  func `Season and episode nil for music`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     let metadata = try await media.parse()
     #expect(metadata.season == nil)

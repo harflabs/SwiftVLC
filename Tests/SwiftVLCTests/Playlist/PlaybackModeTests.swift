@@ -2,10 +2,9 @@
 import CLibVLC
 import Testing
 
-@Suite("PlaybackMode", .tags(.logic))
+@Suite(.tags(.logic))
 struct PlaybackModeTests {
   @Test(
-    "Descriptions",
     arguments: [
       (PlaybackMode.default, "default"),
       (.loop, "loop"),
@@ -17,25 +16,24 @@ struct PlaybackModeTests {
   }
 
   @Test(
-    "C values",
     arguments: [
       (PlaybackMode.default, libvlc_playback_mode_default),
       (.loop, libvlc_playback_mode_loop),
       (.repeat, libvlc_playback_mode_repeat),
     ] as [(PlaybackMode, libvlc_playback_mode_t)]
   )
-  func cValues(mode: PlaybackMode, expected: libvlc_playback_mode_t) {
+  func `C values`(mode: PlaybackMode, expected: libvlc_playback_mode_t) {
     #expect(mode.cValue == expected)
   }
 
-  @Test("Hashable")
+  @Test
   func hashable() {
     let set: Set<PlaybackMode> = [.default, .loop, .repeat, .default]
     #expect(set.count == 3)
   }
 
-  @Test("Is Sendable")
-  func isSendable() {
+  @Test
+  func `Is Sendable`() {
     let mode: PlaybackMode = .loop
     let sendable: any Sendable = mode
     _ = sendable
