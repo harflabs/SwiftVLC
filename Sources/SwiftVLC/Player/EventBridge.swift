@@ -4,8 +4,9 @@ import Synchronization
 /// Bridges libVLC C event callbacks to `AsyncStream<PlayerEvent>`.
 ///
 /// Multi-consumer broadcaster: each call to `makeStream()` returns an
-/// independent `AsyncStream`. The C callback yields to ALL registered
-/// continuations via a `Mutex`-protected store.
+/// independent `AsyncStream`. The C callback snapshots the registered
+/// continuations under a `Mutex`, then yields outside the lock to avoid
+/// an AB-BA deadlock with Swift's task-cancellation lock.
 final class EventBridge: Sendable {
   private nonisolated(unsafe) let eventManager: OpaquePointer
   private let store: ContinuationStore

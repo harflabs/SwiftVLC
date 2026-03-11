@@ -11,8 +11,8 @@ import Foundation
 /// try list.append(media1)
 /// try list.append(media2)
 ///
-/// let player = Player()
-/// let listPlayer = MediaListPlayer(player: player)
+/// let listPlayer = MediaListPlayer()
+/// listPlayer.mediaPlayer = Player()
 /// listPlayer.mediaList = list
 /// listPlayer.play()
 /// ```
