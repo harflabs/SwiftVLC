@@ -1,6 +1,6 @@
 import Foundation
 
-/// Polls a condition, sleeping off the main actor between checks so VLC events can process.
+/// Polls a condition on the main actor, suspending between checks so VLC events can process.
 /// Returns `true` if the condition was met, `false` if it timed out.
 @MainActor
 func poll(
