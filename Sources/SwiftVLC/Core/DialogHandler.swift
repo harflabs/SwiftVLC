@@ -1,5 +1,4 @@
 import CLibVLC
-import Foundation
 
 /// Handles VLC dialog prompts (login, question, progress, error) via AsyncStream.
 ///
@@ -19,10 +18,9 @@ import Foundation
 ///     }
 /// }
 /// ```
-public final class DialogHandler: @unchecked Sendable {
+public final class DialogHandler: Sendable {
   private let instance: VLCInstance
   private let continuation: AsyncStream<DialogEvent>.Continuation
-  private nonisolated(unsafe) var cbs: libvlc_dialog_cbs
   private nonisolated(unsafe) let boxOpaque: UnsafeMutableRawPointer
 
   /// Stream of dialog events from VLC.
@@ -45,7 +43,9 @@ public final class DialogHandler: @unchecked Sendable {
     let box = Unmanaged.passRetained(DialogContinuationBox(continuation: cont)).toOpaque()
     boxOpaque = box
 
-    cbs = libvlc_dialog_cbs(
+    // libvlc_dialog_set_callbacks copies the struct (const pointer),
+    // so a local variable is sufficient — no need to store it.
+    var cbs = libvlc_dialog_cbs(
       pf_display_login: dialogLoginCallback,
       pf_display_question: dialogQuestionCallback,
       pf_display_progress: dialogProgressCallback,
@@ -72,7 +72,7 @@ public final class DialogHandler: @unchecked Sendable {
 
 /// Retained by C callbacks via `Unmanaged.passRetained`. Outlives the
 /// `DialogHandler` until explicitly released in deinit.
-private final class DialogContinuationBox: @unchecked Sendable {
+private final class DialogContinuationBox: Sendable {
   let continuation: AsyncStream<DialogEvent>.Continuation
   init(continuation: AsyncStream<DialogEvent>.Continuation) {
     self.continuation = continuation

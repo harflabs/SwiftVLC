@@ -87,7 +87,7 @@ extension Media {
 
 // MARK: - Internals
 
-private final class ThumbnailContinuation: @unchecked Sendable {
+private final class ThumbnailContinuation: Sendable {
   let continuation: CheckedContinuation<Result<Data, VLCError>, Never>
 
   init(continuation: CheckedContinuation<Result<Data, VLCError>, Never>) {

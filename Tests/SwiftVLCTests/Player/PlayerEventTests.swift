@@ -1,10 +1,10 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("PlayerEvent", .tags(.logic))
+@Suite(.tags(.logic))
 struct PlayerEventTests {
-  @Test("Exhaustive switch over all cases")
-  func exhaustiveSwitch() {
+  @Test
+  func `Exhaustive switch over all cases`() {
     let events: [PlayerEvent] = [
       .stateChanged(.idle),
       .timeChanged(.seconds(1)),
@@ -33,8 +33,8 @@ struct PlayerEventTests {
     #expect(events.count == 23)
   }
 
-  @Test("stateChanged associated value extraction")
-  func stateChangedExtraction() {
+  @Test
+  func `stateChanged associated value extraction`() {
     let event = PlayerEvent.stateChanged(.playing)
     if case .stateChanged(let state) = event {
       #expect(state == .playing)
@@ -43,8 +43,8 @@ struct PlayerEventTests {
     }
   }
 
-  @Test("timeChanged associated value extraction")
-  func timeChangedExtraction() {
+  @Test
+  func `timeChanged associated value extraction`() {
     let event = PlayerEvent.timeChanged(.seconds(5))
     if case .timeChanged(let time) = event {
       #expect(time == .seconds(5))
@@ -53,8 +53,8 @@ struct PlayerEventTests {
     }
   }
 
-  @Test("positionChanged associated value extraction")
-  func positionChangedExtraction() {
+  @Test
+  func `positionChanged associated value extraction`() {
     let event = PlayerEvent.positionChanged(0.75)
     if case .positionChanged(let pos) = event {
       #expect(pos == 0.75)
@@ -63,8 +63,8 @@ struct PlayerEventTests {
     }
   }
 
-  @Test("recordingChanged associated value extraction")
-  func recordingChangedExtraction() {
+  @Test
+  func `recordingChanged associated value extraction`() {
     let event = PlayerEvent.recordingChanged(isRecording: true, filePath: "/tmp/out.ts")
     if case .recordingChanged(let isRec, let path) = event {
       #expect(isRec == true)
@@ -74,8 +74,8 @@ struct PlayerEventTests {
     }
   }
 
-  @Test("programSelected associated value extraction")
-  func programSelectedExtraction() {
+  @Test
+  func `programSelected associated value extraction`() {
     let event = PlayerEvent.programSelected(unselectedId: 0, selectedId: 1)
     if case .programSelected(let unsel, let sel) = event {
       #expect(unsel == 0)
@@ -85,8 +85,8 @@ struct PlayerEventTests {
     }
   }
 
-  @Test("Is Sendable")
-  func isSendable() {
+  @Test
+  func `Is Sendable`() {
     let event: PlayerEvent = .muted
     let sendable: any Sendable = event
     _ = sendable

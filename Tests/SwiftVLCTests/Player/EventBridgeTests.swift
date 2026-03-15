@@ -1,18 +1,18 @@
 @testable import SwiftVLC
+import Synchronization
 import Testing
 
 @Suite(
-  "EventBridge", .tags(.integration, .mainActor, .async), .serialized,
+  .tags(.integration, .mainActor, .async),
   .enabled(if: TestCondition.canPlayMedia, "Requires video output (skipped on CI)")
 )
 @MainActor
 struct EventBridgeTests {
-  @Test("Independent streams")
-  func independentStreams() async throws {
+  @Test(.timeLimit(.minutes(1)))
+  func `Independent streams`() async {
     let player = Player()
     let stream1 = player.events
     let stream2 = player.events
-    // Both streams should be independent
     let t1 = Task { for await _ in stream1 {
       break
     } }
@@ -25,52 +25,63 @@ struct EventBridgeTests {
     await t2.value
   }
 
-  @Test("Events arrive on playback")
-  func eventsArriveOnPlayback() async throws {
+  @Test(.timeLimit(.minutes(1)))
+  func `Events arrive on playback`() async throws {
     let player = Player()
     let stream = player.events
-    let media = try Media(url: TestMedia.testMP4URL)
 
-    var receivedEvent = false
-    let task = Task {
+    let receivedEvent = Mutex(false)
+    let task = Task.detached { @Sendable in
       for await _ in stream {
-        receivedEvent = true
+        receivedEvent.withLock { $0 = true }
         break
       }
     }
 
-    try player.play(media)
-    try await Task.sleep(for: .milliseconds(500))
+    try player.play(Media(url: TestMedia.testMP4URL))
+    guard try await poll(until: { receivedEvent.withLock { $0 } }) else {
+      task.cancel()
+      await task.value
+      player.stop()
+      return
+    }
     task.cancel()
     await task.value
     player.stop()
-    #expect(receivedEvent)
+    #expect(receivedEvent.withLock { $0 })
   }
 
-  @Test("Multiple consumers receive same events")
-  func multipleConsumersSameEvents() async throws {
+  @Test(.timeLimit(.minutes(1)))
+  func `Multiple consumers receive same events`() async throws {
     let player = Player()
     let stream1 = player.events
     let stream2 = player.events
 
-    var count1 = 0
-    var count2 = 0
+    let count1 = Mutex(0)
+    let count2 = Mutex(0)
 
-    let t1 = Task {
+    let t1 = Task.detached { @Sendable in
       for await _ in stream1 {
-        count1 += 1
-        if count1 >= 2 { break }
+        let c = count1.withLock { $0 += 1; return $0 }
+        if c >= 2 { break }
       }
     }
-    let t2 = Task {
+    let t2 = Task.detached { @Sendable in
       for await _ in stream2 {
-        count2 += 1
-        if count2 >= 2 { break }
+        let c = count2.withLock { $0 += 1; return $0 }
+        if c >= 2 { break }
       }
     }
 
     try player.play(Media(url: TestMedia.testMP4URL))
-    try await Task.sleep(for: .milliseconds(500))
+    guard try await poll(until: { count1.withLock { $0 } > 0 && count2.withLock { $0 } > 0 }) else {
+      t1.cancel()
+      t2.cancel()
+      await t1.value
+      await t2.value
+      player.stop()
+      return
+    }
 
     t1.cancel()
     t2.cancel()
@@ -78,308 +89,342 @@ struct EventBridgeTests {
     await t2.value
     player.stop()
 
-    // Both consumers should have received events
-    #expect(count1 > 0)
-    #expect(count2 > 0)
+    #expect(count1.withLock { $0 } > 0)
+    #expect(count2.withLock { $0 } > 0)
   }
 
-  @Test("Terminated stream cleanup")
-  func terminatedStreamCleanup() async throws {
+  @Test(.timeLimit(.minutes(1)))
+  func `Terminated stream cleanup`() async {
     let player = Player()
     let stream = player.events
-    let task = Task {
-      for await _ in stream {
-        break
-      }
-    }
+    let task = Task { for await _ in stream {
+      break
+    } }
     task.cancel()
     await task.value
-    // Creating another stream should still work
     let stream2 = player.events
-    let task2 = Task {
-      for await _ in stream2 {
-        break
-      }
-    }
+    let task2 = Task { for await _ in stream2 {
+      break
+    } }
     task2.cancel()
     await task2.value
   }
 
-  @Test("Invalidate finishes streams")
-  func invalidateFinishesStreams() async throws {
-    // Verify player can be created and destroyed safely.
-    // Scope the player so it deinits on the main actor.
+  @Test(.timeLimit(.minutes(1)))
+  func `Invalidate finishes streams`() async throws {
     let stream: AsyncStream<PlayerEvent>
     do {
       let player = Player()
       stream = player.events
     }
-    // Player is now deinitialized — stream should finish
-    let task = Task {
-      for await _ in stream {}
-    }
+    let task = Task { for await _ in stream {} }
     try await Task.sleep(for: .milliseconds(100))
     task.cancel()
     await task.value
   }
 
-  @Test("State transitions received during playback")
-  func stateTransitionsDuringPlayback() async throws {
+  @Test(.timeLimit(.minutes(1)))
+  func `State transitions received during playback`() async throws {
     let player = Player()
     let stream = player.events
 
-    var receivedStates: [PlayerState] = []
-    let task = Task {
+    let receivedStates = Mutex<[PlayerState]>([])
+    let task = Task.detached { @Sendable in
       for await event in stream {
         if case .stateChanged(let state) = event {
-          receivedStates.append(state)
-          if state == .playing || state == .stopped || receivedStates.count >= 5 {
-            break
+          let shouldBreak = receivedStates.withLock {
+            $0.append(state)
+            return state == .playing || state == .stopped || $0.count >= 5
           }
+          if shouldBreak { break }
         }
       }
     }
 
     try player.play(Media(url: TestMedia.testMP4URL))
-    try await Task.sleep(for: .milliseconds(800))
+    guard try await poll(until: { receivedStates.withLock { !$0.isEmpty } }) else {
+      task.cancel()
+      await task.value
+      player.stop()
+      return
+    }
     player.stop()
-    try await Task.sleep(for: .milliseconds(300))
+    guard try await poll(until: { receivedStates.withLock { $0.contains(where: { $0 == .stopped || $0 == .stopping }) } }) else {
+      task.cancel()
+      await task.value
+      return
+    }
     task.cancel()
     await task.value
 
-    // Should have received at least opening → playing states
-    #expect(!receivedStates.isEmpty)
+    #expect(receivedStates.withLock { !$0.isEmpty })
   }
 
-  @Test("Time and position events during playback")
-  func timeAndPositionEventsDuringPlayback() async throws {
+  @Test(.timeLimit(.minutes(1)))
+  func `Time and position events during playback`() async throws {
     let player = Player()
     let stream = player.events
 
-    var receivedTime = false
-    var receivedPosition = false
-    let task = Task {
+    let receivedTime = Mutex(false)
+    let receivedPosition = Mutex(false)
+    let task = Task.detached { @Sendable in
       for await event in stream {
         switch event {
-        case .timeChanged:
-          receivedTime = true
-        case .positionChanged:
-          receivedPosition = true
-        default:
-          break
+        case .timeChanged: receivedTime.withLock { $0 = true }
+        case .positionChanged: receivedPosition.withLock { $0 = true }
+        default: break
         }
-        if receivedTime && receivedPosition { break }
+        if receivedTime.withLock({ $0 }) && receivedPosition.withLock({ $0 }) { break }
       }
     }
 
     try player.play(Media(url: TestMedia.twosecURL))
-    try await Task.sleep(for: .milliseconds(800))
+    guard try await poll(until: { receivedTime.withLock { $0 } && receivedPosition.withLock { $0 } }) else {
+      task.cancel()
+      await task.value
+      player.stop()
+      return
+    }
     task.cancel()
     await task.value
     player.stop()
 
-    #expect(receivedTime)
-    #expect(receivedPosition)
+    #expect(receivedTime.withLock { $0 })
+    #expect(receivedPosition.withLock { $0 })
   }
 
-  @Test("Length changed event during playback")
-  func lengthChangedDuringPlayback() async throws {
+  @Test(.timeLimit(.minutes(1)))
+  func `Length changed event during playback`() async throws {
     let player = Player()
     let stream = player.events
 
-    var receivedLength = false
-    let task = Task {
+    let receivedLength = Mutex(false)
+    let task = Task.detached { @Sendable in
       for await event in stream {
         if case .lengthChanged = event {
-          receivedLength = true
+          receivedLength.withLock { $0 = true }
           break
         }
       }
     }
 
     try player.play(Media(url: TestMedia.twosecURL))
-    try await Task.sleep(for: .milliseconds(800))
+    guard try await poll(until: { receivedLength.withLock { $0 } }) else {
+      task.cancel()
+      await task.value
+      player.stop()
+      return
+    }
     task.cancel()
     await task.value
     player.stop()
 
-    #expect(receivedLength)
+    #expect(receivedLength.withLock { $0 })
   }
 
-  @Test("Seekable and pausable events during playback")
-  func seekablePausableEventsDuringPlayback() async throws {
+  @Test(.timeLimit(.minutes(1)))
+  func `Seekable and pausable events during playback`() async throws {
     let player = Player()
     let stream = player.events
 
-    var receivedSeekable = false
-    var receivedPausable = false
-    let task = Task {
+    let receivedSeekable = Mutex(false)
+    let receivedPausable = Mutex(false)
+    let task = Task.detached { @Sendable in
       for await event in stream {
         switch event {
-        case .seekableChanged:
-          receivedSeekable = true
-        case .pausableChanged:
-          receivedPausable = true
-        default:
-          break
+        case .seekableChanged: receivedSeekable.withLock { $0 = true }
+        case .pausableChanged: receivedPausable.withLock { $0 = true }
+        default: break
         }
-        if receivedSeekable && receivedPausable { break }
+        if receivedSeekable.withLock({ $0 }) && receivedPausable.withLock({ $0 }) { break }
       }
     }
 
     try player.play(Media(url: TestMedia.twosecURL))
-    try await Task.sleep(for: .milliseconds(800))
+    guard try await poll(until: { receivedSeekable.withLock { $0 } && receivedPausable.withLock { $0 } }) else {
+      task.cancel()
+      await task.value
+      player.stop()
+      return
+    }
     task.cancel()
     await task.value
     player.stop()
 
-    // Local files should trigger both
-    #expect(receivedSeekable)
-    #expect(receivedPausable)
+    #expect(receivedSeekable.withLock { $0 })
+    #expect(receivedPausable.withLock { $0 })
   }
 
-  @Test("Mute events")
-  func muteEvents() async throws {
+  @Test(.timeLimit(.minutes(1)))
+  func `Mute events`() async throws {
     let player = Player()
     let stream = player.events
 
-    var receivedMuted = false
-    var receivedUnmuted = false
-    let task = Task {
+    let receivedMuted = Mutex(false)
+    let receivedUnmuted = Mutex(false)
+    let task = Task.detached { @Sendable in
       for await event in stream {
         switch event {
-        case .muted:
-          receivedMuted = true
-        case .unmuted:
-          receivedUnmuted = true
-        default:
-          break
+        case .muted: receivedMuted.withLock { $0 = true }
+        case .unmuted: receivedUnmuted.withLock { $0 = true }
+        default: break
         }
-        if receivedMuted && receivedUnmuted { break }
+        if receivedMuted.withLock({ $0 }) && receivedUnmuted.withLock({ $0 }) { break }
       }
     }
 
     try player.play(Media(url: TestMedia.twosecURL))
-    try await Task.sleep(for: .milliseconds(300))
+    guard try await poll(until: { player.state == .playing }) else {
+      task.cancel()
+      await task.value
+      player.stop()
+      return
+    }
     player.isMuted = true
-    try await Task.sleep(for: .milliseconds(100))
+    try await Task.sleep(for: .milliseconds(50))
     player.isMuted = false
-    try await Task.sleep(for: .milliseconds(300))
+    guard try await poll(until: { receivedMuted.withLock { $0 } && receivedUnmuted.withLock { $0 } }) else {
+      task.cancel()
+      await task.value
+      player.stop()
+      return
+    }
     task.cancel()
     await task.value
     player.stop()
 
-    #expect(receivedMuted)
-    #expect(receivedUnmuted)
+    #expect(receivedMuted.withLock { $0 })
+    #expect(receivedUnmuted.withLock { $0 })
   }
 
-  @Test("Volume changed event")
-  func volumeChangedEvent() async throws {
+  @Test(.timeLimit(.minutes(1)))
+  func `Volume changed event`() async throws {
     let player = Player()
     let stream = player.events
 
-    var receivedVolumeChanged = false
-    let task = Task {
+    let receivedVolumeChanged = Mutex(false)
+    let task = Task.detached { @Sendable in
       for await event in stream {
         if case .volumeChanged = event {
-          receivedVolumeChanged = true
+          receivedVolumeChanged.withLock { $0 = true }
           break
         }
       }
     }
 
     try player.play(Media(url: TestMedia.twosecURL))
-    try await Task.sleep(for: .milliseconds(300))
+    guard try await poll(until: { player.state == .playing }) else {
+      task.cancel()
+      await task.value
+      player.stop()
+      return
+    }
     player.volume = 0.5
-    try await Task.sleep(for: .milliseconds(300))
+    guard try await poll(until: { receivedVolumeChanged.withLock { $0 } }) else {
+      task.cancel()
+      await task.value
+      player.stop()
+      return
+    }
     task.cancel()
     await task.value
     player.stop()
 
-    #expect(receivedVolumeChanged)
+    #expect(receivedVolumeChanged.withLock { $0 })
   }
 
-  @Test("Stopped event resets player state")
-  func stoppedEventResetsState() async throws {
+  @Test(.timeLimit(.minutes(1)))
+  func `Stopped event resets player state`() async throws {
     let player = Player()
     let stream = player.events
 
-    var receivedStopped = false
-    let task = Task {
+    let receivedStopped = Mutex(false)
+    let task = Task.detached { @Sendable in
       for await event in stream {
         if case .stateChanged(.stopped) = event {
-          receivedStopped = true
+          receivedStopped.withLock { $0 = true }
           break
-        }
-        if case .stateChanged(.stopping) = event {
-          // also expected
         }
       }
     }
 
     try player.play(Media(url: TestMedia.testMP4URL))
-    try await Task.sleep(for: .milliseconds(500))
+    guard try await poll(until: { player.state == .playing }) else {
+      task.cancel()
+      await task.value
+      player.stop()
+      return
+    }
     player.stop()
-    try await Task.sleep(for: .milliseconds(500))
+    guard try await poll(until: { receivedStopped.withLock { $0 } }) else {
+      task.cancel()
+      await task.value
+      return
+    }
     task.cancel()
     await task.value
 
-    #expect(receivedStopped)
+    #expect(receivedStopped.withLock { $0 })
   }
 
-  @Test("Tracks changed event after load")
-  func tracksChangedAfterLoad() async throws {
+  @Test(.timeLimit(.minutes(1)))
+  func `Tracks changed event after load`() async throws {
     let player = Player()
     let stream = player.events
 
-    var receivedTracksChanged = false
-    var receivedMediaChanged = false
-    let task = Task {
+    let receivedTracksChanged = Mutex(false)
+    let receivedMediaChanged = Mutex(false)
+    let task = Task.detached { @Sendable in
       for await event in stream {
         switch event {
-        case .tracksChanged:
-          receivedTracksChanged = true
-        case .mediaChanged:
-          receivedMediaChanged = true
-        default:
-          break
+        case .tracksChanged: receivedTracksChanged.withLock { $0 = true }
+        case .mediaChanged: receivedMediaChanged.withLock { $0 = true }
+        default: break
         }
-        if receivedTracksChanged || receivedMediaChanged { break }
+        if receivedTracksChanged.withLock({ $0 }) || receivedMediaChanged.withLock({ $0 }) { break }
       }
     }
 
     try player.play(Media(url: TestMedia.twosecURL))
-    try await Task.sleep(for: .milliseconds(800))
+    guard try await poll(until: { receivedTracksChanged.withLock { $0 } || receivedMediaChanged.withLock { $0 } }) else {
+      task.cancel()
+      await task.value
+      player.stop()
+      return
+    }
     task.cancel()
     await task.value
     player.stop()
 
-    // At least one of tracksChanged or mediaChanged should fire
-    #expect(receivedTracksChanged || receivedMediaChanged)
+    #expect(receivedTracksChanged.withLock { $0 } || receivedMediaChanged.withLock { $0 })
   }
 
-  @Test("Buffering progress event during playback")
-  func bufferingProgressDuringPlayback() async throws {
+  @Test(.timeLimit(.minutes(1)))
+  func `Buffering progress event during playback`() async throws {
     let player = Player()
     let stream = player.events
 
-    var receivedBuffering = false
-    let task = Task {
+    let receivedBuffering = Mutex(false)
+    let task = Task.detached { @Sendable in
       for await event in stream {
         if case .bufferingProgress = event {
-          receivedBuffering = true
+          receivedBuffering.withLock { $0 = true }
           break
         }
       }
     }
 
     try player.play(Media(url: TestMedia.twosecURL))
-    try await Task.sleep(for: .milliseconds(800))
+    guard try await poll(until: { receivedBuffering.withLock { $0 } }) else {
+      task.cancel()
+      await task.value
+      player.stop()
+      return
+    }
     task.cancel()
     await task.value
     player.stop()
 
-    // Buffering events typically fire during media load
-    #expect(receivedBuffering)
+    #expect(receivedBuffering.withLock { $0 })
   }
 }

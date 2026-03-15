@@ -3,19 +3,19 @@ import Foundation
 import Testing
 
 @Suite(
-  "ThumbnailRequest", .tags(.integration, .media, .async), .serialized,
+  .tags(.integration, .media, .async),
   .enabled(if: TestCondition.canPlayMedia, "Requires video output (skipped on CI)")
 )
 struct ThumbnailRequestTests {
-  @Test("Returns non-empty data")
-  func returnsNonEmptyData() async throws {
+  @Test
+  func `Returns non-empty data`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     let data = try await media.thumbnail(at: .zero, width: 64, height: 0)
     #expect(!data.isEmpty)
   }
 
-  @Test("PNG magic bytes")
-  func pngMagicBytes() async throws {
+  @Test
+  func `PNG magic bytes`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     let data = try await media.thumbnail(at: .zero, width: 64, height: 0)
     // PNG files start with 0x89 P N G
@@ -26,15 +26,15 @@ struct ThumbnailRequestTests {
     #expect(data[3] == 0x47) // G
   }
 
-  @Test("Custom dimensions")
-  func customDimensions() async throws {
+  @Test
+  func `Custom dimensions`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     let data = try await media.thumbnail(at: .zero, width: 32, height: 32)
     #expect(!data.isEmpty)
   }
 
-  @Test("Cancellation safety")
-  func cancellationSafety() async throws {
+  @Test
+  func `Cancellation safety`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
     let task = Task {
       try await media.thumbnail(at: .zero, width: 64)
@@ -48,8 +48,8 @@ struct ThumbnailRequestTests {
     }
   }
 
-  @Test("Audio-only returns error")
-  func audioOnlyReturnsError() async {
+  @Test
+  func `Audio-only returns error`() async {
     do {
       let media = try Media(url: TestMedia.silenceURL)
       _ = try await media.thumbnail(at: .zero, width: 64, timeout: .seconds(3))

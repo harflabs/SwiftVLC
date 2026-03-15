@@ -1,17 +1,17 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("DialogHandler", .tags(.integration), .serialized)
+@Suite(.tags(.integration))
 struct DialogHandlerTests {
-  @Test("Init creates dialogs stream")
-  func initCreatesDialogsStream() throws {
+  @Test
+  func `Init creates dialogs stream`() throws {
     let instance = try VLCInstance()
     let handler = DialogHandler(instance: instance)
     _ = handler.dialogs // should not crash
   }
 
-  @Test("Deinit cleans up callbacks")
-  func deinitCleansUpCallbacks() throws {
+  @Test
+  func `Deinit cleans up callbacks`() throws {
     let instance = try VLCInstance()
     var handler: DialogHandler? = DialogHandler(instance: instance)
     _ = handler?.dialogs
@@ -19,8 +19,8 @@ struct DialogHandlerTests {
     // If we get here without crash, cleanup was successful
   }
 
-  @Test("DialogEvent enum has all cases")
-  func dialogEventEnumHasAllCases() {
+  @Test
+  func `DialogEvent enum has all cases`() {
     // Verify exhaustive switch compiles (runtime check)
     let events: [DialogEvent] = []
     for event in events {
@@ -35,36 +35,36 @@ struct DialogHandlerTests {
     }
   }
 
-  @Test("QuestionType enum has all cases")
-  func questionTypeEnumHasAllCases() {
+  @Test
+  func `QuestionType enum has all cases`() {
     let types: [QuestionType] = [.normal, .warning, .critical]
     #expect(types.count == 3)
   }
 
-  @Test("LoginRequest stores properties")
-  func loginRequestProperties() {
+  @Test
+  func `LoginRequest stores properties`() {
     // We can't construct a real LoginRequest without a C pointer,
     // but we verify the type exists and is Sendable
     let _: any Sendable.Type = LoginRequest.self
   }
 
-  @Test("QuestionRequest stores properties")
-  func questionRequestProperties() {
+  @Test
+  func `QuestionRequest stores properties`() {
     let _: any Sendable.Type = QuestionRequest.self
   }
 
-  @Test("ProgressInfo stores properties")
-  func progressInfoProperties() {
+  @Test
+  func `ProgressInfo stores properties`() {
     let _: any Sendable.Type = ProgressInfo.self
   }
 
-  @Test("ProgressUpdate stores properties")
-  func progressUpdateProperties() {
+  @Test
+  func `ProgressUpdate stores properties`() {
     let _: any Sendable.Type = ProgressUpdate.self
   }
 
-  @Test("Multiple handlers replace each other")
-  func multipleHandlersReplaceEachOther() throws {
+  @Test
+  func `Multiple handlers replace each other`() throws {
     let instance = try VLCInstance()
     let handler1 = DialogHandler(instance: instance)
     let handler2 = DialogHandler(instance: instance)
@@ -73,18 +73,18 @@ struct DialogHandlerTests {
     _ = handler2.dialogs
   }
 
-  @Test("DialogEvent is Sendable")
-  func dialogEventIsSendable() {
+  @Test
+  func `DialogEvent is Sendable`() {
     let _: any Sendable.Type = DialogEvent.self
   }
 
-  @Test("DialogID is Sendable")
-  func dialogIDIsSendable() {
+  @Test
+  func `DialogID is Sendable`() {
     let _: any Sendable.Type = DialogID.self
   }
 
-  @Test("Handler stream can be iterated", .tags(.async))
-  func handlerStreamCanBeIterated() async throws {
+  @Test(.tags(.async))
+  func `Handler stream can be iterated`() async throws {
     let instance = try VLCInstance()
     let handler = DialogHandler(instance: instance)
     let task = Task {
@@ -98,8 +98,8 @@ struct DialogHandlerTests {
     await task.value
   }
 
-  @Test("Handler deinit finishes stream", .tags(.async))
-  func handlerDeinitFinishesStream() async throws {
+  @Test(.tags(.async))
+  func `Handler deinit finishes stream`() async throws {
     let instance = try VLCInstance()
     let stream: AsyncStream<DialogEvent>
     do {
@@ -115,8 +115,8 @@ struct DialogHandlerTests {
     await task.value
   }
 
-  @Test("QuestionType is exhaustive")
-  func questionTypeExhaustive() {
+  @Test
+  func `QuestionType is exhaustive`() {
     let types: [QuestionType] = [.normal, .warning, .critical]
     for type in types {
       switch type {

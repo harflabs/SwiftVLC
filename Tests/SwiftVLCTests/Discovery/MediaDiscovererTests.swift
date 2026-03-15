@@ -2,10 +2,9 @@
 import CLibVLC
 import Testing
 
-@Suite("MediaDiscoverer", .tags(.integration), .serialized)
+@Suite(.tags(.integration))
 struct MediaDiscovererTests {
   @Test(
-    "Available services for categories",
     arguments: [
       DiscoveryCategory.devices,
       .lan,
@@ -13,7 +12,7 @@ struct MediaDiscovererTests {
       .localDirectories
     ]
   )
-  func availableServicesForCategories(category: DiscoveryCategory) {
+  func `Available services for categories`(category: DiscoveryCategory) {
     // Should not crash; may return empty list
     let services = MediaDiscoverer.availableServices(category: category)
     for service in services {
@@ -23,7 +22,6 @@ struct MediaDiscovererTests {
   }
 
   @Test(
-    "DiscoveryCategory cValue round-trip",
     arguments: [
       DiscoveryCategory.devices,
       .lan,
@@ -31,34 +29,34 @@ struct MediaDiscovererTests {
       .localDirectories,
     ]
   )
-  func categoryCValueRoundTrip(category: DiscoveryCategory) {
+  func `DiscoveryCategory cValue round-trip`(category: DiscoveryCategory) {
     let reconstructed = DiscoveryCategory(from: category.cValue)
     #expect(reconstructed == category)
   }
 
-  @Test("Unknown category defaults to .devices")
-  func unknownCategoryDefaultsToDevices() {
+  @Test
+  func `Unknown category defaults to .devices`() {
     let cat = DiscoveryCategory(from: libvlc_media_discoverer_category_t(rawValue: 999))
     #expect(cat == .devices)
   }
 
-  @Test("DiscoveryService stores properties")
-  func discoveryServiceProperties() {
+  @Test
+  func `DiscoveryService stores properties`() {
     let service = DiscoveryService(name: "upnp", longName: "UPnP", category: .lan)
     #expect(service.name == "upnp")
     #expect(service.longName == "UPnP")
     #expect(service.category == .lan)
   }
 
-  @Test("DiscoveryService is Hashable")
-  func discoveryServiceHashable() {
+  @Test
+  func `DiscoveryService is Hashable`() {
     let a = DiscoveryService(name: "upnp", longName: "UPnP", category: .lan)
     let b = DiscoveryService(name: "upnp", longName: "UPnP", category: .lan)
     #expect(a == b)
   }
 
-  @Test("Init with valid service name")
-  func initValidName() {
+  @Test
+  func `Init with valid service name`() {
     // Get an actual service name from the system
     let services = MediaDiscoverer.availableServices(category: .localDirectories)
     guard let service = services.first else { return }
@@ -70,8 +68,8 @@ struct MediaDiscovererTests {
     }
   }
 
-  @Test("Init with bogus name may succeed or throw")
-  func initWithBogusName() {
+  @Test
+  func `Init with bogus name may succeed or throw`() {
     // libVLC may or may not throw for unknown discoverer names
     // depending on the plugin system. We just verify no crash.
     do {
@@ -82,8 +80,8 @@ struct MediaDiscovererTests {
     }
   }
 
-  @Test("Start and stop")
-  func startAndStop() {
+  @Test
+  func `Start and stop`() {
     let services = MediaDiscoverer.availableServices(category: .localDirectories)
     guard let service = services.first else { return }
     do {
@@ -96,8 +94,8 @@ struct MediaDiscovererTests {
     }
   }
 
-  @Test("isRunning before start")
-  func isRunningBeforeStart() {
+  @Test
+  func `isRunning before start`() {
     let services = MediaDiscoverer.availableServices(category: .localDirectories)
     guard let service = services.first else { return }
     do {
@@ -108,8 +106,8 @@ struct MediaDiscovererTests {
     }
   }
 
-  @Test("Media list accessible")
-  func mediaListAccessible() {
+  @Test
+  func `Media list accessible`() {
     let services = MediaDiscoverer.availableServices(category: .localDirectories)
     guard let service = services.first else { return }
     do {
@@ -120,8 +118,8 @@ struct MediaDiscovererTests {
     }
   }
 
-  @Test("Deinit safety")
-  func deinitSafety() {
+  @Test
+  func `Deinit safety`() {
     let services = MediaDiscoverer.availableServices(category: .localDirectories)
     guard let service = services.first else { return }
     do {
@@ -134,8 +132,8 @@ struct MediaDiscovererTests {
     }
   }
 
-  @Test("Media list non-nil after start")
-  func mediaListNonNilAfterStart() {
+  @Test
+  func `Media list non-nil after start`() {
     let services = MediaDiscoverer.availableServices(category: .localDirectories)
     guard let service = services.first else { return }
     do {
@@ -150,8 +148,8 @@ struct MediaDiscovererTests {
     }
   }
 
-  @Test("Stop without start doesn't crash")
-  func stopWithoutStart() {
+  @Test
+  func `Stop without start doesn't crash`() {
     let services = MediaDiscoverer.availableServices(category: .localDirectories)
     guard let service = services.first else { return }
     do {
@@ -163,8 +161,8 @@ struct MediaDiscovererTests {
     }
   }
 
-  @Test("Multiple starts and stops")
-  func multipleStartsAndStops() {
+  @Test
+  func `Multiple starts and stops`() {
     let services = MediaDiscoverer.availableServices(category: .localDirectories)
     guard let service = services.first else { return }
     do {

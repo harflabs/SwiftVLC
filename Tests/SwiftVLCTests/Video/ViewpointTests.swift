@@ -1,10 +1,10 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("Viewpoint", .tags(.logic))
+@Suite(.tags(.logic))
 struct ViewpointTests {
-  @Test("Default init values")
-  func defaultInitValues() {
+  @Test
+  func `Default init values`() {
     let vp = Viewpoint()
     #expect(vp.yaw == 0)
     #expect(vp.pitch == 0)
@@ -12,8 +12,8 @@ struct ViewpointTests {
     #expect(vp.fieldOfView == 80)
   }
 
-  @Test("Custom init")
-  func customInit() {
+  @Test
+  func `Custom init`() {
     let vp = Viewpoint(yaw: 90, pitch: -45, roll: 10, fieldOfView: 120)
     #expect(vp.yaw == 90)
     #expect(vp.pitch == -45)
@@ -21,28 +21,28 @@ struct ViewpointTests {
     #expect(vp.fieldOfView == 120)
   }
 
-  @Test("Hashable equality")
-  func hashableEquality() {
+  @Test
+  func `Hashable equality`() {
     let a = Viewpoint(yaw: 10, pitch: 20)
     let b = Viewpoint(yaw: 10, pitch: 20)
     #expect(a == b)
   }
 
-  @Test("Hashable inequality")
-  func hashableInequality() {
+  @Test
+  func `Hashable inequality`() {
     let a = Viewpoint(yaw: 10, pitch: 20)
     let b = Viewpoint(yaw: 10, pitch: 30)
     #expect(a != b)
   }
 
-  @Test("Is Sendable")
-  func isSendable() {
+  @Test
+  func `Is Sendable`() {
     let vp = Viewpoint()
     let sendable: any Sendable = vp
     _ = sendable
   }
 
-  @Test("Mutability")
+  @Test
   func mutability() {
     var vp = Viewpoint()
     vp.yaw = 180
@@ -55,9 +55,9 @@ struct ViewpointTests {
     #expect(vp.fieldOfView == 60)
   }
 
-  @Test("Player updateViewpoint safety", .tags(.mainActor, .integration))
+  @Test(.tags(.mainActor, .integration))
   @MainActor
-  func playerUpdateViewpointSafety() throws {
+  func `Player updateViewpoint safety`() throws {
     let player = Player()
     // updateViewpoint on idle player should not crash (may throw but won't crash)
     let vp = Viewpoint(yaw: 45, pitch: 0)

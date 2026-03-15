@@ -2,10 +2,9 @@
 import Foundation
 import Testing
 
-@Suite("VLCError", .tags(.logic))
+@Suite(.tags(.logic))
 struct VLCErrorTests {
   @Test(
-    "Description for all cases",
     arguments: [
       (VLCError.instanceCreationFailed, "Failed to create libVLC instance"),
       (.mediaCreationFailed(source: "test.mp4"), "Failed to create media from: test.mp4"),
@@ -17,12 +16,11 @@ struct VLCErrorTests {
       (.operationFailed("Snapshot"), "Snapshot failed")
     ] as [(VLCError, String)]
   )
-  func descriptionForAllCases(error: VLCError, expected: String) {
+  func `Description for all cases`(error: VLCError, expected: String) {
     #expect(error.description == expected)
   }
 
   @Test(
-    "errorDescription matches description",
     arguments: [
       VLCError.instanceCreationFailed,
       .mediaCreationFailed(source: "x"),
@@ -34,31 +32,31 @@ struct VLCErrorTests {
       .operationFailed("o"),
     ]
   )
-  func errorDescriptionMatchesDescription(error: VLCError) {
+  func `errorDescription matches description`(error: VLCError) {
     #expect(error.errorDescription == error.description)
   }
 
-  @Test("Conforms to LocalizedError")
-  func conformsToLocalizedError() {
+  @Test
+  func `Conforms to LocalizedError`() {
     let error: any Error = VLCError.parseTimeout
     #expect(error is any LocalizedError)
   }
 
-  @Test("Conforms to CustomStringConvertible")
-  func conformsToCustomStringConvertible() {
+  @Test
+  func `Conforms to CustomStringConvertible`() {
     let error: VLCError = .parseTimeout
     let str = String(describing: error)
     #expect(str.contains("parsing timed out"))
   }
 
-  @Test("Associated values appear in description")
-  func associatedValuesAppearInDescription() {
+  @Test
+  func `Associated values appear in description`() {
     let error = VLCError.mediaCreationFailed(source: "test.mp4")
     #expect(error.description.contains("test.mp4"))
   }
 
-  @Test("Is Sendable")
-  func isSendable() {
+  @Test
+  func `Is Sendable`() {
     let error: VLCError = .parseTimeout
     let sendable: any Sendable = error
     _ = sendable

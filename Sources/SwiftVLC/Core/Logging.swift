@@ -78,20 +78,6 @@ extension VLCInstance {
   }
 }
 
-/// Creates an `AsyncStream` of libVLC log messages.
-///
-/// - Parameters:
-///   - instance: The VLC instance to capture logs from.
-///   - minimumLevel: Only yield entries at or above this level.
-/// - Returns: An `AsyncStream` of `LogEntry` values.
-@available(*, deprecated, message: "Use VLCInstance.logStream(minimumLevel:) instead")
-public func logStream(
-  instance: VLCInstance = .shared,
-  minimumLevel: LogLevel = .warning
-) -> AsyncStream<LogEntry> {
-  instance.logStream(minimumLevel: minimumLevel)
-}
-
 // MARK: - Internal
 
 private final class LogContext: Sendable {

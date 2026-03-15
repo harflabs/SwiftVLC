@@ -1,10 +1,10 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("RendererDiscoverer", .tags(.integration), .serialized)
+@Suite(.tags(.integration))
 struct RendererDiscovererTests {
-  @Test("Available services")
-  func availableServices() {
+  @Test
+  func `Available services`() {
     let services = RendererDiscoverer.availableServices()
     // May be empty if no renderer plugins are available
     for service in services {
@@ -13,22 +13,22 @@ struct RendererDiscovererTests {
     }
   }
 
-  @Test("RendererService stores properties")
-  func rendererServiceProperties() {
+  @Test
+  func `RendererService stores properties`() {
     let service = RendererService(name: "microdns_renderer", longName: "mDNS")
     #expect(service.name == "microdns_renderer")
     #expect(service.longName == "mDNS")
   }
 
-  @Test("RendererService is Hashable")
-  func rendererServiceHashable() {
+  @Test
+  func `RendererService is Hashable`() {
     let a = RendererService(name: "test", longName: "Test")
     let b = RendererService(name: "test", longName: "Test")
     #expect(a == b)
   }
 
-  @Test("Init with valid name")
-  func initValidName() {
+  @Test
+  func `Init with valid name`() {
     let services = RendererDiscoverer.availableServices()
     guard let service = services.first else { return }
     do {
@@ -39,8 +39,8 @@ struct RendererDiscovererTests {
     }
   }
 
-  @Test("Init with bogus name may succeed or throw")
-  func initWithBogusName() {
+  @Test
+  func `Init with bogus name may succeed or throw`() {
     // libVLC may or may not throw for unknown renderer names.
     // We just verify no crash.
     do {
@@ -51,8 +51,8 @@ struct RendererDiscovererTests {
     }
   }
 
-  @Test("Events stream accessible")
-  func eventsStreamAccessible() {
+  @Test
+  func `Events stream accessible`() {
     let services = RendererDiscoverer.availableServices()
     guard let service = services.first else { return }
     do {
@@ -69,8 +69,8 @@ struct RendererDiscovererTests {
     }
   }
 
-  @Test("Start and stop")
-  func startAndStop() {
+  @Test
+  func `Start and stop`() {
     let services = RendererDiscoverer.availableServices()
     guard let service = services.first else { return }
     do {
@@ -82,8 +82,8 @@ struct RendererDiscovererTests {
     }
   }
 
-  @Test("RendererEvent enum cases")
-  func rendererEventEnumCases() {
+  @Test
+  func `RendererEvent enum cases`() {
     // Just verify the enum compiles with exhaustive switch
     let events: [RendererEvent] = []
     for event in events {
@@ -94,8 +94,8 @@ struct RendererDiscovererTests {
     }
   }
 
-  @Test("Deinit safety")
-  func deinitSafety() {
+  @Test
+  func `Deinit safety`() {
     let services = RendererDiscoverer.availableServices()
     guard let service = services.first else { return }
     do {
@@ -108,8 +108,8 @@ struct RendererDiscovererTests {
     }
   }
 
-  @Test("Stop without start doesn't crash")
-  func stopWithoutStart() {
+  @Test
+  func `Stop without start doesn't crash`() {
     let services = RendererDiscoverer.availableServices()
     guard let service = services.first else { return }
     do {
@@ -120,13 +120,13 @@ struct RendererDiscovererTests {
     }
   }
 
-  @Test("RendererEvent is Sendable")
-  func rendererEventIsSendable() {
+  @Test
+  func `RendererEvent is Sendable`() {
     let _: any Sendable.Type = RendererEvent.self
   }
 
-  @Test("RendererItem is Sendable")
-  func rendererItemIsSendable() {
+  @Test
+  func `RendererItem is Sendable`() {
     let _: any Sendable.Type = RendererItem.self
   }
 }

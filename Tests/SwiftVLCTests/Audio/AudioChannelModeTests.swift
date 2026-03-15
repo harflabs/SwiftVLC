@@ -2,10 +2,9 @@
 import CLibVLC
 import Testing
 
-@Suite("AudioChannelMode", .tags(.logic))
+@Suite(.tags(.logic))
 struct AudioChannelModeTests {
   @Test(
-    "StereoMode descriptions",
     arguments: [
       (StereoMode.unset, "unset"),
       (.stereo, "stereo"),
@@ -16,29 +15,27 @@ struct AudioChannelModeTests {
       (.mono, "mono")
     ] as [(StereoMode, String)]
   )
-  func stereoModeDescriptions(mode: StereoMode, expected: String) {
+  func `StereoMode descriptions`(mode: StereoMode, expected: String) {
     #expect(mode.description == expected)
   }
 
   @Test(
-    "StereoMode cValue round-trip",
     arguments: [
       StereoMode.stereo, .reverseStereo, .left, .right, .dolbySurround, .mono,
     ]
   )
-  func stereoModeCValueRoundTrip(mode: StereoMode) {
+  func `StereoMode cValue round-trip`(mode: StereoMode) {
     let reconstructed = StereoMode(from: mode.cValue)
     #expect(reconstructed == mode)
   }
 
-  @Test("StereoMode unknown defaults to .unset")
-  func stereoModeUnknownDefaultsToUnset() {
+  @Test
+  func `StereoMode unknown defaults to .unset`() {
     let mode = StereoMode(from: libvlc_audio_output_stereomode_t(rawValue: 999))
     #expect(mode == .unset)
   }
 
   @Test(
-    "MixMode descriptions",
     arguments: [
       (MixMode.unset, "unset"),
       (.stereo, "stereo"),
@@ -48,35 +45,34 @@ struct AudioChannelModeTests {
       (.sevenPointOne, "7.1"),
     ] as [(MixMode, String)]
   )
-  func mixModeDescriptions(mode: MixMode, expected: String) {
+  func `MixMode descriptions`(mode: MixMode, expected: String) {
     #expect(mode.description == expected)
   }
 
   @Test(
-    "MixMode cValue round-trip",
     arguments: [
       MixMode.stereo, .binaural, .fourPointZero, .fivePointOne, .sevenPointOne,
     ]
   )
-  func mixModeCValueRoundTrip(mode: MixMode) {
+  func `MixMode cValue round-trip`(mode: MixMode) {
     let reconstructed = MixMode(from: mode.cValue)
     #expect(reconstructed == mode)
   }
 
-  @Test("MixMode unknown defaults to .unset")
-  func mixModeUnknownDefaultsToUnset() {
+  @Test
+  func `MixMode unknown defaults to .unset`() {
     let mode = MixMode(from: libvlc_audio_output_mixmode_t(rawValue: 999))
     #expect(mode == .unset)
   }
 
-  @Test("StereoMode Hashable")
-  func stereoModeHashable() {
+  @Test
+  func `StereoMode Hashable`() {
     let set: Set<StereoMode> = [.stereo, .mono, .stereo]
     #expect(set.count == 2)
   }
 
-  @Test("MixMode Hashable")
-  func mixModeHashable() {
+  @Test
+  func `MixMode Hashable`() {
     let set: Set<MixMode> = [.stereo, .binaural, .stereo]
     #expect(set.count == 2)
   }

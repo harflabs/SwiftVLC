@@ -2,10 +2,9 @@
 import CLibVLC
 import Testing
 
-@Suite("NavigationAction", .tags(.logic))
+@Suite(.tags(.logic))
 struct NavigationActionTests {
   @Test(
-    "Descriptions",
     arguments: [
       (NavigationAction.activate, "activate"),
       (.up, "up"),
@@ -20,7 +19,6 @@ struct NavigationActionTests {
   }
 
   @Test(
-    "C values match C constants",
     arguments: [
       (NavigationAction.activate, UInt32(libvlc_navigate_activate.rawValue)),
       (.up, UInt32(libvlc_navigate_up.rawValue)),
@@ -30,18 +28,18 @@ struct NavigationActionTests {
       (.popup, UInt32(libvlc_navigate_popup.rawValue)),
     ] as [(NavigationAction, UInt32)]
   )
-  func cValuesMatchConstants(action: NavigationAction, expected: UInt32) {
+  func `C values match C constants`(action: NavigationAction, expected: UInt32) {
     #expect(action.cValue == expected)
   }
 
-  @Test("Hashable")
+  @Test
   func hashable() {
     let set: Set<NavigationAction> = [.activate, .up, .down, .left, .right, .popup, .activate]
     #expect(set.count == 6)
   }
 
-  @Test("Exhaustive cases")
-  func exhaustiveCases() {
+  @Test
+  func `Exhaustive cases`() {
     let all: [NavigationAction] = [.activate, .up, .down, .left, .right, .popup]
     #expect(all.count == 6)
   }

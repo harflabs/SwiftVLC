@@ -2,18 +2,22 @@ import CLibVLC
 
 /// Image overlay (logo) controls.
 ///
-/// Access via `player.logo`:
+/// `~Copyable` and `~Escapable` — must be used inline, cannot be stored
+/// in properties or captured in closures. This prevents dangling pointer access
+/// if the player is deallocated.
+///
 /// ```swift
 /// player.logo.isEnabled = true
 /// player.logo.setFile("/path/to/logo.png")
 /// player.logo.opacity = 200
 /// ```
 @MainActor
-public struct Logo {
+public struct Logo: ~Copyable, ~Escapable {
   private let pointer: OpaquePointer
 
-  init(pointer: OpaquePointer) {
-    self.pointer = pointer
+  @_lifetime(borrow player)
+  init(player: borrowing Player) {
+    pointer = player.pointer
   }
 
   /// Whether the logo overlay is enabled.

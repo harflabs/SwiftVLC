@@ -1,10 +1,9 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("Duration+Extensions", .tags(.logic))
+@Suite(.tags(.logic))
 struct DurationExtensionsTests {
   @Test(
-    "Milliseconds conversion",
     arguments: [
       (Duration.seconds(1), Int64(1000)),
       (.seconds(0), Int64(0)),
@@ -13,24 +12,22 @@ struct DurationExtensionsTests {
       (.milliseconds(1), Int64(1))
     ] as [(Duration, Int64)]
   )
-  func millisecondsConversion(duration: Duration, expected: Int64) {
+  func `Milliseconds conversion`(duration: Duration, expected: Int64) {
     #expect(duration.milliseconds == expected)
   }
 
   @Test(
-    "Microseconds conversion",
     arguments: [
       (Duration.seconds(1), Int64(1_000_000)),
       (.milliseconds(1), Int64(1000)),
       (.microseconds(1), Int64(1)),
     ] as [(Duration, Int64)]
   )
-  func microsecondsConversion(duration: Duration, expected: Int64) {
+  func `Microseconds conversion`(duration: Duration, expected: Int64) {
     #expect(duration.microseconds == expected)
   }
 
   @Test(
-    "Formatted minutes and seconds",
     arguments: [
       (Duration.seconds(65), "1:05"),
       (.seconds(600), "10:00"),
@@ -39,48 +36,46 @@ struct DurationExtensionsTests {
       (.seconds(3599), "59:59"),
     ] as [(Duration, String)]
   )
-  func formattedMinutesAndSeconds(duration: Duration, expected: String) {
+  func `Formatted minutes and seconds`(duration: Duration, expected: String) {
     #expect(duration.formatted == expected)
   }
 
-  @Test("Formatted hours minutes seconds")
-  func formattedHoursMinutesSeconds() {
+  @Test
+  func `Formatted hours minutes seconds`() {
     #expect(Duration.seconds(3661).formatted == "1:01:01")
   }
 
-  @Test("Formatted zero duration")
-  func formattedZeroDuration() {
+  @Test
+  func `Formatted zero duration`() {
     #expect(Duration.zero.formatted == "0:00")
   }
 
-  @Test("Formatted negative duration")
-  func formattedNegativeDuration() {
+  @Test
+  func `Formatted negative duration`() {
     #expect(Duration.seconds(-5).formatted == "-0:05")
   }
 
-  @Test("Formatted sub-second duration")
-  func formattedSubSecondDuration() {
+  @Test
+  func `Formatted sub-second duration`() {
     #expect(Duration.milliseconds(500).formatted == "0:00")
   }
 
   @Test(
-    "Milliseconds round-trip",
     arguments: [Int64(0), 1, 500, 1000, 60000, 123_456] as [Int64]
   )
-  func millisecondsRoundTrip(ms: Int64) {
+  func `Milliseconds round-trip`(ms: Int64) {
     #expect(Duration.milliseconds(ms).milliseconds == ms)
   }
 
   @Test(
-    "Microseconds round-trip",
     arguments: [Int64(0), 1, 1000, 1_000_000] as [Int64]
   )
-  func microsecondsRoundTrip(us: Int64) {
+  func `Microseconds round-trip`(us: Int64) {
     #expect(Duration.microseconds(us).microseconds == us)
   }
 
-  @Test("Formatted large duration")
-  func formattedLargeDuration() {
+  @Test
+  func `Formatted large duration`() {
     #expect(Duration.seconds(86400).formatted == "24:00:00")
   }
 }

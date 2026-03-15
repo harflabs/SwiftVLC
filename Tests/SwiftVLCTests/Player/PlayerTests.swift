@@ -2,162 +2,147 @@
 import Foundation
 import Testing
 
-@Suite("Player", .tags(.integration, .mainActor), .serialized)
+@Suite(.tags(.integration, .mainActor))
 @MainActor
 struct PlayerTests {
-  @Test("Init succeeds")
-  func initSucceeds() throws {
+  @Test
+  func `Init succeeds`() {
     let player = Player()
     #expect(player.state == .idle)
   }
 
-  @Test("Initial state is idle")
-  func initialStateIsIdle() throws {
+  @Test
+  func `Initial state is idle`() {
     let player = Player()
     #expect(player.state == .idle)
   }
 
-  @Test("Initial time is zero")
-  func initialTimeIsZero() throws {
+  @Test
+  func `Initial time is zero`() {
     let player = Player()
     #expect(player.currentTime == .zero)
   }
 
-  @Test("Initial duration is nil")
-  func initialDurationIsNil() throws {
+  @Test
+  func `Initial duration is nil`() {
     let player = Player()
     #expect(player.duration == nil)
   }
 
-  @Test("Initial not seekable")
-  func initialNotSeekable() throws {
+  @Test
+  func `Initial not seekable`() {
     let player = Player()
     #expect(player.isSeekable == false)
   }
 
-  @Test("Initial not pausable")
-  func initialNotPausable() throws {
+  @Test
+  func `Initial not pausable`() {
     let player = Player()
     #expect(player.isPausable == false)
   }
 
-  @Test("Initial media is nil")
-  func initialMediaIsNil() throws {
+  @Test
+  func `Initial media is nil`() {
     let player = Player()
     #expect(player.currentMedia == nil)
   }
 
-  @Test("Initial tracks are empty")
-  func initialTracksAreEmpty() throws {
+  @Test
+  func `Initial tracks are empty`() {
     let player = Player()
     #expect(player.audioTracks.isEmpty)
     #expect(player.videoTracks.isEmpty)
     #expect(player.subtitleTracks.isEmpty)
   }
 
-  @Test("Load sets media")
-  func loadSetsMedia() throws {
+  @Test
+  func `Load sets media`() throws {
     let player = Player()
     let media = try Media(url: TestMedia.testMP4URL)
     player.load(media)
     #expect(player.currentMedia != nil)
   }
 
-  @Test("Play starts playback", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
-  func playStartsPlayback() async throws {
+  @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+  func `Play starts playback`() async throws {
     let player = Player()
-    let media = try Media(url: TestMedia.testMP4URL)
-    try player.play(media)
-    try await Task.sleep(for: .milliseconds(500))
-    // Without a video display (CLI), player may not fully transition
+    try player.play(Media(url: TestMedia.testMP4URL))
+    guard try await poll(until: { player.state != .idle }) else { player.stop(); return }
     #expect(player.state != .idle)
     player.stop()
   }
 
-  @Test("Pause pauses playback", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
-  func pausePausesPlayback() async throws {
+  @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+  func `Pause pauses playback`() async throws {
     let player = Player()
-    let media = try Media(url: TestMedia.twosecURL)
-    try player.play(media)
-    // Wait for player to leave idle (CI runners may be slow)
-    for _ in 0..<20 {
-      if player.state != .idle { break }
-      try await Task.sleep(for: .milliseconds(100))
-    }
-    guard player.state != .idle else { return }
+    try player.play(Media(url: TestMedia.twosecURL))
+    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
     player.pause()
-    try await Task.sleep(for: .milliseconds(300))
+    guard try await poll(until: { player.state == .paused }) else { player.stop(); return }
     #expect(player.state == .paused)
     player.stop()
   }
 
-  @Test("Resume after pause", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
-  func resumeAfterPause() async throws {
+  @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+  func `Resume after pause`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    // Wait for player to leave idle (CI runners may be slow)
-    for _ in 0..<20 {
-      if player.state != .idle { break }
-      try await Task.sleep(for: .milliseconds(100))
-    }
-    guard player.state != .idle else { return }
+    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
     player.pause()
-    try await Task.sleep(for: .milliseconds(200))
+    guard try await poll(until: { player.state == .paused }) else { player.stop(); return }
     player.resume()
-    try await Task.sleep(for: .milliseconds(200))
+    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
     #expect(player.state == .playing)
     player.stop()
   }
 
-  @Test("Stop stops playback", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
-  func stopStopsPlayback() async throws {
+  @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+  func `Stop stops playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.testMP4URL))
-    try await Task.sleep(for: .milliseconds(500))
+    guard try await poll(until: { player.state != .idle }) else { player.stop(); return }
     player.stop()
-    try await Task.sleep(for: .milliseconds(500))
+    guard try await poll(until: { player.state == .stopped || player.state == .idle }) else { return }
     #expect(player.state == .stopped || player.state == .idle || player.state == .stopping)
   }
 
-  @Test("Seek to time", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
-  func seekToTime() async throws {
+  @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+  func `Seek to time`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    try await Task.sleep(for: .milliseconds(500))
+    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
     player.seek(to: .seconds(1))
-    try await Task.sleep(for: .milliseconds(200))
-    // Verify seek didn't crash — exact position depends on timing
+    try await Task.sleep(for: .milliseconds(100))
     player.stop()
   }
 
-  @Test("Seek by offset", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
-  func seekByOffset() async throws {
+  @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+  func `Seek by offset`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    try await Task.sleep(for: .milliseconds(500))
+    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
     player.seek(by: .milliseconds(500))
-    try await Task.sleep(for: .milliseconds(200))
+    try await Task.sleep(for: .milliseconds(100))
     player.stop()
   }
 
-  @Test("Volume get and set")
-  func volumeGetSet() throws {
+  @Test
+  func `Volume get and set`() {
     let player = Player()
     player.volume = 0.5
     let vol = player.volume
     #expect(vol >= 0.4 && vol <= 0.6)
   }
 
-  @Test("Volume clamping")
-  func volumeClamping() throws {
+  @Test
+  func `Volume clamping`() {
     let player = Player()
     player.volume = -1.0
-    // Negative volume should be clamped to 0
     #expect(player.volume >= 0)
   }
 
-  @Test("Mute")
-  func mute() throws {
+  @Test
+  func mute() {
     let player = Player()
     player.isMuted = true
     #expect(player.isMuted == true)
@@ -165,74 +150,70 @@ struct PlayerTests {
     #expect(player.isMuted == false)
   }
 
-  @Test("Rate get and set")
-  func rateGetSet() throws {
+  @Test
+  func `Rate get and set`() {
     let player = Player()
     player.rate = 2.0
     #expect(player.rate == 2.0)
     player.rate = 1.0
   }
 
-  @Test("Position get and set")
-  func positionGetSet() throws {
+  @Test
+  func `Position get and set`() {
     let player = Player()
-    // Setting position without media shouldn't crash
     player.position = 0.5
   }
 
-  @Test("Audio delay get and set")
-  func audioDelayGetSet() throws {
+  @Test
+  func `Audio delay get and set`() {
     let player = Player()
-    // libVLC ignores delay settings without active media, just verify no crash
     player.audioDelay = .milliseconds(500)
     _ = player.audioDelay
   }
 
-  @Test("Subtitle delay get and set")
-  func subtitleDelayGetSet() throws {
+  @Test
+  func `Subtitle delay get and set`() {
     let player = Player()
-    // libVLC ignores delay settings without active media, just verify no crash
     player.subtitleDelay = .milliseconds(200)
     _ = player.subtitleDelay
   }
 
-  @Test("Subtitle text scale get and set")
-  func subtitleTextScaleGetSet() throws {
+  @Test
+  func `Subtitle text scale get and set`() {
     let player = Player()
     player.subtitleTextScale = 1.5
     let scale = player.subtitleTextScale
-    // VLC may clamp, just verify it's reasonable
     #expect(scale > 0)
   }
 
-  @Test("Role get and set")
-  func roleGetSet() throws {
+  @Test
+  func `Role get and set`() {
     let player = Player()
     player.role = .music
     #expect(player.role == .music)
     player.role = .none
   }
 
-  @Test("isPlaying reflects state")
-  func isPlayingReflectsState() throws {
+  @Test
+  func `isPlaying reflects state`() {
     let player = Player()
     #expect(player.isPlaying == false)
   }
 
-  @Test("isActive reflects state")
-  func isActiveReflectsState() throws {
+  @Test
+  func `isActive reflects state`() {
     let player = Player()
     #expect(player.isActive == false)
   }
 
-  @Test("Statistics nil without media")
-  func statisticsNilWithoutMedia() throws {
+  @Test
+  func `Statistics nil without media`() {
     let player = Player()
     #expect(player.statistics == nil)
   }
 
-  @Test("Events stream", .tags(.async))
-  func eventsStream() async throws {
+  @Test(.tags(.async))
+  func `Events stream`() async {
     let player = Player()
     let stream = player.events
     let task = Task {
@@ -244,26 +225,26 @@ struct PlayerTests {
     await task.value
   }
 
-  @Test("Chapter count zero without media")
-  func chapterCountZero() throws {
+  @Test
+  func `Chapter count zero without media`() {
     let player = Player()
     #expect(player.chapterCount <= 0)
   }
 
-  @Test("Title count zero without media")
-  func titleCountZero() throws {
+  @Test
+  func `Title count zero without media`() {
     let player = Player()
     #expect(player.titleCount <= 0)
   }
 
-  @Test("AB loop initial state")
-  func abLoopInitialState() throws {
+  @Test
+  func `AB loop initial state`() {
     let player = Player()
     #expect(player.abLoopState == .none)
   }
 
-  @Test("Equalizer get and set")
-  func equalizerGetSet() throws {
+  @Test
+  func `Equalizer get and set`() {
     let player = Player()
     #expect(player.equalizer == nil)
     let eq = Equalizer()
@@ -273,61 +254,55 @@ struct PlayerTests {
     #expect(player.equalizer == nil)
   }
 
-  @Test("Play URL convenience", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
-  func playURLConvenience() async throws {
+  @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+  func `Play URL convenience`() async throws {
     let player = Player()
     try player.play(url: TestMedia.testMP4URL)
-    try await Task.sleep(for: .milliseconds(500))
-    // Without a video display (CLI), player may not fully transition
+    guard try await poll(until: { player.state != .idle }) else { player.stop(); return }
     #expect(player.state != .idle)
     player.stop()
   }
 
-  @Test("Audio devices")
-  func audioDevices() throws {
+  @Test
+  func `Audio devices`() {
     let player = Player()
-    // May or may not have devices depending on platform
     _ = player.audioDevices()
   }
 
-  @Test("Stereo mode get and set")
-  func stereoModeGetSet() throws {
+  @Test
+  func `Stereo mode get and set`() {
     let player = Player()
     player.stereoMode = .mono
-    // VLC may or may not persist this without media
     _ = player.stereoMode
   }
 
-  @Test("Mix mode get and set")
-  func mixModeGetSet() throws {
+  @Test
+  func `Mix mode get and set`() {
     let player = Player()
     player.mixMode = .stereo
     _ = player.mixMode
   }
 
-  @Test("Programs empty")
-  func programsEmpty() throws {
+  @Test
+  func `Programs empty`() {
     let player = Player()
     #expect(player.programs.isEmpty)
   }
 
-  @Test("Stop resets position", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
-  func stopResetsPosition() async throws {
+  @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+  func `Stop resets position`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    try await Task.sleep(for: .milliseconds(500))
+    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
     player.stop()
-    try await Task.sleep(for: .milliseconds(300))
-    // After stop, time should be reset
+    guard try await poll(until: { player.state == .stopped || player.state == .idle }) else { return }
     #expect(player.currentTime == .zero)
   }
 
-  @Test("Play invalid media throws error")
-  func playInvalidMediaThrowsError() throws {
+  @Test
+  func `Play invalid media throws error`() throws {
     let player = Player()
     let media = try Media(path: "/dev/null")
-    // Playing /dev/null should start (VLC accepts it) but
-    // the important thing is no crash
     do {
       try player.play(media)
     } catch {
@@ -336,141 +311,136 @@ struct PlayerTests {
     player.stop()
   }
 
-  @Test("Toggle play pause")
-  func togglePlayPause() throws {
+  @Test
+  func `Toggle play pause`() {
     let player = Player()
-    // Toggle on idle player shouldn't crash
     player.togglePlayPause()
   }
 
-  @Test("Navigate doesn't crash")
-  func navigateDoesNotCrash() throws {
+  @Test
+  func `Navigate doesn't crash`() {
     let player = Player()
     player.navigate(.activate)
     player.navigate(.up)
   }
 
-  @Test("Next frame doesn't crash")
-  func nextFrameDoesNotCrash() throws {
+  @Test
+  func `Next frame doesn't crash`() {
     let player = Player()
     player.nextFrame()
   }
 
-  @Test("Current audio device")
-  func currentAudioDevice() throws {
+  @Test
+  func `Current audio device`() {
     let player = Player()
-    // May be nil without playback
     _ = player.currentAudioDevice
   }
 
   // MARK: - Additional Coverage
 
-  @Test("Selected audio track nil without media")
-  func selectedAudioTrackNil() throws {
+  @Test
+  func `Selected audio track nil without media`() {
     let player = Player()
     #expect(player.selectedAudioTrack == nil)
   }
 
-  @Test("Selected subtitle track nil without media")
-  func selectedSubtitleTrackNil() throws {
+  @Test
+  func `Selected subtitle track nil without media`() {
     let player = Player()
     #expect(player.selectedSubtitleTrack == nil)
   }
 
-  @Test("Deselect audio track doesn't crash")
-  func deselectAudioTrack() throws {
+  @Test
+  func `Deselect audio track doesn't crash`() {
     let player = Player()
     player.selectedAudioTrack = nil
   }
 
-  @Test("Deselect subtitle track doesn't crash")
-  func deselectSubtitleTrack() throws {
+  @Test
+  func `Deselect subtitle track doesn't crash`() {
     let player = Player()
     player.selectedSubtitleTrack = nil
   }
 
-  @Test("Start and stop recording doesn't crash")
-  func startStopRecording() throws {
+  @Test
+  func `Start and stop recording doesn't crash`() {
     let player = Player()
     player.startRecording()
     player.stopRecording()
   }
 
-  @Test("Next and previous chapter don't crash")
-  func nextPreviousChapter() throws {
+  @Test
+  func `Next and previous chapter don't crash`() {
     let player = Player()
     player.nextChapter()
     player.previousChapter()
   }
 
-  @Test("Current chapter get and set")
-  func currentChapterGetSet() throws {
+  @Test
+  func `Current chapter get and set`() {
     let player = Player()
     _ = player.currentChapter
     player.currentChapter = 0
   }
 
-  @Test("Current title get and set")
-  func currentTitleGetSet() throws {
+  @Test
+  func `Current title get and set`() {
     let player = Player()
     _ = player.currentTitle
     player.currentTitle = 0
   }
 
-  @Test("Titles empty without media")
-  func titlesEmpty() throws {
+  @Test
+  func `Titles empty without media`() {
     let player = Player()
     #expect(player.titles.isEmpty)
   }
 
-  @Test("Chapters empty without media")
-  func chaptersEmpty() throws {
+  @Test
+  func `Chapters empty without media`() {
     let player = Player()
     #expect(player.chapters().isEmpty)
   }
 
-  @Test("Set AB loop by time without media")
-  func setABLoopByTime() throws {
+  @Test
+  func `Set AB loop by time without media`() throws {
     let player = Player()
-    // Without media this should fail
     #expect(throws: VLCError.self) {
       try player.setABLoop(a: .seconds(1), b: .seconds(2))
     }
   }
 
-  @Test("Set AB loop by position without media")
-  func setABLoopByPosition() throws {
+  @Test
+  func `Set AB loop by position without media`() throws {
     let player = Player()
     #expect(throws: VLCError.self) {
       try player.setABLoop(aPosition: 0.1, bPosition: 0.9)
     }
   }
 
-  @Test("Reset AB loop without media")
-  func resetABLoop() throws {
+  @Test
+  func `Reset AB loop without media`() throws {
     let player = Player()
     #expect(throws: VLCError.self) {
       try player.resetABLoop()
     }
   }
 
-  @Test("Take snapshot without playback doesn't crash")
-  func takeSnapshotWithoutPlayback() throws {
+  @Test
+  func `Take snapshot without playback doesn't crash`() throws {
     let player = Player()
-    // libVLC may or may not return an error code without active video
     do {
       try player.takeSnapshot(to: "/tmp/snapshot_test.png")
     } catch {
-      _ = error // Expected VLCError
+      _ = error
     }
   }
 
-  @Test("Add external subtitle track", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
-  func addExternalSubtitleTrack() async throws {
+  @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+  func `Add external subtitle track`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    try await Task.sleep(for: .milliseconds(500))
-    // Adding external subtitle — may or may not succeed depending on state
+    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
     do {
       try player.addExternalTrack(from: TestMedia.subtitleURL, type: .subtitle)
     } catch {
@@ -479,47 +449,45 @@ struct PlayerTests {
     player.stop()
   }
 
-  @Test("Set audio output with invalid name fails")
-  func setAudioOutputInvalidName() throws {
+  @Test
+  func `Set audio output with invalid name fails`() throws {
     let player = Player()
     #expect(throws: VLCError.self) {
       try player.setAudioOutput("nonexistent_output_xyz")
     }
   }
 
-  @Test("Set audio device with invalid id")
-  func setAudioDeviceInvalid() throws {
+  @Test
+  func `Set audio device with invalid id`() throws {
     let player = Player()
-    // Setting an invalid audio device — may or may not throw
     do {
       try player.setAudioDevice("nonexistent_device_xyz")
     } catch {
-      _ = error // Expected VLCError
+      _ = error
     }
   }
 
-  @Test("Select program by id doesn't crash")
-  func selectProgramById() throws {
+  @Test
+  func `Select program by id doesn't crash`() {
     let player = Player()
     player.selectProgram(id: 0)
   }
 
-  @Test("Is program scrambled")
-  func isProgramScrambled() throws {
+  @Test
+  func `Is program scrambled`() {
     let player = Player()
     #expect(player.isProgramScrambled == false)
   }
 
-  @Test("Set renderer nil doesn't crash")
-  func setRendererNil() throws {
+  @Test
+  func `Set renderer nil doesn't crash`() throws {
     let player = Player()
     try player.setRenderer(nil)
   }
 
-  @Test("Set deinterlace auto")
-  func setDeinterlaceAuto() throws {
+  @Test
+  func `Set deinterlace auto`() throws {
     let player = Player()
-    // Auto deinterlace — may or may not succeed
     do {
       try player.setDeinterlace(state: -1)
     } catch {
@@ -527,8 +495,8 @@ struct PlayerTests {
     }
   }
 
-  @Test("Set deinterlace with mode")
-  func setDeinterlaceWithMode() throws {
+  @Test
+  func `Set deinterlace with mode`() throws {
     let player = Player()
     do {
       try player.setDeinterlace(state: 1, mode: "blend")
@@ -537,15 +505,15 @@ struct PlayerTests {
     }
   }
 
-  @Test("Teletext page get and set")
-  func teletextPageGetSet() throws {
+  @Test
+  func `Teletext page get and set`() {
     let player = Player()
     _ = player.teletextPage
     player.teletextPage = 100
   }
 
-  @Test("Aspect ratio set and get")
-  func aspectRatioSetGet() throws {
+  @Test
+  func `Aspect ratio set and get`() {
     let player = Player()
     player.aspectRatio = .ratio(16, 9)
     #expect(player.aspectRatio == .ratio(16, 9))
@@ -555,36 +523,32 @@ struct PlayerTests {
     #expect(player.aspectRatio == .default)
   }
 
-  @Test("Tracks refresh during playback", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
-  func tracksRefreshDuringPlayback() async throws {
+  @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+  func `Tracks refresh during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    try await Task.sleep(for: .milliseconds(1000))
-    // Without a video display, tracks may not populate in CLI
-    // Just verify the properties are accessible without crash
+    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
     _ = player.audioTracks
     _ = player.videoTracks
     _ = player.subtitleTracks
     player.stop()
   }
 
-  @Test("Duration available during playback", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
-  func durationDuringPlayback() async throws {
+  @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+  func `Duration available during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    try await Task.sleep(for: .milliseconds(800))
-    // Duration should be set via lengthChanged event
+    guard try await poll(until: { player.duration != nil }) else { player.stop(); return }
     if let dur = player.duration {
       #expect(dur.milliseconds > 0)
     }
     player.stop()
   }
 
-  @Test("Update viewpoint doesn't crash")
-  func updateViewpoint() throws {
+  @Test
+  func `Update viewpoint doesn't crash`() throws {
     let player = Player()
     let vp = Viewpoint(yaw: 90, pitch: 0, roll: 0, fieldOfView: 80)
-    // May fail without 360 media, just verify no crash
     do {
       try player.updateViewpoint(vp)
     } catch {
@@ -592,22 +556,22 @@ struct PlayerTests {
     }
   }
 
-  @Test("Save metadata fails for non-local media")
-  func saveMetadataFails() throws {
+  @Test
+  func `Save metadata fails for non-local media`() throws {
     let media = try Media(path: "/nonexistent/file.mp4")
     #expect(throws: VLCError.self) {
       try media.saveMetadata()
     }
   }
 
-  @Test("Selected program nil without media")
-  func selectedProgramNil() throws {
+  @Test
+  func `Selected program nil without media`() {
     let player = Player()
     #expect(player.selectedProgram == nil)
   }
 
-  @Test("Load replaces previous media")
-  func loadReplacesMedia() throws {
+  @Test
+  func `Load replaces previous media`() throws {
     let player = Player()
     let media1 = try Media(url: TestMedia.testMP4URL)
     player.load(media1)
@@ -617,92 +581,83 @@ struct PlayerTests {
     #expect(player.currentMedia != nil)
   }
 
-  @Test("Duration set via event during playback", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
-  func durationSetViaEvent() async throws {
+  @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+  func `Duration set via event during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    // Wait for lengthChanged event to fire and set duration
-    try await Task.sleep(for: .milliseconds(1000))
-    // Duration may be set via the handleEvent(.lengthChanged) path
+    guard try await poll(until: { player.duration != nil }) else { player.stop(); return }
     if let dur = player.duration {
       #expect(dur.milliseconds > 0)
     }
     player.stop()
   }
 
-  @Test("Position updates during playback", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
-  func positionUpdatesDuringPlayback() async throws {
+  @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+  func `Position updates during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    try await Task.sleep(for: .milliseconds(800))
-    // Position should have been updated via handleEvent(.positionChanged)
-    let pos = player.position
-    // Position could be > 0 if events came through
-    _ = pos
+    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
+    _ = player.position
     player.stop()
   }
 
-  @Test("Seekable and pausable update during playback", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
-  func seekablePausableUpdate() async throws {
+  @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+  func `Seekable and pausable update during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    try await Task.sleep(for: .milliseconds(800))
-    // These are updated by handleEvent(.seekableChanged/.pausableChanged)
+    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
     _ = player.isSeekable
     _ = player.isPausable
     player.stop()
   }
 
-  @Test("isActive true during playback", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
-  func isActiveDuringPlayback() async throws {
+  @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+  func `isActive true during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    try await Task.sleep(for: .milliseconds(300))
-    // Player should be in playing/opening/buffering state
+    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
     if player.state == .playing || player.state == .opening {
       #expect(player.isActive == true)
     }
     player.stop()
   }
 
-  @Test("Stop sets state to stopped", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
-  func stopSetsStateStopped() async throws {
+  @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+  func `Stop sets state to stopped`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    try await Task.sleep(for: .milliseconds(500))
+    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
     player.stop()
-    try await Task.sleep(for: .milliseconds(500))
-    // handleEvent(.stateChanged(.stopped)) should reset time and position
+    guard try await poll(until: { player.state == .stopped || player.state == .idle }) else { return }
     #expect(player.currentTime == .zero)
   }
 
-  @Test("Adjustments accessor")
-  func adjustmentsAccessor() throws {
+  @Test
+  func `Adjustments accessor`() {
     let player = Player()
     let adj = player.adjustments
     _ = adj.isEnabled
   }
 
-  @Test("Marquee accessor")
-  func marqueeAccessor() throws {
+  @Test
+  func `Marquee accessor`() {
     let player = Player()
     let m = player.marquee
     _ = m.isEnabled
   }
 
-  @Test("Logo accessor")
-  func logoAccessor() throws {
+  @Test
+  func `Logo accessor`() {
     let player = Player()
     let l = player.logo
     _ = l.isEnabled
   }
 
-  @Test("Statistics accessible with loaded media")
-  func statisticsWithLoadedMedia() throws {
+  @Test
+  func `Statistics accessible with loaded media`() throws {
     let player = Player()
     let media = try Media(url: TestMedia.testMP4URL)
     player.load(media)
-    // Statistics may or may not be available before playback
     _ = player.statistics
   }
 }

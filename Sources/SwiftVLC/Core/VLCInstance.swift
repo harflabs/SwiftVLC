@@ -49,13 +49,18 @@ public final class VLCInstance: Sendable {
   ///   `"--no-snapshot-preview"`.
   /// - Throws: `VLCError.instanceCreationFailed` if libVLC cannot be initialized.
   public init(arguments: [String] = VLCInstance.defaultArguments) throws(VLCError) {
-    // Convert Swift strings to C strings for libvlc_new
-    let cStrings = arguments.map { strdup($0) }
-    defer { cStrings.forEach { Darwin.free($0) } }
+    // Convert Swift strings to C strings for libvlc_new.
+    // strdup allocates; freed in defer after libvlc_new copies them.
+    let cArgs = arguments.map { strdup($0) }
+    defer { cArgs.forEach { Darwin.free($0) } }
 
-    var argv: [UnsafePointer<CChar>?] = cStrings.map { UnsafePointer($0) }
+    let instance = cArgs.withUnsafeBufferPointer { buf -> OpaquePointer? in
+      // Cast through raw pointer to satisfy libvlc_new's parameter type
+      var argv = buf.map { UnsafePointer($0) }
+      return libvlc_new(Int32(argv.count), &argv)
+    }
 
-    guard let instance = libvlc_new(Int32(argv.count), &argv) else {
+    guard let instance else {
       throw .instanceCreationFailed
     }
 

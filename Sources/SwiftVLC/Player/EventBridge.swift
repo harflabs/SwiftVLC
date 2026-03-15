@@ -1,12 +1,12 @@
 import CLibVLC
-import Foundation
 import Synchronization
 
 /// Bridges libVLC C event callbacks to `AsyncStream<PlayerEvent>`.
 ///
 /// Multi-consumer broadcaster: each call to `makeStream()` returns an
-/// independent `AsyncStream`. The C callback yields to ALL registered
-/// continuations via a `Mutex`-protected store.
+/// independent `AsyncStream`. The C callback snapshots the registered
+/// continuations under a `Mutex`, then yields outside the lock to avoid
+/// an AB-BA deadlock with Swift's task-cancellation lock.
 final class EventBridge: Sendable {
   private nonisolated(unsafe) let eventManager: OpaquePointer
   private let store: ContinuationStore
@@ -51,12 +51,11 @@ final class EventBridge: Sendable {
   /// Creates a new independent `AsyncStream` for consuming player events.
   /// Each stream receives all events broadcast after creation.
   func makeStream() -> AsyncStream<PlayerEvent> {
-    let id = UUID()
     let store = store
     let (stream, continuation) = AsyncStream<PlayerEvent>.makeStream(
       bufferingPolicy: .bufferingNewest(64)
     )
-    store.add(id: id, continuation: continuation)
+    let id = store.add(continuation: continuation)
     continuation.onTermination = { _ in
       store.remove(id: id)
     }
@@ -103,21 +102,31 @@ final class EventBridge: Sendable {
 /// Thread-safe storage for multiple `AsyncStream` continuations.
 /// Passed to C callbacks via `Unmanaged`.
 private final class ContinuationStore: Sendable {
-  private let continuations: Mutex<[UUID: AsyncStream<PlayerEvent>.Continuation]> = Mutex([:])
+  private let nextID = Mutex<Int>(0)
+  private let continuations: Mutex<[Int: AsyncStream<PlayerEvent>.Continuation]> = Mutex([:])
 
-  func add(id: UUID, continuation: AsyncStream<PlayerEvent>.Continuation) {
+  func add(continuation: AsyncStream<PlayerEvent>.Continuation) -> Int {
+    let id = nextID.withLock { id -> Int in
+      defer { id += 1 }
+      return id
+    }
     continuations.withLock { $0[id] = continuation }
+    return id
   }
 
-  func remove(id: UUID) {
+  func remove(id: Int) {
     continuations.withLock { _ = $0.removeValue(forKey: id) }
   }
 
   func broadcast(_ event: PlayerEvent) {
-    continuations.withLock { dict in
-      for cont in dict.values {
-        cont.yield(event)
-      }
+    // Copy continuations under the lock, then yield outside it.
+    // yield() may resume a consumer task, acquiring its status record
+    // lock. If we held the Mutex during yield, a concurrent task
+    // cancellation (which holds the status lock and calls onTermination
+    // → remove → acquire Mutex) would deadlock (AB-BA).
+    let snapshot = continuations.withLock { Array($0.values) }
+    for cont in snapshot {
+      cont.yield(event)
     }
   }
 

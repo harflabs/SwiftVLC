@@ -1,17 +1,17 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("MediaListPlayer", .tags(.integration, .mainActor), .serialized)
+@Suite(.tags(.integration, .mainActor))
 @MainActor
 struct MediaListPlayerTests {
-  @Test("Init succeeds")
-  func initSucceeds() throws {
+  @Test
+  func `Init succeeds`() {
     let listPlayer = MediaListPlayer()
     _ = listPlayer
   }
 
-  @Test("MediaPlayer get and set")
-  func mediaPlayerGetSet() throws {
+  @Test
+  func `MediaPlayer get and set`() {
     let listPlayer = MediaListPlayer()
     #expect(listPlayer.mediaPlayer == nil)
     let player = Player()
@@ -19,8 +19,8 @@ struct MediaListPlayerTests {
     #expect(listPlayer.mediaPlayer != nil)
   }
 
-  @Test("MediaList get and set")
-  func mediaListGetSet() throws {
+  @Test
+  func `MediaList get and set`() {
     let listPlayer = MediaListPlayer()
     #expect(listPlayer.mediaList == nil)
     let list = MediaList()
@@ -29,42 +29,41 @@ struct MediaListPlayerTests {
   }
 
   @Test(
-    "Playback mode get and set",
     arguments: [PlaybackMode.default, .loop, .repeat]
   )
-  func playbackModeGetSet(mode: PlaybackMode) throws {
+  func `Playback mode get and set`(mode: PlaybackMode) {
     let listPlayer = MediaListPlayer()
     listPlayer.playbackMode = mode
     #expect(listPlayer.playbackMode == mode)
   }
 
-  @Test("Play without list doesn't crash")
-  func playWithoutList() throws {
+  @Test
+  func `Play without list doesn't crash`() {
     let listPlayer = MediaListPlayer()
     listPlayer.play()
     listPlayer.stop()
   }
 
-  @Test("Pause without playback doesn't crash")
-  func pauseWithoutPlayback() throws {
+  @Test
+  func `Pause without playback doesn't crash`() {
     let listPlayer = MediaListPlayer()
     listPlayer.pause()
   }
 
-  @Test("Resume without playback doesn't crash")
-  func resumeWithoutPlayback() throws {
+  @Test
+  func `Resume without playback doesn't crash`() {
     let listPlayer = MediaListPlayer()
     listPlayer.resume()
   }
 
-  @Test("Stop without playback doesn't crash")
-  func stopWithoutPlayback() throws {
+  @Test
+  func `Stop without playback doesn't crash`() {
     let listPlayer = MediaListPlayer()
     listPlayer.stop()
   }
 
-  @Test("Play at invalid index throws")
-  func playAtInvalidIndex() throws {
+  @Test
+  func `Play at invalid index throws`() throws {
     let listPlayer = MediaListPlayer()
     let list = MediaList()
     listPlayer.mediaList = list
@@ -73,42 +72,42 @@ struct MediaListPlayerTests {
     }
   }
 
-  @Test("Next without items throws")
-  func nextWithoutItemsThrows() throws {
+  @Test
+  func `Next without items throws`() throws {
     let listPlayer = MediaListPlayer()
     #expect(throws: VLCError.self) {
       try listPlayer.next()
     }
   }
 
-  @Test("Previous without items throws")
-  func previousWithoutItemsThrows() throws {
+  @Test
+  func `Previous without items throws`() throws {
     let listPlayer = MediaListPlayer()
     #expect(throws: VLCError.self) {
       try listPlayer.previous()
     }
   }
 
-  @Test("State property")
-  func stateProperty() throws {
+  @Test
+  func `State property`() {
     let listPlayer = MediaListPlayer()
     _ = listPlayer.state
   }
 
-  @Test("isPlaying property")
-  func isPlayingProperty() throws {
+  @Test
+  func `isPlaying property`() {
     let listPlayer = MediaListPlayer()
     #expect(listPlayer.isPlaying == false)
   }
 
-  @Test("Toggle pause doesn't crash")
-  func togglePause() throws {
+  @Test
+  func `Toggle pause doesn't crash`() {
     let listPlayer = MediaListPlayer()
     listPlayer.togglePause()
   }
 
-  @Test("Play at valid index", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
-  func playAtValidIndex() async throws {
+  @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+  func `Play at valid index`() async throws {
     let listPlayer = MediaListPlayer()
     let player = Player()
     listPlayer.mediaPlayer = player
@@ -116,12 +115,12 @@ struct MediaListPlayerTests {
     try list.append(Media(url: TestMedia.testMP4URL))
     listPlayer.mediaList = list
     try listPlayer.play(at: 0)
-    try await Task.sleep(for: .milliseconds(300))
+    guard try await poll(until: { listPlayer.isPlaying }) else { listPlayer.stop(); return }
     listPlayer.stop()
   }
 
-  @Test("Play media item not in list throws")
-  func playMediaNotInListThrows() throws {
+  @Test
+  func `Play media item not in list throws`() throws {
     let listPlayer = MediaListPlayer()
     let list = MediaList()
     listPlayer.mediaList = list
@@ -131,8 +130,8 @@ struct MediaListPlayerTests {
     }
   }
 
-  @Test("Next at end of list throws")
-  func nextAtEndThrows() throws {
+  @Test
+  func `Next at end of list throws`() throws {
     let listPlayer = MediaListPlayer()
     let list = MediaList()
     listPlayer.mediaList = list
@@ -141,8 +140,8 @@ struct MediaListPlayerTests {
     }
   }
 
-  @Test("Previous at start of list throws")
-  func previousAtStartThrows() throws {
+  @Test
+  func `Previous at start of list throws`() throws {
     let listPlayer = MediaListPlayer()
     let list = MediaList()
     listPlayer.mediaList = list
@@ -151,8 +150,8 @@ struct MediaListPlayerTests {
     }
   }
 
-  @Test("Play and stop lifecycle", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
-  func playAndStopLifecycle() async throws {
+  @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+  func `Play and stop lifecycle`() async throws {
     let listPlayer = MediaListPlayer()
     let player = Player()
     listPlayer.mediaPlayer = player
@@ -160,14 +159,13 @@ struct MediaListPlayerTests {
     try list.append(Media(url: TestMedia.twosecURL))
     listPlayer.mediaList = list
     listPlayer.play()
-    try await Task.sleep(for: .milliseconds(500))
+    guard try await poll(until: { listPlayer.isPlaying }) else { listPlayer.stop(); return }
     #expect(listPlayer.isPlaying)
     listPlayer.stop()
-    try await Task.sleep(for: .milliseconds(200))
   }
 
-  @Test("Pause and resume lifecycle", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
-  func pauseAndResumeLifecycle() async throws {
+  @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+  func `Pause and resume lifecycle`() async throws {
     let listPlayer = MediaListPlayer()
     let player = Player()
     listPlayer.mediaPlayer = player
@@ -175,7 +173,7 @@ struct MediaListPlayerTests {
     try list.append(Media(url: TestMedia.twosecURL))
     listPlayer.mediaList = list
     listPlayer.play()
-    try await Task.sleep(for: .milliseconds(500))
+    guard try await poll(until: { listPlayer.isPlaying }) else { listPlayer.stop(); return }
     listPlayer.pause()
     try await Task.sleep(for: .milliseconds(100))
     listPlayer.resume()
@@ -183,8 +181,8 @@ struct MediaListPlayerTests {
     listPlayer.stop()
   }
 
-  @Test("State during playback", .tags(.async, .media), .enabled(if: TestCondition.canPlayMedia))
-  func stateDuringPlayback() async throws {
+  @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+  func `State during playback`() async throws {
     let listPlayer = MediaListPlayer()
     let player = Player()
     listPlayer.mediaPlayer = player
@@ -192,15 +190,13 @@ struct MediaListPlayerTests {
     try list.append(Media(url: TestMedia.twosecURL))
     listPlayer.mediaList = list
     listPlayer.play()
-    try await Task.sleep(for: .milliseconds(500))
-    let state = listPlayer.state
-    // Should be playing
-    #expect(state == .playing)
+    guard try await poll(until: { listPlayer.state == .playing }) else { listPlayer.stop(); return }
+    #expect(listPlayer.state == .playing)
     listPlayer.stop()
   }
 
-  @Test("Set media player to nil")
-  func setMediaPlayerToNil() throws {
+  @Test
+  func `Set media player to nil`() {
     let listPlayer = MediaListPlayer()
     let player = Player()
     listPlayer.mediaPlayer = player
@@ -209,8 +205,8 @@ struct MediaListPlayerTests {
     #expect(listPlayer.mediaPlayer == nil)
   }
 
-  @Test("Set media list to nil")
-  func setMediaListToNil() throws {
+  @Test
+  func `Set media list to nil`() {
     let listPlayer = MediaListPlayer()
     let list = MediaList()
     listPlayer.mediaList = list

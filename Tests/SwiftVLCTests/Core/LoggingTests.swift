@@ -1,10 +1,9 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite("Logging", .tags(.integration), .serialized)
+@Suite(.tags(.integration))
 struct LoggingTests {
   @Test(
-    "Log level raw values",
     arguments: [
       (LogLevel.debug, Int32(0)),
       (.notice, Int32(2)),
@@ -12,19 +11,18 @@ struct LoggingTests {
       (.error, Int32(4))
     ] as [(LogLevel, Int32)]
   )
-  func logLevelRawValues(level: LogLevel, expected: Int32) {
+  func `Log level raw values`(level: LogLevel, expected: Int32) {
     #expect(level.rawValue == expected)
   }
 
-  @Test("Log level Comparable ordering")
-  func logLevelComparableOrdering() {
+  @Test
+  func `Log level Comparable ordering`() {
     #expect(LogLevel.debug < .notice)
     #expect(LogLevel.notice < .warning)
     #expect(LogLevel.warning < .error)
   }
 
   @Test(
-    "Log level descriptions",
     arguments: [
       (LogLevel.debug, "debug"),
       (.notice, "notice"),
@@ -32,26 +30,26 @@ struct LoggingTests {
       (.error, "error"),
     ] as [(LogLevel, String)]
   )
-  func logLevelDescriptions(level: LogLevel, expected: String) {
+  func `Log level descriptions`(level: LogLevel, expected: String) {
     #expect(level.description == expected)
   }
 
-  @Test("LogEntry stores properties")
-  func logEntryStoresProperties() {
+  @Test
+  func `LogEntry stores properties`() {
     let entry = LogEntry(level: .warning, message: "test msg", module: "http")
     #expect(entry.level == .warning)
     #expect(entry.message == "test msg")
     #expect(entry.module == "http")
   }
 
-  @Test("LogEntry module can be nil")
-  func logEntryModuleCanBeNil() {
+  @Test
+  func `LogEntry module can be nil`() {
     let entry = LogEntry(level: .error, message: "oops", module: nil)
     #expect(entry.module == nil)
   }
 
-  @Test("Log stream returns AsyncStream", .tags(.async))
-  func logStreamReturnsAsyncStream() async {
+  @Test(.tags(.async))
+  func `Log stream returns AsyncStream`() async {
     let stream = VLCInstance.shared.logStream(minimumLevel: .debug)
     // Verify we can create and cancel the stream without issues
     let task = Task {
@@ -63,8 +61,8 @@ struct LoggingTests {
     await task.value
   }
 
-  @Test("Log stream filters minimum level", .tags(.async))
-  func logStreamFiltersMinimumLevel() async {
+  @Test(.tags(.async))
+  func `Log stream filters minimum level`() async {
     // Create a stream with error-only filter
     let stream = VLCInstance.shared.logStream(minimumLevel: .error)
     let task = Task {
@@ -80,8 +78,8 @@ struct LoggingTests {
     await task.value
   }
 
-  @Test("Log stream termination cleans up", .tags(.async))
-  func logStreamTerminationCleansUp() async {
+  @Test(.tags(.async))
+  func `Log stream termination cleans up`() async {
     let stream = VLCInstance.shared.logStream(minimumLevel: .warning)
     let task = Task {
       for await _ in stream {
@@ -93,8 +91,8 @@ struct LoggingTests {
     // If we get here without crash, cleanup was successful
   }
 
-  @Test("Multiple log streams can coexist", .tags(.async))
-  func multipleLogStreamsCanCoexist() async {
+  @Test(.tags(.async))
+  func `Multiple log streams can coexist`() async {
     let stream1 = VLCInstance.shared.logStream(minimumLevel: .warning)
     let stream2 = VLCInstance.shared.logStream(minimumLevel: .error)
     let t1 = Task { for await _ in stream1 {
@@ -110,22 +108,8 @@ struct LoggingTests {
     await t2.value
   }
 
-  @available(*, deprecated, message: "Tests deprecated API")
-  @Test("Deprecated logStream function", .tags(.async))
-  func deprecatedLogStreamFunction() async {
-    // Verify the deprecated free function still works
-    let stream = SwiftVLC.logStream(minimumLevel: .error)
-    let task = Task {
-      for await _ in stream {
-        break
-      }
-    }
-    task.cancel()
-    await task.value
-  }
-
-  @Test("Log stream onTermination fires on cancel", .tags(.async))
-  func logStreamOnTerminationFires() async {
+  @Test(.tags(.async))
+  func `Log stream onTermination fires on cancel`() async {
     // Create and immediately cancel a stream to trigger onTermination cleanup
     do {
       let stream = VLCInstance.shared.logStream(minimumLevel: .debug)

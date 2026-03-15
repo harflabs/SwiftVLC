@@ -2,18 +2,22 @@ import CLibVLC
 
 /// Text overlay (marquee) controls.
 ///
-/// Access via `player.marquee`:
+/// `~Copyable` and `~Escapable` — must be used inline, cannot be stored
+/// in properties or captured in closures. This prevents dangling pointer access
+/// if the player is deallocated.
+///
 /// ```swift
 /// player.marquee.isEnabled = true
 /// player.marquee.text = "Now Playing"
 /// player.marquee.fontSize = 24
 /// ```
 @MainActor
-public struct Marquee {
+public struct Marquee: ~Copyable, ~Escapable {
   private let pointer: OpaquePointer
 
-  init(pointer: OpaquePointer) {
-    self.pointer = pointer
+  @_lifetime(borrow player)
+  init(player: borrowing Player) {
+    pointer = player.pointer
   }
 
   /// Whether the marquee overlay is enabled.
