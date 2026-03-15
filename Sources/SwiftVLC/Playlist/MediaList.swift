@@ -138,6 +138,11 @@ public final class MediaList: Sendable {
       Int(libvlc_media_list_count(pointer))
     }
 
+    /// Whether the list is empty.
+    public var isEmpty: Bool {
+      count == 0
+    }
+
     /// Returns the media at the given index, or `nil` if out of bounds.
     ///
     /// The returned `Media` is retained and safe to use after the
