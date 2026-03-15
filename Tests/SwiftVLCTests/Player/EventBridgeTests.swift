@@ -9,12 +9,16 @@ import Testing
 @MainActor
 struct EventBridgeTests {
   @Test(.timeLimit(.minutes(1)))
-  func `Independent streams`() async {
+  func `Independent streams`() {
     let player = Player()
     let stream1 = player.events
     let stream2 = player.events
-    let t1 = Task { for await _ in stream1 { break } }
-    let t2 = Task { for await _ in stream2 { break } }
+    let t1 = Task { for await _ in stream1 {
+      break
+    } }
+    let t2 = Task { for await _ in stream2 {
+      break
+    } }
     t1.cancel()
     t2.cancel()
   }
@@ -78,13 +82,17 @@ struct EventBridgeTests {
   }
 
   @Test(.timeLimit(.minutes(1)))
-  func `Terminated stream cleanup`() async {
+  func `Terminated stream cleanup`() {
     let player = Player()
     let stream = player.events
-    let task = Task { for await _ in stream { break } }
+    let task = Task { for await _ in stream {
+      break
+    } }
     task.cancel()
     let stream2 = player.events
-    let task2 = Task { for await _ in stream2 { break } }
+    let task2 = Task { for await _ in stream2 {
+      break
+    } }
     task2.cancel()
   }
 
@@ -125,9 +133,10 @@ struct EventBridgeTests {
       return
     }
     player.stop()
-    guard try await poll(until: {
-      receivedStates.withLock { $0.contains(where: { $0 == .stopped || $0 == .stopping }) }
-    }) else {
+    guard
+      try await poll(until: {
+        receivedStates.withLock { $0.contains(where: { $0 == .stopped || $0 == .stopping }) }
+      }) else {
       task.cancel()
       return
     }
@@ -330,9 +339,10 @@ struct EventBridgeTests {
     }
 
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: {
-      receivedTracksChanged.withLock { $0 } || receivedMediaChanged.withLock { $0 }
-    }) else {
+    guard
+      try await poll(until: {
+        receivedTracksChanged.withLock { $0 } || receivedMediaChanged.withLock { $0 }
+      }) else {
       player.stop()
       task.cancel()
       return
