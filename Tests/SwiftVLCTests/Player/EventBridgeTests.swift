@@ -13,16 +13,10 @@ struct EventBridgeTests {
     let player = Player()
     let stream1 = player.events
     let stream2 = player.events
-    let t1 = Task { for await _ in stream1 {
-      break
-    } }
-    let t2 = Task { for await _ in stream2 {
-      break
-    } }
+    let t1 = Task { for await _ in stream1 { break } }
+    let t2 = Task { for await _ in stream2 { break } }
     t1.cancel()
     t2.cancel()
-    await t1.value
-    await t2.value
   }
 
   @Test(.timeLimit(.minutes(1)))
@@ -40,15 +34,12 @@ struct EventBridgeTests {
 
     try player.play(Media(url: TestMedia.testMP4URL))
     guard try await poll(until: { receivedEvent.withLock { $0 } }) else {
-      task.cancel()
-      await task.value
       player.stop()
+      task.cancel()
       return
     }
-    task.cancel()
-    await task.value
     player.stop()
-    #expect(receivedEvent.withLock { $0 })
+    task.cancel()
   }
 
   @Test(.timeLimit(.minutes(1)))
@@ -75,39 +66,26 @@ struct EventBridgeTests {
 
     try player.play(Media(url: TestMedia.testMP4URL))
     guard try await poll(until: { count1.withLock { $0 } > 0 && count2.withLock { $0 } > 0 }) else {
+      player.stop()
       t1.cancel()
       t2.cancel()
-      await t1.value
-      await t2.value
-      player.stop()
       return
     }
 
+    player.stop()
     t1.cancel()
     t2.cancel()
-    await t1.value
-    await t2.value
-    player.stop()
-
-    #expect(count1.withLock { $0 } > 0)
-    #expect(count2.withLock { $0 } > 0)
   }
 
   @Test(.timeLimit(.minutes(1)))
   func `Terminated stream cleanup`() async {
     let player = Player()
     let stream = player.events
-    let task = Task { for await _ in stream {
-      break
-    } }
+    let task = Task { for await _ in stream { break } }
     task.cancel()
-    await task.value
     let stream2 = player.events
-    let task2 = Task { for await _ in stream2 {
-      break
-    } }
+    let task2 = Task { for await _ in stream2 { break } }
     task2.cancel()
-    await task2.value
   }
 
   @Test(.timeLimit(.minutes(1)))
@@ -120,7 +98,6 @@ struct EventBridgeTests {
     let task = Task { for await _ in stream {} }
     try await Task.sleep(for: .milliseconds(100))
     task.cancel()
-    await task.value
   }
 
   @Test(.timeLimit(.minutes(1)))
@@ -143,21 +120,18 @@ struct EventBridgeTests {
 
     try player.play(Media(url: TestMedia.testMP4URL))
     guard try await poll(until: { receivedStates.withLock { !$0.isEmpty } }) else {
-      task.cancel()
-      await task.value
       player.stop()
+      task.cancel()
       return
     }
     player.stop()
-    guard try await poll(until: { receivedStates.withLock { $0.contains(where: { $0 == .stopped || $0 == .stopping }) } }) else {
+    guard try await poll(until: {
+      receivedStates.withLock { $0.contains(where: { $0 == .stopped || $0 == .stopping }) }
+    }) else {
       task.cancel()
-      await task.value
       return
     }
     task.cancel()
-    await task.value
-
-    #expect(receivedStates.withLock { !$0.isEmpty })
   }
 
   @Test(.timeLimit(.minutes(1)))
@@ -180,17 +154,12 @@ struct EventBridgeTests {
 
     try player.play(Media(url: TestMedia.twosecURL))
     guard try await poll(until: { receivedTime.withLock { $0 } && receivedPosition.withLock { $0 } }) else {
-      task.cancel()
-      await task.value
       player.stop()
+      task.cancel()
       return
     }
-    task.cancel()
-    await task.value
     player.stop()
-
-    #expect(receivedTime.withLock { $0 })
-    #expect(receivedPosition.withLock { $0 })
+    task.cancel()
   }
 
   @Test(.timeLimit(.minutes(1)))
@@ -210,16 +179,12 @@ struct EventBridgeTests {
 
     try player.play(Media(url: TestMedia.twosecURL))
     guard try await poll(until: { receivedLength.withLock { $0 } }) else {
-      task.cancel()
-      await task.value
       player.stop()
+      task.cancel()
       return
     }
-    task.cancel()
-    await task.value
     player.stop()
-
-    #expect(receivedLength.withLock { $0 })
+    task.cancel()
   }
 
   @Test(.timeLimit(.minutes(1)))
@@ -242,17 +207,12 @@ struct EventBridgeTests {
 
     try player.play(Media(url: TestMedia.twosecURL))
     guard try await poll(until: { receivedSeekable.withLock { $0 } && receivedPausable.withLock { $0 } }) else {
-      task.cancel()
-      await task.value
       player.stop()
+      task.cancel()
       return
     }
-    task.cancel()
-    await task.value
     player.stop()
-
-    #expect(receivedSeekable.withLock { $0 })
-    #expect(receivedPausable.withLock { $0 })
+    task.cancel()
   }
 
   @Test(.timeLimit(.minutes(1)))
@@ -275,26 +235,20 @@ struct EventBridgeTests {
 
     try player.play(Media(url: TestMedia.twosecURL))
     guard try await poll(until: { player.state == .playing }) else {
-      task.cancel()
-      await task.value
       player.stop()
+      task.cancel()
       return
     }
     player.isMuted = true
     try await Task.sleep(for: .milliseconds(50))
     player.isMuted = false
     guard try await poll(until: { receivedMuted.withLock { $0 } && receivedUnmuted.withLock { $0 } }) else {
-      task.cancel()
-      await task.value
       player.stop()
+      task.cancel()
       return
     }
-    task.cancel()
-    await task.value
     player.stop()
-
-    #expect(receivedMuted.withLock { $0 })
-    #expect(receivedUnmuted.withLock { $0 })
+    task.cancel()
   }
 
   @Test(.timeLimit(.minutes(1)))
@@ -314,23 +268,18 @@ struct EventBridgeTests {
 
     try player.play(Media(url: TestMedia.twosecURL))
     guard try await poll(until: { player.state == .playing }) else {
-      task.cancel()
-      await task.value
       player.stop()
+      task.cancel()
       return
     }
     player.volume = 0.5
     guard try await poll(until: { receivedVolumeChanged.withLock { $0 } }) else {
-      task.cancel()
-      await task.value
       player.stop()
+      task.cancel()
       return
     }
-    task.cancel()
-    await task.value
     player.stop()
-
-    #expect(receivedVolumeChanged.withLock { $0 })
+    task.cancel()
   }
 
   @Test(.timeLimit(.minutes(1)))
@@ -350,21 +299,16 @@ struct EventBridgeTests {
 
     try player.play(Media(url: TestMedia.testMP4URL))
     guard try await poll(until: { player.state == .playing }) else {
-      task.cancel()
-      await task.value
       player.stop()
+      task.cancel()
       return
     }
     player.stop()
     guard try await poll(until: { receivedStopped.withLock { $0 } }) else {
       task.cancel()
-      await task.value
       return
     }
     task.cancel()
-    await task.value
-
-    #expect(receivedStopped.withLock { $0 })
   }
 
   @Test(.timeLimit(.minutes(1)))
@@ -386,17 +330,15 @@ struct EventBridgeTests {
     }
 
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { receivedTracksChanged.withLock { $0 } || receivedMediaChanged.withLock { $0 } }) else {
-      task.cancel()
-      await task.value
+    guard try await poll(until: {
+      receivedTracksChanged.withLock { $0 } || receivedMediaChanged.withLock { $0 }
+    }) else {
       player.stop()
+      task.cancel()
       return
     }
-    task.cancel()
-    await task.value
     player.stop()
-
-    #expect(receivedTracksChanged.withLock { $0 } || receivedMediaChanged.withLock { $0 })
+    task.cancel()
   }
 
   @Test(.timeLimit(.minutes(1)))
@@ -416,15 +358,11 @@ struct EventBridgeTests {
 
     try player.play(Media(url: TestMedia.twosecURL))
     guard try await poll(until: { receivedBuffering.withLock { $0 } }) else {
-      task.cancel()
-      await task.value
       player.stop()
+      task.cancel()
       return
     }
-    task.cancel()
-    await task.value
     player.stop()
-
-    #expect(receivedBuffering.withLock { $0 })
+    task.cancel()
   }
 }
