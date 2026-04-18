@@ -8,8 +8,11 @@ concurrency:
 
 jobs:
   test:
-    # SwiftVLC requires Swift 6.3 (Package.swift tools-version 6.3). Xcode 26
-    # ships Swift 6.3. `macos-latest` tracks the newest GitHub-provided runner.
+    # `macos-latest` tracks the newest GitHub-provided runner. SwiftVLC
+    # requires Swift 6.3 (Package.swift tools-version), which ships with
+    # Xcode 26.4. Current GHA runners have only Xcode 26.3 preinstalled,
+    # so we install the Swift 6.3 open-source toolchain directly from
+    # swift.org and activate it via the TOOLCHAINS env var.
     runs-on: macos-latest
     # Absolute ceiling — the job CANNOT run longer than this. The wrapper
     # script and step timeouts below enforce tighter bounds; this is the
@@ -20,10 +23,14 @@ jobs:
       - uses: actions/checkout@v4
         timeout-minutes: 2
 
+      # Xcode 26.4 ships Swift 6.3 and is pre-installed on the macos-26
+      # runner image (alongside 26.2 as the default). We pin the version
+      # explicitly because `latest-stable` currently resolves to 26.3 /
+      # Swift 6.2.4 — which cannot parse our tools-version 6.3 manifest.
       - uses: maxim-lobanov/setup-xcode@v1
         timeout-minutes: 5
         with:
-          xcode-version: latest-stable
+          xcode-version: "26.4"
 
       - name: Print toolchain
         timeout-minutes: 1
