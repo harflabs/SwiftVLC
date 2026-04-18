@@ -9,11 +9,13 @@ struct PlayerStatusBar: View {
     HStack {
       Label(stateLabel, systemImage: stateIcon)
         .foregroundStyle(.secondary)
+        .accessibilityLabel("Player state: \(stateLabel)")
       Spacer()
       Text("\(player.currentTime.formatted) / \(player.duration.formatted)")
         .monospacedDigit()
         .foregroundStyle(.secondary)
         .contentTransition(.numericText())
+        .accessibilityLabel("Elapsed \(player.currentTime.formatted) of \(player.duration.formatted)")
     }
     .font(.caption)
   }

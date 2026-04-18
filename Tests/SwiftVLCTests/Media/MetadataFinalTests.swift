@@ -1,3 +1,4 @@
+@testable import CLibVLC
 @testable import SwiftVLC
 import Foundation
 import Testing

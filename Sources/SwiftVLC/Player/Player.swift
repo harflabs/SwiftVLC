@@ -554,7 +554,7 @@ public final class Player {
   /// ```swift
   /// player.withMarquee { m in
   ///     m.isEnabled = true
-  ///     m.text = "Now Playing"
+  ///     m.setText("Now Playing")
   ///     m.fontSize = 24
   /// }
   /// ```
@@ -573,7 +573,7 @@ public final class Player {
   /// ```swift
   /// player.withLogo { logo in
   ///     logo.isEnabled = true
-  ///     logo.file = "/path/to/logo.png"
+  ///     logo.setFile("/path/to/logo.png")
   ///     logo.opacity = 200
   /// }
   /// ```
@@ -766,17 +766,21 @@ public final class Player {
   // MARK: - Video
 
   private func applyAspectRatio() {
-    switch aspectRatio {
-    case .default:
-      libvlc_video_set_aspect_ratio(pointer, nil)
-      libvlc_video_set_scale(pointer, 0) // Auto
-    case .ratio(let w, let h):
-      let str = "\(w):\(h)"
-      str.withCString { cstr in
+    if let ratioString = aspectRatio.vlcString {
+      ratioString.withCString { cstr in
         libvlc_video_set_aspect_ratio(pointer, cstr)
       }
-    case .fill:
+    } else {
       libvlc_video_set_aspect_ratio(pointer, nil)
+    }
+
+    switch aspectRatio {
+    case .default:
+      libvlc_video_set_scale(pointer, 0) // Auto
+      libvlc_video_set_display_fit(pointer, libvlc_video_fit_mode_t(rawValue: 0)) // fit-inside
+    case .ratio:
+      break
+    case .fill:
       libvlc_video_set_display_fit(pointer, libvlc_video_fit_mode_t(rawValue: 2)) // cover
     }
   }
@@ -867,8 +871,9 @@ public final class Player {
         break
       }
 
-    case .volumeChanged, .muted, .unmuted, .voutChanged, .chapterChanged,
-         .recordingChanged, .titleListChanged, .titleSelectionChanged, .snapshotTaken,
+    case .volumeChanged, .muted, .unmuted, .corked, .uncorked, .audioDeviceChanged,
+         .voutChanged, .chapterChanged, .recordingChanged, .titleListChanged,
+         .titleSelectionChanged, .snapshotTaken, .mediaStopping,
          .programAdded, .programDeleted, .programSelected, .programUpdated:
       break // Observable properties handle these via getters or are consumed via event stream
     }

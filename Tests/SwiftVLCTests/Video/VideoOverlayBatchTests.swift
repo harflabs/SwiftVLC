@@ -40,7 +40,7 @@ struct VideoOverlayBatchTests {
     let player = Player()
     player.withMarquee { m in
       m.isEnabled = true
-      m.text = "Batch Test"
+      m.setText("Batch Test")
       m.color = 0x00FF00
       m.opacity = 200
       m.fontSize = 32
@@ -76,7 +76,7 @@ struct VideoOverlayBatchTests {
     let player = Player()
     player.withLogo { l in
       l.isEnabled = true
-      l.file = "/tmp/test-logo.png"
+      l.setFile("/tmp/test-logo.png")
       l.x = 30
       l.y = 40
       l.opacity = 150
@@ -123,19 +123,19 @@ struct VideoOverlayBatchTests {
   // MARK: - Write-only properties
 
   @Test
-  func `marquee text is write-only`() {
+  func `marquee setText does not crash`() {
     let player = Player()
-    #expect(player.marquee.text == "")
-    player.marquee.text = "Some text"
-    #expect(player.marquee.text == "")
+    // Write-only: libVLC exposes no getter. Just verify calls are accepted.
+    player.marquee.setText("")
+    player.marquee.setText("Some text")
   }
 
   @Test
-  func `logo file is write-only`() {
+  func `logo setFile does not crash`() {
     let player = Player()
-    #expect(player.logo.file == "")
-    player.logo.file = "/tmp/logo.png"
-    #expect(player.logo.file == "")
+    // Write-only: libVLC exposes no getter. Just verify calls are accepted.
+    player.logo.setFile("")
+    player.logo.setFile("/tmp/logo.png")
   }
 
   // MARK: - Multiple sequential withAdjustments calls compound
@@ -179,7 +179,6 @@ struct VideoOverlayBatchTests {
   func `marquee default values`() {
     let player = Player()
     #expect(player.marquee.isEnabled == false)
-    #expect(player.marquee.text == "")
     #expect(player.marquee.opacity == 255)
     #expect(player.marquee.x == 0)
     #expect(player.marquee.y == 0)
@@ -190,7 +189,6 @@ struct VideoOverlayBatchTests {
   func `logo default values`() {
     let player = Player()
     #expect(player.logo.isEnabled == false)
-    #expect(player.logo.file == "")
   }
 
   // MARK: - Extreme ranges

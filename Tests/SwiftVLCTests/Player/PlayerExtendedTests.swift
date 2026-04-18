@@ -42,7 +42,7 @@ struct PlayerExtendedTests {
     let player = Player()
     player.withMarquee { m in
       m.isEnabled = true
-      m.text = "Hello SwiftVLC"
+      m.setText("Hello SwiftVLC")
       m.color = 0xFF0000
       m.opacity = 200
       m.fontSize = 24
@@ -79,7 +79,7 @@ struct PlayerExtendedTests {
     let player = Player()
     player.withLogo { logo in
       logo.isEnabled = true
-      logo.file = "/tmp/logo.png"
+      logo.setFile("/tmp/logo.png")
       logo.x = 50
       logo.y = 100
       logo.opacity = 180

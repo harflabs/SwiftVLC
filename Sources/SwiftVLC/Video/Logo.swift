@@ -26,14 +26,16 @@ public struct Logo: ~Copyable, ~Escapable {
     nonmutating set { libvlc_video_set_logo_int(pointer, UInt32(libvlc_logo_enable.rawValue), newValue ? 1 : 0) }
   }
 
-  /// Logo image file path (write-only — libVLC provides no getter for logo file).
+  /// Sets the logo image file path(s).
   ///
-  /// Format: `"file"` or `"file,delay,transparency;file,delay,transparency;..."`
-  public var file: String {
-    get { "" }
-    nonmutating set {
-      libvlc_video_set_logo_string(pointer, UInt32(libvlc_logo_file.rawValue), newValue)
-    }
+  /// libVLC does not expose a getter for the current logo file — this is
+  /// a write-only operation.
+  ///
+  /// Format: `"file"` for a single image or
+  /// `"file,delay,transparency;file,delay,transparency;..."` for an
+  /// animated sequence.
+  public func setFile(_ file: String) {
+    libvlc_video_set_logo_string(pointer, UInt32(libvlc_logo_file.rawValue), file)
   }
 
   /// Horizontal pixel offset from the ``position`` anchor (positive = rightward).

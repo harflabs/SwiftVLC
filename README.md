@@ -47,7 +47,7 @@ The existing iOS wrapper, [VLCKit](https://code.videolan.org/videolan/VLCKit), i
 
 ## Requirements
 
-- Swift 6.2+ / Xcode 16+
+- Swift 6.3+ / Xcode 26+
 - iOS 18+ / macOS 15+ / tvOS 18+
 
 ## Installation
@@ -122,7 +122,7 @@ The `Showcase/` directory contains a full-featured demo app for all supported pl
 
 ## Testing
 
-397 tests across 32 suites using [Swift Testing](https://developer.apple.com/xcode/swift-testing/) — real libVLC integration, no mocking.
+758 tests across 61 suites using [Swift Testing](https://developer.apple.com/xcode/swift-testing/) — real libVLC integration, no mocking.
 
 ```bash
 swift test

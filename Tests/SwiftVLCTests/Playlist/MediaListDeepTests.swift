@@ -1,4 +1,5 @@
 @testable import SwiftVLC
+import Synchronization
 import Testing
 
 @Suite(.tags(.integration))

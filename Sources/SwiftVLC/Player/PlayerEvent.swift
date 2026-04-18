@@ -27,6 +27,19 @@ public enum PlayerEvent: Sendable {
   case muted
   /// Audio was unmuted.
   case unmuted
+  /// Audio playback was suspended by the system (e.g. phone call, headphones
+  /// unplugged with mix-with-others disabled). The player is paused until
+  /// ``uncorked`` fires.
+  case corked
+  /// Audio playback resumed after a cork (e.g. call ended).
+  case uncorked
+  /// The active audio output device changed. Value is the new device
+  /// identifier, or `nil` if unknown.
+  case audioDeviceChanged(String?)
+  /// The current media is stopping. A good time to release input resources
+  /// (network connections, custom I/O callbacks). The player transitions
+  /// through this before emitting ``stateChanged(.stopped)``.
+  case mediaStopping
   /// Number of active video outputs changed.
   case voutChanged(Int)
   /// Buffer fill level during initial load (0.0–1.0).

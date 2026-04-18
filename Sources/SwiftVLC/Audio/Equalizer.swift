@@ -15,7 +15,10 @@ public final class Equalizer {
 
   /// Creates a new equalizer with flat (0 dB) settings.
   public init() {
-    pointer = libvlc_audio_equalizer_new()!
+    guard let p = libvlc_audio_equalizer_new() else {
+      preconditionFailure("Failed to allocate libvlc equalizer. Out of memory?")
+    }
+    pointer = p
   }
 
   /// Creates an equalizer from a preset.
@@ -23,7 +26,10 @@ public final class Equalizer {
   /// - Precondition: `presetIndex` must be in `0 ..< presetCount`.
   public init(preset presetIndex: Int) {
     precondition(presetIndex >= 0 && presetIndex < Self.presetCount, "Invalid preset index \(presetIndex)")
-    pointer = libvlc_audio_equalizer_new_from_preset(UInt32(presetIndex))!
+    guard let p = libvlc_audio_equalizer_new_from_preset(UInt32(presetIndex)) else {
+      preconditionFailure("Failed to allocate libvlc equalizer for preset \(presetIndex). Out of memory?")
+    }
+    pointer = p
   }
 
   isolated deinit {
@@ -47,14 +53,18 @@ public final class Equalizer {
 
   /// Returns the center frequency (Hz) for a band.
   /// - Parameter index: Band index (0 ..< ``bandCount``).
+  /// - Precondition: `index` must be in `0 ..< bandCount`.
   public static func bandFrequency(at index: Int) -> Float {
-    libvlc_audio_equalizer_get_band_frequency(UInt32(index))
+    precondition(index >= 0 && index < bandCount, "Band index \(index) out of range (0 ..< \(bandCount))")
+    return libvlc_audio_equalizer_get_band_frequency(UInt32(index))
   }
 
   /// Returns the amplification (dB) for a specific band.
   /// - Parameter band: Band index (0 ..< ``bandCount``).
+  /// - Precondition: `band` must be in `0 ..< bandCount`.
   public func amplification(forBand band: Int) -> Float {
-    libvlc_audio_equalizer_get_amp_at_index(pointer, UInt32(band))
+    precondition(band >= 0 && band < Self.bandCount, "Band index \(band) out of range (0 ..< \(Self.bandCount))")
+    return libvlc_audio_equalizer_get_amp_at_index(pointer, UInt32(band))
   }
 
   /// Sets the amplification for a specific band (-20.0 to +20.0 dB).

@@ -1,4 +1,3 @@
-import Foundation
 import SwiftVLC
 
 // Duration.formatted and Duration.milliseconds are already provided by SwiftVLC.

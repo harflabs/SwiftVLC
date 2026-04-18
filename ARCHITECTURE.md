@@ -74,7 +74,7 @@ flowchart TB
 
 | Component | Choice | Why |
 |---|---|---|
-| **Language** | Swift 6.2+ | Strict concurrency, typed throws, `@Observable` |
+| **Language** | Swift 6.3+ | Strict concurrency, typed throws, `@Observable`, upcoming feature flags |
 | **C Bindings** | libVLC 4.0 C API | Direct access, no Objective-C overhead |
 | **State** | `@Observable` / `@MainActor` | Automatic SwiftUI integration, thread safety |
 | **Events** | `AsyncStream<PlayerEvent>` | Native structured concurrency, multi-consumer |
@@ -556,7 +556,7 @@ All errors conform to `LocalizedError` and `CustomStringConvertible` for logging
 
 ### Overview
 
-**397 tests** across 32 suites using the **Swift Testing** framework (not XCTest).
+**758 tests** across 61 suites using the **Swift Testing** framework (not XCTest).
 
 ```
 Tests/SwiftVLCTests/
@@ -645,7 +645,7 @@ SwiftVLC/
 │   │   ├── include/vlc/            # libVLC 4.0 C headers (10 files)
 │   │   └── shim.c                  # va_list formatting shim
 │   │
-│   └── SwiftVLC/                   # Main library (36 files, ~4.7K lines)
+│   └── SwiftVLC/                   # Main library (36 files, ~5.2K lines)
 │       ├── Core/                   # VLCInstance, VLCError, Logging, Duration
 │       ├── Player/                 # Player, EventBridge, PlayerState, Events, ABLoop, etc.
 │       ├── Media/                  # Media, Metadata, Track, Thumbnails, Statistics
@@ -655,7 +655,7 @@ SwiftVLC/
 │       ├── Discovery/             # MediaDiscoverer, RendererDiscoverer
 │       └── PiP/                   # PiPController, PiPVideoView, PixelBufferRenderer
 │
-├── Tests/SwiftVLCTests/            # 397 tests, ~4.2K lines
+├── Tests/SwiftVLCTests/            # 758 tests, ~10.2K lines
 │   ├── Support/                    # TestMedia fixtures, Tag definitions
 │   ├── Fixtures/                   # Bundled media files (~50 KB)
 │   └── [32 test suites]
@@ -676,7 +676,7 @@ SwiftVLC/
 │   ├── claude.yml                 # Claude Code integration
 │   └── claude-code-review.yml    # Automated code review
 │
-├── Package.swift                  # SPM manifest (Swift 6.2+)
+├── Package.swift                  # SPM manifest (Swift 6.3+)
 ├── .swiftlint.yml                # Lint configuration
 ├── .swiftformat                   # Format: 2-space indent
 └── README.md                     # User guide
@@ -686,7 +686,7 @@ SwiftVLC/
 
 | Component | Lines of Code | Size |
 |---|---|---|
-| SwiftVLC source | ~4,700 | 512 KB |
-| Tests | ~4,200 | 260 KB |
-| Showcase app | ~2,000 | 124 KB |
-| Test-to-source ratio | 89% | — |
+| SwiftVLC source | ~5,200 | — |
+| Tests | ~10,200 | — |
+| Showcase app | ~2,300 | — |
+| Test-to-source ratio | ~196% | — |

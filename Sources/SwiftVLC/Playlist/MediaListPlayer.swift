@@ -1,5 +1,5 @@
 import CLibVLC
-import Foundation
+import Dispatch
 
 /// A playlist player that plays media from a ``MediaList``.
 ///

@@ -18,7 +18,7 @@ struct ShowcaseHub: View {
     #endif
   }
 
-  // MARK: - iOS / macOS — Clean list
+  // MARK: - iOS / macOS list
 
   #if !os(tvOS)
   private var demoList: some View {
@@ -31,6 +31,7 @@ struct ShowcaseHub: View {
           } label: {
             demoLabel(item)
           }
+          .accessibilityHint("Opens the polished video player in full screen")
         } else {
           NavigationLink(value: item) {
             demoLabel(item)
@@ -68,10 +69,12 @@ struct ShowcaseHub: View {
         .background(item.accentColor.gradient, in: .rect(cornerRadius: 10))
     }
     .padding(.vertical, 4)
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel("\(item.title). \(item.subtitle)")
   }
   #endif
 
-  // MARK: - tvOS — Focus-driven grid
+  // MARK: - tvOS focus-driven grid
 
   #if os(tvOS)
   private var tvOSGrid: some View {
@@ -95,6 +98,7 @@ struct ShowcaseHub: View {
             .background(.regularMaterial, in: .rect(cornerRadius: 20))
           }
           .buttonStyle(.card)
+          .accessibilityLabel("\(item.title). \(item.subtitle)")
         }
       }
       .padding(48)
@@ -108,31 +112,31 @@ struct ShowcaseHub: View {
 
   // MARK: - Destination
 
+  /// Item availability is filtered via ShowcaseItem.available, so each
+  /// `case` here is reachable on the platform it appears in. Cases that are
+  /// unavailable on a platform are wrapped in the corresponding #if guard.
   @ViewBuilder
   private func destinationView(for item: ShowcaseItem) -> some View {
     switch item {
     case .polishedPlayer:
       PolishedPlayerDemo()
-    case .pictureInPicture:
-      #if !os(tvOS)
-      PiPDemo()
-      #else
-      EmptyView()
-      #endif
-    case .audioPlayer:
-      #if !os(tvOS)
-      AudioPlayerDemo()
-      #else
-      EmptyView()
-      #endif
     case .playlist:
       PlaylistDemo()
+    case .snapshotAndLoop:
+      SnapshotAndLoopDemo()
+    #if os(iOS) || os(macOS)
+    case .pictureInPicture:
+      PiPDemo()
+    case .audioPlayer:
+      AudioPlayerDemo()
     case .debugConsole:
-      #if !os(tvOS)
       DebugConsoleDemo()
-      #else
+    #else
+    case .pictureInPicture, .audioPlayer, .debugConsole:
+      // Unreachable — filtered by ShowcaseItem.available on tvOS — but
+      // the enum is exhaustive, so we still need a case.
       EmptyView()
-      #endif
+    #endif
     }
   }
 }

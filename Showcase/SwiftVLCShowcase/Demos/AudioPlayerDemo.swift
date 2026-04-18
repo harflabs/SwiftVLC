@@ -14,11 +14,12 @@ struct AudioPlayerDemo: View {
   var body: some View {
     List {
       if error != nil {
-        ContentUnavailableView(
-          "Playback Failed",
-          systemImage: "exclamationmark.triangle",
-          description: Text("Could not set up the audio player.")
+        DemoErrorView(
+          title: "Playback Failed",
+          message: "Could not set up the audio player.",
+          retry: { Task { await setUp() } }
         )
+        .listRowBackground(Color.clear)
       } else if let player {
         nowPlayingSection
         playerControlsSection(player)
@@ -41,25 +42,28 @@ struct AudioPlayerDemo: View {
     #if os(iOS)
       .navigationBarTitleDisplayMode(.inline)
     #endif
-      .task {
-        do {
-          let p = Player()
-          player = p
-
-          let media = try Media(url: TestMedia.bigBuckBunny)
-          metadata = try await media.parse()
-          try p.play(media)
-
-          let eq = Equalizer()
-          equalizer = eq
-          p.equalizer = eq
-        } catch {
-          self.error = error
-        }
-      }
+      .task { await setUp() }
       .onDisappear {
         player?.stop()
       }
+  }
+
+  private func setUp() async {
+    error = nil
+    do {
+      let p = Player()
+      player = p
+
+      let media = try Media(url: TestMedia.bigBuckBunny)
+      metadata = try await media.parse()
+      try p.play(media)
+
+      let eq = Equalizer()
+      equalizer = eq
+      p.equalizer = eq
+    } catch {
+      self.error = error
+    }
   }
 
   // MARK: - Re-apply Equalizer

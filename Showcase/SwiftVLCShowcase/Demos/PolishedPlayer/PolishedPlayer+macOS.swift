@@ -3,9 +3,10 @@ import SwiftUI
 import SwiftVLC
 
 extension PolishedPlayerDemo {
-  func macOSOverlay(player: Player) -> some View {
+  func macOSOverlay(player: Player, title: String) -> some View {
     MacOSOverlayContent(
       player: player,
+      title: title,
       showControls: showControls,
       onMouseActivity: { showControlsTemporarily() },
       onInteraction: { showControlsTemporarily() },
@@ -23,6 +24,7 @@ extension PolishedPlayerDemo {
 
 private struct MacOSOverlayContent: View {
   @Bindable var player: Player
+  let title: String
   let showControls: Bool
   let onMouseActivity: () -> Void
   let onInteraction: () -> Void
@@ -73,8 +75,9 @@ private struct MacOSOverlayContent: View {
     VStack {
       // Top bar
       HStack {
-        Text("Big Buck Bunny")
+        Text(title)
           .font(.headline)
+          .lineLimit(1)
         Spacer()
         trackMenus
         aspectRatioMenu

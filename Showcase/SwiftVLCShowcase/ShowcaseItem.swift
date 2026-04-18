@@ -5,6 +5,7 @@ enum ShowcaseItem: String, CaseIterable, Identifiable {
   case pictureInPicture
   case audioPlayer
   case playlist
+  case snapshotAndLoop
   case debugConsole
 
   var id: String {
@@ -17,6 +18,7 @@ enum ShowcaseItem: String, CaseIterable, Identifiable {
     case .pictureInPicture: "Picture in Picture"
     case .audioPlayer: "Audio Player"
     case .playlist: "Playlist"
+    case .snapshotAndLoop: "Snapshot & A-B Loop"
     case .debugConsole: "Debug Console"
     }
   }
@@ -27,6 +29,7 @@ enum ShowcaseItem: String, CaseIterable, Identifiable {
     case .pictureInPicture: "PiP without AVPlayer"
     case .audioPlayer: "Music playback with equalizer"
     case .playlist: "Multi-track queue"
+    case .snapshotAndLoop: "Capture frames and loop segments"
     case .debugConsole: "Diagnostics & statistics"
     }
   }
@@ -37,6 +40,7 @@ enum ShowcaseItem: String, CaseIterable, Identifiable {
     case .pictureInPicture: "pip"
     case .audioPlayer: "headphones"
     case .playlist: "list.number"
+    case .snapshotAndLoop: "camera.viewfinder"
     case .debugConsole: "ladybug"
     }
   }
@@ -47,14 +51,18 @@ enum ShowcaseItem: String, CaseIterable, Identifiable {
     case .pictureInPicture: .indigo
     case .audioPlayer: .orange
     case .playlist: .green
+    case .snapshotAndLoop: .purple
     case .debugConsole: .red
     }
   }
 
+  /// Whether this demo is available on the current platform. tvOS skips
+  /// demos that require pointer/keyboard input or background rendering
+  /// paths unavailable on the platform.
   var isAvailable: Bool {
     #if os(tvOS)
     switch self {
-    case .polishedPlayer, .playlist: true
+    case .polishedPlayer, .playlist, .snapshotAndLoop: true
     case .pictureInPicture, .audioPlayer, .debugConsole: false
     }
     #else

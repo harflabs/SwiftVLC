@@ -275,8 +275,11 @@ struct EventBridgeStressTests {
     let task1 = Task.detached { @Sendable in
       for await event in stream1 {
         let shouldBreak = events1.withLock {
-          if case .stateChanged(let s) = event { $0.append("state:\(s)") }
-          else if case .timeChanged = event { $0.append("time") }
+          if case .stateChanged(let s) = event {
+            $0.append("state:\(s)")
+          } else if case .timeChanged = event {
+            $0.append("time")
+          }
           return $0.count >= 3
         }
         if shouldBreak { break }
@@ -285,8 +288,11 @@ struct EventBridgeStressTests {
     let task2 = Task.detached { @Sendable in
       for await event in stream2 {
         let shouldBreak = events2.withLock {
-          if case .stateChanged(let s) = event { $0.append("state:\(s)") }
-          else if case .timeChanged = event { $0.append("time") }
+          if case .stateChanged(let s) = event {
+            $0.append("state:\(s)")
+          } else if case .timeChanged = event {
+            $0.append("time")
+          }
           return $0.count >= 3
         }
         if shouldBreak { break }

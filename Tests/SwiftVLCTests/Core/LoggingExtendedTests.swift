@@ -38,9 +38,9 @@ struct LoggingExtendedTests {
 
   @Test
   func `Log stream with different minimum levels can be created`() {
-    // libVLC's log callback is per-instance and replaces the previous one,
-    // so only one logStream can be active at a time per VLCInstance.
-    // This test verifies we can create streams at different levels without crashing.
+    // LogBroadcaster multiplexes the single libVLC callback to multiple Swift
+    // consumers, each with its own minimum-level filter. Verify concurrent
+    // stream creation works without crashing.
     let levels: [LogLevel] = [.debug, .notice, .warning, .error]
     for level in levels {
       let stream = VLCInstance.shared.logStream(minimumLevel: level)

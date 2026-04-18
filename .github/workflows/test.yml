@@ -1,20 +1,103 @@
 name: Tests
 on: [push, pull_request]
+
+# Cancel superseded runs on the same branch so stale pushes don't burn billing.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
-    runs-on: macos-15
+    # SwiftVLC requires Swift 6.3 (Package.swift tools-version 6.3). Xcode 26
+    # ships Swift 6.3. `macos-latest` tracks the newest GitHub-provided runner.
+    runs-on: macos-latest
+    # Absolute ceiling — the job CANNOT run longer than this. The wrapper
+    # script and step timeouts below enforce tighter bounds; this is the
+    # last line of defense if those fail.
+    timeout-minutes: 20
+
     steps:
       - uses: actions/checkout@v4
+        timeout-minutes: 2
+
       - uses: maxim-lobanov/setup-xcode@v1
+        timeout-minutes: 5
         with:
           xcode-version: latest-stable
-      - uses: actions/cache@v4
+
+      - name: Print toolchain
+        timeout-minutes: 1
+        run: swift --version
+
+      # Extract the xcframework SHA256 from Package.swift so the cache key
+      # depends only on the binary content, not on every unrelated edit to
+      # Package.swift (platforms, swiftSettings, etc.). The xcframework is
+      # ~1.2 GB — caching it is by far the biggest CI speed-up.
+      - name: Resolve xcframework checksum
+        id: xcf
+        timeout-minutes: 1
+        run: |
+          sha=$(grep -E 'checksum:' Package.swift | grep -Eo '[a-f0-9]{64}' | head -1)
+          if [ -z "$sha" ]; then
+            echo "::error::Failed to extract xcframework checksum from Package.swift"
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      # The libvlc xcframework is the dominant artifact. Keyed on its own
+      # checksum so it survives unrelated Package.swift changes and only
+      # invalidates when the binary actually changes.
+      - name: Cache libvlc xcframework
+        uses: actions/cache@v4
+        timeout-minutes: 5
+        with:
+          path: .build/artifacts
+          key: libvlc-xcf-${{ steps.xcf.outputs.sha }}
+          enableCrossOsArchive: false
+
+      # Compiled outputs — safe to cache across runs with the same toolchain
+      # and source state.
+      - name: Cache build products
+        uses: actions/cache@v4
+        timeout-minutes: 3
         with:
           path: |
-            .build/artifacts
+            .build/debug
+            .build/arm64-apple-macosx
+            .build/x86_64-apple-macosx
+          key: spm-build-${{ runner.os }}-${{ hashFiles('Package.swift', 'Sources/**/*.swift', 'Sources/**/*.c', 'Sources/**/*.h', 'Tests/**/*.swift') }}
+          restore-keys: |
+            spm-build-${{ runner.os }}-
+
+      - name: Cache SPM dependencies
+        uses: actions/cache@v4
+        timeout-minutes: 2
+        with:
+          path: |
             .build/checkouts
-          key: spm-${{ runner.os }}-${{ hashFiles('Package.swift') }}
-          restore-keys: spm-${{ runner.os }}-
-      - run: swift package resolve
-      - run: swift test
-        timeout-minutes: 5
+            .build/repositories
+            .build/workspace-state.json
+          key: spm-deps-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            spm-deps-${{ runner.os }}-
+
+      # swift test is run through ci-run-with-timeouts.py which enforces
+      # both a wall-clock ceiling and an idle watchdog. If either fires
+      # the entire process group is SIGKILLed.
+      #
+      #   wall_clock = 600s  (10 min)  — enough for fresh xcf download
+      #                                  + cold build + test run on a
+      #                                  slow runner; well inside the
+      #                                  20-minute job ceiling.
+      #   idle       = 180s  (3 min)   — swift test emits a line per
+      #                                  test / suite; 3 min of silence
+      #                                  means the test process is stuck.
+      - name: Run tests (wall-clock + idle timeouts)
+        timeout-minutes: 12
+        env:
+          # TestCondition.canPlayMedia reads CI to skip playback tests that
+          # need video output — CI macOS runners are headless.
+          CI: "true"
+        run: |
+          ./scripts/ci-run-with-timeouts.py 600 180 \
+            swift test --skip-update

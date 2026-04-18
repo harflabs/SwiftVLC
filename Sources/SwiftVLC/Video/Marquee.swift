@@ -8,7 +8,7 @@ import CLibVLC
 ///
 /// ```swift
 /// player.marquee.isEnabled = true
-/// player.marquee.text = "Now Playing"
+/// player.marquee.setText("Now Playing")
 /// player.marquee.fontSize = 24
 /// ```
 @MainActor
@@ -26,12 +26,16 @@ public struct Marquee: ~Copyable, ~Escapable {
     nonmutating set { libvlc_video_set_marquee_int(pointer, UInt32(libvlc_marquee_Enable.rawValue), newValue ? 1 : 0) }
   }
 
-  /// Marquee text content (write-only — libVLC provides no getter for marquee text).
-  public var text: String {
-    get { "" }
-    nonmutating set {
-      libvlc_video_set_marquee_string(pointer, UInt32(libvlc_marquee_Text.rawValue), newValue)
-    }
+  /// Sets the marquee text content.
+  ///
+  /// libVLC does not expose a getter for the current marquee text — this is
+  /// a write-only operation. Store your own copy in application state if you
+  /// need to read it back.
+  ///
+  /// Supports strftime-style placeholders (e.g. `%H:%M:%S`) which are
+  /// refreshed at the interval configured by ``refresh``.
+  public func setText(_ text: String) {
+    libvlc_video_set_marquee_string(pointer, UInt32(libvlc_marquee_Text.rawValue), text)
   }
 
   /// Text color as an RGB integer (e.g. 0xFF0000 for red).

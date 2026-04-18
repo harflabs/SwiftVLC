@@ -55,10 +55,10 @@ struct PlaylistDemo: View {
         PlayerStatusBar(player: player)
           .padding(.horizontal)
       } else if error != nil {
-        ContentUnavailableView(
-          "Playlist Failed",
-          systemImage: "exclamationmark.triangle",
-          description: Text("Could not set up the playlist.")
+        DemoErrorView(
+          title: "Playlist Failed",
+          message: "Could not set up the playlist.",
+          retry: { Task { await setupPlaylist() } }
         )
       } else {
         ProgressView("Loading playlist...")
@@ -244,6 +244,7 @@ struct PlaylistDemo: View {
   }
 
   private func setupPlaylist() async {
+    error = nil
     do {
       let p = Player()
       player = p

@@ -20,16 +20,11 @@ struct EqualizerExtendedTests {
 
   @Test
   func `Some presets have non-zero band amplification`() {
-    var foundNonZero = false
-    for i in 0..<Equalizer.presetCount {
+    let foundNonZero = (0..<Equalizer.presetCount).contains { i in
       let eq = Equalizer(preset: i)
-      for band in 0..<Equalizer.bandCount {
-        if eq.amplification(forBand: band) != 0 {
-          foundNonZero = true
-          break
-        }
+      return (0..<Equalizer.bandCount).contains { band in
+        eq.amplification(forBand: band) != 0
       }
-      if foundNonZero { break }
     }
     #expect(foundNonZero, "At least one preset should have non-zero band amplification")
   }
@@ -185,12 +180,8 @@ struct EqualizerExtendedTests {
     }
 
     // Verify they are non-zero (at least some)
-    var hasNonZero = false
-    for band in 0..<Equalizer.bandCount {
-      if eq.amplification(forBand: band) != 0 {
-        hasNonZero = true
-        break
-      }
+    let hasNonZero = (0..<Equalizer.bandCount).contains { band in
+      eq.amplification(forBand: band) != 0
     }
     #expect(hasNonZero)
 

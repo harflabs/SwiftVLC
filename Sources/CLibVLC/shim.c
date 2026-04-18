@@ -39,11 +39,15 @@ static void swiftvlc_log_bridge(void *data, int level,
 }
 
 /// Sets up a simplified log callback that receives pre-formatted messages.
-/// Returns a context pointer that must be freed with swiftvlc_log_unset().
+/// Returns a context pointer that must be freed with swiftvlc_log_unset(),
+/// or NULL on allocation failure.
 void *swiftvlc_log_set(libvlc_instance_t *instance,
                         swiftvlc_log_cb callback,
                         void *data) {
     struct swiftvlc_log_context *context = malloc(sizeof(*context));
+    if (!context) {
+        return NULL;
+    }
     context->callback = callback;
     context->data = data;
     libvlc_log_set(instance, swiftvlc_log_bridge, context);
@@ -51,6 +55,7 @@ void *swiftvlc_log_set(libvlc_instance_t *instance,
 }
 
 /// Unsets the log callback and frees the bridge context.
+/// Safe to call with a NULL context — only clears the libVLC log callback.
 void swiftvlc_log_unset(libvlc_instance_t *instance, void *context) {
     libvlc_log_unset(instance);
     free(context);

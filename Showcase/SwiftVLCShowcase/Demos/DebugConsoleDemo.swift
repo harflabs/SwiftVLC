@@ -14,11 +14,12 @@ struct DebugConsoleDemo: View {
   var body: some View {
     List {
       if error != nil {
-        ContentUnavailableView(
-          "Player Failed",
-          systemImage: "exclamationmark.triangle",
-          description: Text("Could not create the debug player.")
+        DemoErrorView(
+          title: "Player Failed",
+          message: "Could not create the debug player.",
+          retry: { Task { await setUp() } }
         )
+        .listRowBackground(Color.clear)
       } else if let player {
         // Video — use a fixed-height container with clipping to prevent
         // the platform view (UIView/NSView) from bleeding over content.
@@ -104,20 +105,23 @@ struct DebugConsoleDemo: View {
     #if os(iOS)
       .navigationBarTitleDisplayMode(.inline)
     #endif
-      .task {
-        do {
-          let p = Player()
-          player = p
-          startLogStream()
-          try p.play(url: TestMedia.bigBuckBunny)
-        } catch {
-          self.error = error
-        }
-      }
+      .task { await setUp() }
       .onDisappear {
         logTask?.cancel()
         player?.stop()
       }
+  }
+
+  private func setUp() async {
+    error = nil
+    do {
+      let p = Player()
+      player = p
+      startLogStream()
+      try p.play(url: TestMedia.bigBuckBunny)
+    } catch {
+      self.error = error
+    }
   }
 
   // MARK: - Logs

@@ -3,9 +3,10 @@ import SwiftUI
 import SwiftVLC
 
 extension PolishedPlayerDemo {
-  func iOSOverlay(player: Player) -> some View {
+  func iOSOverlay(player: Player, title: String) -> some View {
     IOSOverlayContent(
       player: player,
+      title: title,
       showControls: showControls,
       onTap: { toggleControlVisibility() },
       onSkipBack: {
@@ -31,6 +32,7 @@ extension PolishedPlayerDemo {
 
 private struct IOSOverlayContent: View {
   @Bindable var player: Player
+  let title: String
   let showControls: Bool
   let onTap: () -> Void
   let onSkipBack: () -> Void
@@ -136,8 +138,9 @@ private struct IOSOverlayContent: View {
             .font(.title2)
         }
         Spacer()
-        Text("Big Buck Bunny")
+        Text(title)
           .font(.headline)
+          .lineLimit(1)
         Spacer()
         trackMenus
         aspectRatioButton
