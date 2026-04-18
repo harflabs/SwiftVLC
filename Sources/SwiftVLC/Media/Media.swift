@@ -189,9 +189,11 @@ public final class Media: Sendable {
   ///   - url: URL of the slave file (must be a valid URI, e.g. `file://`).
   ///   - type: Subtitle or audio.
   ///   - priority: Higher priorities are preferred when multiple slaves of
-  ///     the same type are present. libVLC clamps this to its user-slave
-  ///     ceiling internally, so values above ~4 are normalized. Defaults
-  ///     to `4` which matches libVLC's priority for user-added files.
+  ///     the same type are present. Must be non-negative and fit in a
+  ///     `UInt32`. libVLC clamps the value to its user-slave ceiling
+  ///     internally, so values above ~4 are normalized. Defaults to `4`
+  ///     which matches libVLC's priority for user-added files.
+  /// - Precondition: `priority` is in `0...UInt32.max`.
   /// - Throws: `VLCError.operationFailed` if the slave cannot be attached.
   public func addSlave(
     from url: URL,
@@ -199,6 +201,10 @@ public final class Media: Sendable {
     priority: Int = 4
   )
     throws(VLCError) {
+    precondition(
+      priority >= 0 && priority <= Int(UInt32.max),
+      "Slave priority \(priority) is out of range (0 ... \(UInt32.max))"
+    )
     let uri = url.absoluteString
     guard libvlc_media_slaves_add(pointer, type.cValue, UInt32(priority), uri) == 0 else {
       throw .operationFailed("Add slave \(type) from \(uri)")

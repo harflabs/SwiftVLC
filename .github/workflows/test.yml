@@ -36,7 +36,12 @@ jobs:
       # Install Swift 6.3 open-source toolchain from swift.org.
       # Exports $TOOLCHAINS — later steps use `xcrun --toolchain` to run
       # Swift 6.3 on top of the already-set-up Xcode SDKs.
-      - uses: SwiftyLab/setup-swift@latest
+      #
+      # Pinned to v1.13.0 (latest as of 2026-03-26) rather than @latest
+      # or @v1 so a compromised or breaking release of the action cannot
+      # silently affect our CI. Bump deliberately via Dependabot or a
+      # manual PR.
+      - uses: SwiftyLab/setup-swift@v1.13.0
         timeout-minutes: 8
         with:
           swift-version: "6.3.0"

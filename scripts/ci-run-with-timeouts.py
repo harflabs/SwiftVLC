@@ -31,8 +31,25 @@ def main() -> int:
         print(__doc__, file=sys.stderr)
         return 2
 
-    wall_secs = int(sys.argv[1])
-    idle_secs = int(sys.argv[2])
+    try:
+        wall_secs = int(sys.argv[1])
+        idle_secs = int(sys.argv[2])
+    except ValueError as e:
+        print(
+            f"::error::Invalid timeout argument: {e}. "
+            f"Usage: ci-run-with-timeouts.py <wall_secs> <idle_secs> <cmd...>",
+            file=sys.stderr,
+        )
+        return 2
+
+    if wall_secs <= 0 or idle_secs <= 0:
+        print(
+            f"::error::Timeouts must be positive (got wall={wall_secs}, "
+            f"idle={idle_secs}).",
+            file=sys.stderr,
+        )
+        return 2
+
     cmd = sys.argv[3:]
 
     print(

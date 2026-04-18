@@ -52,10 +52,12 @@ struct PolishedPlayerDemo: View {
         UIApplication.shared.isIdleTimerDisabled = true
         #endif
 
-        // Parse metadata without blocking playback; if it yields a title,
-        // update the overlay. Failures fall back silently to the URL title.
+        // Parse the SAME media instance asynchronously (Media is a
+        // Sendable reference type, so the player's retain is safe to
+        // coexist with our parse call). Reusing avoids a second network
+        // fetch for the same URL.
         if
-          let parsed = try? await Media(url: url).parse(),
+          let parsed = try? await media.parse(),
           let parsedTitle = parsed.title, !parsedTitle.isEmpty {
           title = parsedTitle
         }
