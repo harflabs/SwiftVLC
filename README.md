@@ -122,7 +122,7 @@ The `Showcase/` directory contains a full-featured demo app for all supported pl
 
 ## Testing
 
-758 tests across 61 suites using [Swift Testing](https://developer.apple.com/xcode/swift-testing/) — real libVLC integration, no mocking.
+757 tests across 61 suites using [Swift Testing](https://developer.apple.com/xcode/swift-testing/) — real libVLC integration, no mocking.
 
 ```bash
 swift test
