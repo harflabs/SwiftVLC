@@ -114,7 +114,12 @@ final class LogBroadcaster: Sendable {
         continuation: continuation,
         minimumLevel: minimumLevel
       )
-      return (id, state.subscribers.count == 1 && state.selfBoxBits == 0)
+      // Try to install whenever the callback isn't currently registered —
+      // not just for the first subscriber. If a previous install() failed
+      // (e.g. shim malloc returned NULL under memory pressure), every
+      // subsequent subscriber retries so we self-heal rather than stay
+      // silent forever.
+      return (id, state.selfBoxBits == 0)
     }
 
     if shouldInstall {

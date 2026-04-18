@@ -240,7 +240,18 @@ struct SnapshotAndLoopDemo: View {
   // MARK: - Actions
 
   private func setUp() async {
+    // Stop and clear the previous attempt so a retry doesn't leave an
+    // orphaned Player decoding in the background or keep stale A/B /
+    // snapshot state from the prior run.
+    player?.stop()
+    player = nil
+    aTime = nil
+    bTime = nil
+    lastSnapshot = nil
+    snapshotError = nil
+    loopError = nil
     error = nil
+
     do {
       let p = Player()
       player = p

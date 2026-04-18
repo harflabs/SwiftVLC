@@ -776,12 +776,14 @@ public final class Player {
 
     switch aspectRatio {
     case .default:
-      libvlc_video_set_scale(pointer, 0) // Auto
-      libvlc_video_set_display_fit(pointer, libvlc_video_fit_mode_t(rawValue: 0)) // fit-inside
+      libvlc_video_set_scale(pointer, 0) // auto
+      libvlc_video_set_display_fit(pointer, libvlc_video_fit_smaller)
     case .ratio:
-      break
+      // Explicitly reset the fit mode so a prior `.fill` (cover) can't
+      // override the new aspect ratio visually.
+      libvlc_video_set_display_fit(pointer, libvlc_video_fit_smaller)
     case .fill:
-      libvlc_video_set_display_fit(pointer, libvlc_video_fit_mode_t(rawValue: 2)) // cover
+      libvlc_video_set_display_fit(pointer, libvlc_video_fit_larger)
     }
   }
 

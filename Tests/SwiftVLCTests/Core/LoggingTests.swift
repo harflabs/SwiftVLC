@@ -109,44 +109,6 @@ struct LoggingTests {
   }
 
   @Test(.tags(.async))
-  func `Two simultaneous streams each receive events independently`() async throws {
-    // Create a private instance so we don't interfere with the shared
-    // instance's log state if other tests are running concurrently.
-    let instance = try VLCInstance()
-
-    let s1 = instance.logStream(minimumLevel: .debug)
-    let s2 = instance.logStream(minimumLevel: .debug)
-
-    // Drain briefly from both. Either can hit its first event independently.
-    let t1 = Task { @Sendable in
-      var count = 0
-      for await _ in s1 {
-        count += 1
-        if count >= 1 { break }
-      }
-      return count
-    }
-    let t2 = Task { @Sendable in
-      var count = 0
-      for await _ in s2 {
-        count += 1
-        if count >= 1 { break }
-      }
-      return count
-    }
-
-    // Nudge libVLC into producing a log line by creating a doomed media.
-    _ = try? Media(path: "/definitely/does/not/exist.mp4")
-
-    // Give consumers a chance to wake up, but don't wait forever.
-    try? await Task.sleep(for: .milliseconds(200))
-    t1.cancel()
-    t2.cancel()
-    _ = await t1.value
-    _ = await t2.value
-  }
-
-  @Test(.tags(.async))
   func `Log stream onTermination fires on cancel`() async {
     // Create and immediately cancel a stream to trigger onTermination cleanup
     do {

@@ -35,19 +35,21 @@ extension Media {
     let em = libvlc_media_event_manager(media)!
     let instancePtr = instance.pointer
 
-    // Shared holder for the ThumbnailContinuation box pointer. The inner
-    // continuation closure stores it after attaching the event; the outer
-    // onCancel closure reads it to destroy the in-flight request.
-    let boxHolder = PointerBox()
+    // `requestBox` stores only the libVLC request pointer and exposes an
+    // idempotent destroy. It has no lifecycle dependency on the
+    // ThumbnailContinuation box: both the callback and onCancel can call
+    // `requestBox.destroy()` safely without risking a use-after-free, no
+    // matter which one races first.
+    let requestBox = RequestBox()
 
     let result: Result<Data, VLCError> = await withTaskCancellationHandler {
       await withCheckedContinuation { cont in
         let ctx = ThumbnailContinuation(
           continuation: cont,
-          eventManager: em
+          eventManager: em,
+          requestBox: requestBox
         )
         let box = Unmanaged.passRetained(ctx).toOpaque()
-        boxHolder.store(box)
 
         libvlc_event_attach(
           em,
@@ -74,21 +76,20 @@ extension Media {
             thumbnailCallback,
             box
           )
-          boxHolder.clear()
           Unmanaged<ThumbnailContinuation>.fromOpaque(box).release()
           cont.resume(returning: .failure(.operationFailed("Generate thumbnail")))
           return
         }
 
-        ctx.setRequest(request)
+        requestBox.store(request)
       }
     } onCancel: {
-      // Destroy the in-flight request. libVLC will then fire
-      // MediaThumbnailGenerated with p_thumbnail == nil, which the callback
-      // resumes as a failure — we never resume the continuation here.
-      guard let box = boxHolder.load() else { return }
-      let ctx = Unmanaged<ThumbnailContinuation>.fromOpaque(box).takeUnretainedValue()
-      ctx.destroyRequest()
+      // Destroy the in-flight request via the standalone request box. The
+      // callback will still fire (with p_thumbnail == nil) and handle its
+      // own cleanup / continuation resume. We never touch the Unmanaged
+      // ThumbnailContinuation here, so the callback's box.release() and
+      // onCancel can never race.
+      requestBox.destroy()
     }
     return try result.get()
   }
@@ -96,52 +97,42 @@ extension Media {
 
 // MARK: - Internals
 
-/// Thread-safe holder for a single raw pointer, shared between the
-/// continuation closure and the onCancel closure.
-private final class PointerBox: Sendable {
+/// Holds the libVLC `libvlc_media_thumbnail_request_t*` pointer. Its
+/// `destroy()` is idempotent and atomic so the callback and the cancel
+/// handler can both call it without stepping on each other.
+private final class RequestBox: Sendable {
   private let bits = Mutex<Int>(0)
 
-  func store(_ pointer: UnsafeMutableRawPointer) {
-    bits.withLock { $0 = Int(bitPattern: pointer) }
+  func store(_ request: OpaquePointer) {
+    bits.withLock { $0 = Int(bitPattern: UnsafeRawPointer(request)) }
   }
 
-  func clear() {
-    bits.withLock { $0 = 0 }
-  }
-
-  func load() -> UnsafeMutableRawPointer? {
-    let value = bits.withLock { $0 }
-    return UnsafeMutableRawPointer(bitPattern: value)
+  /// Atomically clears the stored pointer and destroys it if present.
+  /// Subsequent calls are no-ops.
+  func destroy() {
+    let captured = bits.withLock { value -> Int in
+      let c = value
+      value = 0
+      return c
+    }
+    guard captured != 0, let ptr = OpaquePointer(bitPattern: captured) else { return }
+    libvlc_media_thumbnail_request_destroy(ptr)
   }
 }
 
 private final class ThumbnailContinuation: Sendable {
   let continuation: CheckedContinuation<Result<Data, VLCError>, Never>
   nonisolated(unsafe) let eventManager: OpaquePointer
-  private let requestBits = Mutex<Int>(0)
+  let requestBox: RequestBox
 
   init(
     continuation: CheckedContinuation<Result<Data, VLCError>, Never>,
-    eventManager: OpaquePointer
+    eventManager: OpaquePointer,
+    requestBox: RequestBox
   ) {
     self.continuation = continuation
     self.eventManager = eventManager
-  }
-
-  func setRequest(_ request: OpaquePointer) {
-    requestBits.withLock { $0 = Int(bitPattern: UnsafeRawPointer(request)) }
-  }
-
-  /// Destroys the stored thumbnail request pointer. Idempotent — safe to call
-  /// from both the callback (cleanup) and the cancellation handler.
-  func destroyRequest() {
-    let bits = requestBits.withLock { value -> Int in
-      let captured = value
-      value = 0
-      return captured
-    }
-    guard bits != 0, let ptr = OpaquePointer(bitPattern: bits) else { return }
-    libvlc_media_thumbnail_request_destroy(ptr)
+    self.requestBox = requestBox
   }
 }
 
@@ -161,7 +152,7 @@ private func thumbnailCallback(
     thumbnailCallback,
     opaque
   )
-  ctx.destroyRequest()
+  ctx.requestBox.destroy()
 
   let resumeValue: Result<Data, VLCError>
   if let picture = event.pointee.u.media_thumbnail_generated.p_thumbnail {
