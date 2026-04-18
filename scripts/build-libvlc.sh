@@ -23,8 +23,9 @@ set -e
 trap 'error "Build failed at line $LINENO (exit code $?)"' ERR
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/.build-libvlc"
-OUTPUT_DIR="${SCRIPT_DIR}/Vendor"
+OUTPUT_DIR="${REPO_ROOT}/Vendor"
 VLC_REPO="https://code.videolan.org/videolan/vlc.git"
 VLC_BRANCH="master"
 # Pin to a known-good commit for reproducible builds (same as VLCKit)
@@ -81,26 +82,67 @@ error() {
 }
 
 # --- Prerequisite validation ---
+# Maps a missing command to the Homebrew formula that provides it.
+# Keep in sync with the `for cmd` loop in check_prerequisites.
+brew_formula_for() {
+    case "$1" in
+        autoconf|automake|libtool|cmake|pkg-config|gettext|nasm|meson|ninja)
+            echo "$1" ;;
+        autopoint) echo "gettext" ;;
+        python3) echo "python@3" ;;
+        *) echo "$1" ;;
+    esac
+}
+
 check_prerequisites() {
+    # Xcode itself (not just the Command Line Tools) is required because the
+    # final step uses `xcodebuild -create-xcframework`. CLT ships xcode-select
+    # but not xcodebuild.
+    if ! xcode-select -p >/dev/null 2>&1; then
+        echo "${COLOR_RED}Error: Xcode / Command Line Tools not installed.${COLOR_RESET}" >&2
+        echo "  Install Xcode from the App Store, then run: sudo xcode-select -s /Applications/Xcode.app" >&2
+        exit 1
+    fi
+    if ! command -v xcodebuild >/dev/null 2>&1 || ! xcodebuild -version >/dev/null 2>&1; then
+        echo "${COLOR_RED}Error: xcodebuild not available.${COLOR_RESET}" >&2
+        echo "  This usually means xcode-select points at Command Line Tools only." >&2
+        echo "  Install the full Xcode and run: sudo xcode-select -s /Applications/Xcode.app" >&2
+        exit 1
+    fi
+
+    # Tools needed on the host. VLC's extras/tools bootstraps its own copies of
+    # nasm, meson, ninja, m4, bison, libtool — those don't need to be pre-installed.
+    # What we check here is the minimum set required BEFORE extras/tools can run
+    # and for autoreconf to succeed (gettext macros via autopoint) and for contribs
+    # that use cmake / pkg-config.
+    local required=(autoconf automake libtool autopoint pkg-config cmake python3)
     local missing=()
 
-    for cmd in autoconf automake libtool python3; do
+    for cmd in "${required[@]}"; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
             missing+=("$cmd")
         fi
     done
 
-    if ! xcode-select -p >/dev/null 2>&1; then
-        echo "${COLOR_RED}Error: Xcode command line tools not installed.${COLOR_RESET}" >&2
-        echo "  Install with: xcode-select --install" >&2
-        exit 1
-    fi
-
     if [ ${#missing[@]} -gt 0 ]; then
         echo "${COLOR_RED}Error: Missing required tools: ${missing[*]}${COLOR_RESET}" >&2
         echo "" >&2
         echo "  Install with:" >&2
-        echo "    brew install ${missing[*]}" >&2
+        # Deduplicate formula names (autopoint → gettext, so both map to gettext).
+        local formulas=()
+        for cmd in "${missing[@]}"; do
+            local f
+            f=$(brew_formula_for "$cmd")
+            local seen=0
+            for existing in "${formulas[@]}"; do
+                [ "$existing" = "$f" ] && seen=1 && break
+            done
+            [ "$seen" = 0 ] && formulas+=("$f")
+        done
+        echo "    brew install ${formulas[*]}" >&2
+        echo "" >&2
+        echo "  If autopoint is still missing after installing gettext, run:" >&2
+        echo "    brew link --force gettext" >&2
         echo "" >&2
         exit 1
     fi
@@ -549,10 +591,25 @@ if [ ! -d "vlc" ]; then
     git checkout -B build "${VLC_HASH}"
     cd ..
 else
-    info "VLC source already cloned, resetting to ${VLC_HASH}..."
     cd vlc
-    git fetch origin "$VLC_HASH"
-    git reset --hard "${VLC_HASH}"
+    # Only reset if HEAD isn't already at the pinned commit. An unconditional
+    # `git reset --hard` wipes our in-tree patches every run, forcing every
+    # downstream patch function to re-apply and all per-platform build dirs
+    # to rebuild. VideoLAN's GitLab also doesn't allow fetching by raw SHA,
+    # so skip the fetch unless the commit is missing locally.
+    CURRENT_HEAD=$(git rev-parse --verify HEAD 2>/dev/null || echo "")
+    TARGET_SHA=$(git rev-parse --verify "${VLC_HASH}^{commit}" 2>/dev/null || echo "")
+    if [ -z "$TARGET_SHA" ]; then
+        info "Commit ${VLC_HASH} missing locally; fetching..."
+        git fetch origin "${VLC_BRANCH}"
+        TARGET_SHA=$(git rev-parse --verify "${VLC_HASH}^{commit}")
+    fi
+    if [ "$CURRENT_HEAD" != "$TARGET_SHA" ]; then
+        info "VLC source at wrong commit, resetting to ${VLC_HASH}..."
+        git reset --hard "${VLC_HASH}"
+    else
+        info "VLC source already at ${VLC_HASH}"
+    fi
     cd ..
 fi
 
@@ -627,6 +684,138 @@ PYEOF
 
 patch_vlc_ldflags
 
+# --- Step 1e: Force libtool --tag=CC for Objective-C convenience library ---
+# VLC's src/Makefile.am builds libvlccore_objc.la from .m files, but doesn't
+# tell libtool which tag to use. On libtool 2.5+ (current Homebrew), libtool
+# can't infer the tag from the compile command and fails with:
+#   libtool: compile: unable to infer tagged configuration
+#   libtool:   error: specify a tag with '--tag'
+# Older libtool versions were more permissive. LT_LANG([Objective C]) isn't a
+# thing (libtool only supports C/CXX/F77/FC/GCJ/RC), so the right fix is to
+# set per-target LIBTOOLFLAGS so automake emits `libtool --tag=CC` for the
+# .m compiles. Objective C is a C superset; --tag=CC is exactly right.
+patch_vlc_objc_libtool() {
+    # Content-based idempotency: `git reset --hard` wipes our edits but leaves
+    # marker files intact, so the check must look at actual file contents.
+    if grep -q 'libvlccore_objc_la_LIBTOOLFLAGS' "${VLC_SRC}/src/Makefile.am"; then
+        info "VLC Makefile.am files already patched for OBJC libtool tag"
+        return 0
+    fi
+
+    info "Scanning Makefile.am files for .m sources to add --tag=CC..."
+
+    python3 - "$VLC_SRC" << 'PYEOF'
+import re
+import sys
+from pathlib import Path
+
+vlc_root = Path(sys.argv[1])
+patched = 0
+
+# Matches "target_name_SOURCES = ..." or "target_name_SOURCES += ..."
+# The RHS may span multiple lines via backslash-newline continuations.
+sources_re = re.compile(
+    r'^([A-Za-z_][A-Za-z0-9_]*?)_SOURCES\s*\+?=\s*((?:[^\n\\]|\\\n|\\.)*)',
+    re.MULTILINE
+)
+
+for mf in sorted(vlc_root.rglob('Makefile.am')):
+    # Skip the build-tools tree and anything under contribs
+    if 'extras/tools' in str(mf) or 'contrib/' in str(mf):
+        continue
+
+    text = mf.read_text()
+    targets_with_m = set()
+
+    for m in sources_re.finditer(text):
+        target = m.group(1)
+        rhs = m.group(2)
+        # Flatten line continuations
+        rhs_flat = re.sub(r'\\\n', ' ', rhs)
+        # A source ending in .m (not .mm for C++) — and not part of .mk/.mo etc.
+        if re.search(r'(^|\s)[^\s]+\.m(\s|$)', rhs_flat):
+            targets_with_m.add(target)
+
+    if not targets_with_m:
+        continue
+
+    additions = []
+    for target in sorted(targets_with_m):
+        tag_re = re.compile(
+            rf'^{re.escape(target)}_LIBTOOLFLAGS\s*=', re.MULTILINE
+        )
+        if tag_re.search(text):
+            continue
+        additions.append(f'{target}_LIBTOOLFLAGS = --tag=CC')
+
+    if not additions:
+        continue
+
+    if not text.endswith('\n'):
+        text += '\n'
+    text += (
+        '\n# libtool 2.5+ cannot infer the tag for .m compiles; force CC.\n'
+        + '\n'.join(additions) + '\n'
+    )
+    mf.write_text(text)
+    patched += 1
+    print(f'  patched: {mf.relative_to(vlc_root)} ({len(additions)} target(s))')
+
+print(f'Patched {patched} Makefile.am file(s) for OBJC libtool tag')
+PYEOF
+
+    # Force ./bootstrap to regenerate configure/Makefile.in so the new
+    # per-target LIBTOOLFLAGS gets picked up. Also wipe per-platform build
+    # dirs so their stale generated Makefiles are thrown away.
+    rm -f "${VLC_SRC}/configure"
+    rm -rf "${VLC_SRC}"/build-iphoneos-* \
+           "${VLC_SRC}"/build-iphonesimulator-* \
+           "${VLC_SRC}"/build-appletvos-* \
+           "${VLC_SRC}"/build-appletvsimulator-* \
+           "${VLC_SRC}"/build-macosx-* \
+           "${VLC_SRC}"/build-maccatalyst-*
+
+    info "Makefile.am files patched; configure + platform build dirs cleared"
+}
+
+patch_vlc_objc_libtool
+
+# --- Step 1f: Disable Rust-based contribs ---
+# VLC contribs pin cargo-c 0.9.29, which transitively pulls time 0.3.31 — a
+# crate that no longer compiles on recent Rust (type inference for Box<_>).
+# The only Rust contrib we'd get on Apple is rav1e (AV1 *encoder*); we already
+# have dav1d for AV1 *decoding*, which is what matters for playback. iOS and
+# tvOS already skip Rust (Tier 3 targets); this unifies macOS + Catalyst.
+patch_vlc_disable_rust() {
+    local MAIN_RUST_MAK="${VLC_SRC}/contrib/src/main-rust.mak"
+
+    if grep -q 'SWIFTVLC_DISABLE_RUST' "$MAIN_RUST_MAK"; then
+        info "VLC Rust contribs already disabled"
+        return 0
+    fi
+
+    info "Disabling VLC Rust-based contribs..."
+
+    python3 - "$MAIN_RUST_MAK" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+content = content.replace(
+    'BUILD_RUST="1"',
+    '# SWIFTVLC_DISABLE_RUST: cargo-c 0.9.29 fails on recent Rust; rav1e is\n'
+    '# an encoder (dav1d handles AV1 decoding). Never set BUILD_RUST.\n'
+    '# BUILD_RUST="1"'
+)
+with open(path, 'w') as f:
+    f.write(content)
+PYEOF
+
+    info "VLC contrib/src/main-rust.mak patched to skip Rust contribs"
+}
+
+patch_vlc_disable_rust
+
 # --- Step 2: Build tools ---
 info "Building VLC build tools..."
 export PATH="${VLC_SRC}/extras/tools/build/bin:$PATH"
@@ -636,6 +825,16 @@ make ${MAKEFLAGS}
 cd "${BUILD_DIR}"
 
 # --- Step 3: Compile libVLC per platform/arch ---
+#
+# Force autoconf to treat Linux-only syscalls as unavailable. iOS Simulator
+# SDK 26+ exports dup3/pipe2 from libSystem (so autoconf's link test says
+# "yes"), but the iOS headers don't declare them — leading to
+# "use of undeclared identifier 'dup3'" during src/posix/filesystem.c.
+# Device builds correctly detect "no"; simulator (and newer Apple SDKs
+# generally) get confused. VLC's code has proper #else fallbacks.
+export ac_cv_func_dup3=no
+export ac_cv_func_pipe2=no
+
 compile_libvlc() {
     local ARCH="$1"
     local PLATFORM="$2"
@@ -721,8 +920,8 @@ if [ "$BUILD_IOS" = "yes" ]; then
     cp "${VLC_SRC}/build-iphoneos-arm64/static-lib/libvlc-full-static.a" \
        "${BUILD_DIR}/libs/ios-device/libvlc.a"
 
-    XCFRAMEWORK_ARGS+=(-library "${BUILD_DIR}/libs/ios-device/libvlc.a" -headers "${SCRIPT_DIR}/Sources/CLibVLC/include")
-    XCFRAMEWORK_ARGS+=(-library "${BUILD_DIR}/libs/ios-simulator/libvlc.a" -headers "${SCRIPT_DIR}/Sources/CLibVLC/include")
+    XCFRAMEWORK_ARGS+=(-library "${BUILD_DIR}/libs/ios-device/libvlc.a" -headers "${REPO_ROOT}/Sources/CLibVLC/include")
+    XCFRAMEWORK_ARGS+=(-library "${BUILD_DIR}/libs/ios-simulator/libvlc.a" -headers "${REPO_ROOT}/Sources/CLibVLC/include")
 fi
 
 if [ "$BUILD_TVOS" = "yes" ]; then
@@ -740,8 +939,8 @@ if [ "$BUILD_TVOS" = "yes" ]; then
     cp "${VLC_SRC}/build-appletvos-arm64/static-lib/libvlc-full-static.a" \
        "${BUILD_DIR}/libs/tvos-device/libvlc.a"
 
-    XCFRAMEWORK_ARGS+=(-library "${BUILD_DIR}/libs/tvos-device/libvlc.a" -headers "${SCRIPT_DIR}/Sources/CLibVLC/include")
-    XCFRAMEWORK_ARGS+=(-library "${BUILD_DIR}/libs/tvos-simulator/libvlc.a" -headers "${SCRIPT_DIR}/Sources/CLibVLC/include")
+    XCFRAMEWORK_ARGS+=(-library "${BUILD_DIR}/libs/tvos-device/libvlc.a" -headers "${REPO_ROOT}/Sources/CLibVLC/include")
+    XCFRAMEWORK_ARGS+=(-library "${BUILD_DIR}/libs/tvos-simulator/libvlc.a" -headers "${REPO_ROOT}/Sources/CLibVLC/include")
 fi
 
 if [ "$BUILD_MACOS" = "yes" ]; then
@@ -754,7 +953,7 @@ if [ "$BUILD_MACOS" = "yes" ]; then
         "${VLC_SRC}/build-macosx-x86_64/static-lib/libvlc-full-static.a" \
         -create -output "${BUILD_DIR}/libs/macos/libvlc.a"
 
-    XCFRAMEWORK_ARGS+=(-library "${BUILD_DIR}/libs/macos/libvlc.a" -headers "${SCRIPT_DIR}/Sources/CLibVLC/include")
+    XCFRAMEWORK_ARGS+=(-library "${BUILD_DIR}/libs/macos/libvlc.a" -headers "${REPO_ROOT}/Sources/CLibVLC/include")
 fi
 
 if [ "$BUILD_CATALYST" = "yes" ]; then
@@ -770,7 +969,7 @@ if [ "$BUILD_CATALYST" = "yes" ]; then
         "${VLC_SRC}/build-maccatalyst-x86_64/static-lib/libvlc-full-static.a" \
         -create -output "${BUILD_DIR}/libs/maccatalyst/libvlc.a"
 
-    XCFRAMEWORK_ARGS+=(-library "${BUILD_DIR}/libs/maccatalyst/libvlc.a" -headers "${SCRIPT_DIR}/Sources/CLibVLC/include")
+    XCFRAMEWORK_ARGS+=(-library "${BUILD_DIR}/libs/maccatalyst/libvlc.a" -headers "${REPO_ROOT}/Sources/CLibVLC/include")
 fi
 
 # --- Step 4: Create XCFramework ---
