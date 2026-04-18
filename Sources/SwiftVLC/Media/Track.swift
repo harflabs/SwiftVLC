@@ -150,6 +150,14 @@ public enum MediaSlaveType: Sendable, Hashable, CustomStringConvertible {
     case .audio: libvlc_media_slave_type_audio
     }
   }
+
+  init(from cValue: libvlc_media_slave_type_t) {
+    switch cValue {
+    case libvlc_media_slave_type_subtitle: self = .subtitle
+    // In libVLC 4.0, libvlc_media_slave_type_audio == libvlc_media_slave_type_generic.
+    default: self = .audio
+    }
+  }
 }
 
 extension TrackType {

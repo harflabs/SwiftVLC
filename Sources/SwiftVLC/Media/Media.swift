@@ -1,6 +1,55 @@
 import CLibVLC
 import Foundation
 
+/// The type of a media source as reported by libVLC.
+public enum MediaType: Sendable, Hashable, CustomStringConvertible {
+  /// Media type could not be determined yet.
+  case unknown
+  /// A regular file on disk.
+  case file
+  /// A directory (used for folder-as-playlist behavior).
+  case directory
+  /// An optical disc (DVD, Blu-ray, Audio CD).
+  case disc
+  /// A network stream (HTTP, RTSP, etc.).
+  case stream
+  /// A playlist (M3U, PLS, XSPF, etc.).
+  case playlist
+
+  public var description: String {
+    switch self {
+    case .unknown: "unknown"
+    case .file: "file"
+    case .directory: "directory"
+    case .disc: "disc"
+    case .stream: "stream"
+    case .playlist: "playlist"
+    }
+  }
+
+  init(from cValue: libvlc_media_type_t) {
+    switch cValue {
+    case libvlc_media_type_file: self = .file
+    case libvlc_media_type_directory: self = .directory
+    case libvlc_media_type_disc: self = .disc
+    case libvlc_media_type_stream: self = .stream
+    case libvlc_media_type_playlist: self = .playlist
+    default: self = .unknown
+    }
+  }
+}
+
+/// A slave track (subtitle or audio) attached to a ``Media``.
+public struct MediaSlave: Sendable, Hashable {
+  /// Resource URI of the slave file.
+  public let uri: String
+  /// Whether this slave is a subtitle or audio track.
+  public let type: MediaSlaveType
+  /// Priority — higher values are preferred when the same type appears
+  /// multiple times.
+  public let priority: Int
+}
+
 /// A media source that can be played by a ``Player``.
 ///
 /// Create from a URL or file path, optionally parse for metadata:
@@ -119,6 +168,71 @@ public final class Media: Sendable {
     return .milliseconds(ms)
   }
 
+  /// The category of this media source (file, stream, disc, etc.).
+  ///
+  /// Useful for tailoring UI — e.g. show a network indicator for `.stream`,
+  /// or a disc icon for `.disc`. Reported as `.unknown` until libVLC has
+  /// enough context to determine the type (usually immediately after
+  /// creation for local paths, after parse for network URLs).
+  public var mediaType: MediaType {
+    MediaType(from: libvlc_media_get_type(pointer))
+  }
+
+  // MARK: - Slaves (external audio / subtitles)
+
+  /// Attaches an external slave track (subtitles or audio) to this media.
+  ///
+  /// Slaves added here take effect when the media is played. For runtime
+  /// additions during playback, use ``Player/addExternalTrack(from:type:select:)``.
+  ///
+  /// - Parameters:
+  ///   - url: URL of the slave file (must be a valid URI, e.g. `file://`).
+  ///   - type: Subtitle or audio.
+  ///   - priority: Higher priorities are preferred when multiple slaves of
+  ///     the same type are present. Must be non-negative and fit in a
+  ///     `UInt32`. libVLC clamps the value to its user-slave ceiling
+  ///     internally, so values above ~4 are normalized. Defaults to `4`
+  ///     which matches libVLC's priority for user-added files.
+  /// - Precondition: `priority` is in `0...UInt32.max`.
+  /// - Throws: `VLCError.operationFailed` if the slave cannot be attached.
+  public func addSlave(
+    from url: URL,
+    type: MediaSlaveType,
+    priority: Int = 4
+  )
+    throws(VLCError) {
+    precondition(
+      priority >= 0 && priority <= Int(UInt32.max),
+      "Slave priority \(priority) is out of range (0 ... \(UInt32.max))"
+    )
+    let uri = url.absoluteString
+    guard libvlc_media_slaves_add(pointer, type.cValue, UInt32(priority), uri) == 0 else {
+      throw .operationFailed("Add slave \(type) from \(uri)")
+    }
+  }
+
+  /// Removes all slaves previously attached to this media.
+  public func clearSlaves() {
+    libvlc_media_slaves_clear(pointer)
+  }
+
+  /// Returns the current list of slaves attached to this media.
+  public var slaves: [MediaSlave] {
+    var slavesPtr: UnsafeMutablePointer<UnsafeMutablePointer<libvlc_media_slave_t>?>?
+    let count = libvlc_media_slaves_get(pointer, &slavesPtr)
+    guard count > 0, let slavesPtr else { return [] }
+    defer { libvlc_media_slaves_release(slavesPtr, count) }
+
+    return (0..<Int(count)).compactMap { i -> MediaSlave? in
+      guard let slave = slavesPtr[i]?.pointee else { return nil }
+      return MediaSlave(
+        uri: String(cString: slave.psz_uri),
+        type: MediaSlaveType(from: slave.i_type),
+        priority: Int(slave.i_priority)
+      )
+    }
+  }
+
   /// Wraps an already-retained `libvlc_media_t` pointer.
   ///
   /// The caller must have already called `libvlc_media_retain` or obtained
@@ -183,7 +297,7 @@ private func parseCallback(
   event: UnsafePointer<libvlc_event_t>?,
   opaque: UnsafeMutableRawPointer?
 ) {
-  guard let _ = event, let opaque else { return }
+  guard event != nil, let opaque else { return }
 
   let box = Unmanaged<ParseContinuation>.fromOpaque(opaque)
   let ctx = box.takeUnretainedValue()

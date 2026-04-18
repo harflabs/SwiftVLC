@@ -33,6 +33,49 @@ struct MediaTests {
   }
 
   @Test
+  func `Media type is file for local files`() throws {
+    let media = try Media(url: TestMedia.testMP4URL)
+    // libVLC may report .file or .unknown before any parsing; both acceptable.
+    let type = media.mediaType
+    #expect(type == .file || type == .unknown)
+  }
+
+  @Test
+  func `Slaves empty by default`() throws {
+    let media = try Media(url: TestMedia.testMP4URL)
+    #expect(media.slaves.isEmpty)
+  }
+
+  @Test
+  func `addSlave attaches a subtitle`() throws {
+    let media = try Media(url: TestMedia.twosecURL)
+    try media.addSlave(from: TestMedia.subtitleURL, type: .subtitle)
+    let slaves = media.slaves
+    #expect(slaves.count == 1)
+    #expect(slaves.first?.type == .subtitle)
+    #expect(slaves.first?.uri.contains("test.srt") == true)
+  }
+
+  @Test
+  func `addSlave with custom priority`() throws {
+    let media = try Media(url: TestMedia.twosecURL)
+    // libVLC clamps the priority to its internal user-priority ceiling
+    // (4 as of libVLC 4.0). Accept any value libVLC reports — the point
+    // is that the call succeeds and the slave is stored.
+    try media.addSlave(from: TestMedia.subtitleURL, type: .subtitle, priority: 9)
+    #expect(media.slaves.first?.priority ?? 0 > 0)
+  }
+
+  @Test
+  func `clearSlaves removes previously added slaves`() throws {
+    let media = try Media(url: TestMedia.twosecURL)
+    try media.addSlave(from: TestMedia.subtitleURL, type: .subtitle)
+    #expect(!media.slaves.isEmpty)
+    media.clearSlaves()
+    #expect(media.slaves.isEmpty)
+  }
+
+  @Test
   func `Duration nil before parsing`() throws {
     let media = try Media(url: TestMedia.testMP4URL)
     // Duration may or may not be available before parsing

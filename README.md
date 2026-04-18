@@ -47,7 +47,7 @@ The existing iOS wrapper, [VLCKit](https://code.videolan.org/videolan/VLCKit), i
 
 ## Requirements
 
-- Swift 6.2+ / Xcode 16+
+- Swift 6.3+ / Xcode 26+
 - iOS 18+ / macOS 15+ / tvOS 18+
 
 ## Installation
@@ -122,26 +122,13 @@ The `Showcase/` directory contains a full-featured demo app for all supported pl
 
 ## Testing
 
-397 tests across 32 suites using [Swift Testing](https://developer.apple.com/xcode/swift-testing/) — real libVLC integration, no mocking.
+757 tests across 61 suites using [Swift Testing](https://developer.apple.com/xcode/swift-testing/) — real libVLC integration, no mocking.
 
 ```bash
 swift test
 ```
 
 See [ARCHITECTURE.md](ARCHITECTURE.md#testing-strategy) for test tags, fixtures, and structure.
-
-## Building libVLC from Source
-
-The xcframework downloads automatically via SPM. To rebuild from the [official VLC source](https://code.videolan.org/videolan/vlc):
-
-```bash
-brew install autoconf automake libtool
-
-./scripts/build-libvlc.sh          # iOS (default)
-./scripts/build-libvlc.sh --all    # All platforms
-```
-
-~15 minutes per platform on Apple Silicon.
 
 ## Development Setup
 
@@ -152,7 +139,73 @@ cd SwiftVLC
 swift test
 ```
 
-The setup script downloads the xcframework and switches `Package.swift` to a local path.
+`setup-dev.sh` downloads `libvlc.xcframework.zip` (~250 MB) from the latest release into `Vendor/`. `Package.swift` on every branch points at that local path, so no manifest edits are needed before building.
+
+| `setup-dev.sh` flag | Effect |
+|---|---|
+| *(none)* | Download the latest release if `Vendor/` is empty; otherwise keep existing. |
+| `v0.3.0` *(positional)* | Pin to a specific release tag. |
+| `--force` | Re-download even if `Vendor/` already exists. |
+| `--skip-download` | Only flip `Package.swift` to local path. Expects `Vendor/` to already exist — useful after `build-libvlc.sh`. |
+
+## Building libVLC from Source
+
+Needed only when bumping `VLC_HASH`, modifying build patches, or preparing a release — not for day-to-day Swift work.
+
+```bash
+brew install autoconf automake libtool cmake pkg-config gettext
+./scripts/build-libvlc.sh --all
+```
+
+Expect ~15–20 minutes on a clean run and ~2–7 minutes warm on Apple Silicon. The script clones VLC at a pinned commit into `scripts/.build-libvlc/`, applies the source patches below, builds every contrib (FFmpeg, dav1d, x264, libass, …) per slice, and assembles the result into `Vendor/libvlc.xcframework`.
+
+### Platform selection
+
+| Flag | Platforms |
+|---|---|
+| *(default)* | iOS device + simulator |
+| `--all` | iOS, tvOS, macOS, Mac Catalyst — six slices |
+| `--ios-only` / `--tvos-only` / `--macos-only` / `--catalyst-only` | Replaces `Vendor/` with that single platform |
+| `--tvos` / `--macos` / `--catalyst` | Adds a platform to the default set |
+| `--clean` / `--clean-build` | Wipe `scripts/.build-libvlc/` (the latter rebuilds afterwards) |
+| `--hash=<sha>` | Override the pinned VLC commit |
+
+> `*-only` flags **replace** the xcframework; any slices already in `Vendor/` are lost.
+
+### Source patches
+
+VLC master doesn't build cleanly against current Xcode and Homebrew libtool. The script applies these patches in-tree on every invocation, idempotently:
+
+1. **Mac Catalyst** — teaches VLC's build system the macabi target triple and guards OpenGLES-only code paths.
+2. **Xcode 26 LDFLAGS** — adds `-isysroot` to linker invocations so libSystem resolves.
+3. **libtool 2.5 OBJC tag** — adds `_LIBTOOLFLAGS = --tag=CC` to the 15 `Makefile.am` files with `.m` sources. Older libtool versions inferred the tag; 2.5 refuses.
+4. **Rust contribs disabled** — `cargo-c 0.9.29` no longer compiles on recent Rust. The only Rust contrib on Apple is `rav1e` (AV1 *encoder*); `dav1d` handles decoding.
+5. **`dup3` / `pipe2`** — forced unavailable via autoconf cache vars. iOS Simulator SDK 26 exports these Linux-only syscalls from libSystem, fooling configure into using them.
+
+`git reset --hard` only runs when HEAD is not at `VLC_HASH`, so the patches and per-platform build dirs survive repeated runs.
+
+## Releasing
+
+Releases use a **tag-only** model: the commit that pins `Package.swift` to the remote xcframework URL exists only under the tag, never on a branch. Every branch stays ready for `setup-dev.sh && swift build`.
+
+```bash
+./scripts/build-libvlc.sh --all          # produces Vendor/libvlc.xcframework
+./scripts/release.sh 0.4.0 --dry-run     # strip + zip + checksum, no push
+./scripts/release.sh 0.4.0               # cut the release
+```
+
+What `release.sh` does:
+
+1. Verifies all six platform slices are present in the xcframework.
+2. Copies it to a temp dir, strips debug symbols, zips with `ditto`.
+3. Computes SHA-256 via `swift package compute-checksum`.
+4. Creates a detached commit with `Package.swift` rewritten to the remote URL and checksum.
+5. Tags that commit as `vX.Y.Z`.
+6. Resets the branch back to its previous HEAD — the commit survives only as the tag.
+7. Pushes the tag (never the branch).
+8. Uploads the zip to a new GitHub Release.
+
+Preflight refuses non-`main` branches (`--allow-dirty-branch` to override), pre-existing local tags, and unauthenticated `gh`. If any later step fails, the EXIT trap resets the branch to its pre-release HEAD so nothing is left dangling.
 
 ## Architecture
 

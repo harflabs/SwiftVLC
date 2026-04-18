@@ -3,9 +3,10 @@ import SwiftUI
 import SwiftVLC
 
 extension PolishedPlayerDemo {
-  func tvOSOverlay(player: Player) -> some View {
+  func tvOSOverlay(player: Player, title: String) -> some View {
     TVOSOverlayContent(
       player: player,
+      title: title,
       showControls: showControls,
       onInteraction: { showControlsTemporarily() }
     )
@@ -14,6 +15,7 @@ extension PolishedPlayerDemo {
 
 private struct TVOSOverlayContent: View {
   @Bindable var player: Player
+  let title: String
   let showControls: Bool
   let onInteraction: () -> Void
 
@@ -49,8 +51,9 @@ private struct TVOSOverlayContent: View {
     VStack {
       // Top bar
       HStack {
-        Text("Big Buck Bunny")
+        Text(title)
           .font(.title2)
+          .lineLimit(1)
         Spacer()
       }
       .padding(.horizontal, 64)

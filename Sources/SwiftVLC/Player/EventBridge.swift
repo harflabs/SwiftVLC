@@ -71,6 +71,7 @@ final class EventBridge: Sendable {
     libvlc_MediaPlayerPaused,
     libvlc_MediaPlayerStopped,
     libvlc_MediaPlayerStopping,
+    libvlc_MediaPlayerMediaStopping,
     libvlc_MediaPlayerEncounteredError,
     libvlc_MediaPlayerTimeChanged,
     libvlc_MediaPlayerPositionChanged,
@@ -82,9 +83,12 @@ final class EventBridge: Sendable {
     libvlc_MediaPlayerESDeleted,
     libvlc_MediaPlayerESSelected,
     libvlc_MediaPlayerESUpdated,
+    libvlc_MediaPlayerCorked,
+    libvlc_MediaPlayerUncorked,
     libvlc_MediaPlayerMuted,
     libvlc_MediaPlayerUnmuted,
     libvlc_MediaPlayerAudioVolume,
+    libvlc_MediaPlayerAudioDevice,
     libvlc_MediaPlayerChapterChanged,
     libvlc_MediaPlayerRecordChanged,
     libvlc_MediaPlayerTitleListChanged,
@@ -227,9 +231,22 @@ private func mapEvent(_ event: libvlc_event_t) -> PlayerEvent? {
   case libvlc_MediaPlayerUnmuted:
     return .unmuted
 
+  case libvlc_MediaPlayerCorked:
+    return .corked
+
+  case libvlc_MediaPlayerUncorked:
+    return .uncorked
+
   case libvlc_MediaPlayerAudioVolume:
     let vol = event.u.media_player_audio_volume.volume
     return .volumeChanged(vol)
+
+  case libvlc_MediaPlayerAudioDevice:
+    let device = event.u.media_player_audio_device.device.map { String(cString: $0) }
+    return .audioDeviceChanged(device)
+
+  case libvlc_MediaPlayerMediaStopping:
+    return .mediaStopping
 
   case libvlc_MediaPlayerChapterChanged:
     let chapter = event.u.media_player_chapter_changed.new_chapter

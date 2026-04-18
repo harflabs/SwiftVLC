@@ -22,9 +22,9 @@ struct LogoTests {
   @Test
   func `File set`() {
     let player = Player()
-    player.logo.file = "/tmp/logo.png"
-    // file getter always returns "" (write-only)
-    #expect(player.logo.file == "")
+    // setFile is write-only — libVLC does not expose a getter. Just verify
+    // the call is accepted without crashing.
+    player.logo.setFile("/tmp/logo.png")
   }
 
   @Test

@@ -1,7 +1,7 @@
 # file options
 
 --symlinks ignore
---swiftversion 6.2
+--swiftversion 6.3
 
 # rules
 

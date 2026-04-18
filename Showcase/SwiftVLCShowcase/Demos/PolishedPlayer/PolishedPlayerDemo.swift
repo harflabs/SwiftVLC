@@ -3,6 +3,7 @@ import SwiftVLC
 
 struct PolishedPlayerDemo: View {
   @State var player: Player?
+  @State var title: String = ""
   @State var showControls = true
   @State var hideTask: Task<Void, Never>?
   @State var isSeeking = false
@@ -37,13 +38,29 @@ struct PolishedPlayerDemo: View {
     #endif
     .task {
       do {
+        let url = TestMedia.bigBuckBunny
         let p = Player()
         player = p
-        try p.play(url: TestMedia.bigBuckBunny)
+        // Derive a display title from URL immediately; refine with parsed
+        // metadata asynchronously so the overlay isn't empty while parsing.
+        title = url.deletingPathExtension().lastPathComponent
+          .replacingOccurrences(of: "_", with: " ")
+        let media = try Media(url: url)
+        try p.play(media)
         scheduleHide()
         #if os(iOS)
         UIApplication.shared.isIdleTimerDisabled = true
         #endif
+
+        // Parse the SAME media instance asynchronously (Media is a
+        // Sendable reference type, so the player's retain is safe to
+        // coexist with our parse call). Reusing avoids a second network
+        // fetch for the same URL.
+        if
+          let parsed = try? await media.parse(),
+          let parsedTitle = parsed.title, !parsedTitle.isEmpty {
+          title = parsedTitle
+        }
       } catch {
         self.error = error
       }
@@ -69,11 +86,11 @@ struct PolishedPlayerDemo: View {
   @ViewBuilder
   private func playerOverlay(_ player: Player) -> some View {
     #if os(iOS)
-    iOSOverlay(player: player)
+    iOSOverlay(player: player, title: title)
     #elseif os(macOS)
-    macOSOverlay(player: player)
+    macOSOverlay(player: player, title: title)
     #elseif os(tvOS)
-    tvOSOverlay(player: player)
+    tvOSOverlay(player: player, title: title)
     #endif
   }
 

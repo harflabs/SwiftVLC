@@ -17,11 +17,12 @@ struct PiPDemo: View {
   var body: some View {
     List {
       if error != nil {
-        ContentUnavailableView(
-          "Playback Failed",
-          systemImage: "exclamationmark.triangle",
-          description: Text("Could not set up the PiP player.")
+        DemoErrorView(
+          title: "Playback Failed",
+          message: "Could not set up the PiP player.",
+          retry: { Task { await setUp() } }
         )
+        .listRowBackground(Color.clear)
       } else if let player {
         // Video
         Section {
@@ -89,13 +90,7 @@ struct PiPDemo: View {
       .navigationBarTitleDisplayMode(.inline)
     #endif
       .task {
-        do {
-          let p = Player()
-          player = p
-          try p.play(url: TestMedia.bigBuckBunny)
-        } catch {
-          self.error = error
-        }
+        await setUp()
       }
       .onDisappear {
         player?.stop()
@@ -107,6 +102,17 @@ struct PiPDemo: View {
         }
       }
     #endif
+  }
+
+  private func setUp() async {
+    error = nil
+    do {
+      let p = Player()
+      player = p
+      try p.play(url: TestMedia.bigBuckBunny)
+    } catch {
+      self.error = error
+    }
   }
 }
 #endif

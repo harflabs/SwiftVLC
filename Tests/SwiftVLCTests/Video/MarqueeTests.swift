@@ -22,9 +22,9 @@ struct MarqueeTests {
   @Test
   func `Text set`() {
     let player = Player()
-    player.marquee.text = "Hello World"
-    // text getter always returns "" (write-only)
-    #expect(player.marquee.text == "")
+    // setText is write-only — libVLC does not expose a getter. Just verify
+    // the call is accepted without crashing.
+    player.marquee.setText("Hello World")
   }
 
   @Test

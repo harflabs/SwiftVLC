@@ -26,6 +26,8 @@
 		B1000025 /* AudioPlayerDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000025 /* AudioPlayerDemo.swift */; };
 		B1000026 /* PlaylistDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000026 /* PlaylistDemo.swift */; };
 		B1000027 /* DebugConsoleDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000027 /* DebugConsoleDemo.swift */; };
+		B1000028 /* SnapshotAndLoopDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000028 /* SnapshotAndLoopDemo.swift */; };
+		B1000015 /* DemoErrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000015 /* DemoErrorView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -49,6 +51,8 @@
 		B2000025 /* AudioPlayerDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayerDemo.swift; sourceTree = "<group>"; };
 		B2000026 /* PlaylistDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistDemo.swift; sourceTree = "<group>"; };
 		B2000027 /* DebugConsoleDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugConsoleDemo.swift; sourceTree = "<group>"; };
+		B2000028 /* SnapshotAndLoopDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotAndLoopDemo.swift; sourceTree = "<group>"; };
+		B2000015 /* DemoErrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoErrorView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -101,6 +105,7 @@
 				B2000024 /* PiPDemo.swift */,
 				B2000025 /* AudioPlayerDemo.swift */,
 				B2000026 /* PlaylistDemo.swift */,
+				B2000028 /* SnapshotAndLoopDemo.swift */,
 				B2000027 /* DebugConsoleDemo.swift */,
 			);
 			path = Demos;
@@ -125,6 +130,7 @@
 				B2000012 /* TransportControls.swift */,
 				B2000013 /* SeekBar.swift */,
 				B2000014 /* GradientOverlay.swift */,
+				B2000015 /* DemoErrorView.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -208,6 +214,7 @@
 				B1000012 /* TransportControls.swift in Sources */,
 				B1000013 /* SeekBar.swift in Sources */,
 				B1000014 /* GradientOverlay.swift in Sources */,
+				B1000015 /* DemoErrorView.swift in Sources */,
 				B1000020 /* PolishedPlayerDemo.swift in Sources */,
 				B1000021 /* PolishedPlayer+iOS.swift in Sources */,
 				B1000022 /* PolishedPlayer+macOS.swift in Sources */,
@@ -215,6 +222,7 @@
 				B1000024 /* PiPDemo.swift in Sources */,
 				B1000025 /* AudioPlayerDemo.swift in Sources */,
 				B1000026 /* PlaylistDemo.swift in Sources */,
+				B1000028 /* SnapshotAndLoopDemo.swift in Sources */,
 				B1000027 /* DebugConsoleDemo.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -38,6 +38,8 @@ struct SeekBar: View {
         onEditingChanged?(editing)
       }
       .tint(.accentColor)
+      .accessibilityLabel("Seek slider")
+      .accessibilityValue(seekAccessibilityValue)
 
       if showTimeLabels {
         HStack {
@@ -72,6 +74,11 @@ struct SeekBar: View {
       : player.currentTime
     let left = duration - elapsed
     return left < .zero ? .zero : left
+  }
+
+  private var seekAccessibilityValue: String {
+    guard player.duration != nil else { return "\(Int(displayPosition * 100)) percent" }
+    return "\(displayTime.formatted) elapsed, \(displayRemaining.formatted) remaining"
   }
 }
 

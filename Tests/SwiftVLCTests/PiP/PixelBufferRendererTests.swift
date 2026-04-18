@@ -2,6 +2,7 @@
 @testable import SwiftVLC
 import AVFoundation
 import CoreMedia
+import Synchronization
 import Testing
 
 @Suite(.tags(.integration))

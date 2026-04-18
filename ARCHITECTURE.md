@@ -74,7 +74,7 @@ flowchart TB
 
 | Component | Choice | Why |
 |---|---|---|
-| **Language** | Swift 6.2+ | Strict concurrency, typed throws, `@Observable` |
+| **Language** | Swift 6.3+ | Strict concurrency, typed throws, `@Observable`, upcoming feature flags |
 | **C Bindings** | libVLC 4.0 C API | Direct access, no Objective-C overhead |
 | **State** | `@Observable` / `@MainActor` | Automatic SwiftUI integration, thread safety |
 | **Events** | `AsyncStream<PlayerEvent>` | Native structured concurrency, multi-consumer |
@@ -556,7 +556,7 @@ All errors conform to `LocalizedError` and `CustomStringConvertible` for logging
 
 ### Overview
 
-**397 tests** across 32 suites using the **Swift Testing** framework (not XCTest).
+**758 tests** across 61 suites using the **Swift Testing** framework (not XCTest).
 
 ```
 Tests/SwiftVLCTests/
@@ -594,7 +594,7 @@ func playAndWaitForState() async throws {
 }
 ```
 
-**CI execution** — GitHub Actions on macOS 15 with latest Xcode, 5-minute timeout, SPM caching for `.build/artifacts` and `.build/checkouts`.
+**CI execution** — GitHub Actions on `macos-latest` with Xcode pinned to `latest-stable` (currently 26.x) plus the Swift 6.3 open-source toolchain from swift.org invoked via `xcrun --toolchain`. The test step is wrapped by `scripts/ci-run-with-timeouts.py` which enforces a 10-minute wall clock and a 3-minute idle watchdog — either fires a SIGKILL to the process group. Three layered caches keep cold-start cost down: the libvlc xcframework (keyed on its SHA-256), compiled build products (`hashFiles` on sources + manifest), and SPM dependency checkouts.
 
 ---
 
@@ -604,35 +604,58 @@ func playAndWaitForState() async throws {
 
 | Script | Purpose |
 |---|---|
-| `scripts/build-libvlc.sh` | Compiles libVLC from official VLC source for multiple platforms |
-| `scripts/release.sh` | Strips symbols, zips xcframework, generates SHA-256 checksum, publishes to GitHub Releases |
-| `scripts/setup-dev.sh` | Downloads pre-built xcframework, switches `Package.swift` to local path for development |
+| `scripts/setup-dev.sh` | First step on a fresh clone. Downloads the last-released xcframework into `Vendor/` and verifies `Package.swift` is in local-path form. Flags: `--force` (re-download), `--skip-download` (only flip the manifest). |
+| `scripts/build-libvlc.sh` | Compiles libVLC from VideoLAN source (pinned via `VLC_HASH`) into `Vendor/libvlc.xcframework`. Applies 5 in-tree patches needed for current Xcode (26) and Homebrew libtool (2.5) — see README. |
+| `scripts/fix-duplicate-symbols.sh` | Localizes `_json_parse_error` and `_json_read` in the chromecast plugin, which two VLC plugins each emit. Called automatically by `build-libvlc.sh` and `setup-dev.sh`. |
+| `scripts/release.sh` | Cuts a versioned release. Tag-only model — see below. |
+| `scripts/ci-use-released-xcframework.sh` | CI-only. Rewrites the current `Package.swift` `binaryTarget` from local path to the url+checksum of the latest release tag. Run at CI job start so tests resolve against the same binary a downstream consumer would. |
+| `scripts/ci-run-with-timeouts.py` | CI-only. Wraps `swift test` with wall-clock and idle timeouts; SIGKILLs the process group if either fires. |
 
-### Release Flow
+### Package.swift resolution strategy
+
+Every branch — including `main` — carries the local-path form of the libvlc `binaryTarget`:
+
+```swift
+.binaryTarget(name: "libvlc", path: "Vendor/libvlc.xcframework")
+```
+
+This keeps `git clone && ./scripts/setup-dev.sh && swift build` frictionless: no manifest rewriting needed to build or test, and no ambiguity about which binary is current. The remote `url:+checksum:` form exists only under release tags; it never lands on a branch.
+
+| Context | What `binaryTarget` looks like | Where the xcframework comes from |
+|---|---|---|
+| Local dev | `path: "Vendor/libvlc.xcframework"` | `setup-dev.sh` (download) or `build-libvlc.sh` (build) |
+| CI | rewritten in-memory to `url: + checksum:` of the latest release | SPM resolves + caches (keyed on checksum) |
+| Release tag `vX.Y.Z` | `url: + checksum:` (baked into a detached commit) | `release.sh` uploads the zip as a release asset at that URL |
+| SPM consumer pinning `X.Y.Z` | Reads the tag's `Package.swift` | SPM resolves + verifies checksum + caches |
+
+### Release flow
+
+Tag-only: the commit that pins `Package.swift` to the remote url+checksum is reachable only through the tag. `main` is never advanced by `release.sh`.
 
 ```mermaid
 flowchart LR
-    BUILD["build-libvlc.sh"] --> XCF["Vendor/libvlc.xcframework<br/>1.2 GB"]
-    XCF --> RELEASE["release.sh"]
-    RELEASE --> STRIP["Strip symbols"]
-    STRIP --> ZIP["Zip"]
-    ZIP --> CHECKSUM["SHA-256 checksum"]
-    CHECKSUM --> GH["GitHub Release"]
-    GH --> PKG["Package.swift updated<br/>Remote URL + checksum"]
-    PKG --> SPM["Consumers<br/>SPM resolves binary dependency"]
+    BUILD["build-libvlc.sh --all"] --> XCF["Vendor/libvlc.xcframework<br/>(6 GB unstripped)"]
+    XCF --> RELEASE["release.sh vX.Y.Z"]
+    RELEASE --> VERIFY["Verify 6 slices present"]
+    VERIFY --> STRIP["strip -S → 887 MB"]
+    STRIP --> ZIP["ditto -c -k → ~300 MB"]
+    ZIP --> SUM["swift package compute-checksum"]
+    SUM --> DETACH["Detached commit:<br/>Package.swift → url+checksum"]
+    DETACH --> TAG["git tag vX.Y.Z"]
+    TAG --> RESET["git reset --hard HEAD~1<br/>(branch restored; tag keeps commit alive)"]
+    RESET --> PUSH["git push origin vX.Y.Z"]
+    PUSH --> GH["gh release create<br/>+ attached .zip"]
+    GH --> SPM["Consumers pin vX.Y.Z"]
 ```
 
-### Package.swift Integrity
-
-The release script includes a corruption guard that validates `Package.swift` before publishing — ensuring the remote URL and checksum are correctly set.
+Preflight refuses releases from non-`main` branches (`--allow-dirty-branch` overrides), pre-existing local tags, and unauthenticated `gh`. If any step fails after the detached commit is made, the EXIT trap resets the branch to its pre-release HEAD so nothing dangles. A post-write regex guard verifies the rewritten `Package.swift` still contains the `CLibVLC` target — catches a malformed replacement before the tag is cut.
 
 ### CI/CD
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| `test.yml` | Push/PR | Runs full test suite on macOS 15 |
-| `claude.yml` | Issue/PR | Claude Code integration |
-| `claude-code-review.yml` | PR | Automated code review |
+| `test.yml` | Push / PR | Runs full test suite against the last-released xcframework on `macos-latest` + Swift 6.3 toolchain. Xcframework cached by SHA-256. |
+| `claude.yml` | Issue comment / PR mention | Claude Code bot integration. |
 
 ---
 
@@ -642,10 +665,10 @@ The release script includes a corruption guard that validates `Package.swift` be
 SwiftVLC/
 ├── Sources/
 │   ├── CLibVLC/                    # C bridging layer
-│   │   ├── include/vlc/            # libVLC 4.0 C headers (10 files)
+│   │   ├── include/vlc/            # libVLC 4.0 C headers (14 files)
 │   │   └── shim.c                  # va_list formatting shim
 │   │
-│   └── SwiftVLC/                   # Main library (36 files, ~4.7K lines)
+│   └── SwiftVLC/                   # Main library (~5.2K lines)
 │       ├── Core/                   # VLCInstance, VLCError, Logging, Duration
 │       ├── Player/                 # Player, EventBridge, PlayerState, Events, ABLoop, etc.
 │       ├── Media/                  # Media, Metadata, Track, Thumbnails, Statistics
@@ -655,28 +678,29 @@ SwiftVLC/
 │       ├── Discovery/             # MediaDiscoverer, RendererDiscoverer
 │       └── PiP/                   # PiPController, PiPVideoView, PixelBufferRenderer
 │
-├── Tests/SwiftVLCTests/            # 397 tests, ~4.2K lines
+├── Tests/SwiftVLCTests/            # 757 tests across 61 suites, ~10.2K lines
 │   ├── Support/                    # TestMedia fixtures, Tag definitions
-│   ├── Fixtures/                   # Bundled media files (~50 KB)
-│   └── [32 test suites]
+│   └── Fixtures/                   # Bundled media files (~50 KB)
 │
-├── Showcase/                       # Full-featured demo app (17 files)
+├── Showcase/                       # Full-featured demo app
 │   ├── Shared/                     # Reusable: SeekBar, TransportControls, StatusBar
 │   └── Demos/                      # PolishedPlayer, AudioPlayer, Playlist, PiP, DebugConsole
 │
-├── Vendor/                         # Pre-built libvlc.xcframework (1.2 GB)
+├── Vendor/                         # libvlc.xcframework (~6 GB unstripped; release zip ~300 MB)
 │
 ├── scripts/
-│   ├── build-libvlc.sh            # Compile libVLC from source
-│   ├── release.sh                 # Package and publish release
-│   └── setup-dev.sh               # Developer environment setup
+│   ├── build-libvlc.sh                   # Compile libvlc from source
+│   ├── setup-dev.sh                      # Download xcframework for local dev
+│   ├── release.sh                        # Cut a versioned tag (tag-only, detached)
+│   ├── fix-duplicate-symbols.sh          # Localize duplicate json symbols
+│   ├── ci-use-released-xcframework.sh    # CI: point Package.swift at latest release
+│   └── ci-run-with-timeouts.py           # CI: wall-clock + idle test timeouts
 │
 ├── .github/workflows/
 │   ├── test.yml                   # CI test runner
-│   ├── claude.yml                 # Claude Code integration
-│   └── claude-code-review.yml    # Automated code review
+│   └── claude.yml                 # Claude Code bot integration
 │
-├── Package.swift                  # SPM manifest (Swift 6.2+)
+├── Package.swift                  # SPM manifest (Swift 6.3+)
 ├── .swiftlint.yml                # Lint configuration
 ├── .swiftformat                   # Format: 2-space indent
 └── README.md                     # User guide
@@ -686,7 +710,7 @@ SwiftVLC/
 
 | Component | Lines of Code | Size |
 |---|---|---|
-| SwiftVLC source | ~4,700 | 512 KB |
-| Tests | ~4,200 | 260 KB |
-| Showcase app | ~2,000 | 124 KB |
-| Test-to-source ratio | 89% | — |
+| SwiftVLC source | ~5,200 | — |
+| Tests | ~10,200 | — |
+| Showcase app | ~2,300 | — |
+| Test-to-source ratio | ~196% | — |

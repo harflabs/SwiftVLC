@@ -1,3 +1,5 @@
+import Foundation
+
 extension Duration {
   /// Total duration in milliseconds.
   public var milliseconds: Int64 {

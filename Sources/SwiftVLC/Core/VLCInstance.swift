@@ -27,6 +27,11 @@ public final class VLCInstance: Sendable {
 
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_instance_t*
 
+  /// Multiplexes the single libVLC log callback to any number of Swift
+  /// `logStream` consumers. Lazily installs/uninstalls the underlying
+  /// libVLC callback as consumers come and go.
+  let logBroadcaster: LogBroadcaster
+
   /// The libVLC version string (e.g. "4.0.0").
   public var version: String {
     String(cString: libvlc_get_version())
@@ -65,6 +70,7 @@ public final class VLCInstance: Sendable {
     }
 
     pointer = instance
+    logBroadcaster = LogBroadcaster(instancePointer: instance)
     libvlc_set_user_agent(instance, "SwiftVLC", "SwiftVLC/1.0")
   }
 
@@ -74,6 +80,10 @@ public final class VLCInstance: Sendable {
   }
 
   deinit {
+    // Terminate any active log streams before releasing the instance;
+    // otherwise their continuations would hang forever and the C callback
+    // could fire after the instance is freed.
+    logBroadcaster.invalidate()
     libvlc_release(pointer)
   }
 }

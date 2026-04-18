@@ -1,20 +1,124 @@
 name: Tests
 on: [push, pull_request]
+
+# Cancel superseded runs on the same branch so stale pushes don't burn billing.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
-    runs-on: macos-15
+    # `macos-latest` tracks the newest GitHub-provided runner. SwiftVLC
+    # requires Swift 6.3 (Package.swift tools-version), which ships with
+    # Xcode 26.4. Current GHA runners have only Xcode 26.3 preinstalled,
+    # so we install the Swift 6.3 open-source toolchain directly from
+    # swift.org and activate it via the TOOLCHAINS env var.
+    runs-on: macos-latest
+    # Absolute ceiling — the job CANNOT run longer than this. The wrapper
+    # script and step timeouts below enforce tighter bounds; this is the
+    # last line of defense if those fail.
+    timeout-minutes: 20
+
     steps:
       - uses: actions/checkout@v4
+        timeout-minutes: 2
+
+      # Pin Xcode for SDKs / linker / simulators. Current GHA runners
+      # top out at Xcode 26.3 (Swift 6.2.4) — not enough to parse our
+      # tools-version 6.3 manifest — so we install the Swift 6.3
+      # open-source toolchain separately below and invoke it through
+      # `xcrun --toolchain`.
       - uses: maxim-lobanov/setup-xcode@v1
+        timeout-minutes: 5
         with:
           xcode-version: latest-stable
-      - uses: actions/cache@v4
+
+      # Install Swift 6.3 open-source toolchain from swift.org.
+      # Exports $TOOLCHAINS — later steps use `xcrun --toolchain` to run
+      # Swift 6.3 on top of the already-set-up Xcode SDKs.
+      #
+      # Pinned to v1.13.0 (latest as of 2026-03-26) rather than @latest
+      # or @v1 so a compromised or breaking release of the action cannot
+      # silently affect our CI. Bump deliberately via Dependabot or a
+      # manual PR.
+      - uses: SwiftyLab/setup-swift@v1.13.0
+        timeout-minutes: 8
+        with:
+          swift-version: "6.3.0"
+
+      - name: Print toolchain
+        timeout-minutes: 1
+        run: xcrun --toolchain "$TOOLCHAINS" swift --version
+
+      # Branches use the local-path form of binaryTarget. On CI we want to
+      # test against the last published xcframework (what SPM consumers get),
+      # so rewrite Package.swift's binaryTarget to the url+checksum form
+      # from the latest release. Only the binaryTarget line changes —
+      # branch edits elsewhere in Package.swift are preserved.
+      - name: Point Package.swift at last released xcframework
+        id: xcf
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/ci-use-released-xcframework.sh
+
+      # The xcframework is the dominant artifact (~1.2 GB unzipped). Keying
+      # on the checksum means the cache only invalidates when the binary
+      # actually changes — unrelated Package.swift edits don't bust it.
+      - name: Cache libvlc xcframework
+        uses: actions/cache@v4
+        timeout-minutes: 5
+        with:
+          path: .build/artifacts
+          key: libvlc-xcf-${{ steps.xcf.outputs.sha }}
+          enableCrossOsArchive: false
+
+      # Compiled outputs — safe to cache across runs with the same toolchain
+      # and source state.
+      - name: Cache build products
+        uses: actions/cache@v4
+        timeout-minutes: 3
         with:
           path: |
-            .build/artifacts
+            .build/debug
+            .build/arm64-apple-macosx
+            .build/x86_64-apple-macosx
+          key: spm-build-${{ runner.os }}-${{ hashFiles('Package.swift', 'Sources/**/*.swift', 'Sources/**/*.c', 'Sources/**/*.h', 'Tests/**/*.swift') }}
+          restore-keys: |
+            spm-build-${{ runner.os }}-
+
+      - name: Cache SPM dependencies
+        uses: actions/cache@v4
+        timeout-minutes: 2
+        with:
+          path: |
             .build/checkouts
-          key: spm-${{ runner.os }}-${{ hashFiles('Package.swift') }}
-          restore-keys: spm-${{ runner.os }}-
-      - run: swift package resolve
-      - run: swift test
-        timeout-minutes: 5
+            .build/repositories
+            .build/workspace-state.json
+          key: spm-deps-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            spm-deps-${{ runner.os }}-
+
+      # swift test is run through ci-run-with-timeouts.py which enforces
+      # both a wall-clock ceiling and an idle watchdog. If either fires
+      # the entire process group is SIGKILLed.
+      #
+      #   wall_clock = 600s  (10 min)  — enough for fresh xcf download
+      #                                  + cold build + test run on a
+      #                                  slow runner; well inside the
+      #                                  20-minute job ceiling.
+      #   idle       = 180s  (3 min)   — swift test emits a line per
+      #                                  test / suite; 3 min of silence
+      #                                  means the test process is stuck.
+      - name: Run tests (wall-clock + idle timeouts)
+        timeout-minutes: 12
+        env:
+          # TestCondition.canPlayMedia reads CI to skip playback tests that
+          # need video output — CI macOS runners are headless.
+          CI: "true"
+        # `xcrun --toolchain "$TOOLCHAINS" swift test` routes through the
+        # Swift 6.3 toolchain installed above, while still using the
+        # Xcode-provided SDKs/simulators.
+        run: |
+          ./scripts/ci-run-with-timeouts.py 600 180 \
+            xcrun --toolchain "$TOOLCHAINS" swift test

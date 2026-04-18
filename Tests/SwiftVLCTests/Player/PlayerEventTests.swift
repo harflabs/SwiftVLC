@@ -18,6 +18,9 @@ struct PlayerEventTests {
       .volumeChanged(0.5),
       .muted,
       .unmuted,
+      .corked,
+      .uncorked,
+      .audioDeviceChanged("default"),
       .voutChanged(1),
       .bufferingProgress(0.5),
       .chapterChanged(0),
@@ -25,12 +28,30 @@ struct PlayerEventTests {
       .titleListChanged,
       .titleSelectionChanged(0),
       .snapshotTaken("/tmp/snap.png"),
+      .mediaStopping,
       .programAdded(1),
       .programDeleted(1),
       .programSelected(unselectedId: 0, selectedId: 1),
       .programUpdated(1)
     ]
-    #expect(events.count == 23)
+    #expect(events.count == 27)
+  }
+
+  @Test
+  func `audioDeviceChanged associated value extraction`() {
+    let event = PlayerEvent.audioDeviceChanged("builtin")
+    if case .audioDeviceChanged(let device) = event {
+      #expect(device == "builtin")
+    } else {
+      Issue.record("Expected audioDeviceChanged")
+    }
+
+    let nilEvent = PlayerEvent.audioDeviceChanged(nil)
+    if case .audioDeviceChanged(let device) = nilEvent {
+      #expect(device == nil)
+    } else {
+      Issue.record("Expected audioDeviceChanged")
+    }
   }
 
   @Test
