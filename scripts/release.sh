@@ -119,10 +119,26 @@ if [[ "$DRY_RUN" == false ]]; then
   fi
 fi
 
+ORIGINAL_HEAD=""
+RELEASE_COMPLETE=false
+
+# Cleanup on error or interrupt: if we made a temp commit but didn't finish the
+# release, reset the branch back so the user's working state is undamaged. The
+# local tag (if created) is left alone — user can decide whether to retry or
+# delete it.
+cleanup_on_exit() {
+  if [[ "$RELEASE_COMPLETE" == true ]]; then return; fi
+  if [[ -n "$ORIGINAL_HEAD" ]] && [[ "$(git rev-parse HEAD 2>/dev/null)" != "$ORIGINAL_HEAD" ]]; then
+    echo ""
+    echo "Release aborted. Restoring branch to $ORIGINAL_HEAD..." >&2
+    git reset --hard "$ORIGINAL_HEAD" >/dev/null 2>&1 || true
+  fi
+}
+
 # ── Strip ─────────────────────────────────────────────────────────────────────
 
 WORK_DIR=$(mktemp -d)
-trap 'rm -rf "$WORK_DIR"' EXIT
+trap 'rm -rf "$WORK_DIR"; cleanup_on_exit' EXIT
 
 echo "Copying xcframework to temp dir..."
 cp -R "$XCFW_PATH" "$WORK_DIR/libvlc.xcframework"
@@ -179,10 +195,29 @@ if [[ "$DRY_RUN" == true ]]; then
   exit 0
 fi
 
-# ── Update Package.swift ─────────────────────────────────────────────────────
+# ── Tag-only release: detached commit, nothing lands on main ────────────────
+#
+# main (and every branch) stays on the local-path binaryTarget form so that
+# `git clone && ./scripts/setup-dev.sh && swift build` just works. The tag
+# itself points at a one-off commit where Package.swift has been rewritten
+# to the remote url+checksum form — that's the commit SPM sees when a
+# consumer pins by version.
+#
+# Mechanics:
+#   1. Record the current HEAD.
+#   2. Rewrite Package.swift to url+checksum, commit.
+#   3. Tag that commit.
+#   4. `git reset --hard` the branch back to step 1's HEAD — wipes the
+#      commit from branch history, but the tag keeps it alive.
+#   5. Push the tag only (never `git push origin HEAD`).
+#
+# If any step fails, the EXIT trap resets the branch so you're never left
+# with a dangling dev-only commit on main.
+
+ORIGINAL_HEAD=$(git rev-parse HEAD)
 
 echo ""
-echo "Updating Package.swift..."
+echo "Creating temp release commit (will not be pushed to $CURRENT_BRANCH)..."
 
 # Atomic write: tempfile + os.replace, so an interrupted rewrite can't corrupt
 # the manifest.
@@ -223,24 +258,25 @@ except Exception:
     raise
 PYEOF
 
-echo "  Package.swift updated to remote URL."
-
-# ── Validate Package.swift ───────────────────────────────────────────────
-
+# Sanity-check: a corrupted regex result would wipe the rest of Package.swift.
 if ! grep -q 'name: "CLibVLC"' Package.swift; then
   echo "Error: Package.swift corrupted — CLibVLC target missing." >&2
-  echo "  Restoring with: git checkout Package.swift" >&2
-  git checkout Package.swift
+  # cleanup_on_exit will restore via git reset on EXIT
   exit 1
 fi
 
-# ── Tag & Push ────────────────────────────────────────────────────────────────
-
-echo "Committing, tagging, and pushing..."
 git add Package.swift
-git commit -m "Release $TAG — update Package.swift to remote xcframework URL"
-git tag "$TAG"
-git push origin HEAD
+git commit --quiet -m "Release $TAG (detached — not on $CURRENT_BRANCH)"
+TAG_COMMIT=$(git rev-parse HEAD)
+git tag "$TAG" "$TAG_COMMIT"
+
+# Restore the branch — the tag now holds the only reference to the commit above.
+git reset --hard "$ORIGINAL_HEAD" >/dev/null
+
+echo "  Tag $TAG → $TAG_COMMIT (Package.swift pinned to $RELEASE_URL)"
+echo "  Branch $CURRENT_BRANCH restored to $ORIGINAL_HEAD"
+
+echo "Pushing tag..."
 git push origin "$TAG"
 
 # ── GitHub Release ────────────────────────────────────────────────────────────
