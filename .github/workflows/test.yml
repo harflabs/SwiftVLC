@@ -50,31 +50,41 @@ jobs:
         timeout-minutes: 1
         run: xcrun --toolchain "$TOOLCHAINS" swift --version
 
-      # Extract the xcframework SHA256 from Package.swift so the cache key
-      # depends only on the binary content, not on every unrelated edit to
-      # Package.swift (platforms, swiftSettings, etc.). The xcframework is
-      # ~1.2 GB — caching it is by far the biggest CI speed-up.
-      - name: Resolve xcframework checksum
+      # Branches use the local-path form of binaryTarget (path: "Vendor/..."),
+      # not url+checksum — the url+checksum commit lives only under the
+      # release tag. So we cache by that tag: resolve the latest release and
+      # populate Vendor/ either from the cache or by running setup-dev.sh
+      # (which downloads the release asset via gh).
+      - name: Resolve latest xcframework release tag
         id: xcf
         timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          sha=$(grep -E 'checksum:' Package.swift | grep -Eo '[a-f0-9]{64}' | head -1)
-          if [ -z "$sha" ]; then
-            echo "::error::Failed to extract xcframework checksum from Package.swift"
+          tag=$(gh release view --repo "${{ github.repository }}" --json tagName -q .tagName)
+          if [ -z "$tag" ]; then
+            echo "::error::Failed to resolve latest release tag"
             exit 1
           fi
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-      # The libvlc xcframework is the dominant artifact. Keyed on its own
-      # checksum so it survives unrelated Package.swift changes and only
-      # invalidates when the binary actually changes.
+      # The libvlc xcframework is the dominant artifact (~1.2 GB unzipped).
+      # The release tag uniquely identifies a binary, so it's a precise key.
       - name: Cache libvlc xcframework
+        id: cache-xcf
         uses: actions/cache@v4
         timeout-minutes: 5
         with:
-          path: .build/artifacts
-          key: libvlc-xcf-${{ steps.xcf.outputs.sha }}
+          path: Vendor/libvlc.xcframework
+          key: libvlc-xcf-${{ steps.xcf.outputs.tag }}
           enableCrossOsArchive: false
+
+      - name: Install libvlc xcframework
+        if: steps.cache-xcf.outputs.cache-hit != 'true'
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/setup-dev.sh "${{ steps.xcf.outputs.tag }}"
 
       # Compiled outputs — safe to cache across runs with the same toolchain
       # and source state.
