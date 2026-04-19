@@ -3,7 +3,7 @@
 import Foundation
 import Testing
 
-@Suite(.tags(.integration, .media))
+@Suite(.tags(.integration, .media), .timeLimit(.minutes(1)))
 struct MetadataTests {
   @Test(.tags(.async))
   func `Parsed title from test MP4`() async throws {

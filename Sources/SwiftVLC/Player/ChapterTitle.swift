@@ -11,13 +11,15 @@ public struct Title: Sendable, Identifiable, Hashable {
   /// Title duration.
   public let duration: Duration
 
-  /// Human-readable title name.
+  /// Human-readable title name, if the container provides one.
   public let name: String?
 
-  /// Whether this title is a menu.
+  /// `true` when the title contains menu content (DVD menus, BD-J menus).
   public let isMenu: Bool
 
-  /// Whether this title is interactive.
+  /// `true` when the title responds to user input beyond playback
+  /// controls (BD-J interactive titles). Seeking may be disabled
+  /// inside interactive titles.
   public let isInteractive: Bool
 }
 

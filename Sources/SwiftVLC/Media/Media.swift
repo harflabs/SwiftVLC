@@ -91,14 +91,18 @@ public final class Media: Sendable {
     pointer = media
   }
 
-  /// Parses media metadata asynchronously.
+  /// Parses the media's metadata and track list, awaiting the result.
   ///
-  /// Supports cooperative cancellation — cancelling the parent `Task` aborts the parse.
+  /// Reads both local and network sources. Cancelling the enclosing
+  /// `Task` aborts the parse promptly, leaving the media untouched.
+  ///
   /// - Parameters:
-  ///   - timeout: Maximum time to wait for parsing.
-  ///   - instance: VLC instance (needed for parse API in VLC 4.0).
-  /// - Returns: Parsed ``Metadata``.
-  /// - Throws: `VLCError.parseFailed` or `VLCError.parseTimeout`.
+  ///   - timeout: Maximum time to wait before giving up.
+  ///   - instance: The libVLC instance that performs the parse.
+  /// - Returns: The parsed ``Metadata``. Call ``tracks()`` afterwards
+  ///   to obtain the discovered tracks.
+  /// - Throws: ``VLCError/parseTimeout`` if `timeout` expires, or
+  ///   ``VLCError/parseFailed(reason:)`` for any other failure.
   public func parse(
     timeout: Duration = .seconds(10),
     instance: VLCInstance = .shared
@@ -108,9 +112,14 @@ public final class Media: Sendable {
     let em = libvlc_media_event_manager(media)!
     let instancePtr = instance.pointer
 
-    // Convert pointers to Int for Sendable compliance in onCancel closure.
-    let mediaBits = Int(bitPattern: media)
-    let instanceBits = Int(bitPattern: instancePtr)
+    // `onCancel` is a `@Sendable` closure and `OpaquePointer` isn't Sendable,
+    // so bind the pointers to `nonisolated(unsafe)` locals — the same pattern
+    // used elsewhere for libVLC pointer captures (Player.deinit,
+    // PixelBufferRenderer). The pointers are valid for the duration of this
+    // call because `self` (Media) and `instance` (VLCInstance) are retained
+    // by the surrounding `async` frame.
+    nonisolated(unsafe) let cancelMedia = media
+    nonisolated(unsafe) let cancelInstance = instancePtr
 
     let result: Result<Metadata, VLCError> = await withTaskCancellationHandler {
       await withCheckedContinuation { cont in
@@ -132,9 +141,7 @@ public final class Media: Sendable {
     } onCancel: {
       // Stop the in-progress parse. VLC will fire MediaParsedChanged
       // with a failed status, which resumes the continuation.
-      let m = OpaquePointer(bitPattern: mediaBits)!
-      let inst = OpaquePointer(bitPattern: instanceBits)!
-      libvlc_media_parse_stop(inst, m)
+      libvlc_media_parse_stop(cancelInstance, cancelMedia)
     }
     return try result.get()
   }
@@ -245,7 +252,7 @@ public final class Media: Sendable {
   /// Creates media from an open file descriptor.
   ///
   /// The file descriptor must be open for reading. libVLC will **not** close it.
-  /// - Parameter fileDescriptor: An open file descriptor.
+  /// - Parameter fd: An open file descriptor.
   /// - Throws: `VLCError.mediaCreationFailed` if creation fails.
   public init(fileDescriptor fd: Int) throws(VLCError) {
     guard let media = libvlc_media_new_fd(Int32(fd)) else {
@@ -254,7 +261,14 @@ public final class Media: Sendable {
     pointer = media
   }
 
-  /// Adds a VLC option string to this media (e.g. ":network-caching=1000").
+  /// Applies a libVLC option to this media before playback starts.
+  ///
+  /// Options use libVLC's command-line syntax, with a leading `:` for
+  /// input options — for example, `:network-caching=1000` to set a
+  /// one-second network buffer, or `:start-time=30` to skip the first
+  /// 30 seconds. Multiple options can be added by calling this method
+  /// repeatedly. Options have no effect once the media has begun
+  /// playing.
   public func addOption(_ option: String) {
     libvlc_media_add_option(pointer, option)
   }

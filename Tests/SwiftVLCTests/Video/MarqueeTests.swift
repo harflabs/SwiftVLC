@@ -1,7 +1,7 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite(.tags(.integration, .mainActor))
+@Suite(.tags(.integration, .mainActor), .timeLimit(.minutes(1)))
 @MainActor
 struct MarqueeTests {
   @Test

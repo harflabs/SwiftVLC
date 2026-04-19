@@ -1,7 +1,7 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite(.tags(.logic))
+@Suite(.tags(.logic), .timeLimit(.minutes(1)))
 struct DurationExtendedTests {
   @Test
   func `Negative duration formatting prefixed with minus`() {

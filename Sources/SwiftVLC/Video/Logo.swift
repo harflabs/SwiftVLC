@@ -68,7 +68,9 @@ public struct Logo: ~Copyable, ~Escapable {
     nonmutating set { libvlc_video_set_logo_int(pointer, UInt32(libvlc_logo_repeat.rawValue), Int32(newValue)) }
   }
 
-  /// Screen position preset (0 = center, 1 = left, 2 = right, 4 = top, 8 = bottom; combine with addition).
+  /// Screen position as a bitmask: `0` = center, `1` = left, `2` = right,
+  /// `4` = top, `8` = bottom. Combine horizontal and vertical flags with
+  /// bitwise OR — e.g. `4 | 1` for top-left.
   public var position: Int {
     get { Int(libvlc_video_get_logo_int(pointer, UInt32(libvlc_logo_position.rawValue))) }
     nonmutating set { libvlc_video_set_logo_int(pointer, UInt32(libvlc_logo_position.rawValue), Int32(newValue)) }

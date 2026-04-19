@@ -4,17 +4,17 @@
   <img alt="SwiftVLC" src="Assets/logo-light.svg" width="260">
 </picture>
 
-A modern Swift wrapper around [libVLC](https://www.videolan.org/vlc/libvlc.html) for iOS, macOS, tvOS, and Mac Catalyst.
+A Swift wrapper around [libVLC](https://www.videolan.org/vlc/libvlc.html) for iOS, macOS, tvOS, and Mac Catalyst.
 
 ## Why?
 
-Apple's AVFoundation is great until it isn't. It can't play MKV, FLAC, or most subtitle formats. It doesn't support network streams like RTSP, SMB, or UPnP. Codec support is limited to what Apple ships. If your app needs to play anything beyond MP4/HLS, you hit a wall.
+Apple's AVFoundation covers a narrow slice of the media landscape. It cannot play MKV, FLAC, or most subtitle formats, and it does not support network protocols like RTSP, SMB, or UPnP. Codec support is limited to what Apple ships. Any app that needs to reach beyond MP4 and HLS eventually runs out of runway.
 
-[VLC](https://www.videolan.org/) solves this — it plays virtually everything. And its engine, **libVLC**, is available as a C library that can be embedded in any app.
+[VLC](https://www.videolan.org/) plays virtually everything, and its engine, **libVLC**, is available as a C library you can embed in any app.
 
-The existing iOS wrapper, [VLCKit](https://code.videolan.org/videolan/VLCKit), is Objective-C. It uses delegates, KVO, `NSNotificationCenter`, and manual thread management. It was designed before Swift existed and it shows.
+The existing iOS wrapper, [VLCKit](https://code.videolan.org/videolan/VLCKit), is written in Objective-C. It uses delegates, KVO, `NSNotificationCenter`, and manual thread management, which is a faithful reflection of the era it was designed in.
 
-**SwiftVLC** wraps libVLC 4.0 directly in Swift — no Objective-C layer in between. It's built for `@Observable`, `async/await`, and `VideoView(player)`.
+**SwiftVLC** wraps libVLC 4.0 directly in Swift, with no Objective-C layer in between. It is built for `@Observable`, `async/await`, and `VideoView(player)`.
 
 ## SwiftVLC vs VLCKit
 
@@ -22,28 +22,28 @@ The existing iOS wrapper, [VLCKit](https://code.videolan.org/videolan/VLCKit), i
 |---|---|---|
 | **Language** | Swift 6 | Objective-C |
 | **Bindings** | Direct C → Swift | C → Objective-C → Swift bridging |
-| **State management** | `@Observable` — automatic SwiftUI updates | KVO / `NSNotificationCenter` / delegates |
+| **State management** | `@Observable`, drives SwiftUI directly | KVO, `NSNotificationCenter`, and delegates |
 | **Concurrency** | `@MainActor`, `Sendable`, `async/await` | Manual thread dispatch, no isolation |
-| **Video rendering** | `VideoView(player)` — one line | Manual `UIView` setup + drawable configuration |
-| **Errors** | `throws(VLCError)` — typed, exhaustive | `NSError` codes |
-| **Events** | `AsyncStream<PlayerEvent>` — multi-consumer | `NSNotificationCenter` |
+| **Video rendering** | `VideoView(player)` | Manual `UIView` setup plus drawable configuration |
+| **Errors** | `throws(VLCError)`, typed and exhaustive | `NSError` codes |
+| **Events** | `AsyncStream<PlayerEvent>` with multiple consumers | `NSNotificationCenter` |
 | **libVLC version** | 4.0 | 3.x |
-| **PiP** | Built-in via vmem pipeline | Not included |
-| **Swift 6 safe** | Yes — strict concurrency, all types `Sendable` | No |
+| **PiP** | Built in via the vmem pipeline | Not included |
+| **Swift 6 safe** | Yes, with strict concurrency | No |
 
 ## Features
 
-- **`@Observable` Player** — state, time, duration, tracks, volume all drive SwiftUI automatically
-- **One-line video** — `VideoView(player)` handles the entire rendering lifecycle
-- **Typed errors** — `throws(VLCError)` instead of error codes
-- **Async media parsing** — `try await media.parse()` with cancellation support
-- **10-band equalizer** with 25 built-in presets
-- **A-B looping**, playback rate control, subtitle/audio delay
-- **Picture-in-Picture** with full playback controls
-- **Network discovery** — LAN, SMB, UPnP media and Chromecast/AirPlay renderers
-- **360° video** — viewpoint control (yaw, pitch, roll, FOV)
-- **Thumbnails** — async generation at any timestamp
-- **Playlist** — `MediaListPlayer` with loop/repeat modes
+- `@Observable` player: state, current time, duration, tracks, and volume drive SwiftUI directly.
+- `VideoView(player)` handles the rendering lifecycle in a single SwiftUI view.
+- Typed errors via `throws(VLCError)` instead of error codes.
+- Asynchronous media parsing: `try await media.parse()` with cancellation support.
+- 10-band equalizer with libVLC's built-in presets.
+- A-B looping, playback rate control, and subtitle and audio delay.
+- Picture-in-Picture with full playback controls.
+- Network discovery for LAN, SMB, UPnP media sources, and Chromecast and AirPlay renderers.
+- 360° video with full viewpoint control over yaw, pitch, roll, and field of view.
+- Asynchronous thumbnail generation at arbitrary timestamps.
+- `MediaListPlayer` for playlist playback with loop and repeat modes.
 
 ## Requirements
 
@@ -52,15 +52,22 @@ The existing iOS wrapper, [VLCKit](https://code.videolan.org/videolan/VLCKit), i
 
 ## Installation
 
-Add SwiftVLC as a Swift Package dependency:
+In Xcode, choose **File → Add Package Dependencies**, paste the repo
+URL, and Xcode will pick up the latest release automatically:
 
-```swift
-.package(url: "https://github.com/harflabs/SwiftVLC.git", from: "0.1.0")
+```
+https://github.com/harflabs/SwiftVLC.git
 ```
 
-Or in Xcode: **File > Add Package Dependencies** and enter the URL above.
+From a `Package.swift` manifest, add a dependency and pin to the
+current release. The version string lives on the
+[releases page](https://github.com/harflabs/SwiftVLC/releases).
 
-The pre-built libVLC xcframework (~1.2 GB) downloads automatically via SPM.
+```swift
+.package(url: "https://github.com/harflabs/SwiftVLC.git", from: "x.y.z")
+```
+
+The pre-built libVLC xcframework downloads automatically via SPM. It's a large binary (multi-GB unstripped; the release zip is a few hundred MB).
 
 ## Quick Start
 
@@ -113,22 +120,27 @@ for await event in player.events {
 
 ## Showcase App
 
-The `Showcase/` directory contains a full-featured demo app for all supported platforms:
+The `Showcase/` directory contains a full-featured demo app for each supported platform:
 
-- **iOS** — Tap-to-show controls, swipe gestures, equalizer, PiP
-- **macOS** — Hover controls, keyboard shortcuts, floating settings panel
-- **tvOS** — 10-foot UI with Siri Remote, swipe-to-scrub
-- **Mac Catalyst** — iOS player running natively on Mac
+- **iOS.** Tap-to-show controls, swipe gestures, equalizer, and PiP.
+- **macOS.** Hover controls, keyboard shortcuts, and a floating settings panel.
+- **tvOS.** A 10-foot UI with Siri Remote navigation and swipe-to-scrub.
+- **Mac Catalyst.** The iOS player running natively on Mac.
 
 ## Testing
 
-757 tests across 61 suites using [Swift Testing](https://developer.apple.com/xcode/swift-testing/) — real libVLC integration, no mocking.
+A comprehensive [Swift Testing](https://developer.apple.com/xcode/swift-testing/)
+suite covers every public API. There is no XCTest and no mocks: every
+test runs against the real libVLC binary, so regressions in the C
+bridge surface immediately rather than hiding behind a fake. CI runs
+the full suite on every push and every pull request.
 
 ```bash
 swift test
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md#testing-strategy) for test tags, fixtures, and structure.
+See [ARCHITECTURE.md](ARCHITECTURE.md#testing-strategy) for test tags,
+fixtures, and structure.
 
 ## Development Setup
 
@@ -139,18 +151,18 @@ cd SwiftVLC
 swift test
 ```
 
-`setup-dev.sh` downloads `libvlc.xcframework.zip` (~250 MB) from the latest release into `Vendor/`. `Package.swift` on every branch points at that local path, so no manifest edits are needed before building.
+`setup-dev.sh` downloads `libvlc.xcframework.zip` from the latest release into `Vendor/`. `Package.swift` on every branch points at that local path, so no manifest edits are needed before building.
 
 | `setup-dev.sh` flag | Effect |
 |---|---|
 | *(none)* | Download the latest release if `Vendor/` is empty; otherwise keep existing. |
-| `v0.3.0` *(positional)* | Pin to a specific release tag. |
+| `vX.Y.Z` *(positional)* | Pin to a specific release tag. |
 | `--force` | Re-download even if `Vendor/` already exists. |
-| `--skip-download` | Only flip `Package.swift` to local path. Expects `Vendor/` to already exist — useful after `build-libvlc.sh`. |
+| `--skip-download` | Only flip `Package.swift` to local path. Expects `Vendor/` to already exist, which is useful after running `build-libvlc.sh`. |
 
 ## Building libVLC from Source
 
-Needed only when bumping `VLC_HASH`, modifying build patches, or preparing a release — not for day-to-day Swift work.
+Needed only when bumping `VLC_HASH`, modifying build patches, or preparing a release. Day-to-day Swift development doesn't require it.
 
 ```bash
 brew install autoconf automake libtool cmake pkg-config gettext
@@ -176,11 +188,11 @@ Expect ~15–20 minutes on a clean run and ~2–7 minutes warm on Apple Silicon.
 
 VLC master doesn't build cleanly against current Xcode and Homebrew libtool. The script applies these patches in-tree on every invocation, idempotently:
 
-1. **Mac Catalyst** — teaches VLC's build system the macabi target triple and guards OpenGLES-only code paths.
-2. **Xcode 26 LDFLAGS** — adds `-isysroot` to linker invocations so libSystem resolves.
-3. **libtool 2.5 OBJC tag** — adds `_LIBTOOLFLAGS = --tag=CC` to the 15 `Makefile.am` files with `.m` sources. Older libtool versions inferred the tag; 2.5 refuses.
-4. **Rust contribs disabled** — `cargo-c 0.9.29` no longer compiles on recent Rust. The only Rust contrib on Apple is `rav1e` (AV1 *encoder*); `dav1d` handles decoding.
-5. **`dup3` / `pipe2`** — forced unavailable via autoconf cache vars. iOS Simulator SDK 26 exports these Linux-only syscalls from libSystem, fooling configure into using them.
+1. **Mac Catalyst.** Teaches VLC's build system the `macabi` target triple and guards OpenGLES-only code paths.
+2. **Xcode 26 LDFLAGS.** Adds `-isysroot` to linker invocations so libSystem resolves.
+3. **libtool 2.5 OBJC tag.** Adds `_LIBTOOLFLAGS = --tag=CC` to the `Makefile.am` files that contain `.m` sources. Older libtool versions inferred the tag; 2.5 refuses.
+4. **Rust contribs disabled.** `cargo-c 0.9.29` no longer compiles on recent Rust. The only Rust contrib on Apple is `rav1e` (AV1 *encoder*); `dav1d` handles decoding.
+5. **`dup3` / `pipe2`.** Forced unavailable via autoconf cache vars. iOS Simulator SDK 26 exports these Linux-only syscalls from libSystem, fooling configure into using them.
 
 `git reset --hard` only runs when HEAD is not at `VLC_HASH`, so the patches and per-platform build dirs survive repeated runs.
 
@@ -190,8 +202,8 @@ Releases use a **tag-only** model: the commit that pins `Package.swift` to the r
 
 ```bash
 ./scripts/build-libvlc.sh --all          # produces Vendor/libvlc.xcframework
-./scripts/release.sh 0.4.0 --dry-run     # strip + zip + checksum, no push
-./scripts/release.sh 0.4.0               # cut the release
+./scripts/release.sh X.Y.Z --dry-run     # strip + zip + checksum, no push
+./scripts/release.sh X.Y.Z               # cut the release
 ```
 
 What `release.sh` does:
@@ -201,7 +213,7 @@ What `release.sh` does:
 3. Computes SHA-256 via `swift package compute-checksum`.
 4. Creates a detached commit with `Package.swift` rewritten to the remote URL and checksum.
 5. Tags that commit as `vX.Y.Z`.
-6. Resets the branch back to its previous HEAD — the commit survives only as the tag.
+6. Resets the branch back to its previous HEAD; the commit survives only as the tag.
 7. Pushes the tag (never the branch).
 8. Uploads the zip to a new GitHub Release.
 
@@ -209,16 +221,16 @@ Preflight refuses non-`main` branches (`--allow-dirty-branch` to override), pre-
 
 ## Architecture
 
-For internals — module design, C interop, concurrency model, event system, memory management, and the PiP rendering pipeline — see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
+For internals, including module design, C interop, the concurrency model, the event system, memory management, and the PiP rendering pipeline, see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 ## License
 
-MIT License — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
 
 libVLC is licensed under [LGPLv2.1](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html). Static linking may have licensing implications. See the [VLC licensing FAQ](https://www.videolan.org/legal.html).
 
 ## Acknowledgments
 
-SwiftVLC is built on the incredible work of the [VideoLAN](https://www.videolan.org/) community. The VLC media player and libVLC are among the most important open-source projects in media — decades of work by hundreds of contributors making it possible to play virtually anything, anywhere.
+SwiftVLC stands on the work of the [VideoLAN](https://www.videolan.org/) community. The VLC media player and libVLC are among the most important open-source projects in media, representing decades of work by hundreds of contributors that made it possible to play virtually anything, anywhere.
 
-Special thanks to [VLCKit](https://code.videolan.org/videolan/VLCKit) for paving the way for libVLC on Apple platforms. VLCKit proved that embedding VLC in iOS and macOS apps was not only possible but practical, and it has powered countless apps over the years. SwiftVLC wouldn't exist without the foundation VLCKit laid.
+Thanks also to [VLCKit](https://code.videolan.org/videolan/VLCKit) for paving the way for libVLC on Apple platforms. VLCKit proved that embedding VLC in iOS and macOS apps was not only possible but practical, and it has powered countless apps over the years. SwiftVLC would not exist without the foundation VLCKit laid.

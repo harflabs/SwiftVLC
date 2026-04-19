@@ -2,7 +2,7 @@
 import CLibVLC
 import Testing
 
-@Suite(.tags(.logic))
+@Suite(.tags(.logic), .timeLimit(.minutes(1)))
 struct NavigationActionTests {
   @Test(
     arguments: [

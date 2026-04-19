@@ -8,6 +8,10 @@ let package = Package(
   products: [
     .library(name: "SwiftVLC", targets: ["SwiftVLC"])
   ],
+  dependencies: [
+    // Build-time plugin only; not linked into consumers.
+    .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.4.6")
+  ],
   targets: [
     .binaryTarget(name: "libvlc", path: "Vendor/libvlc.xcframework"),
     .target(
@@ -66,7 +70,7 @@ let package = Package(
     ),
     .testTarget(
       name: "SwiftVLCTests",
-      dependencies: ["SwiftVLC"],
+      dependencies: ["SwiftVLC", "CLibVLC"],
       resources: [.copy("Fixtures")],
       swiftSettings: [
         .swiftLanguageMode(.v6),

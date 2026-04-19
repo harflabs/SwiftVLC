@@ -3,7 +3,7 @@ import Foundation
 import Synchronization
 import Testing
 
-@Suite(.tags(.integration))
+@Suite(.tags(.integration), .timeLimit(.minutes(1)))
 struct MediaListExtendedTests {
   // MARK: - subscript access on MediaList
 

@@ -4,13 +4,14 @@
 /// player.aspectRatio = .ratio(16, 9)
 /// ```
 public enum AspectRatio: Sendable, Hashable, CustomStringConvertible {
-  /// Original aspect ratio (default).
+  /// Preserve the source aspect ratio by fitting into the smaller dimension
+  /// of the display (may add letterbox/pillarbox bars).
   case `default`
 
-  /// Specific aspect ratio (e.g. `.ratio(16, 9)`).
+  /// Force a specific aspect ratio (e.g. `.ratio(16, 9)`).
   case ratio(Int, Int)
 
-  /// Fill the display area (may crop).
+  /// Fill the display by fitting to the larger dimension (may crop content).
   case fill
 
   public var description: String {

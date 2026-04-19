@@ -1,14 +1,26 @@
 import CLibVLC
+import Dispatch
 
 /// Discovers media sources on the local network, devices, or local directories.
 ///
+/// Use ``availableServices(category:instance:)`` to enumerate the
+/// discoverers available on the host, construct one by `name`, then
+/// ``start()`` it. Discovered items populate ``mediaList`` as they are
+/// found — inspect the list while the discoverer runs.
+///
 /// ```swift
 /// let services = MediaDiscoverer.availableServices(category: .lan)
-/// for service in services {
-///     let discoverer = try MediaDiscoverer(name: service.name)
-///     try discoverer.start()
-///     let mediaList = discoverer.mediaList
-///     // Monitor mediaList for discovered items
+/// guard let service = services.first else { return }
+///
+/// let discoverer = try MediaDiscoverer(name: service.name)
+/// try discoverer.start()
+///
+/// // Let discovery run briefly, then inspect the list.
+/// try? await Task.sleep(for: .seconds(2))
+/// if let list = discoverer.mediaList {
+///     for i in 0..<list.count {
+///         print(list[i]?.mrl ?? "?")
+///     }
 /// }
 /// ```
 public final class MediaDiscoverer: Sendable {
@@ -29,7 +41,13 @@ public final class MediaDiscoverer: Sendable {
   }
 
   deinit {
-    libvlc_media_discoverer_release(pointer)
+    // libvlc_media_discoverer_release waits for the discovery thread to stop —
+    // offload off the calling thread so the last reference drop doesn't stall
+    // main when the discoverer is owned by a SwiftUI view.
+    nonisolated(unsafe) let discoverer = pointer
+    DispatchQueue.global(qos: .utility).async {
+      libvlc_media_discoverer_release(discoverer)
+    }
   }
 
   /// Starts discovery.

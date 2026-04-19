@@ -7,7 +7,7 @@ import AppKit
 import UIKit
 #endif
 
-@Suite(.tags(.integration, .mainActor))
+@Suite(.tags(.integration, .mainActor), .timeLimit(.minutes(1)))
 @MainActor
 struct VideoViewFinalTests {
   @Test

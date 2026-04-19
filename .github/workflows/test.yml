@@ -110,6 +110,14 @@ jobs:
       #   idle       = 180s  (3 min)   — swift test emits a line per
       #                                  test / suite; 3 min of silence
       #                                  means the test process is stuck.
+      #
+      # --no-parallel is load-bearing: `Player` is `@MainActor`, so
+      # integration tests that drive libVLC to `.playing` all compete
+      # for the same actor under Swift Testing's default parallel mode.
+      # On a GHA runner that contention stretches a 200 ms test into a
+      # multi-second timeout. Running serially takes ~45 s for the whole
+      # suite with zero flakes — fractions of a cent in GHA billing and
+      # vastly more predictable than paying for periodic retries.
       - name: Run tests (wall-clock + idle timeouts)
         timeout-minutes: 12
         env:
@@ -121,4 +129,8 @@ jobs:
         # Xcode-provided SDKs/simulators.
         run: |
           ./scripts/ci-run-with-timeouts.py 600 180 \
-            xcrun --toolchain "$TOOLCHAINS" swift test
+            xcrun --toolchain "$TOOLCHAINS" swift test --no-parallel
+
+      - name: Doc coverage
+        timeout-minutes: 3
+        run: ./scripts/doc-coverage.sh

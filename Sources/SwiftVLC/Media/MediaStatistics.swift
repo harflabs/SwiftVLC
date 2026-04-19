@@ -1,9 +1,12 @@
 import CLibVLC
 
-/// Playback statistics for a media item.
+/// Point-in-time playback statistics for a media item.
 ///
-/// Provides real-time metrics about input, demux, decoding, and output.
-/// Access via ``Player/statistics`` during playback.
+/// Read via ``Player/statistics`` once a media has been loaded. The
+/// values are cumulative counters and instantaneous bitrates sampled at
+/// the moment of the call — capture multiple snapshots if you want to
+/// display rates over time. Counters read as `0` before their stage of
+/// the pipeline has processed any data.
 public struct MediaStatistics: Sendable, Equatable {
   // MARK: - Input
 

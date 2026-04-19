@@ -1,7 +1,7 @@
 @testable import SwiftVLC
 import Testing
 
-@Suite(.tags(.integration))
+@Suite(.tags(.integration), .timeLimit(.minutes(1)))
 struct TrackFinalTests {
   // MARK: - Audio track codec from parsed media
 

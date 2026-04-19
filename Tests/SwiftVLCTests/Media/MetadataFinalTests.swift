@@ -3,7 +3,7 @@
 import Foundation
 import Testing
 
-@Suite(.tags(.integration))
+@Suite(.tags(.integration), .timeLimit(.minutes(1)))
 struct MetadataFinalTests {
   // MARK: - trackNumber is Int for test.mp4
 

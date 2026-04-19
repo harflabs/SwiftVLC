@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-@Suite(.tags(.logic))
+@Suite(.tags(.logic), .timeLimit(.minutes(1)))
 struct VLCErrorTests {
   @Test(
     arguments: [

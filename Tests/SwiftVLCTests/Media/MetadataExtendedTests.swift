@@ -2,7 +2,7 @@
 import CLibVLC
 import Testing
 
-@Suite(.tags(.integration))
+@Suite(.tags(.integration), .timeLimit(.minutes(1)))
 struct MetadataExtendedTests {
   // MARK: - All 26 MetadataKey cases are iterable via CaseIterable
 

@@ -23,7 +23,8 @@ public struct Track: Sendable, Identifiable, Hashable {
   /// Codec identifier as a FourCC integer (e.g. `0x34363248` for "H264").
   public let codec: Int
 
-  /// ISO 639 language code.
+  /// ISO 639 language code (e.g. `"eng"`, `"fra"`, `"ja"`) as declared
+  /// in the container, or `nil` if the track is unlabeled.
   public let language: String?
 
   /// Track description from the container.

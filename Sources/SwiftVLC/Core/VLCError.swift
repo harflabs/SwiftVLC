@@ -1,24 +1,41 @@
 import Foundation
 
-/// Typed error for all SwiftVLC operations.
+/// The single error type thrown by every failable SwiftVLC API.
 ///
-/// Used with Swift's typed throws: `throws(VLCError)`.
+/// All throwing functions in SwiftVLC use Swift's typed throws form
+/// `throws(VLCError)`, so the cases below are exhaustive — there is no
+/// need for a general `catch` when the compiler can statically see that
+/// this is the only possible error.
+///
+/// Every case carries enough context (URL, operation name, reason string)
+/// to log meaningfully without consulting libVLC's own diagnostics.
 public enum VLCError: Error, Sendable, LocalizedError, CustomStringConvertible {
-  /// The libVLC instance or player could not be allocated.
+  /// libVLC could not allocate an instance, player, or discoverer.
+  ///
+  /// Typically indicates that the `libvlc.xcframework` is not linked
+  /// correctly, required plugins are missing, or the process is out of
+  /// memory.
   case instanceCreationFailed
-  /// A ``Media`` object could not be created from the given source.
+  /// A ``Media`` object could not be created from the given URL, path,
+  /// or file descriptor.
   case mediaCreationFailed(source: String)
-  /// Playback could not start.
+  /// Playback could not start. The `reason` is libVLC's most recent
+  /// error message at the time the call failed.
   case playbackFailed(reason: String)
-  /// Media metadata parsing failed before completion.
+  /// Parsing ended with a non-success status before the timeout expired
+  /// (e.g. the resource was unreachable or malformed).
   case parseFailed(reason: String)
-  /// Media metadata parsing exceeded the timeout.
+  /// Parsing did not complete within the requested timeout.
   case parseTimeout
-  /// No track matching the given identifier was found.
+  /// The requested track identifier does not match any track on the
+  /// current media.
   case trackNotFound(id: String)
-  /// The operation is not valid in the current playback state.
+  /// The operation is valid in principle but not in the player's
+  /// current state (e.g. setting an A-B loop before any media is
+  /// loaded). The associated string names the constraint that failed.
   case invalidState(String)
-  /// A libVLC operation returned an error code.
+  /// A libVLC call returned a non-zero error code. The associated
+  /// string names the operation that was attempted.
   case operationFailed(_ operation: String)
 
   public var description: String {

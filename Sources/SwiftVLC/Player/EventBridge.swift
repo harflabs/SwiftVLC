@@ -104,22 +104,28 @@ final class EventBridge: Sendable {
 // MARK: - Continuation Store
 
 /// Thread-safe storage for multiple `AsyncStream` continuations.
-/// Passed to C callbacks via `Unmanaged`.
+/// Passed to C callbacks via `Unmanaged`. Id allocation and dictionary
+/// update live under a single `Mutex<State>`, so registration is one
+/// lock acquisition.
 private final class ContinuationStore: Sendable {
-  private let nextID = Mutex<Int>(0)
-  private let continuations: Mutex<[Int: AsyncStream<PlayerEvent>.Continuation]> = Mutex([:])
+  private struct State {
+    var nextID: Int = 0
+    var continuations: [Int: AsyncStream<PlayerEvent>.Continuation] = [:]
+  }
+
+  private let state = Mutex(State())
 
   func add(continuation: AsyncStream<PlayerEvent>.Continuation) -> Int {
-    let id = nextID.withLock { id -> Int in
-      defer { id += 1 }
+    state.withLock { state in
+      let id = state.nextID
+      state.nextID += 1
+      state.continuations[id] = continuation
       return id
     }
-    continuations.withLock { $0[id] = continuation }
-    return id
   }
 
   func remove(id: Int) {
-    continuations.withLock { _ = $0.removeValue(forKey: id) }
+    state.withLock { _ = $0.continuations.removeValue(forKey: id) }
   }
 
   func broadcast(_ event: PlayerEvent) {
@@ -128,16 +134,16 @@ private final class ContinuationStore: Sendable {
     // lock. If we held the Mutex during yield, a concurrent task
     // cancellation (which holds the status lock and calls onTermination
     // → remove → acquire Mutex) would deadlock (AB-BA).
-    let snapshot = continuations.withLock { Array($0.values) }
+    let snapshot = state.withLock { Array($0.continuations.values) }
     for cont in snapshot {
       cont.yield(event)
     }
   }
 
   func finishAll() {
-    let snapshot = continuations.withLock { dict -> [AsyncStream<PlayerEvent>.Continuation] in
-      let values = Array(dict.values)
-      dict.removeAll()
+    let snapshot = state.withLock { state -> [AsyncStream<PlayerEvent>.Continuation] in
+      let values = Array(state.continuations.values)
+      state.continuations.removeAll()
       return values
     }
     for cont in snapshot {

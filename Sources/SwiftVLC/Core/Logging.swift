@@ -87,13 +87,19 @@ final class LogBroadcaster: Sendable {
     let minimumLevel: LogLevel
   }
 
-  private struct State {
+  /// `@unchecked` because `UnsafeMutableRawPointer` isn't Sendable under
+  /// Swift's region analysis. Safety is provided by the enclosing `Mutex`
+  /// — every read/write happens under `state.withLock`, so the non-Sendable
+  /// pointer fields never straddle isolation domains.
+  private struct State: @unchecked Sendable {
     var nextID: Int = 0
     var subscribers: [Int: Subscriber] = [:]
-    /// The opaque broadcaster pointer passed to libVLC, or 0 if not installed.
-    var selfBoxBits: Int = 0
-    /// The shim bridge context returned by `swiftvlc_log_set`, or 0 if not installed.
-    var bridgeContextBits: Int = 0
+    /// The retained `LogBroadcaster` box passed to libVLC, or `nil` when
+    /// the callback isn't installed. Owned by the C side while set.
+    var selfBox: UnsafeMutableRawPointer?
+    /// The shim bridge context returned by `swiftvlc_log_set`, or `nil`
+    /// when the callback isn't installed.
+    var bridgeContext: UnsafeMutableRawPointer?
   }
 
   private let state = Mutex(State())
@@ -119,7 +125,7 @@ final class LogBroadcaster: Sendable {
       // (e.g. shim malloc returned NULL under memory pressure), every
       // subsequent subscriber retries so we self-heal rather than stay
       // silent forever.
-      return (id, state.selfBoxBits == 0)
+      return (id, state.selfBox == nil)
     }
 
     if shouldInstall {
@@ -129,21 +135,18 @@ final class LogBroadcaster: Sendable {
   }
 
   func remove(id: Int) {
-    let uninstall = state.withLock { state -> (Int, Int)? in
+    let uninstall = state.withLock { state -> (bridge: UnsafeMutableRawPointer?, box: UnsafeMutableRawPointer)? in
       state.subscribers.removeValue(forKey: id)
-      guard state.subscribers.isEmpty, state.selfBoxBits != 0 else { return nil }
-      let capture = (state.bridgeContextBits, state.selfBoxBits)
-      state.bridgeContextBits = 0
-      state.selfBoxBits = 0
-      return capture
+      guard state.subscribers.isEmpty, let box = state.selfBox else { return nil }
+      let bridge = state.bridgeContext
+      state.bridgeContext = nil
+      state.selfBox = nil
+      return (bridge, box)
     }
 
-    guard let (bridgeBits, boxBits) = uninstall else { return }
-    let bridge = UnsafeMutableRawPointer(bitPattern: bridgeBits)
-    swiftvlc_log_unset(instancePointer, bridge)
-    if let rawBox = UnsafeMutableRawPointer(bitPattern: boxBits) {
-      Unmanaged<LogBroadcaster>.fromOpaque(rawBox).release()
-    }
+    guard let uninstall else { return }
+    swiftvlc_log_unset(instancePointer, uninstall.bridge)
+    Unmanaged<LogBroadcaster>.fromOpaque(uninstall.box).release()
   }
 
   /// Terminates all active subscribers and uninstalls the libVLC log
@@ -152,14 +155,13 @@ final class LogBroadcaster: Sendable {
   /// callbacks can fire.
   func invalidate() {
     let (subscribers, uninstall) = state.withLock { state
-      -> ([Subscriber], (Int, Int)?) in
+      -> ([Subscriber], (bridge: UnsafeMutableRawPointer?, box: UnsafeMutableRawPointer)?) in
       let subs = Array(state.subscribers.values)
       state.subscribers.removeAll()
-      let capture: (Int, Int)? = state.selfBoxBits != 0
-        ? (state.bridgeContextBits, state.selfBoxBits)
-        : nil
-      state.bridgeContextBits = 0
-      state.selfBoxBits = 0
+      let capture: (bridge: UnsafeMutableRawPointer?, box: UnsafeMutableRawPointer)? =
+        state.selfBox.map { (state.bridgeContext, $0) }
+      state.bridgeContext = nil
+      state.selfBox = nil
       return (subs, capture)
     }
 
@@ -167,12 +169,9 @@ final class LogBroadcaster: Sendable {
       sub.continuation.finish()
     }
 
-    if let (bridgeBits, boxBits) = uninstall {
-      let bridge = UnsafeMutableRawPointer(bitPattern: bridgeBits)
-      swiftvlc_log_unset(instancePointer, bridge)
-      if let rawBox = UnsafeMutableRawPointer(bitPattern: boxBits) {
-        Unmanaged<LogBroadcaster>.fromOpaque(rawBox).release()
-      }
+    if let uninstall {
+      swiftvlc_log_unset(instancePointer, uninstall.bridge)
+      Unmanaged<LogBroadcaster>.fromOpaque(uninstall.box).release()
     }
   }
 
@@ -191,15 +190,15 @@ final class LogBroadcaster: Sendable {
   private func install() {
     let selfBox = Unmanaged.passRetained(self).toOpaque()
     guard let bridgeContext = swiftvlc_log_set(instancePointer, logCallback, selfBox) else {
-      // Shim malloc failed — release the retained self and bail. Subscribers
-      // will simply see no events until the next (hopefully successful) install.
+      // Shim malloc failed. Release the retained self and bail;
+      // subscribers receive no events until a later install() succeeds.
       Unmanaged<LogBroadcaster>.fromOpaque(selfBox).release()
       return
     }
 
     state.withLock {
-      $0.selfBoxBits = Int(bitPattern: selfBox)
-      $0.bridgeContextBits = Int(bitPattern: bridgeContext)
+      $0.selfBox = selfBox
+      $0.bridgeContext = bridgeContext
     }
   }
 }

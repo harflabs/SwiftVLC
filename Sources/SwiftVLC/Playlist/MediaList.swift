@@ -2,14 +2,17 @@ import CLibVLC
 
 /// A thread-safe playlist of media items.
 ///
-/// The underlying `libvlc_media_list_t` uses internal locking.
-/// All mutating operations acquire/release the lock automatically.
+/// Mutating operations acquire the underlying libVLC lock automatically.
+/// For batch reads that should see a consistent snapshot, use
+/// ``withLocked(_:)`` to hold the lock across multiple calls.
 ///
 /// ```swift
 /// let list = MediaList()
 /// let media = try Media(url: videoURL)
-/// list.append(media)
+/// try list.append(media)
 /// ```
+///
+/// Pair with a ``MediaListPlayer`` to play the items in sequence.
 public final class MediaList: Sendable {
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_media_list_t*
 

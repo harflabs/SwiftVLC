@@ -8,6 +8,7 @@ public struct AudioOutput: Sendable, Identifiable, Hashable {
   /// Human-readable description.
   public let outputDescription: String
 
+  /// Stable identifier, backed by ``name``.
   public var id: String {
     name
   }
@@ -21,6 +22,7 @@ public struct AudioDevice: Sendable, Identifiable, Hashable {
   /// Human-readable description.
   public let deviceDescription: String
 
+  /// Stable identifier, backed by ``deviceId``.
   public var id: String {
     deviceId
   }

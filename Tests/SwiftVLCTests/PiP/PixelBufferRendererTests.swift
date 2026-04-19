@@ -5,7 +5,7 @@ import CoreMedia
 import Synchronization
 import Testing
 
-@Suite(.tags(.integration))
+@Suite(.tags(.integration), .timeLimit(.minutes(1)))
 struct PixelBufferRendererTests {
   @Test
   func `Can be created with an AVSampleBufferDisplayLayer`() {
@@ -51,7 +51,7 @@ struct PixelBufferRendererTests {
 
 // MARK: - Extended Tests
 
-@Suite(.tags(.integration))
+@Suite(.tags(.integration), .timeLimit(.minutes(1)))
 struct PixelBufferRendererExtendedTests {
   @Test
   func `State pool is initially nil`() {

@@ -2,7 +2,7 @@
 import Synchronization
 import Testing
 
-@Suite(.tags(.integration))
+@Suite(.tags(.integration), .timeLimit(.minutes(1)))
 struct MediaListDeepTests {
   // MARK: - withLocked returning nil for out-of-bounds via LockedView.media(at:)
 
