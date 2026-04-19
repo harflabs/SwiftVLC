@@ -1,6 +1,13 @@
 # Architecture
 
-Technical decisions and design rationale for SwiftVLC.
+Technical decisions and design rationale for SwiftVLC, written for
+contributors and reviewers.
+
+> Looking for **how to use** SwiftVLC? See the DocC guides (published on
+> Swift Package Index) or run `swift package preview-documentation
+> --target SwiftVLC` locally. This document covers the *why* behind the
+> design: build/release infrastructure, C-interop patterns, isolation
+> choices, deinit ordering, and the testing strategy.
 
 ## Contents
 
@@ -64,8 +71,8 @@ flowchart TB
 
 - **Swift-first**: Direct C → Swift bindings, no Objective-C intermediary (unlike VLCKit)
 - **Observable state**: `@Observable` `@MainActor` Player drives SwiftUI updates automatically
-- **Typed concurrency**: Swift 6 strict concurrency — all public types are `Sendable`, async APIs use `AsyncStream`
-- **One-liner rendering**: `VideoView(player)` — no setup, no delegates, no callbacks
+- **Typed concurrency**: Swift 6 strict concurrency. Every public type is `Sendable`, and async APIs use `AsyncStream`.
+- **One-liner rendering**: `VideoView(player)` covers the setup, delegate wiring, and callbacks in one call.
 - **Typed errors**: `throws(VLCError)` for compile-time error handling
 
 ---
@@ -110,7 +117,7 @@ The central observable type that drives all playback.
 | `Player.swift` | `@Observable @MainActor class` | Wraps `libvlc_media_player_t*`. All playback control, state, and track management. |
 | `EventBridge.swift` | `internal class` | C callbacks → `AsyncStream<PlayerEvent>` multi-consumer broadcaster |
 | `PlayerState.swift` | `enum PlayerState` | `.idle`, `.opening`, `.buffering(Float)`, `.playing`, `.paused`, `.stopped`, `.stopping`, `.error` |
-| `PlayerEvent.swift` | `enum PlayerEvent` | 22 event cases mapped from 31 C event types |
+| `PlayerEvent.swift` | `enum PlayerEvent` | Typed Swift cases mapped from libVLC's player event types |
 | `PlayerRole.swift` | `enum PlayerRole` | Audio behavior hints: `.music`, `.video`, `.communication`, `.game`, etc. |
 | `ABLoop.swift` | `enum ABLoopState` | `.none` → `.pointASet` → `.active` |
 | `NavigationAction.swift` | `enum NavigationAction` | DVD/Blu-ray menu: `.activate`, `.up`, `.down`, `.left`, `.right`, `.popup` |
@@ -164,7 +171,7 @@ Media resource creation, parsing, and metadata.
 | File | Type | Purpose |
 |---|---|---|
 | `Media.swift` | `final class Media: Sendable` | Wraps `libvlc_media_t*`. Create from URL, path, or file descriptor. Async parsing with cancellation. |
-| `Metadata.swift` | `struct Metadata: Sendable` | 17 typed fields: title, artist, album, duration, artworkURL, genre, etc. |
+| `Metadata.swift` | `struct Metadata: Sendable` | libVLC's metadata keys surfaced as typed properties (title, artist, album, duration, artworkURL, genre, …) |
 | `Track.swift` | `struct Track: Sendable` | Audio/video/subtitle track info with type-specific fields (channels, resolution, encoding) |
 | `ThumbnailRequest.swift` | Extension on `Media` | `thumbnail(at:width:height:crop:timeout:) async throws → Data` |
 | `MediaStatistics.swift` | `struct MediaStatistics: Sendable` | Runtime stats: decoded/displayed/lost frames, bitrates, buffer counts |
@@ -196,7 +203,7 @@ Audio output, equalization, and channel configuration.
 | File | Type | Purpose |
 |---|---|---|
 | `AudioOutput.swift` | `struct AudioOutput`, `struct AudioDevice` | Available output modules and devices. Extensions on `VLCInstance` and `Player`. |
-| `Equalizer.swift` | `@MainActor class Equalizer` | 10-band EQ with preamp (-20 to +20 dB). 25 built-in presets. Attach via `player.equalizer`. |
+| `Equalizer.swift` | `@MainActor class Equalizer` | 10-band EQ with preamp (-20 to +20 dB). libVLC's built-in presets. Attach via `player.equalizer`. |
 | `AudioChannelMode.swift` | `enum StereoMode`, `enum MixMode` | Stereo/mono/Dolby, 4.0/5.1/7.1/binaural mixing |
 
 ### Video
@@ -228,8 +235,8 @@ Network service and renderer discovery.
 
 | File | Type | Purpose |
 |---|---|---|
-| `MediaDiscoverer.swift` | `class MediaDiscoverer: @unchecked Sendable` | Discovers media on LAN/SMB/UPnP/SAP. Returns `MediaList` of found items. |
-| `RendererDiscoverer.swift` | `class RendererDiscoverer: @unchecked Sendable` | Discovers Chromecast/AirPlay renderers. `AsyncStream<RendererEvent>` for add/remove. |
+| `MediaDiscoverer.swift` | `final class MediaDiscoverer: Sendable` | Discovers media on LAN/SMB/UPnP/SAP. Returns `MediaList` of found items. |
+| `RendererDiscoverer.swift` | `final class RendererDiscoverer: Sendable` | Discovers Chromecast/AirPlay renderers. `AsyncStream<RendererEvent>` for add/remove. |
 
 ### PiP (iOS/macOS only)
 
@@ -276,7 +283,8 @@ This allows the logging callback to receive a pre-formatted `const char *` inste
 
 ### Linked Frameworks & Libraries
 
-The xcframework links against 21 system frameworks and 7 system libraries:
+The xcframework links against the system frameworks and libraries
+libVLC needs for decoding, rendering, and platform services:
 
 **Frameworks:** AudioToolbox, AudioUnit\*, AVFoundation, AVKit, CoreAudio, CoreFoundation, CoreGraphics, CoreImage, CoreMedia, CoreServices, CoreText, CoreVideo, Foundation, IOKit\*, IOSurface, OpenGL\*, OpenGLES\*, QuartzCore, Security, SystemConfiguration, VideoToolbox
 
@@ -316,19 +324,27 @@ flowchart LR
 3. **C callbacks** fire on libVLC's internal threads. They yield values into `AsyncStream` continuations (which are thread-safe) or dispatch to main via `DispatchQueue.main.async`.
 4. **`nonisolated(unsafe)`** is used for `OpaquePointer` fields that are only valid during the object's lifetime and accessed on the correct actor.
 
-### Pointer-to-Int Pattern
+### Capturing C Pointers in `@Sendable` Closures
 
-For `Sendable` compliance in async closures (e.g., `onCancel` blocks), pointers are converted to `Int`:
+`OpaquePointer` and `UnsafeMutableRawPointer` aren't `Sendable` under Swift's region-based isolation, so getting them into `@Sendable` closures (`withTaskCancellationHandler` `onCancel`, `DispatchQueue.*.async`) needs one of two mechanisms:
 
-```swift
-let pointerAsInt = Int(bitPattern: pointer)
+- **`nonisolated(unsafe) let` local binding**, for captures into a single closure. The local opts out of isolation checking; the pointer is trivially transferable and stays valid for the enclosing scope. Used in `Media.parse`, `Player.deinit`, `MediaListPlayer.deinit`, `PixelBufferRenderer`, and the deinits in `DialogHandler`, `RendererDiscoverer`, and `MediaDiscoverer`.
+  ```swift
+  nonisolated(unsafe) let p = pointer
+  DispatchQueue.global(qos: .utility).async {
+    libvlc_media_player_release(p)
+  }
+  ```
 
-// In Sendable closure:
-let restored = OpaquePointer(bitPattern: pointerAsInt)!
-libvlc_media_parse_stop(restored)
-```
+- **`Mutex<State>` with `State: @unchecked Sendable`**, for persistent storage of pointers that must be read or written from multiple threads. `Mutex`'s `sending` semantics require `State` to be sendable to the callee; marking `State: @unchecked Sendable` honors that while the `Mutex` itself provides the actual mutual exclusion. Used by `LogBroadcaster`, `ThumbnailRequest.RequestBox`, and `PixelBufferRenderer`.
+  ```swift
+  private struct State: @unchecked Sendable {
+    var selfBox: UnsafeMutableRawPointer?
+  }
+  private let state = Mutex(State())
+  ```
 
-This avoids capturing non-`Sendable` `OpaquePointer` values in `@Sendable` closures.
+Never use `Int(bitPattern:)` round-trips to launder pointers through `Sendable`. It loses type information and obscures intent.
 
 ---
 
@@ -339,7 +355,7 @@ Three-layer architecture bridging C callbacks to SwiftUI:
 ```mermaid
 flowchart TB
     subgraph L1["C Callbacks — libVLC thread"]
-        CB["31 event types attached via libvlc_event_attach<br/>playerEventCallback → mapEvent()"]
+        CB["Player event types attached via libvlc_event_attach<br/>playerEventCallback → mapEvent()"]
     end
 
     subgraph L2["AsyncStream Broadcasting — any thread"]
@@ -356,7 +372,7 @@ flowchart TB
 
 ### PlayerEvent Cases
 
-31 C event types are attached to the libVLC event manager and mapped to 22 Swift cases:
+libVLC's player event types are attached to the event manager and mapped to typed Swift cases:
 
 | Category | Swift Cases |
 |---|---|
@@ -373,33 +389,37 @@ flowchart TB
 
 ### Multi-Consumer Broadcasting
 
+Id allocation and dictionary updates live under a single `Mutex<State>`, so registration is one lock acquisition. `broadcast` snapshots the continuations under the lock and yields outside it. Yielding resumes a consumer task and acquires its status-record lock; a concurrent task cancellation holds that same lock and calls `onTermination → remove → acquire Mutex`, so yielding while holding the `Mutex` would produce an AB-BA deadlock.
+
 ```swift
-// Internal: EventBridge
-func makeStream() -> AsyncStream<PlayerEvent> {
-  let id = UUID()
-  return AsyncStream { continuation in
-    store.withLock { $0[id] = continuation }
-    continuation.onTermination = { _ in
-      store.withLock { $0.removeValue(forKey: id) }
+private final class ContinuationStore: Sendable {
+  private struct State {
+    var nextID: Int = 0
+    var continuations: [Int: AsyncStream<PlayerEvent>.Continuation] = [:]
+  }
+  private let state = Mutex(State())
+
+  func add(continuation: AsyncStream<PlayerEvent>.Continuation) -> Int {
+    state.withLock { state in
+      let id = state.nextID
+      state.nextID += 1
+      state.continuations[id] = continuation
+      return id
     }
   }
-}
 
-// From C callback:
-func broadcast(_ event: PlayerEvent) {
-  store.withLock { continuations in
-    for (_, continuation) in continuations {
-      continuation.yield(event)
-    }
+  func broadcast(_ event: PlayerEvent) {
+    let snapshot = state.withLock { Array($0.continuations.values) }
+    for cont in snapshot { cont.yield(event) }  // yield outside the lock
   }
 }
 ```
 
 ### Lifecycle
 
-1. **`Player.init()`** — creates `EventBridge`, attaches all event types to the libVLC event manager
-2. **`startEventConsumer()`** — spawns a `Task` that consumes the bridge stream and updates `@Observable` properties
-3. **`Player.deinit`** — cancels consumer task, calls `EventBridge.invalidate()` (detaches C callbacks, finishes continuations, releases store)
+1. **`Player.init()`** creates the `EventBridge` and attaches every event type to the libVLC event manager.
+2. **`startEventConsumer()`** spawns a `Task` that reads the bridge stream and updates the player's `@Observable` properties.
+3. **`Player.deinit`** cancels the consumer task, then calls `EventBridge.invalidate()` to detach the C callbacks, finish the continuations, and release the store.
 
 ---
 
@@ -432,7 +452,7 @@ For C callback contexts that need to bridge to Swift objects:
 
 ### Deinit Ordering
 
-Critical ordering in `Player.deinit` — detaching listeners **before** releasing the player prevents use-after-free if a callback fires during teardown:
+Ordering in `Player.deinit` is load-bearing: detaching the listeners **before** releasing the player prevents use-after-free when a callback fires during teardown.
 
 1. Cancel event consumer task
 2. `EventBridge.invalidate()`
@@ -466,7 +486,7 @@ sequenceDiagram
     VideoSurface->>libVLC: set_nsobject(nil)
 ```
 
-Zero configuration — no `CALayer` setup, no `MTKView`, no `AVPlayerLayer`. libVLC handles all rendering internally.
+There is no `CALayer` setup, no `MTKView`, and no `AVPlayerLayer` to configure. libVLC handles all rendering internally.
 
 ---
 
@@ -504,15 +524,15 @@ flowchart TB
 
 ### PiPController Responsibilities
 
-1. **Timebase sync** — creates `CMTimebase` and keeps it in sync with player state (playing/paused/rate)
-2. **Duration reporting** — invalidates PiP controller when duration becomes known (required for controls)
-3. **Playback delegation** — implements `AVPictureInPictureSampleBufferPlaybackDelegate` for play/pause/seek from PiP controls
-4. **State observation** — observer task detects VLC-initiated vs PiP-initiated state changes
-5. **Deferred pause** — handles skip-without-blink by deferring pause via task cancellation
+1. **Timebase sync.** Creates a `CMTimebase` and keeps it aligned with the player's state (playing, paused, or rate-shifted).
+2. **Duration reporting.** Invalidates the PiP controller once the duration becomes known, which is required before the controls can render.
+3. **Playback delegation.** Implements `AVPictureInPictureSampleBufferPlaybackDelegate` so the play, pause, and seek buttons on the PiP window route into the ``Player``.
+4. **State observation.** An observer task distinguishes VLC-initiated state changes from PiP-initiated ones.
+5. **Deferred pause.** Skip-without-blink by deferring the pause via task cancellation.
 
 ### Mutually Exclusive
 
-`VideoView` and `PiPVideoView` are mutually exclusive for a given player — `set_nsobject` and vmem callbacks cannot coexist.
+`VideoView` and `PiPVideoView` are mutually exclusive for a given player: `set_nsobject` and vmem callbacks cannot coexist on the same `libvlc_media_player_t`.
 
 ---
 
@@ -556,7 +576,9 @@ All errors conform to `LocalizedError` and `CustomStringConvertible` for logging
 
 ### Overview
 
-**758 tests** across 61 suites using the **Swift Testing** framework (not XCTest).
+A comprehensive **Swift Testing** suite (not XCTest) covers every
+public API. Every test is an integration test that exercises the real
+libVLC binary.
 
 ```
 Tests/SwiftVLCTests/
@@ -568,7 +590,7 @@ Tests/SwiftVLCTests/
 │   ├── twosec.mp4           # 2s, for seeking tests
 │   ├── silence.wav          # Audio-only
 │   └── test.srt             # Subtitle file
-└── [32 test suites]         # One per domain area
+└── …                        # One test suite per domain area
 ```
 
 ### Test Tags
@@ -583,7 +605,7 @@ Tests/SwiftVLCTests/
 
 ### Testing Patterns
 
-**Integration tests with real libVLC** — no mocking. Tests create actual `Player` and `Media` instances:
+**Integration tests with real libVLC.** No mocking; every test creates actual `Player` and `Media` instances:
 
 ```swift
 @Test(.tags(.integration, .media, .async))
@@ -594,7 +616,7 @@ func playAndWaitForState() async throws {
 }
 ```
 
-**CI execution** — GitHub Actions on `macos-latest` with Xcode pinned to `latest-stable` (currently 26.x) plus the Swift 6.3 open-source toolchain from swift.org invoked via `xcrun --toolchain`. The test step is wrapped by `scripts/ci-run-with-timeouts.py` which enforces a 10-minute wall clock and a 3-minute idle watchdog — either fires a SIGKILL to the process group. Three layered caches keep cold-start cost down: the libvlc xcframework (keyed on its SHA-256), compiled build products (`hashFiles` on sources + manifest), and SPM dependency checkouts.
+**CI execution.** GitHub Actions runs on `macos-latest` with Xcode pinned to `latest-stable` (currently 26.x) plus the Swift 6.3 open-source toolchain from swift.org, invoked via `xcrun --toolchain`. The test step is wrapped by `scripts/ci-run-with-timeouts.py`, which enforces a 10-minute wall clock and a 3-minute idle watchdog and sends SIGKILL to the process group when either fires. Three layered caches keep cold-start cost down: the libvlc xcframework (keyed on its SHA-256), compiled build products (keyed on `hashFiles` of sources and the manifest), and SPM dependency checkouts.
 
 ---
 
@@ -613,7 +635,7 @@ func playAndWaitForState() async throws {
 
 ### Package.swift resolution strategy
 
-Every branch — including `main` — carries the local-path form of the libvlc `binaryTarget`:
+Every branch, including `main`, carries the local-path form of the libvlc `binaryTarget`:
 
 ```swift
 .binaryTarget(name: "libvlc", path: "Vendor/libvlc.xcframework")
@@ -634,11 +656,11 @@ Tag-only: the commit that pins `Package.swift` to the remote url+checksum is rea
 
 ```mermaid
 flowchart LR
-    BUILD["build-libvlc.sh --all"] --> XCF["Vendor/libvlc.xcframework<br/>(6 GB unstripped)"]
+    BUILD["build-libvlc.sh --all"] --> XCF["Vendor/libvlc.xcframework<br/>(unstripped)"]
     XCF --> RELEASE["release.sh vX.Y.Z"]
-    RELEASE --> VERIFY["Verify 6 slices present"]
-    VERIFY --> STRIP["strip -S → 887 MB"]
-    STRIP --> ZIP["ditto -c -k → ~300 MB"]
+    RELEASE --> VERIFY["Verify all required slices present"]
+    VERIFY --> STRIP["strip -S"]
+    STRIP --> ZIP["ditto -c -k"]
     ZIP --> SUM["swift package compute-checksum"]
     SUM --> DETACH["Detached commit:<br/>Package.swift → url+checksum"]
     DETACH --> TAG["git tag vX.Y.Z"]
@@ -648,7 +670,7 @@ flowchart LR
     GH --> SPM["Consumers pin vX.Y.Z"]
 ```
 
-Preflight refuses releases from non-`main` branches (`--allow-dirty-branch` overrides), pre-existing local tags, and unauthenticated `gh`. If any step fails after the detached commit is made, the EXIT trap resets the branch to its pre-release HEAD so nothing dangles. A post-write regex guard verifies the rewritten `Package.swift` still contains the `CLibVLC` target — catches a malformed replacement before the tag is cut.
+Preflight refuses releases from non-`main` branches (`--allow-dirty-branch` overrides), pre-existing local tags, and unauthenticated `gh`. If any step fails after the detached commit is made, the `EXIT` trap resets the branch to its pre-release HEAD so nothing is left dangling. A post-write regex guard verifies that the rewritten `Package.swift` still contains the `CLibVLC` target, catching a malformed replacement before the tag is cut.
 
 ### CI/CD
 
@@ -665,10 +687,10 @@ Preflight refuses releases from non-`main` branches (`--allow-dirty-branch` over
 SwiftVLC/
 ├── Sources/
 │   ├── CLibVLC/                    # C bridging layer
-│   │   ├── include/vlc/            # libVLC 4.0 C headers (14 files)
+│   │   ├── include/vlc/            # libVLC 4.0 C headers
 │   │   └── shim.c                  # va_list formatting shim
 │   │
-│   └── SwiftVLC/                   # Main library (~5.2K lines)
+│   └── SwiftVLC/                   # Main library
 │       ├── Core/                   # VLCInstance, VLCError, Logging, Duration
 │       ├── Player/                 # Player, EventBridge, PlayerState, Events, ABLoop, etc.
 │       ├── Media/                  # Media, Metadata, Track, Thumbnails, Statistics
@@ -678,7 +700,7 @@ SwiftVLC/
 │       ├── Discovery/             # MediaDiscoverer, RendererDiscoverer
 │       └── PiP/                   # PiPController, PiPVideoView, PixelBufferRenderer
 │
-├── Tests/SwiftVLCTests/            # 757 tests across 61 suites, ~10.2K lines
+├── Tests/SwiftVLCTests/            # Swift Testing suite, one file per domain
 │   ├── Support/                    # TestMedia fixtures, Tag definitions
 │   └── Fixtures/                   # Bundled media files (~50 KB)
 │
@@ -686,7 +708,7 @@ SwiftVLC/
 │   ├── Shared/                     # Reusable: SeekBar, TransportControls, StatusBar
 │   └── Demos/                      # PolishedPlayer, AudioPlayer, Playlist, PiP, DebugConsole
 │
-├── Vendor/                         # libvlc.xcframework (~6 GB unstripped; release zip ~300 MB)
+├── Vendor/                         # libvlc.xcframework (multi-GB unstripped; release zip a few hundred MB)
 │
 ├── scripts/
 │   ├── build-libvlc.sh                   # Compile libvlc from source
@@ -706,11 +728,3 @@ SwiftVLC/
 └── README.md                     # User guide
 ```
 
-### Size Metrics
-
-| Component | Lines of Code | Size |
-|---|---|---|
-| SwiftVLC source | ~5,200 | — |
-| Tests | ~10,200 | — |
-| Showcase app | ~2,300 | — |
-| Test-to-source ratio | ~196% | — |

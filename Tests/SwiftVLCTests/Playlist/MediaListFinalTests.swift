@@ -2,7 +2,7 @@
 import Synchronization
 import Testing
 
-@Suite(.tags(.integration))
+@Suite(.tags(.integration), .timeLimit(.minutes(1)))
 struct MediaListFinalTests {
   // MARK: - init(retaining:) via subscript round-trip
 

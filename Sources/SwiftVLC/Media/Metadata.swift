@@ -87,38 +87,58 @@ public struct Metadata: Sendable, Equatable {
 }
 
 /// Keys for accessing individual metadata fields on a ``Media`` item.
+///
+/// Raw values match libVLC's `libvlc_meta_t` enumeration.
 public enum MetadataKey: Int, Sendable, CaseIterable, Hashable {
+  /// Track or media title.
   case title = 0
+  /// Performing artist.
   case artist = 1
+  /// Genre (e.g. "Rock", "Classical").
   case genre = 2
+  /// Copyright notice.
   case copyright = 3
+  /// Album name.
   case album = 4
+  /// Track number within the album, as a string.
   case trackNumber = 5
+  /// Free-form description or comment embedded in the file.
   case description = 6
   /// User or critic rating.
   case rating = 7
+  /// Release date (typically "YYYY" or "YYYY-MM-DD").
   case date = 8
   /// Application-specific setting string.
   case setting = 9
   /// URL associated with the media (e.g. podcast link).
   case url = 10
+  /// Content language (ISO 639 code or free-form).
   case language = 11
   /// Currently playing content (often used by radio streams).
   case nowPlaying = 12
+  /// Publisher or record label.
   case publisher = 13
   /// Software or person that encoded the file.
   case encodedBy = 14
+  /// URL to album art or thumbnail image.
   case artworkURL = 15
   /// Unique track identifier within a collection.
   case trackID = 16
   /// Total number of tracks in the album or collection.
   case trackTotal = 17
+  /// Director (for film and episodic content).
   case director = 18
+  /// Season number (for episodic content).
   case season = 19
+  /// Episode number (for episodic content).
   case episode = 20
+  /// TV show name (for episodic content).
   case showName = 21
+  /// Cast members, typically as a delimited list.
   case actors = 22
+  /// Album-level artist (may differ from track artist on compilations).
   case albumArtist = 23
+  /// Disc number in a multi-disc set.
   case discNumber = 24
   /// Total number of discs in a multi-disc set.
   case discTotal = 25

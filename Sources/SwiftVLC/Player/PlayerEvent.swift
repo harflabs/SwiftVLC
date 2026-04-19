@@ -37,8 +37,8 @@ public enum PlayerEvent: Sendable {
   /// identifier, or `nil` if unknown.
   case audioDeviceChanged(String?)
   /// The current media is stopping. A good time to release input resources
-  /// (network connections, custom I/O callbacks). The player transitions
-  /// through this before emitting ``stateChanged(.stopped)``.
+  /// (network connections, custom I/O callbacks). The player emits this
+  /// before transitioning to ``PlayerState/stopped``.
   case mediaStopping
   /// Number of active video outputs changed.
   case voutChanged(Int)

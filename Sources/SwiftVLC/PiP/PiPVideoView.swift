@@ -64,6 +64,10 @@ public struct PiPVideoView: UIViewRepresentable {
     Coordinator()
   }
 
+  /// Internal state for the SwiftUI view's lifecycle.
+  ///
+  /// Retains the ``PiPController`` and its display layer so they survive
+  /// view updates and are cleaned up on dismantle.
   @MainActor
   public final class Coordinator {
     var pipController: PiPController?
@@ -147,6 +151,10 @@ public struct PiPVideoView: NSViewRepresentable {
     Coordinator()
   }
 
+  /// Internal state for the SwiftUI view's lifecycle.
+  ///
+  /// Retains the ``PiPController`` and its display layer so they survive
+  /// view updates and are cleaned up on dismantle.
   @MainActor
   public final class Coordinator {
     var pipController: PiPController?

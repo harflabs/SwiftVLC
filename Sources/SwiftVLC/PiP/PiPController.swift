@@ -6,12 +6,20 @@ import Observation
 
 /// Controls Picture-in-Picture playback for a ``Player``.
 ///
-/// When PiP is used, all rendering goes through vmem callbacks →
-/// `AVSampleBufferDisplayLayer` (both inline and PiP windows).
-/// This is mutually exclusive with `libvlc_media_player_set_nsobject()`.
+/// `PiPController` routes video through libVLC's vmem callbacks and an
+/// `AVSampleBufferDisplayLayer`, which is the only rendering path
+/// AVKit's PiP can attach to. Using a `PiPController` therefore
+/// replaces the default `VideoView` pipeline — do not use both on the
+/// same player.
+///
+/// Most apps should prefer ``PiPVideoView``, which creates and owns a
+/// `PiPController` behind a single SwiftUI view. Instantiate
+/// `PiPController` directly only when you need fine-grained control
+/// over the layer's placement or lifecycle.
 ///
 /// ```swift
 /// let controller = PiPController(player: player)
+/// yourContainerView.layer.addSublayer(controller.layer)
 /// controller.start()
 /// ```
 @MainActor
@@ -44,17 +52,27 @@ public final class PiPController: NSObject {
   /// `currentTime` data that hasn't caught up to the seek yet.
   private var lastSkipTimestamp: CFAbsoluteTime = 0
 
-  /// Whether PiP can be activated.
+  /// Whether PiP can be started right now.
+  ///
+  /// Returns `false` on devices or simulators that don't support PiP,
+  /// and briefly after initialization until the system has validated
+  /// the layer. Observe this before enabling a "Picture-in-Picture"
+  /// button in your UI.
   public var isPossible: Bool {
     pipController?.isPictureInPicturePossible ?? false
   }
 
-  /// Whether PiP is currently active.
+  /// Whether a PiP window is currently visible.
   public var isActive: Bool {
     pipController?.isPictureInPictureActive ?? false
   }
 
-  /// The display layer used for rendering. Add this to your view hierarchy.
+  /// The layer that renders video frames for both the inline and PiP
+  /// presentations.
+  ///
+  /// Add it to your own view's layer hierarchy if you're not using
+  /// ``PiPVideoView``. Size the layer to fit its container — its
+  /// `videoGravity` is `.resizeAspect`.
   public var layer: AVSampleBufferDisplayLayer {
     displayLayer
   }
@@ -259,14 +277,21 @@ public final class PiPController: NSObject {
 // MARK: - AVPictureInPictureControllerDelegate
 
 extension PiPController: AVPictureInPictureControllerDelegate {
+  /// `AVPictureInPictureControllerDelegate` hook — no additional work is
+  /// needed; the state observer drives our internal sync.
   public nonisolated func pictureInPictureControllerDidStartPictureInPicture(
     _: AVPictureInPictureController
   ) {}
 
+  /// `AVPictureInPictureControllerDelegate` hook — no-op; cleanup happens
+  /// in ``stop()`` and on `deinit`.
   public nonisolated func pictureInPictureControllerDidStopPictureInPicture(
     _: AVPictureInPictureController
   ) {}
 
+  /// `AVPictureInPictureControllerDelegate` hook. SwiftVLC does not
+  /// propagate PiP start failures; inspect the Console log if PiP
+  /// refuses to start.
   public nonisolated func pictureInPictureController(
     _: AVPictureInPictureController,
     failedToStartPictureInPictureWithError _: Error
@@ -282,6 +307,11 @@ extension PiPController: AVPictureInPictureSampleBufferPlaybackDelegate {
   // The PiP system queries state immediately after calling these; if the
   // action hasn't executed yet the UI reverts to stale state.
 
+  /// `AVPictureInPictureSampleBufferPlaybackDelegate` hook. Translates
+  /// PiP play/pause presses into ``Player`` state changes, with the
+  /// internal `pipPlaybackActive` flag kept in sync so subsequent
+  /// delegate queries return the right value before libVLC's async
+  /// state transition completes.
   public nonisolated func pictureInPictureController(
     _: AVPictureInPictureController,
     setPlaying playing: Bool
@@ -314,6 +344,11 @@ extension PiPController: AVPictureInPictureSampleBufferPlaybackDelegate {
     }
   }
 
+  /// `AVPictureInPictureSampleBufferPlaybackDelegate` hook. Returns the
+  /// media's time range so the PiP scrubber can render. When the
+  /// duration isn't known yet, reports a 24-hour sentinel so the
+  /// scrubber doesn't collapse to 100%; the observer invalidates the
+  /// state once the real duration arrives.
   public nonisolated func pictureInPictureControllerTimeRangeForPlayback(
     _: AVPictureInPictureController
   ) -> CMTimeRange {
@@ -335,12 +370,20 @@ extension PiPController: AVPictureInPictureSampleBufferPlaybackDelegate {
     return CMTimeRange(start: .zero, duration: cmDuration)
   }
 
+  /// `AVPictureInPictureSampleBufferPlaybackDelegate` hook. Returns the
+  /// paused state as PiP sees it — backed by the internal flag so the
+  /// answer is consistent right after a play/pause command, before
+  /// libVLC's asynchronous state transition settles.
   public nonisolated func pictureInPictureControllerIsPlaybackPaused(
     _: AVPictureInPictureController
   ) -> Bool {
     MainActor.assumeIsolated { !pipPlaybackActive }
   }
 
+  /// `AVPictureInPictureSampleBufferPlaybackDelegate` hook. Routes PiP
+  /// skip buttons into a relative ``Player/seek(by:)`` and updates the
+  /// control timebase so the PiP UI reflects the new position before
+  /// libVLC's own time change arrives.
   public nonisolated func pictureInPictureController(
     _: AVPictureInPictureController,
     skipByInterval skipInterval: CMTime,
@@ -375,6 +418,9 @@ extension PiPController: AVPictureInPictureSampleBufferPlaybackDelegate {
     }
   }
 
+  /// `AVPictureInPictureSampleBufferPlaybackDelegate` hook. The PiP
+  /// window resizes automatically from the sample-buffer layer; we
+  /// don't need to react.
   public nonisolated func pictureInPictureController(
     _: AVPictureInPictureController,
     didTransitionToRenderSize _: CMVideoDimensions

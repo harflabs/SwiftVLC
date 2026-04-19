@@ -3,7 +3,7 @@ import CLibVLC
 import Foundation
 import Testing
 
-@Suite(.tags(.integration))
+@Suite(.tags(.integration), .timeLimit(.minutes(1)))
 struct ProgramTests {
   @Test(.tags(.mainActor))
   @MainActor

@@ -1,0 +1,8 @@
+# Swift Package Index manifest for DocC generation.
+version: 1
+builder:
+  configs:
+    - documentation_targets: [SwiftVLC]
+      # Hide synthesized protocol conformances; they inherit docs from
+      # the source protocol and only bloat the sidebar.
+      custom_documentation_parameters: [--experimental-skip-synthesized-symbols]

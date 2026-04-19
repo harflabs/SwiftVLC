@@ -2,7 +2,7 @@
 import CLibVLC
 import Testing
 
-@Suite(.tags(.integration))
+@Suite(.tags(.integration), .timeLimit(.minutes(1)))
 struct TrackExtendedTests {
   // MARK: - TrackType cValue round-trip
 

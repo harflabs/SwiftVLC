@@ -38,7 +38,10 @@ public final class Equalizer {
 
   // MARK: - Preamp
 
-  /// Preamp gain in dB (-20.0 to +20.0).
+  /// Preamp gain applied ahead of the per-band amplification, in dB.
+  ///
+  /// Valid range is `-20.0` to `+20.0`; libVLC clamps values outside
+  /// that window.
   public var preamp: Float {
     get { libvlc_audio_equalizer_get_preamp(pointer) }
     set { libvlc_audio_equalizer_set_preamp(pointer, newValue) }

@@ -1,6 +1,11 @@
 import CLibVLC
+import Dispatch
 
 /// Discovers available renderers (Chromecast, AirPlay, etc.) on the local network.
+///
+/// Start the discoverer, then observe ``events`` to be notified as renderers
+/// come and go. Cast to a discovered renderer by passing its
+/// ``RendererItem`` to ``Player/setRenderer(_:)``.
 ///
 /// ```swift
 /// let services = RendererDiscoverer.availableServices()
@@ -12,7 +17,7 @@ import CLibVLC
 /// for await event in discoverer.events {
 ///     switch event {
 ///     case let .itemAdded(renderer):
-///         player.setRenderer(renderer)
+///         try? player.setRenderer(renderer)
 ///     case let .itemDeleted(renderer):
 ///         print("Lost: \(renderer.name)")
 ///     }
@@ -52,12 +57,22 @@ public final class RendererDiscoverer: Sendable {
   }
 
   deinit {
-    let em = libvlc_renderer_discoverer_event_manager(pointer)!
-    libvlc_event_detach(em, Int32(libvlc_RendererDiscovererItemAdded.rawValue), rendererCallback, opaque)
-    libvlc_event_detach(em, Int32(libvlc_RendererDiscovererItemDeleted.rawValue), rendererCallback, opaque)
-    continuation.finish()
-    Unmanaged<RendererContinuationBox>.fromOpaque(opaque).release()
-    libvlc_renderer_discoverer_release(pointer)
+    // libvlc_event_detach blocks on in-progress callbacks and
+    // libvlc_renderer_discoverer_release waits for the discovery thread to
+    // stop — offload off the calling thread. Pointers are trivially
+    // transferable via `nonisolated(unsafe)` locals, and the continuation
+    // is Sendable so it can be captured directly.
+    nonisolated(unsafe) let discoverer = pointer
+    nonisolated(unsafe) let box = opaque
+    let continuation = self.continuation
+    DispatchQueue.global(qos: .utility).async {
+      let em = libvlc_renderer_discoverer_event_manager(discoverer)!
+      libvlc_event_detach(em, Int32(libvlc_RendererDiscovererItemAdded.rawValue), rendererCallback, box)
+      libvlc_event_detach(em, Int32(libvlc_RendererDiscovererItemDeleted.rawValue), rendererCallback, box)
+      continuation.finish()
+      Unmanaged<RendererContinuationBox>.fromOpaque(box).release()
+      libvlc_renderer_discoverer_release(discoverer)
+    }
   }
 
   /// Starts renderer discovery.

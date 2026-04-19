@@ -100,23 +100,31 @@ extension Media {
 /// Holds the libVLC `libvlc_media_thumbnail_request_t*` pointer. Its
 /// `destroy()` is idempotent and atomic so the callback and the cancel
 /// handler can both call it without stepping on each other.
+///
+/// `@unchecked` on `Storage` because `OpaquePointer` isn't Sendable under
+/// Swift's region analysis; safety is provided by the enclosing `Mutex`
+/// — every read/write happens under `storage.withLock`.
 private final class RequestBox: Sendable {
-  private let bits = Mutex<Int>(0)
+  private struct Storage: @unchecked Sendable {
+    var pointer: OpaquePointer?
+  }
+
+  private let storage = Mutex(Storage())
 
   func store(_ request: OpaquePointer) {
-    bits.withLock { $0 = Int(bitPattern: UnsafeRawPointer(request)) }
+    storage.withLock { $0.pointer = request }
   }
 
   /// Atomically clears the stored pointer and destroys it if present.
   /// Subsequent calls are no-ops.
   func destroy() {
-    let captured = bits.withLock { value -> Int in
-      let c = value
-      value = 0
-      return c
+    let captured = storage.withLock { storage -> OpaquePointer? in
+      let p = storage.pointer
+      storage.pointer = nil
+      return p
     }
-    guard captured != 0, let ptr = OpaquePointer(bitPattern: captured) else { return }
-    libvlc_media_thumbnail_request_destroy(ptr)
+    guard let captured else { return }
+    libvlc_media_thumbnail_request_destroy(captured)
   }
 }
 

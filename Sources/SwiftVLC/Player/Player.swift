@@ -98,7 +98,9 @@ public final class Player {
     }
   }
 
-  /// Playback rate (0.25...4.0, where 1.0 = normal speed).
+  /// Playback rate, where `1.0` is normal speed, `0.5` is half, and `2.0`
+  /// is double. Any positive rate is accepted, but extreme values may
+  /// degrade audio/video sync; `0.25` to `4.0` is the practical range.
   public var rate: Float {
     get {
       access(keyPath: \.rate)
@@ -111,7 +113,10 @@ public final class Player {
     }
   }
 
-  /// Selected audio track. Set `nil` to use default.
+  /// The currently selected audio track, or `nil` if none is selected.
+  ///
+  /// Setting to `nil` deselects any active audio track (effectively silent
+  /// output until another track is chosen).
   public var selectedAudioTrack: Track? {
     get {
       access(keyPath: \.selectedAudioTrack)
@@ -124,7 +129,9 @@ public final class Player {
     }
   }
 
-  /// Selected subtitle track. Set `nil` to disable subtitles.
+  /// The currently selected subtitle track, or `nil` if subtitles are off.
+  ///
+  /// Setting to `nil` deselects the active subtitle track.
   public var selectedSubtitleTrack: Track? {
     get {
       access(keyPath: \.selectedSubtitleTrack)
@@ -274,10 +281,13 @@ public final class Player {
 
   // MARK: - Media Loading
 
-  /// Loads media for playback.
+  /// Loads media into the player, replacing whatever was previously loaded.
   ///
-  /// The `sending` modifier transfers ownership of the media to the player,
-  /// preventing data races across isolation boundaries.
+  /// `media` is declared `sending`, which lets callers construct a
+  /// ``Media`` on any actor or task and hand it off to this main-actor
+  /// method without copies or bridging. The ownership transfer is
+  /// enforced by the compiler — the caller cannot retain the original
+  /// reference after the call.
   public func load(_ media: sending Media) {
     currentMedia = media
     libvlc_media_player_set_media(pointer, media.pointer)
@@ -328,18 +338,28 @@ public final class Player {
     libvlc_media_player_stop_async(pointer)
   }
 
-  /// Seeks to an absolute time.
+  /// Seeks to an absolute time in the current media.
+  ///
+  /// Has no effect if the media is not seekable — observe ``isSeekable``
+  /// before exposing scrub controls. The seek is asynchronous; watch
+  /// ``currentTime`` (or the ``PlayerEvent/timeChanged(_:)`` event) for
+  /// completion.
   public func seek(to time: Duration) {
     libvlc_media_player_set_time(pointer, time.milliseconds, /* fast */ false)
   }
 
-  /// Seeks by a relative offset from current position.
-  /// Uses VLC 4.0's `jump_time` for efficiency.
+  /// Seeks by a relative offset from the current position.
+  ///
+  /// Negative offsets rewind, positive offsets fast-forward. Has no effect
+  /// if the media is not seekable.
   public func seek(by offset: Duration) {
     libvlc_media_player_jump_time(pointer, offset.milliseconds)
   }
 
-  /// Advances to the next video frame (pauses playback if playing).
+  /// Pauses playback and advances one video frame.
+  ///
+  /// Requires the current media to be pausable (see ``isPausable``).
+  /// Calling repeatedly yields frame-by-frame stepping.
   public func nextFrame() {
     libvlc_media_player_next_frame(pointer)
   }
@@ -362,13 +382,21 @@ public final class Player {
 
   // MARK: - Snapshot
 
-  /// Takes a snapshot of the current video frame.
+  /// Takes a snapshot of the current video frame and writes it to disk as PNG.
+  ///
+  /// Pass `0` for `width` or `height` to derive that dimension from the
+  /// other while preserving the source aspect ratio. Passing `0` for both
+  /// writes the frame at its native resolution.
   ///
   /// - Parameters:
-  ///   - path: File path to save the snapshot.
-  ///   - width: Desired width (0 to preserve aspect ratio or use original).
-  ///   - height: Desired height (0 to preserve aspect ratio or use original).
-  /// - Throws: `VLCError.operationFailed` if the snapshot cannot be taken.
+  ///   - path: Destination file path. The file is always PNG regardless of
+  ///     the extension you provide.
+  ///   - width: Desired width in pixels, or `0` to derive from `height`
+  ///     and the aspect ratio.
+  ///   - height: Desired height in pixels, or `0` to derive from `width`
+  ///     and the aspect ratio.
+  /// - Throws: ``VLCError/operationFailed(_:)`` if no frame is available
+  ///   (e.g. audio-only media) or the file cannot be written.
   public func takeSnapshot(to path: String, width: Int = 0, height: Int = 0) throws(VLCError) {
     guard libvlc_video_take_snapshot(pointer, 0, path, UInt32(width), UInt32(height)) == 0 else {
       throw .operationFailed("Take snapshot")
@@ -528,10 +556,10 @@ public final class Player {
     VideoAdjustments(player: self)
   }
 
-  /// Scoped access to video adjustments for batch operations.
+  /// Scoped access to video adjustments for batched mutations.
   ///
-  /// More efficient than repeated `player.adjustments.x = ...` calls
-  /// when setting multiple values:
+  /// Prefer this over repeated `player.adjustments.x = ...` assignments
+  /// when setting several values in sequence:
   /// ```swift
   /// player.withAdjustments { adj in
   ///     adj.isEnabled = true
@@ -809,11 +837,11 @@ public final class Player {
 
   // MARK: - Event Consumer
 
-  /// Internal Task that consumes the event stream and updates @Observable properties.
-  /// This is what makes Player work with SwiftUI — no external bridging needed.
+  /// Consumes the event stream and mirrors each event onto the
+  /// `@Observable` properties that SwiftUI binds to.
   private func startEventConsumer() {
-    // Capture eventBridge strongly (lightweight object) but self weakly
-    // to avoid a retain cycle (Player → eventTask → Player).
+    // Capture eventBridge strongly and self weakly to avoid the retain
+    // cycle Player → eventTask → Player.
     let bridge = eventBridge
     eventTask = Task { [weak self] in
       for await event in bridge.makeStream() {
@@ -873,11 +901,30 @@ public final class Player {
         break
       }
 
-    case .volumeChanged, .muted, .unmuted, .corked, .uncorked, .audioDeviceChanged,
-         .voutChanged, .chapterChanged, .recordingChanged, .titleListChanged,
-         .titleSelectionChanged, .snapshotTaken, .mediaStopping,
-         .programAdded, .programDeleted, .programSelected, .programUpdated:
-      break // Observable properties handle these via getters or are consumed via event stream
+    // Computed properties read fresh state from libVLC in their getter.
+    // An empty `withMutation` is what re-triggers SwiftUI when the
+    // underlying C state changes externally (hardware keys, AirPlay,
+    // CarPlay, renderer-initiated chapter/title moves). Without this
+    // the observers stay pinned to their last read.
+    case .volumeChanged:
+      withMutation(keyPath: \.volume) {}
+
+    case .muted, .unmuted:
+      withMutation(keyPath: \.isMuted) {}
+
+    case .chapterChanged:
+      withMutation(keyPath: \.currentChapter) {}
+
+    case .titleSelectionChanged:
+      withMutation(keyPath: \.currentTitle) {}
+
+    // Events without a matching observable property are exposed only
+    // via the raw `events` stream — consumers that care subscribe there.
+    case .corked, .uncorked, .audioDeviceChanged, .voutChanged,
+         .recordingChanged, .titleListChanged, .snapshotTaken,
+         .mediaStopping, .programAdded, .programDeleted,
+         .programSelected, .programUpdated:
+      break
     }
   }
 }

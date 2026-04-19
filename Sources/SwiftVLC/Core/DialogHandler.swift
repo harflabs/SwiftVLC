@@ -1,4 +1,5 @@
 import CLibVLC
+import Dispatch
 
 /// Handles VLC dialog prompts (login, question, progress, error) via AsyncStream.
 ///
@@ -58,13 +59,25 @@ public final class DialogHandler: Sendable {
   }
 
   deinit {
-    // Clear callbacks first (waits for in-progress callbacks to finish),
-    // then release the box. This ordering guarantees no callback can
-    // access the box after it's freed.
-    libvlc_dialog_set_callbacks(instance.pointer, nil, nil)
-    libvlc_dialog_set_error_callback(instance.pointer, nil, nil)
-    continuation.finish()
-    Unmanaged<DialogContinuationBox>.fromOpaque(boxOpaque).release()
+    // libvlc_dialog_set_callbacks(nil, nil) blocks waiting for any in-progress
+    // callback to return — offload off the calling thread (which may be main).
+    //
+    // Strong-capturing `instance` keeps the libvlc_instance_t* alive through
+    // the cleanup. `box` is captured as a raw pointer (trivially transferable)
+    // via a `nonisolated(unsafe)` local to satisfy the Sendable closure.
+    //
+    // Order: clear callbacks (→ libVLC drains in-progress dispatches) → finish
+    // the stream → release the retained box. Reversing the last two would risk
+    // a late callback touching freed memory.
+    let instance = self.instance
+    let continuation = self.continuation
+    nonisolated(unsafe) let box = self.boxOpaque
+    DispatchQueue.global(qos: .utility).async {
+      libvlc_dialog_set_callbacks(instance.pointer, nil, nil)
+      libvlc_dialog_set_error_callback(instance.pointer, nil, nil)
+      continuation.finish()
+      Unmanaged<DialogContinuationBox>.fromOpaque(box).release()
+    }
   }
 }
 
@@ -99,12 +112,22 @@ public enum DialogEvent: Sendable {
 
 // MARK: - Dialog ID
 
-/// An opaque identifier for an active dialog.
+/// A handle to an in-flight dialog issued by libVLC.
+///
+/// Each ``DialogEvent`` that represents a user-facing prompt carries its
+/// own `DialogID`. Call ``dismiss()`` to close the dialog without
+/// responding — useful when the UI showing the prompt is no longer
+/// relevant (e.g. the user navigated away or the underlying operation
+/// was cancelled elsewhere).
 public struct DialogID: Sendable {
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_dialog_id*
 
-  /// Dismisses the dialog.
-  /// - Returns: `true` if the dialog was dismissed successfully.
+  /// Dismisses the dialog without responding.
+  ///
+  /// Safe to call on an already-closed dialog; the return value
+  /// reports whether libVLC acknowledged the dismissal.
+  ///
+  /// - Returns: `true` if libVLC accepted the dismissal.
   @discardableResult
   public func dismiss() -> Bool {
     libvlc_dialog_dismiss(pointer) == 0
@@ -170,9 +193,12 @@ public struct QuestionRequest: Sendable {
   /// Label for the second action button, if available.
   public let action2Text: String?
 
-  /// Posts a response.
-  /// - Parameter action: `1` for ``action1Text``, `2` for ``action2Text``.
-  /// - Returns: `true` if the response was accepted by VLC.
+  /// Posts the user's chosen action to libVLC.
+  ///
+  /// - Parameter action: `1` to pick the button labeled ``action1Text``,
+  ///   or `2` to pick ``action2Text``. By convention `1` is the primary
+  ///   (accept/allow) action and `2` is the secondary (reject/deny).
+  /// - Returns: `true` if the response was accepted by libVLC.
   @discardableResult
   public func post(action: Int) -> Bool {
     libvlc_dialog_post_action(dialogId.pointer, Int32(action)) == 0

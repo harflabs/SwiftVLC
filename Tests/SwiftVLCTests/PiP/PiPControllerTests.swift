@@ -3,7 +3,7 @@
 import AVFoundation
 import Testing
 
-@Suite(.tags(.integration, .mainActor))
+@Suite(.tags(.integration, .mainActor), .timeLimit(.minutes(1)))
 @MainActor
 struct PiPControllerTests {
   @Test

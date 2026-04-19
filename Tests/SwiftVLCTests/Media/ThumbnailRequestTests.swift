@@ -4,7 +4,8 @@ import Testing
 
 @Suite(
   .tags(.integration, .media, .async),
-  .enabled(if: TestCondition.canPlayMedia, "Requires video output (skipped on CI)")
+  .enabled(if: TestCondition.canPlayMedia, "Requires video output (skipped on CI)"),
+  .timeLimit(.minutes(1))
 )
 struct ThumbnailRequestTests {
   @Test
