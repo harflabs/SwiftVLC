@@ -31,7 +31,15 @@ struct DialogHandlerExtendedTests {
 
     let id1 = DialogID(pointer: ptr)
     let id2 = id1 // copy
+    let id3 = DialogID(pointer: ptr)
     #expect(id1.pointer == id2.pointer)
+    #expect(id1.pointer == id3.pointer)
+
+    let consumed = id1._consumeForTesting()
+    #expect(consumed == ptr)
+    #expect(id1.pointer == nil)
+    #expect(id2.pointer == nil)
+    #expect(id3.pointer == nil)
 
     // Sendable conformance
     let _: any Sendable = id1

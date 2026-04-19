@@ -63,6 +63,7 @@ public struct MediaSlave: Sendable, Hashable {
 /// via `player.load(media)`.
 public final class Media: Sendable {
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_media_t*
+  let thumbnailCoordinator = ThumbnailCoordinator()
 
   /// Creates media from a URL.
   ///

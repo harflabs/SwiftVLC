@@ -105,15 +105,108 @@ struct ObservationTests {
     #expect(fired.withLock { $0 })
   }
 
+  @Test
+  func `state events invalidate isPlaying and isActive`() {
+    let player = Player(instance: TestInstance.makeAudioOnly())
+    let isPlayingFired = Mutex(false)
+    let isActiveFired = Mutex(false)
+
+    withObservationTracking {
+      _ = player.isPlaying
+    } onChange: {
+      isPlayingFired.withLock { $0 = true }
+    }
+
+    withObservationTracking {
+      _ = player.isActive
+    } onChange: {
+      isActiveFired.withLock { $0 = true }
+    }
+
+    player._handleEventForTesting(.stateChanged(.playing))
+    #expect(isPlayingFired.withLock { $0 })
+    #expect(isActiveFired.withLock { $0 })
+  }
+
+  @Test
+  func `tracksChanged invalidates selected track observations`() {
+    let player = Player(instance: TestInstance.makeAudioOnly())
+    let audioFired = Mutex(false)
+    let subtitleFired = Mutex(false)
+
+    withObservationTracking {
+      _ = player.selectedAudioTrack
+    } onChange: {
+      audioFired.withLock { $0 = true }
+    }
+
+    withObservationTracking {
+      _ = player.selectedSubtitleTrack
+    } onChange: {
+      subtitleFired.withLock { $0 = true }
+    }
+
+    player._handleEventForTesting(.tracksChanged)
+    #expect(audioFired.withLock { $0 })
+    #expect(subtitleFired.withLock { $0 })
+  }
+
+  @Test
+  func `audioDeviceChanged invalidates currentAudioDevice observation`() {
+    let player = Player(instance: TestInstance.makeAudioOnly())
+    let fired = Mutex(false)
+    withObservationTracking {
+      _ = player.currentAudioDevice
+    } onChange: {
+      fired.withLock { $0 = true }
+    }
+
+    player._handleEventForTesting(.audioDeviceChanged(nil))
+    #expect(fired.withLock { $0 })
+  }
+
+  @Test
+  func `program events invalidate program-derived observations`() {
+    let player = Player(instance: TestInstance.makeAudioOnly())
+    let programsFired = Mutex(false)
+    let selectedFired = Mutex(false)
+    let scrambledFired = Mutex(false)
+
+    withObservationTracking {
+      _ = player.programs
+    } onChange: {
+      programsFired.withLock { $0 = true }
+    }
+
+    withObservationTracking {
+      _ = player.selectedProgram
+    } onChange: {
+      selectedFired.withLock { $0 = true }
+    }
+
+    withObservationTracking {
+      _ = player.isProgramScrambled
+    } onChange: {
+      scrambledFired.withLock { $0 = true }
+    }
+
+    player._handleEventForTesting(.programUpdated(1))
+    #expect(programsFired.withLock { $0 })
+    #expect(selectedFired.withLock { $0 })
+    #expect(scrambledFired.withLock { $0 })
+  }
+
   // MARK: - Stored properties (regression guards for macro wiring)
 
   /// `.state` is stored, so the macro wires observation up automatically
   /// via the generated setter. Use a real playback event (the first
-  /// `.stateChanged` VLC emits) to cause the mutation, and wait on the
-  /// event stream directly rather than polling for the `onChange` flag.
+  /// `.stateChanged` VLC emits) to cause the mutation, then wait for the
+  /// observation callback itself because the raw VLC event stream can
+  /// advance slightly ahead of the main-actor observer.
   @Test
   func `state mutation fires observation`() async throws {
     let player = Player(instance: TestInstance.makeAudioOnly())
+    defer { player.stop() }
     let fired = Mutex(false)
     withObservationTracking {
       _ = player.state
@@ -125,11 +218,7 @@ struct ObservationTests {
     let playing = subscribeAndAwait(.playing, on: player)
     try player.play(Media(url: TestMedia.twosecURL))
     try #require(await playing.value)
-    // `onChange` fires from the event consumer's `withMutation`, which
-    // runs on MainActor just like this test. By the time `playing.value`
-    // resolves, the consumer has processed the event.
-    #expect(fired.withLock { $0 })
-    player.stop()
+    #expect(try await poll(until: { fired.withLock { $0 } }))
   }
 
   // MARK: - Keypath isolation (guards against over-eager withMutation)

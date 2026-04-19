@@ -65,6 +65,14 @@ struct EqualizerTests {
   }
 
   @Test
+  func `Negative band index throws instead of trapping`() {
+    let eq = Equalizer()
+    #expect(throws: VLCError.self) {
+      try eq.setAmplification(5.0, forBand: -1)
+    }
+  }
+
+  @Test
   func `Preset count is positive`() {
     #expect(Equalizer.presetCount > 0)
   }
@@ -86,6 +94,11 @@ struct EqualizerTests {
   func `Preset name at invalid index`() {
     let name = Equalizer.presetName(at: 9999)
     #expect(name == nil)
+  }
+
+  @Test
+  func `Preset name at negative index returns nil`() {
+    #expect(Equalizer.presetName(at: -1) == nil)
   }
 
   @Test

@@ -73,6 +73,9 @@ public final class Equalizer {
   /// Sets the amplification for a specific band (-20.0 to +20.0 dB).
   /// - Throws: `VLCError.operationFailed` if the band index is invalid.
   public func setAmplification(_ amp: Float, forBand band: Int) throws(VLCError) {
+    guard band >= 0 && band < Self.bandCount else {
+      throw .operationFailed("Set equalizer amplification for band \(band)")
+    }
     guard libvlc_audio_equalizer_set_amp_at_index(pointer, amp, UInt32(band)) == 0 else {
       throw .operationFailed("Set equalizer amplification for band \(band)")
     }
@@ -87,7 +90,8 @@ public final class Equalizer {
 
   /// Returns the name of a preset at the given index, or `nil` if the index is invalid.
   public static func presetName(at index: Int) -> String? {
-    libvlc_audio_equalizer_get_preset_name(UInt32(index)).map { String(cString: $0) }
+    guard index >= 0 && index < presetCount else { return nil }
+    return libvlc_audio_equalizer_get_preset_name(UInt32(index)).map { String(cString: $0) }
   }
 
   /// All available preset names.

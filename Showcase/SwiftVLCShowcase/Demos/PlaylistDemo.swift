@@ -7,7 +7,6 @@ struct PlaylistDemo: View {
   @State private var player: Player?
   @State private var listPlayer: MediaListPlayer?
   @State private var items: [PlaylistItem] = []
-  @State private var currentIndex = 0
   @State private var error: Error?
 
   var body: some View {
@@ -23,12 +22,7 @@ struct PlaylistDemo: View {
     }
     .onDisappear {
       listPlayer?.stop()
-    }
-    .onChange(of: player?.currentMedia?.mrl) { _, newMRL in
-      guard let newMRL else { return }
-      if let match = items.first(where: { $0.mrl == newMRL }) {
-        currentIndex = match.index
-      }
+      player?.stop()
     }
   }
 
@@ -163,7 +157,7 @@ struct PlaylistDemo: View {
         playItem(at: item.index)
       } label: {
         HStack {
-          if item.index == currentIndex {
+          if item.index == selectedIndex {
             Image(systemName: "speaker.wave.2.fill")
               .foregroundStyle(.tint)
           } else {
@@ -173,7 +167,7 @@ struct PlaylistDemo: View {
           VStack(alignment: .leading) {
             Text(item.title)
               .font(.body)
-              .foregroundStyle(item.index == currentIndex ? .primary : .secondary)
+              .foregroundStyle(item.index == selectedIndex ? .primary : .secondary)
             if let duration = item.duration {
               Text(duration.formatted)
                 .font(.caption)
@@ -196,7 +190,6 @@ struct PlaylistDemo: View {
       HStack(spacing: 24) {
         Button {
           try? listPlayer.previous()
-          trackCurrentIndex()
         } label: {
           Label("Previous", systemImage: "backward.fill")
             .labelStyle(.iconOnly)
@@ -217,7 +210,6 @@ struct PlaylistDemo: View {
 
         Button {
           try? listPlayer.next()
-          trackCurrentIndex()
         } label: {
           Label("Next", systemImage: "forward.fill")
             .labelStyle(.iconOnly)
@@ -244,8 +236,16 @@ struct PlaylistDemo: View {
   }
 
   private func setupPlaylist() async {
+    // Tear down the previous playlist/session before rebuilding it so a
+    // retry doesn't leave old playback or item state wired up.
+    listPlayer?.stop()
+    player?.stop()
+    listPlayer = nil
+    player = nil
+    items = []
     error = nil
     do {
+      let sources = PlaylistSource.defaults
       let p = Player()
       player = p
 
@@ -253,52 +253,52 @@ struct PlaylistDemo: View {
       lp.mediaPlayer = p
       listPlayer = lp
 
-      let urls = [
-        TestMedia.bigBuckBunny,
-        TestMedia.sintel,
-        TestMedia.elephantsDream
-      ]
-
       let list = MediaList()
-      var parsed: [PlaylistItem] = []
-
-      for (index, url) in urls.enumerated() {
-        let media = try Media(url: url)
-        // Parse metadata for title and duration
-        let meta = try? await media.parse()
-        let title = meta?.title ?? url.lastPathComponent
-        parsed.append(PlaylistItem(
+      items = sources.enumerated().map { index, source in
+        PlaylistItem(
           index: index,
-          title: title,
-          duration: meta?.duration,
-          mrl: url.absoluteString
-        ))
+          title: source.title,
+          duration: nil,
+          mrl: source.url.absoluteString
+        )
+      }
+
+      for source in sources {
+        let media = try Media(url: source.url)
         try list.append(media)
       }
 
-      items = parsed
       lp.mediaList = list
       lp.play()
     } catch {
+      listPlayer?.stop()
+      player?.stop()
+      listPlayer = nil
+      player = nil
+      items = []
       self.error = error
     }
   }
 
   private func playItem(at index: Int) {
     try? listPlayer?.play(at: index)
-    currentIndex = index
   }
 
-  private func trackCurrentIndex() {
-    // Short delay to let the list player update its media
-    Task {
-      try? await Task.sleep(for: .milliseconds(100))
-      guard let mrl = player?.currentMedia?.mrl else { return }
-      if let match = items.first(where: { $0.mrl == mrl }) {
-        currentIndex = match.index
-      }
-    }
+  private var selectedIndex: Int? {
+    guard let mrl = player?.currentMedia?.mrl else { return nil }
+    return items.first(where: { $0.mrl == mrl })?.index
   }
+}
+
+private struct PlaylistSource {
+  let title: String
+  let url: URL
+
+  static let defaults: [PlaylistSource] = [
+    PlaylistSource(title: "Big Buck Bunny", url: TestMedia.bigBuckBunny),
+    PlaylistSource(title: "Sintel", url: TestMedia.sintel),
+    PlaylistSource(title: "Elephants Dream", url: TestMedia.elephantsDream)
+  ]
 }
 
 private struct PlaylistItem: Identifiable {

@@ -60,6 +60,16 @@ struct PlayerControlTests {
   }
 
   @Test
+  func `Setting renderer after playback starts throws`() throws {
+    let player = Player(instance: TestInstance.makeAudioOnly())
+    try player.play(Media(url: TestMedia.twosecURL))
+    #expect(throws: VLCError.self) {
+      try player.setRenderer(nil)
+    }
+    player.stop()
+  }
+
+  @Test
   func `setDeinterlace accepts auto disable enable`() throws {
     let player = Player(instance: TestInstance.makeAudioOnly())
     try player.setDeinterlace(state: -1)

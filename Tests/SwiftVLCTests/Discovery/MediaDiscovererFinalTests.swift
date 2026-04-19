@@ -13,7 +13,10 @@ struct MediaDiscovererFinalTests {
       let d = try MediaDiscoverer(name: "___completely_invalid_discoverer_name___")
       _ = d // If it succeeds, that's fine too
     } catch {
-      #expect(error is VLCError)
+      guard case .instanceCreationFailed = error else {
+        Issue.record("Expected .instanceCreationFailed, got \(error)")
+        return
+      }
     }
   }
 

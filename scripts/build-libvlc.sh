@@ -40,6 +40,12 @@ BUILD_TVOS=no
 BUILD_MACOS=no
 BUILD_CATALYST=no
 
+# Keep these deployment targets in sync with Package.swift.
+SWIFTVLC_MIN_IOS="18.0"
+SWIFTVLC_MIN_TVOS="18.0"
+SWIFTVLC_MIN_MACOS="15.0"
+SWIFTVLC_MIN_CATALYST="18.0"
+
 BUILD_START_TIME=$(date +%s)
 
 if [ -z "$MAKEFLAGS" ]; then
@@ -304,7 +310,7 @@ build_conf_path = sys.argv[2]
 # --- Patch build.conf: add Catalyst deployment target ---
 with open(build_conf_path, 'a') as f:
     f.write('\n# Mac Catalyst deployment target\n')
-    f.write('export VLC_DEPLOYMENT_TARGET_CATALYST="16.0"\n')
+    f.write('export VLC_DEPLOYMENT_TARGET_CATALYST="18.0"\n')
 
 # --- Patch build.sh ---
 with open(build_sh_path, 'r') as f:
@@ -683,6 +689,54 @@ PYEOF
 }
 
 patch_vlc_ldflags
+
+patch_vlc_deployment_targets() {
+    local BUILD_CONF="${VLC_SRC}/extras/package/apple/build.conf"
+
+    info "Patching VLC deployment targets to match SwiftVLC's supported minimums..."
+
+    python3 - "$BUILD_CONF" \
+        "$SWIFTVLC_MIN_MACOS" \
+        "$SWIFTVLC_MIN_IOS" \
+        "$SWIFTVLC_MIN_TVOS" \
+        "$SWIFTVLC_MIN_CATALYST" << 'PYEOF'
+import re
+import sys
+
+build_conf_path, macos, ios, tvos, catalyst = sys.argv[1:]
+
+with open(build_conf_path, 'r') as f:
+    content = f.read()
+
+replacements = {
+    r'^export VLC_DEPLOYMENT_TARGET_MACOSX=.*$': f'export VLC_DEPLOYMENT_TARGET_MACOSX="{macos}"',
+    r'^export VLC_DEPLOYMENT_TARGET_IOS=.*$': f'export VLC_DEPLOYMENT_TARGET_IOS="{ios}"',
+    r'^export VLC_DEPLOYMENT_TARGET_IOS_SIMULATOR=.*$': f'export VLC_DEPLOYMENT_TARGET_IOS_SIMULATOR="{ios}"',
+    r'^export VLC_DEPLOYMENT_TARGET_TVOS=.*$': f'export VLC_DEPLOYMENT_TARGET_TVOS="{tvos}"',
+    r'^export VLC_DEPLOYMENT_TARGET_TVOS_SIMULATOR=.*$': f'export VLC_DEPLOYMENT_TARGET_TVOS_SIMULATOR="{tvos}"',
+}
+
+for pattern, replacement in replacements.items():
+    content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
+
+if re.search(r'^export VLC_DEPLOYMENT_TARGET_CATALYST=.*$', content, flags=re.MULTILINE):
+    content = re.sub(
+        r'^export VLC_DEPLOYMENT_TARGET_CATALYST=.*$',
+        f'export VLC_DEPLOYMENT_TARGET_CATALYST="{catalyst}"',
+        content,
+        flags=re.MULTILINE
+    )
+
+with open(build_conf_path, 'w') as f:
+    f.write(content)
+
+print('Deployment targets patched successfully')
+PYEOF
+
+    info "VLC deployment targets patched"
+}
+
+patch_vlc_deployment_targets
 
 # --- Step 1e: Force libtool --tag=CC for Objective-C convenience library ---
 # VLC's src/Makefile.am builds libvlccore_objc.la from .m files, but doesn't

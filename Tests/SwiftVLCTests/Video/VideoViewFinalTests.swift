@@ -1,4 +1,5 @@
 @testable import SwiftVLC
+import CLibVLC
 import Testing
 
 #if canImport(AppKit)
@@ -10,6 +11,10 @@ import UIKit
 @Suite(.tags(.integration, .mainActor), .timeLimit(.minutes(1)))
 @MainActor
 struct VideoViewFinalTests {
+  private func drawable(of player: Player) -> UnsafeMutableRawPointer? {
+    libvlc_media_player_get_nsobject(player.pointer)
+  }
+
   @Test
   func `NSView VideoSurface creation`() {
     let surface = VideoSurface()
@@ -25,9 +30,9 @@ struct VideoViewFinalTests {
   func `attach sets nsobject on player`() {
     let player = Player()
     let surface = VideoSurface()
+    let surfacePtr = Unmanaged.passUnretained(surface).toOpaque()
     surface.attach(to: player)
-    // Attaching should store the player reference (no crash = success)
-    // Detach to confirm the reference was stored
+    #expect(drawable(of: player) == surfacePtr)
     surface.detach()
   }
 
@@ -37,6 +42,7 @@ struct VideoViewFinalTests {
     let surface = VideoSurface()
     surface.attach(to: player)
     surface.detach()
+    #expect(drawable(of: player) == nil)
     // A second detach should be a no-op (guard clause: attachedPlayer is nil)
     surface.detach()
   }
@@ -98,10 +104,13 @@ struct VideoViewFinalTests {
     let player1 = Player()
     let player2 = Player()
     let surface = VideoSurface()
+    let surfacePtr = Unmanaged.passUnretained(surface).toOpaque()
 
     surface.attach(to: player1)
-    // Attaching a different player should pass the guard (player1 !== player2)
+    #expect(drawable(of: player1) == surfacePtr)
     surface.attach(to: player2)
+    #expect(drawable(of: player1) == nil)
+    #expect(drawable(of: player2) == surfacePtr)
     surface.detach()
   }
 

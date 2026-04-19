@@ -51,6 +51,9 @@ final class VideoSurface: UIView {
 
   func attach(to player: Player) {
     guard attachedPlayer !== player else { return }
+    if let attachedPlayer {
+      libvlc_media_player_set_nsobject(attachedPlayer.pointer, nil)
+    }
     attachedPlayer = player
     let viewPtr = Unmanaged.passUnretained(self).toOpaque()
     libvlc_media_player_set_nsobject(player.pointer, viewPtr)
@@ -125,6 +128,9 @@ final class VideoSurface: NSView {
 
   func attach(to player: Player) {
     guard attachedPlayer !== player else { return }
+    if let attachedPlayer {
+      libvlc_media_player_set_nsobject(attachedPlayer.pointer, nil)
+    }
     attachedPlayer = player
     let viewPtr = Unmanaged.passUnretained(self).toOpaque()
     libvlc_media_player_set_nsobject(player.pointer, viewPtr)

@@ -1,4 +1,5 @@
 @testable import SwiftVLC
+import CLibVLC
 import Foundation
 import Testing
 
@@ -61,6 +62,54 @@ struct PlayerTests {
     let media = try Media(url: TestMedia.testMP4URL)
     player.load(media)
     #expect(player.currentMedia != nil)
+  }
+
+  @Test
+  func `mediaChanged resyncs currentMedia and clears timeline state`() throws {
+    let player = Player(instance: TestInstance.makeAudioOnly())
+    let initial = try Media(url: TestMedia.testMP4URL)
+    let replacement = try Media(url: TestMedia.twosecURL)
+
+    player.load(initial)
+    player._setStateForTesting(
+      currentTime: .seconds(5),
+      duration: .seconds(30),
+      position: 0.5,
+      isSeekable: true,
+      isPausable: true
+    )
+
+    libvlc_media_player_set_media(player.pointer, replacement.pointer)
+    player._handleEventForTesting(.mediaChanged)
+
+    #expect(player.currentMedia?.mrl == replacement.mrl)
+    #expect(player.currentTime == .zero)
+    #expect(player.duration == nil)
+    #expect(player.position == 0)
+    #expect(player.isSeekable == false)
+    #expect(player.isPausable == false)
+  }
+
+  @Test
+  func `mediaChanged retains synced media after native player switches again`() throws {
+    let player = Player(instance: TestInstance.makeAudioOnly())
+    let initial = try Media(url: TestMedia.testMP4URL)
+    player.load(initial)
+
+    let syncedMedia: Media
+    let syncedMRL: String
+    do {
+      let replacement = try Media(url: TestMedia.twosecURL)
+      libvlc_media_player_set_media(player.pointer, replacement.pointer)
+      player._handleEventForTesting(.mediaChanged)
+      syncedMedia = try #require(player.currentMedia)
+      syncedMRL = try #require(replacement.mrl)
+    }
+
+    libvlc_media_player_set_media(player.pointer, initial.pointer)
+    player._handleEventForTesting(.mediaChanged)
+
+    #expect(syncedMedia.mrl == syncedMRL)
   }
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))

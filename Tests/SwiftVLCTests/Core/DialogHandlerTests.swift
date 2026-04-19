@@ -63,14 +63,20 @@ struct DialogHandlerTests {
     let _: any Sendable.Type = ProgressUpdate.self
   }
 
-  @Test
-  func `Multiple handlers replace each other`() throws {
+  @Test(.tags(.async))
+  func `Second handler on the same instance finishes immediately`() async throws {
     let instance = try VLCInstance()
     let handler1 = DialogHandler(instance: instance)
     let handler2 = DialogHandler(instance: instance)
-    // Second handler replaces first — no crash
-    _ = handler1.dialogs
-    _ = handler2.dialogs
+    _ = handler1
+    let eventCount = await Task {
+      var count = 0
+      for await _ in handler2.dialogs {
+        count += 1
+      }
+      return count
+    }.value
+    #expect(eventCount == 0)
   }
 
   @Test

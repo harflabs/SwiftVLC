@@ -105,6 +105,12 @@ struct PiPDemo: View {
   }
 
   private func setUp() async {
+    // Shut down the previous player/controller pair first so retries
+    // don't leave PiP attached to a stale player instance.
+    pipController?.stop()
+    player?.stop()
+    pipController = nil
+    player = nil
     error = nil
     do {
       let p = Player()

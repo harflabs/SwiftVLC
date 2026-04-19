@@ -1,11 +1,30 @@
 #if os(iOS) || os(macOS)
 @testable import SwiftVLC
 import AVFoundation
+import AVKit
+import Dispatch
+import Observation
+import Synchronization
 import Testing
 
 @Suite(.tags(.integration, .mainActor), .timeLimit(.minutes(1)))
 @MainActor
 struct PiPControllerTests {
+  @MainActor
+  final class PlaybackRecorder {
+    var pauseCount = 0
+    var resumeCount = 0
+    var seekTargets: [Int64] = []
+
+    var driver: PiPController.PlaybackDriver {
+      .init(
+        pause: { self.pauseCount += 1 },
+        resume: { self.resumeCount += 1 },
+        seek: { self.seekTargets.append($0.milliseconds) }
+      )
+    }
+  }
+
   @Test
   func `Init with player does not crash`() {
     let player = Player()
@@ -35,7 +54,6 @@ struct PiPControllerTests {
     let player = Player()
     let controller = PiPController(player: player)
     let layer = controller.layer
-    #expect(layer is AVSampleBufferDisplayLayer)
     #expect(layer.videoGravity == .resizeAspect)
   }
 
@@ -98,6 +116,129 @@ struct PiPControllerTests {
     // Both players should remain functional
     #expect(player1.state == .idle)
     #expect(player2.state == .idle)
+  }
+
+  @Test
+  func `isActive invalidates observation`() {
+    let player = Player()
+    let controller = PiPController(player: player)
+    let fired = Mutex(false)
+
+    withObservationTracking {
+      _ = controller.isActive
+    } onChange: {
+      fired.withLock { $0 = true }
+    }
+
+    controller._setStateForTesting(isActive: true)
+
+    #expect(fired.withLock { $0 })
+    #expect(controller.isActive == true)
+  }
+
+  @Test
+  func `isPossible invalidates observation`() {
+    let player = Player()
+    let controller = PiPController(player: player)
+    let fired = Mutex(false)
+    let nextValue = !controller.isPossible
+
+    withObservationTracking {
+      _ = controller.isPossible
+    } onChange: {
+      fired.withLock { $0 = true }
+    }
+
+    controller._setStateForTesting(isPossible: nextValue)
+
+    #expect(fired.withLock { $0 })
+    #expect(controller.isPossible == nextValue)
+  }
+
+  @Test
+  func `delegate state queries are safe off the main thread`() async throws {
+    guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
+
+    let player = Player()
+    let controller = PiPController(player: player)
+    let contentSource = AVPictureInPictureController.ContentSource(
+      sampleBufferDisplayLayer: controller.layer,
+      playbackDelegate: controller
+    )
+    let pip = AVPictureInPictureController(contentSource: contentSource)
+
+    let controllerOpaque = UInt(bitPattern: Unmanaged.passRetained(controller).toOpaque())
+    let pipOpaque = UInt(bitPattern: Unmanaged.passRetained(pip).toOpaque())
+    defer {
+      let controllerPtr = try #require(UnsafeMutableRawPointer(bitPattern: controllerOpaque))
+      Unmanaged<PiPController>.fromOpaque(controllerPtr).release()
+      let pipPtr = try #require(UnsafeMutableRawPointer(bitPattern: pipOpaque))
+      Unmanaged<AVPictureInPictureController>.fromOpaque(pipPtr).release()
+    }
+
+    let paused = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+      DispatchQueue.global().async {
+        let controllerPtr = UnsafeMutableRawPointer(bitPattern: controllerOpaque)!
+        let controller = Unmanaged<PiPController>.fromOpaque(controllerPtr).takeUnretainedValue()
+        let pipPtr = UnsafeMutableRawPointer(bitPattern: pipOpaque)!
+        let pip = Unmanaged<AVPictureInPictureController>.fromOpaque(pipPtr).takeUnretainedValue()
+        continuation.resume(returning: controller._isPlaybackPausedForTesting(pip))
+      }
+    }
+
+    #expect(paused == true)
+  }
+
+  @Test
+  func `transient PiP pause then play does not send native pause or resume`() async throws {
+    let player = Player()
+    try player.play(url: TestMedia.twosecURL)
+    guard try await poll(until: { player.state == .playing }) else {
+      player.stop()
+      return
+    }
+    defer { player.stop() }
+
+    let recorder = PlaybackRecorder()
+    let controller = PiPController(
+      player: player,
+      playbackDriver: recorder.driver,
+      pauseDebounce: .milliseconds(20)
+    )
+
+    controller._setPlayingForTesting(false)
+    controller._setPlayingForTesting(true)
+    try? await Task.sleep(for: .milliseconds(80))
+
+    #expect(recorder.pauseCount == 0)
+    #expect(recorder.resumeCount == 0)
+  }
+
+  @Test
+  func `PiP skip cancels pending pause and suppresses redundant resume`() async throws {
+    let player = Player()
+    try player.play(url: TestMedia.twosecURL)
+    guard try await poll(until: { player.state == .playing }) else {
+      player.stop()
+      return
+    }
+    defer { player.stop() }
+
+    let recorder = PlaybackRecorder()
+    let controller = PiPController(
+      player: player,
+      playbackDriver: recorder.driver,
+      pauseDebounce: .milliseconds(20)
+    )
+
+    controller._setPlayingForTesting(false)
+    controller._skipByIntervalForTesting(CMTime(seconds: 1, preferredTimescale: 1000))
+    controller._setPlayingForTesting(true)
+    try? await Task.sleep(for: .milliseconds(80))
+
+    #expect(recorder.pauseCount == 0)
+    #expect(recorder.resumeCount == 0)
+    #expect(recorder.seekTargets.count == 1)
   }
 }
 #endif

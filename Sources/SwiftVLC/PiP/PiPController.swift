@@ -2,6 +2,7 @@
 import AVFoundation
 import AVKit
 import CLibVLC
+import Dispatch
 import Observation
 
 /// Controls Picture-in-Picture playback for a ``Player``.
@@ -22,15 +23,45 @@ import Observation
 /// yourContainerView.layer.addSublayer(controller.layer)
 /// controller.start()
 /// ```
+@Observable
 @MainActor
 public final class PiPController: NSObject {
+  struct PlaybackDriver {
+    let pause: @MainActor () -> Void
+    let resume: @MainActor () -> Void
+    let seek: @MainActor (Duration) -> Void
+
+    static func live(player: Player) -> Self {
+      Self(
+        pause: { player.pause() },
+        resume: { player.resume() },
+        seek: { player.seek(to: $0) }
+      )
+    }
+  }
+
+  @ObservationIgnored
   private let player: Player
+  @ObservationIgnored
+  private let playbackDriver: PlaybackDriver
+  @ObservationIgnored
+  private let pauseDebounce: Duration
+  @ObservationIgnored
   private let renderer: PixelBufferRenderer
+  @ObservationIgnored
   private let displayLayer: AVSampleBufferDisplayLayer
+  @ObservationIgnored
   private var pipController: AVPictureInPictureController?
+  @ObservationIgnored
   private var rendererOpaque: Unmanaged<PixelBufferRenderer>?
+  @ObservationIgnored
   private var controlTimebase: CMTimebase?
+  @ObservationIgnored
   private var stateObserverTask: Task<Void, Never>?
+  @ObservationIgnored
+  private var possibleObservation: NSKeyValueObservation?
+  @ObservationIgnored
+  private var activeObservation: NSKeyValueObservation?
 
   /// Tracks the playback state as PiP sees it. Updated synchronously
   /// in `setPlaying` (PiP-initiated) and by the observer (VLC-initiated,
@@ -38,18 +69,28 @@ public final class PiPController: NSObject {
   /// consistent value immediately, without waiting for VLC's async
   /// state transitions — which is critical because PiP queries state
   /// right after calling `setPlaying` and gets confused by stale values.
+  @ObservationIgnored
   private var pipPlaybackActive: Bool = false
 
-  /// Deferred pause task. PiP calls `setPlaying(false)` before every skip,
-  /// then `setPlaying(true)` after. Pausing VLC synchronously causes a
-  /// visible blink. By deferring the actual `player.pause()` to the next
-  /// run-loop iteration, `skipByInterval` can cancel it — avoiding a
-  /// pointless pause→seek→resume cycle.
+  /// Debounced pause task. AVKit can transiently report "paused" during
+  /// skip and PiP transitions; issuing a real libVLC pause for those
+  /// short-lived state flips can trip libVLC's pause/resume assertions on
+  /// streaming media. We therefore wait briefly before sending the native
+  /// pause command, and cancel it if AVKit settles back to playing.
+  @ObservationIgnored
   private var deferredPauseTask: Task<Void, Never>?
+  /// Monotonic generation used to invalidate older pause requests.
+  @ObservationIgnored
+  private var deferredPauseGeneration: UInt64 = 0
+  /// Tracks whether PiP actually paused libVLC, so `setPlaying(true)` can
+  /// avoid issuing redundant resumes for transient AVKit state changes.
+  @ObservationIgnored
+  private var didIssueDeferredPause: Bool = false
 
   /// Timestamp of the last PiP skip. The observer uses this to avoid
   /// overwriting the skip handler's timebase position with stale
   /// `currentTime` data that hasn't caught up to the seek yet.
+  @ObservationIgnored
   private var lastSkipTimestamp: CFAbsoluteTime = 0
 
   /// Whether PiP can be started right now.
@@ -58,14 +99,10 @@ public final class PiPController: NSObject {
   /// and briefly after initialization until the system has validated
   /// the layer. Observe this before enabling a "Picture-in-Picture"
   /// button in your UI.
-  public var isPossible: Bool {
-    pipController?.isPictureInPicturePossible ?? false
-  }
+  public private(set) var isPossible: Bool = false
 
   /// Whether a PiP window is currently visible.
-  public var isActive: Bool {
-    pipController?.isPictureInPictureActive ?? false
-  }
+  public private(set) var isActive: Bool = false
 
   /// The layer that renders video frames for both the inline and PiP
   /// presentations.
@@ -83,6 +120,31 @@ public final class PiPController: NSObject {
   /// - Parameter player: The player to control.
   public init(player: Player) {
     self.player = player
+    playbackDriver = .live(player: player)
+    pauseDebounce = .milliseconds(250)
+    displayLayer = AVSampleBufferDisplayLayer()
+    renderer = PixelBufferRenderer(displayLayer: displayLayer)
+
+    super.init()
+
+    displayLayer.videoGravity = .resizeAspect
+    displayLayer.backgroundColor = CGColor(red: 0, green: 0, blue: 0, alpha: 1)
+
+    configureAudioSession()
+    setupControlTimebase()
+    attachCallbacks()
+    setupPiPController()
+    startStateObserver()
+  }
+
+  init(
+    player: Player,
+    playbackDriver: PlaybackDriver,
+    pauseDebounce: Duration
+  ) {
+    self.player = player
+    self.playbackDriver = playbackDriver
+    self.pauseDebounce = pauseDebounce
     displayLayer = AVSampleBufferDisplayLayer()
     renderer = PixelBufferRenderer(displayLayer: displayLayer)
 
@@ -99,8 +161,10 @@ public final class PiPController: NSObject {
   }
 
   isolated deinit {
-    deferredPauseTask?.cancel()
+    cancelDeferredPause()
     stateObserverTask?.cancel()
+    possibleObservation = nil
+    activeObservation = nil
     libvlc_video_set_callbacks(player.pointer, nil, nil, nil, nil)
     libvlc_video_set_format_callbacks(player.pointer, nil, nil)
     rendererOpaque?.release()
@@ -192,6 +256,100 @@ public final class PiPController: NSObject {
     controller.canStartPictureInPictureAutomaticallyFromInline = true
     #endif
     pipController = controller
+    updatePiPPossible(controller.isPictureInPicturePossible)
+    updatePiPActive(controller.isPictureInPictureActive)
+    observePiPState(of: controller)
+  }
+
+  private func observePiPState(of controller: AVPictureInPictureController) {
+    possibleObservation = controller.observe(\.isPictureInPicturePossible, options: [.initial, .new]) {
+      [weak self] controller, _
+      in
+      let isPossible = controller.isPictureInPicturePossible
+      Task { @MainActor [weak self] in
+        self?.updatePiPPossible(isPossible)
+      }
+    }
+
+    activeObservation = controller.observe(\.isPictureInPictureActive, options: [.initial, .new]) {
+      [weak self] controller, _
+      in
+      let isActive = controller.isPictureInPictureActive
+      Task { @MainActor [weak self] in
+        self?.updatePiPActive(isActive)
+      }
+    }
+  }
+
+  private func updatePiPPossible(_ isPossible: Bool) {
+    guard self.isPossible != isPossible else { return }
+    self.isPossible = isPossible
+  }
+
+  private func updatePiPActive(_ isActive: Bool) {
+    guard self.isActive != isActive else { return }
+    self.isActive = isActive
+  }
+
+  private func cancelDeferredPause() {
+    deferredPauseGeneration &+= 1
+    deferredPauseTask?.cancel()
+    deferredPauseTask = nil
+  }
+
+  private func scheduleDeferredPause() {
+    cancelDeferredPause()
+
+    let generation = deferredPauseGeneration
+    deferredPauseTask = Task { @MainActor [weak self] in
+      guard let self else { return }
+
+      while !Task.isCancelled {
+        do {
+          try await Task.sleep(for: pauseDebounce)
+        } catch {
+          return
+        }
+
+        guard !Task.isCancelled, deferredPauseGeneration == generation, !pipPlaybackActive else { return }
+
+        switch player.state {
+        case .playing:
+          didIssueDeferredPause = true
+          deferredPauseTask = nil
+          playbackDriver.pause()
+          return
+        case .opening, .buffering:
+          // Avoid pausing libVLC while it is still stabilizing input state.
+          // Keep waiting unless AVKit changes its mind first.
+          continue
+        default:
+          deferredPauseTask = nil
+          return
+        }
+      }
+    }
+  }
+
+  private func resumeIfNeeded() {
+    let shouldResume = didIssueDeferredPause || player.state == .paused
+    didIssueDeferredPause = false
+    guard shouldResume else { return }
+    playbackDriver.resume()
+  }
+
+  /// AVKit can invoke PiP delegate callbacks from non-main threads.
+  /// Bridge them synchronously so delegate responses stay immediate
+  /// without relying on `MainActor.assumeIsolated` off the main thread.
+  private nonisolated func withMainActorSync<T: Sendable>(
+    _ body: @MainActor @Sendable () -> T
+  ) -> T {
+    if Thread.isMainThread {
+      return MainActor.assumeIsolated(body)
+    }
+    return DispatchQueue.main.sync {
+      MainActor.assumeIsolated(body)
+    }
   }
 
   // MARK: - State Observation
@@ -212,6 +370,10 @@ public final class PiPController: NSObject {
         if active != wasActive {
           wasActive = active
           syncTimebase(playing: active)
+
+          if active {
+            didIssueDeferredPause = false
+          }
 
           // Only update pipPlaybackActive and notify PiP for
           // VLC-initiated changes (end-of-media, error). For
@@ -258,6 +420,53 @@ public final class PiPController: NSObject {
     }
   }
 
+  private func handleSetPlaying(_ playing: Bool) {
+    cancelDeferredPause()
+
+    // Set immediately so isPlaybackPaused returns the correct value
+    // when PiP queries it right after this call (before VLC catches up).
+    pipPlaybackActive = playing
+
+    if playing {
+      resumeIfNeeded()
+    } else {
+      scheduleDeferredPause()
+    }
+
+    syncTimebase(playing: playing)
+    pipController?.invalidatePlaybackState()
+  }
+
+  private func handleSkip(
+    by skipInterval: CMTime,
+    completion completionHandler: @escaping @Sendable () -> Void
+  ) {
+    // Cancel any pending transient pause. Skip actions should not drive
+    // libVLC through a pause → seek → resume cycle.
+    cancelDeferredPause()
+
+    let currentMs = player.currentTime.milliseconds
+    let durationMs = player.duration?.milliseconds ?? Int64.max
+    let offsetMs = Int64(skipInterval.seconds * 1000)
+    let targetMs = max(0, min(currentMs + offsetMs, durationMs))
+
+    playbackDriver.seek(.milliseconds(targetMs))
+
+    lastSkipTimestamp = CFAbsoluteTimeGetCurrent()
+
+    // Apple docs: "the control timebase should reflect the current
+    // playback time and rate when the closure is invoked"
+    if let tb = controlTimebase {
+      CMTimebaseSetTime(tb, time: CMTime(
+        seconds: Double(targetMs) / 1000.0,
+        preferredTimescale: 1000
+      ))
+      CMTimebaseSetRate(tb, rate: pipPlaybackActive ? 1.0 : 0.0)
+    }
+
+    completionHandler()
+  }
+
   /// Sets the controlTimebase time to the player's current position.
   private func syncTimebaseTime() {
     guard let tb = controlTimebase else { return }
@@ -272,40 +481,74 @@ public final class PiPController: NSObject {
     syncTimebaseTime()
     CMTimebaseSetRate(tb, rate: playing ? 1.0 : 0.0)
   }
+
+  func _setStateForTesting(
+    isPossible: Bool? = nil,
+    isActive: Bool? = nil
+  ) {
+    if let isPossible {
+      updatePiPPossible(isPossible)
+    }
+    if let isActive {
+      updatePiPActive(isActive)
+    }
+  }
+
+  nonisolated func _isPlaybackPausedForTesting(_ controller: AVPictureInPictureController) -> Bool {
+    pictureInPictureControllerIsPlaybackPaused(controller)
+  }
+
+  func _setPlayingForTesting(_ playing: Bool) {
+    handleSetPlaying(playing)
+  }
+
+  func _skipByIntervalForTesting(_ skipInterval: CMTime) {
+    handleSkip(by: skipInterval) {}
+  }
 }
 
 // MARK: - AVPictureInPictureControllerDelegate
 
 extension PiPController: AVPictureInPictureControllerDelegate {
-  /// `AVPictureInPictureControllerDelegate` hook — no additional work is
-  /// needed; the state observer drives our internal sync.
+  /// Mirrors AVKit's active flag into Observation so SwiftUI can keep
+  /// button labels and status UI in sync with system-driven PiP changes.
   public nonisolated func pictureInPictureControllerDidStartPictureInPicture(
     _: AVPictureInPictureController
-  ) {}
+  ) {
+    withMainActorSync {
+      updatePiPActive(true)
+    }
+  }
 
-  /// `AVPictureInPictureControllerDelegate` hook — no-op; cleanup happens
-  /// in ``stop()`` and on `deinit`.
+  /// Mirrors AVKit's active flag into Observation when PiP exits from
+  /// either our own controls or the system's close affordance.
   public nonisolated func pictureInPictureControllerDidStopPictureInPicture(
     _: AVPictureInPictureController
-  ) {}
+  ) {
+    withMainActorSync {
+      updatePiPActive(false)
+    }
+  }
 
   /// `AVPictureInPictureControllerDelegate` hook. SwiftVLC does not
-  /// propagate PiP start failures; inspect the Console log if PiP
-  /// refuses to start.
+  /// propagate PiP start failures; we still resync the observed flags so
+  /// the UI doesn't stay stuck in a stale "starting" state.
   public nonisolated func pictureInPictureController(
     _: AVPictureInPictureController,
     failedToStartPictureInPictureWithError _: Error
-  ) {}
+  ) {
+    withMainActorSync {
+      updatePiPActive(false)
+    }
+  }
 }
 
 // MARK: - AVPictureInPictureSampleBufferPlaybackDelegate
 
 extension PiPController: AVPictureInPictureSampleBufferPlaybackDelegate {
-  // NOTE: All delegate methods are called by the PiP system on the main thread.
-  // They MUST execute synchronously (MainActor.assumeIsolated) — not via
-  // Task { @MainActor in }, which defers to the next run-loop iteration.
-  // The PiP system queries state immediately after calling these; if the
-  // action hasn't executed yet the UI reverts to stale state.
+  // NOTE: PiP may invoke these callbacks off the main thread.
+  // They still need synchronous answers, so SwiftVLC bridges them
+  // onto the main actor without deferring through an async task.
 
   /// `AVPictureInPictureSampleBufferPlaybackDelegate` hook. Translates
   /// PiP play/pause presses into ``Player`` state changes, with the
@@ -316,31 +559,8 @@ extension PiPController: AVPictureInPictureSampleBufferPlaybackDelegate {
     _: AVPictureInPictureController,
     setPlaying playing: Bool
   ) {
-    MainActor.assumeIsolated {
-      deferredPauseTask?.cancel()
-      deferredPauseTask = nil
-
-      // Set immediately so isPlaybackPaused returns the correct value
-      // when PiP queries it right after this call (before VLC catches up).
-      pipPlaybackActive = playing
-
-      if playing {
-        // Use resume (unpause) rather than play (restart) — the player
-        // was paused, not stopped, so unpause is the correct operation.
-        player.resume()
-      } else {
-        // Defer the actual VLC pause to the next run-loop iteration.
-        // PiP calls setPlaying(false) before every skip, then
-        // setPlaying(true) after. If skipByInterval arrives before
-        // this executes, it cancels the task — so VLC never pauses
-        // and there's no visible blink.
-        deferredPauseTask = Task { @MainActor [weak self] in
-          guard let self, !Task.isCancelled else { return }
-          player.pause()
-        }
-      }
-      syncTimebase(playing: playing)
-      pipController?.invalidatePlaybackState()
+    withMainActorSync {
+      handleSetPlaying(playing)
     }
   }
 
@@ -352,7 +572,7 @@ extension PiPController: AVPictureInPictureSampleBufferPlaybackDelegate {
   public nonisolated func pictureInPictureControllerTimeRangeForPlayback(
     _: AVPictureInPictureController
   ) -> CMTimeRange {
-    let duration: Duration? = MainActor.assumeIsolated { player.duration }
+    let duration: Duration? = withMainActorSync { player.duration }
 
     let durationSeconds = duration.map {
       Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18
@@ -377,44 +597,20 @@ extension PiPController: AVPictureInPictureSampleBufferPlaybackDelegate {
   public nonisolated func pictureInPictureControllerIsPlaybackPaused(
     _: AVPictureInPictureController
   ) -> Bool {
-    MainActor.assumeIsolated { !pipPlaybackActive }
+    withMainActorSync { !pipPlaybackActive }
   }
 
   /// `AVPictureInPictureSampleBufferPlaybackDelegate` hook. Routes PiP
-  /// skip buttons into a relative ``Player/seek(by:)`` and updates the
-  /// control timebase so the PiP UI reflects the new position before
-  /// libVLC's own time change arrives.
+  /// skip buttons into a clamped absolute seek and updates the control
+  /// timebase so the PiP UI reflects the new position before libVLC's
+  /// own time change arrives.
   public nonisolated func pictureInPictureController(
     _: AVPictureInPictureController,
     skipByInterval skipInterval: CMTime,
     completion completionHandler: @escaping @Sendable () -> Void
   ) {
-    MainActor.assumeIsolated {
-      // Cancel the deferred pause — VLC should keep playing through the skip
-      deferredPauseTask?.cancel()
-      deferredPauseTask = nil
-
-      let currentMs = player.currentTime.milliseconds
-      let durationMs = player.duration?.milliseconds ?? Int64.max
-      let offsetMs = Int64(skipInterval.seconds * 1000)
-      let targetMs = max(0, min(currentMs + offsetMs, durationMs))
-
-      // Relative seek — same API the demo app skip buttons use
-      player.seek(by: .milliseconds(offsetMs))
-
-      lastSkipTimestamp = CFAbsoluteTimeGetCurrent()
-
-      // Apple docs: "the control timebase should reflect the current
-      // playback time and rate when the closure is invoked"
-      if let tb = controlTimebase {
-        CMTimebaseSetTime(tb, time: CMTime(
-          seconds: Double(targetMs) / 1000.0,
-          preferredTimescale: 1000
-        ))
-        CMTimebaseSetRate(tb, rate: 1.0)
-      }
-
-      completionHandler()
+    withMainActorSync {
+      handleSkip(by: skipInterval, completion: completionHandler)
     }
   }
 
