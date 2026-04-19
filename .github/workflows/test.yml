@@ -1,5 +1,14 @@
 name: Tests
-on: [push, pull_request]
+
+# Run once per change, not twice. `on: [push, pull_request]` would fire
+# both events whenever a PR branch is pushed (push → `refs/heads/<branch>`,
+# pull_request → `refs/pull/<n>/merge`), doubling CI minutes. Restricting
+# `push` to `main` means branch pushes only run under the PR; `main` still
+# gets CI on direct pushes / merges.
+on:
+  pull_request:
+  push:
+    branches: [main]
 
 # Cancel superseded runs on the same branch so stale pushes don't burn billing.
 concurrency:
