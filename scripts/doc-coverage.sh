@@ -19,16 +19,21 @@
 set -euo pipefail
 
 MODULE="SwiftVLC"
-TARGET="arm64-apple-macosx15.0"
 OUT_DIR="$(mktemp -d)"
 trap 'rm -rf "$OUT_DIR"' EXIT
 
 # xcrun respects $TOOLCHAINS when CI pins a specific Swift toolchain.
 xcrun swift build --target "$MODULE" >/dev/null
 
+# Derive target triple and build layout from the active toolchain / SwiftPM
+# rather than hard-coding `arm64-apple-macosx15.0` + `.build/arm64-apple-macosx/…`.
+# Hard-coded paths break on Intel runners and future SwiftPM layouts.
+TARGET="$(xcrun swiftc -print-target-info \
+  | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["target"]["triple"])')"
+BIN_DIR="$(xcrun swift build --target "$MODULE" --show-bin-path)"
 SDK="$(xcrun --sdk macosx --show-sdk-path)"
-MODULES_DIR=".build/arm64-apple-macosx/debug/Modules"
-FRAMEWORKS_DIR=".build/arm64-apple-macosx/debug/PackageFrameworks"
+MODULES_DIR="$BIN_DIR/Modules"
+FRAMEWORKS_DIR="$BIN_DIR/PackageFrameworks"
 
 xcrun swift-symbolgraph-extract \
   -module-name "$MODULE" \
