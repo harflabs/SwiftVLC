@@ -69,12 +69,19 @@ extension Media {
         }
 
         guard operation.installCallbackBox(box) else {
+          // The operation was already finished (typically by `onCancel`
+          // racing between `passRetained` above and this check), so
+          // `finish()` didn't see a `callbackBox` to release. We own
+          // the retain here and must release it ourselves, or the
+          // `ThumbnailOperation` (with its `CheckedContinuation` /
+          // `Mutex` state) leaks.
           libvlc_event_detach(
             em,
             Int32(libvlc_MediaThumbnailGenerated.rawValue),
             thumbnailCallback,
             box
           )
+          Unmanaged<ThumbnailOperation>.fromOpaque(box).release()
           return
         }
 

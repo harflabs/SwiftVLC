@@ -241,8 +241,6 @@ public final class Player {
   private var eventTask: Task<Void, Never>?
   private var _position: Double = 0
   private var _equalizer: Equalizer?
-  private var hasStartedPlayback = false
-
   let instance: VLCInstance
 
   // MARK: - Lifecycle
@@ -321,7 +319,6 @@ public final class Player {
       let reason = libvlc_errmsg().map { String(cString: $0) } ?? "unknown"
       throw .playbackFailed(reason: reason)
     }
-    hasStartedPlayback = true
   }
 
   /// Pauses playback.
@@ -768,13 +765,20 @@ public final class Player {
 
   /// Sets a renderer for output (e.g. Chromecast).
   ///
-  /// Pass `nil` to revert to local playback.
+  /// Pass `nil` to revert to local playback. libVLC rejects renderer
+  /// changes while media is active, so this is only valid when the
+  /// player is `.idle`, `.stopped`, or `.error` — call `stop()` first
+  /// if you need to reconfigure casting mid-session.
+  ///
   /// - Parameter renderer: A ``RendererItem`` discovered by ``RendererDiscoverer``, or `nil`.
-  /// - Throws: `VLCError.operationFailed` if the renderer cannot be set, or
-  ///   when playback has already started on this player.
+  /// - Throws: `VLCError.operationFailed` if the renderer cannot be set,
+  ///   or if the player isn't in an idle-like state.
   public func setRenderer(_ renderer: RendererItem?) throws(VLCError) {
-    guard !hasStartedPlayback else {
-      throw .operationFailed("Set renderer before playback starts")
+    switch state {
+    case .idle, .stopped, .error:
+      break
+    default:
+      throw .operationFailed("Set renderer while player is \(state)")
     }
     let result = libvlc_media_player_set_renderer(pointer, renderer?.pointer)
     guard result == 0 else { throw .operationFailed("Set renderer") }

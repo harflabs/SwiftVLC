@@ -169,10 +169,14 @@ struct PiPControllerTests {
 
     let controllerOpaque = UInt(bitPattern: Unmanaged.passRetained(controller).toOpaque())
     let pipOpaque = UInt(bitPattern: Unmanaged.passRetained(pip).toOpaque())
+    // `defer` bodies can't throw, so force-unwrap — both pointers were
+    // just produced by `passRetained` a line ago and are guaranteed
+    // non-nil. If they somehow were nil we'd have bigger problems than
+    // a leaked retain.
     defer {
-      let controllerPtr = try #require(UnsafeMutableRawPointer(bitPattern: controllerOpaque))
+      let controllerPtr = UnsafeMutableRawPointer(bitPattern: controllerOpaque)!
       Unmanaged<PiPController>.fromOpaque(controllerPtr).release()
-      let pipPtr = try #require(UnsafeMutableRawPointer(bitPattern: pipOpaque))
+      let pipPtr = UnsafeMutableRawPointer(bitPattern: pipOpaque)!
       Unmanaged<AVPictureInPictureController>.fromOpaque(pipPtr).release()
     }
 
