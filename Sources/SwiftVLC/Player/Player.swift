@@ -891,6 +891,13 @@ public final class Player {
         }
         withMutation(keyPath: \.abLoopState) {}
       }
+      // `MediaPlayerLengthChanged` is not guaranteed to fire for every
+      // media — for some inputs, length is surfaced via the media-side
+      // `MediaParsedChanged` event (on `Media`, not on the player) and
+      // the player-side event never arrives. Read the length directly
+      // from libVLC on every non-terminal state transition as a
+      // safety-net source; early-exits once we know it.
+      refreshDurationFromNativeIfNeeded()
 
     case .timeChanged(let time):
       currentTime = time
@@ -979,6 +986,16 @@ public final class Player {
     withMutation(keyPath: \.position) {
       _position = 0
     }
+  }
+
+  /// Reads length directly from libVLC and publishes it as ``duration`` if
+  /// we don't already have it. Called on every state transition as a
+  /// resilient companion to `MediaPlayerLengthChanged`.
+  private func refreshDurationFromNativeIfNeeded() {
+    guard duration == nil else { return }
+    let ms = libvlc_media_player_get_length(pointer)
+    guard ms > 0 else { return }
+    duration = .milliseconds(ms)
   }
 
   private func syncCurrentMediaFromNative() {

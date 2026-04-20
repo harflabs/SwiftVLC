@@ -19,8 +19,24 @@ struct SimplePlaybackCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.SimplePlayback.videoView)
       } footer: {
-        PlayPauseFooter(player: player)
+        VStack(spacing: 12) {
+          HStack {
+            Text(Self.format(player.currentTime))
+              .monospacedDigit()
+              .accessibilityIdentifier(AccessibilityID.SimplePlayback.currentTime)
+            Spacer()
+            Text(player.duration.map(Self.format) ?? "—")
+              .monospacedDigit()
+              .accessibilityIdentifier(AccessibilityID.SimplePlayback.duration)
+          }
+          .font(.caption)
+          .foregroundStyle(.secondary)
+
+          PlayPauseFooter(player: player)
+            .accessibilityIdentifier(AccessibilityID.SimplePlayback.playPauseButton)
+        }
       }
     }
     .navigationTitle("Simple playback")
@@ -28,5 +44,10 @@ struct SimplePlaybackCase: View {
       try? player.play(url: TestMedia.bigBuckBunny)
     }
     .onDisappear { player.stop() }
+  }
+
+  private static func format(_ duration: Duration) -> String {
+    let seconds = Int(duration.components.seconds)
+    return String(format: "%02d:%02d", seconds / 60, seconds % 60)
   }
 }

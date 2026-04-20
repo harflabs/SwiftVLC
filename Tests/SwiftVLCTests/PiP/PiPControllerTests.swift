@@ -156,7 +156,7 @@ struct PiPControllerTests {
   }
 
   @Test
-  func `delegate state queries are safe off the main thread`() async throws {
+  func `delegate state queries are safe off the main thread`() async {
     guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
 
     let player = Player()
@@ -173,12 +173,14 @@ struct PiPControllerTests {
     // just produced by `passRetained` a line ago and are guaranteed
     // non-nil. If they somehow were nil we'd have bigger problems than
     // a leaked retain.
+    // swiftformat:disable noForceUnwrapInTests
     defer {
-      let controllerPtr = try #require(UnsafeMutableRawPointer(bitPattern: controllerOpaque))
+      let controllerPtr = UnsafeMutableRawPointer(bitPattern: controllerOpaque)!
       Unmanaged<PiPController>.fromOpaque(controllerPtr).release()
-      let pipPtr = try #require(UnsafeMutableRawPointer(bitPattern: pipOpaque))
+      let pipPtr = UnsafeMutableRawPointer(bitPattern: pipOpaque)!
       Unmanaged<AVPictureInPictureController>.fromOpaque(pipPtr).release()
     }
+    // swiftformat:enable noForceUnwrapInTests
 
     let paused = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
       DispatchQueue.global().async {

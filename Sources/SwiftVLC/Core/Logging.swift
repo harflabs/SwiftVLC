@@ -259,10 +259,22 @@ private func logCallback(
 
   guard let logLevel = LogLevel(rawValue: level) else { return }
 
-  let entry = LogEntry(
+  let messageString = String(cString: message)
+  let moduleString = module.map { String(cString: $0) }
+
+  // Severity correction for upstream messages whose declared level is
+  // incongruent with the surrounding probe cascade. See `LogNoiseFilter`
+  // for the rules and rationale.
+  let effectiveLevel = LogNoiseFilter.reclassify(
     level: logLevel,
-    message: String(cString: message),
-    module: module.map { String(cString: $0) }
+    module: moduleString,
+    message: messageString
+  )
+
+  let entry = LogEntry(
+    level: effectiveLevel,
+    message: messageString,
+    module: moduleString
   )
 
   broadcaster.broadcast(entry)

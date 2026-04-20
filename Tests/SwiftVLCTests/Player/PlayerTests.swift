@@ -587,7 +587,15 @@ struct PlayerTests {
   func `Duration available during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.duration != nil }) else { player.stop(); return }
+
+    // libVLC's `MediaPlayerLengthChanged` event is not guaranteed to fire
+    // for every media — for some inputs, the player never receives it.
+    // `Player` polls `libvlc_media_player_get_length` on state transitions
+    // as a safety net (see `refreshDurationFromNativeIfNeeded`); this test
+    // is the regression guard for that path.
+    let got = try await poll(timeout: .seconds(5), until: { player.duration != nil })
+    #expect(got, "Player.duration stayed nil — the state-transition fallback isn't publishing length")
+
     if let dur = player.duration {
       #expect(dur.milliseconds > 0)
     }
