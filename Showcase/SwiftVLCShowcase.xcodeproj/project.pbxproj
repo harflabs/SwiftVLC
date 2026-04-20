@@ -3,57 +3,20 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 60;
+	objectVersion = 71;
 	objects = {
 
 /* Begin PBXBuildFile section */
 		B1000001 /* SwiftVLC in Frameworks */ = {isa = PBXBuildFile; productRef = B8000001 /* SwiftVLC */; };
-		B1000002 /* SwiftVLCShowcaseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001 /* SwiftVLCShowcaseApp.swift */; };
-		B1000003 /* ShowcaseHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000002 /* ShowcaseHub.swift */; };
-		B1000004 /* ShowcaseItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000003 /* ShowcaseItem.swift */; };
-		B1000005 /* TestMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000004 /* TestMedia.swift */; };
-		B1000006 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B2000005 /* Assets.xcassets */; };
-		B1000010 /* TimeFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000010 /* TimeFormatting.swift */; };
-		B1000011 /* PlayerStatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000011 /* PlayerStatusBar.swift */; };
-		B1000012 /* TransportControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000012 /* TransportControls.swift */; };
-		B1000013 /* SeekBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000013 /* SeekBar.swift */; };
-		B1000014 /* GradientOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000014 /* GradientOverlay.swift */; };
-		B1000020 /* PolishedPlayerDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000020 /* PolishedPlayerDemo.swift */; };
-		B1000021 /* PolishedPlayer+iOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000021 /* PolishedPlayer+iOS.swift */; };
-		B1000022 /* PolishedPlayer+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000022 /* PolishedPlayer+macOS.swift */; };
-		B1000023 /* PolishedPlayer+tvOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000023 /* PolishedPlayer+tvOS.swift */; };
-		B1000024 /* PiPDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000024 /* PiPDemo.swift */; };
-		B1000025 /* AudioPlayerDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000025 /* AudioPlayerDemo.swift */; };
-		B1000026 /* PlaylistDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000026 /* PlaylistDemo.swift */; };
-		B1000027 /* DebugConsoleDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000027 /* DebugConsoleDemo.swift */; };
-		B1000028 /* SnapshotAndLoopDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000028 /* SnapshotAndLoopDemo.swift */; };
-		B1000015 /* DemoErrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000015 /* DemoErrorView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		B2000001 /* SwiftVLCShowcaseApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftVLCShowcaseApp.swift; sourceTree = "<group>"; };
-		B2000002 /* ShowcaseHub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowcaseHub.swift; sourceTree = "<group>"; };
-		B2000003 /* ShowcaseItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowcaseItem.swift; sourceTree = "<group>"; };
-		B2000004 /* TestMedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestMedia.swift; sourceTree = "<group>"; };
-		B2000005 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		B2000006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B2000007 /* SwiftVLCShowcase.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SwiftVLCShowcase.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		B2000010 /* TimeFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeFormatting.swift; sourceTree = "<group>"; };
-		B2000011 /* PlayerStatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerStatusBar.swift; sourceTree = "<group>"; };
-		B2000012 /* TransportControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportControls.swift; sourceTree = "<group>"; };
-		B2000013 /* SeekBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeekBar.swift; sourceTree = "<group>"; };
-		B2000014 /* GradientOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GradientOverlay.swift; sourceTree = "<group>"; };
-		B2000020 /* PolishedPlayerDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PolishedPlayerDemo.swift; sourceTree = "<group>"; };
-		B2000021 /* PolishedPlayer+iOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PolishedPlayer+iOS.swift"; sourceTree = "<group>"; };
-		B2000022 /* PolishedPlayer+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PolishedPlayer+macOS.swift"; sourceTree = "<group>"; };
-		B2000023 /* PolishedPlayer+tvOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PolishedPlayer+tvOS.swift"; sourceTree = "<group>"; };
-		B2000024 /* PiPDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiPDemo.swift; sourceTree = "<group>"; };
-		B2000025 /* AudioPlayerDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayerDemo.swift; sourceTree = "<group>"; };
-		B2000026 /* PlaylistDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistDemo.swift; sourceTree = "<group>"; };
-		B2000027 /* DebugConsoleDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugConsoleDemo.swift; sourceTree = "<group>"; };
-		B2000028 /* SnapshotAndLoopDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotAndLoopDemo.swift; sourceTree = "<group>"; };
-		B2000015 /* DemoErrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoErrorView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		B4000002 /* SwiftVLCShowcase */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = SwiftVLCShowcase; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		B3000001 /* Frameworks */ = {
@@ -75,64 +38,12 @@
 			);
 			sourceTree = "<group>";
 		};
-		B4000002 /* SwiftVLCShowcase */ = {
-			isa = PBXGroup;
-			children = (
-				B2000001 /* SwiftVLCShowcaseApp.swift */,
-				B2000002 /* ShowcaseHub.swift */,
-				B2000003 /* ShowcaseItem.swift */,
-				B2000004 /* TestMedia.swift */,
-				B4000004 /* Demos */,
-				B4000006 /* Shared */,
-				B2000005 /* Assets.xcassets */,
-				B2000006 /* Info.plist */,
-			);
-			path = SwiftVLCShowcase;
-			sourceTree = "<group>";
-		};
 		B4000003 /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				B2000007 /* SwiftVLCShowcase.app */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		B4000004 /* Demos */ = {
-			isa = PBXGroup;
-			children = (
-				B4000005 /* PolishedPlayer */,
-				B2000024 /* PiPDemo.swift */,
-				B2000025 /* AudioPlayerDemo.swift */,
-				B2000026 /* PlaylistDemo.swift */,
-				B2000028 /* SnapshotAndLoopDemo.swift */,
-				B2000027 /* DebugConsoleDemo.swift */,
-			);
-			path = Demos;
-			sourceTree = "<group>";
-		};
-		B4000005 /* PolishedPlayer */ = {
-			isa = PBXGroup;
-			children = (
-				B2000020 /* PolishedPlayerDemo.swift */,
-				B2000021 /* PolishedPlayer+iOS.swift */,
-				B2000022 /* PolishedPlayer+macOS.swift */,
-				B2000023 /* PolishedPlayer+tvOS.swift */,
-			);
-			path = PolishedPlayer;
-			sourceTree = "<group>";
-		};
-		B4000006 /* Shared */ = {
-			isa = PBXGroup;
-			children = (
-				B2000010 /* TimeFormatting.swift */,
-				B2000011 /* PlayerStatusBar.swift */,
-				B2000012 /* TransportControls.swift */,
-				B2000013 /* SeekBar.swift */,
-				B2000014 /* GradientOverlay.swift */,
-				B2000015 /* DemoErrorView.swift */,
-			);
-			path = Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -150,6 +61,9 @@
 			);
 			dependencies = (
 			);
+			fileSystemSynchronizedGroups = (
+				B4000002 /* SwiftVLCShowcase */,
+			);
 			name = SwiftVLCShowcase;
 			packageProductDependencies = (
 				B8000001 /* SwiftVLC */,
@@ -165,11 +79,11 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1600;
-				LastUpgradeCheck = 1600;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2600;
 			};
 			buildConfigurationList = B7000001 /* Build configuration list for PBXProject "SwiftVLCShowcase" */;
-			compatibilityVersion = "Xcode 15.0";
+			compatibilityVersion = "Xcode 16.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -177,6 +91,7 @@
 				Base,
 			);
 			mainGroup = B4000001;
+			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				BA000001 /* XCLocalSwiftPackageReference ".." */,
 			);
@@ -194,7 +109,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				B1000006 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -205,25 +119,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				B1000002 /* SwiftVLCShowcaseApp.swift in Sources */,
-				B1000003 /* ShowcaseHub.swift in Sources */,
-				B1000004 /* ShowcaseItem.swift in Sources */,
-				B1000005 /* TestMedia.swift in Sources */,
-				B1000010 /* TimeFormatting.swift in Sources */,
-				B1000011 /* PlayerStatusBar.swift in Sources */,
-				B1000012 /* TransportControls.swift in Sources */,
-				B1000013 /* SeekBar.swift in Sources */,
-				B1000014 /* GradientOverlay.swift in Sources */,
-				B1000015 /* DemoErrorView.swift in Sources */,
-				B1000020 /* PolishedPlayerDemo.swift in Sources */,
-				B1000021 /* PolishedPlayer+iOS.swift in Sources */,
-				B1000022 /* PolishedPlayer+macOS.swift in Sources */,
-				B1000023 /* PolishedPlayer+tvOS.swift in Sources */,
-				B1000024 /* PiPDemo.swift in Sources */,
-				B1000025 /* AudioPlayerDemo.swift in Sources */,
-				B1000026 /* PlaylistDemo.swift in Sources */,
-				B1000028 /* SnapshotAndLoopDemo.swift in Sources */,
-				B1000027 /* DebugConsoleDemo.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -288,9 +183,9 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = MTAQ5K5D6P;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = SwiftVLCShowcase/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UIBackgroundModes = audio;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -312,9 +207,9 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = MTAQ5K5D6P;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = SwiftVLCShowcase/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UIBackgroundModes = audio;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";

@@ -174,9 +174,9 @@ struct PiPControllerTests {
     // non-nil. If they somehow were nil we'd have bigger problems than
     // a leaked retain.
     defer {
-      let controllerPtr = UnsafeMutableRawPointer(bitPattern: controllerOpaque)!
+      let controllerPtr = try #require(UnsafeMutableRawPointer(bitPattern: controllerOpaque))
       Unmanaged<PiPController>.fromOpaque(controllerPtr).release()
-      let pipPtr = UnsafeMutableRawPointer(bitPattern: pipOpaque)!
+      let pipPtr = try #require(UnsafeMutableRawPointer(bitPattern: pipOpaque))
       Unmanaged<AVPictureInPictureController>.fromOpaque(pipPtr).release()
     }
 
