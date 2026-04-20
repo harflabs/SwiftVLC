@@ -38,6 +38,7 @@ struct EventsCase: View {
         }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Events")
     .task {
       try? player.play(url: TestMedia.bigBuckBunny)

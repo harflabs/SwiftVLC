@@ -29,6 +29,7 @@ struct VolumeCase: View {
         LabeledContent("Level", value: String(format: "%.0f%%", bindable.volume * 100))
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Volume")
     .task { try? player.play(url: TestMedia.bigBuckBunny) }
     .onDisappear { player.stop() }

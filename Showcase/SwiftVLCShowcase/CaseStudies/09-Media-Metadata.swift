@@ -35,6 +35,7 @@ struct MetadataCase: View {
         Section { ProgressView("Parsing…") }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Metadata")
     .task {
       try? player.play(url: TestMedia.bigBuckBunny)

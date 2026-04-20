@@ -60,6 +60,7 @@ extension UITestRoute {
     switch self {
     case .simplePlayback: SimplePlaybackCase()
     case .playerState: PlayerStateCase()
+    case .seeking: SeekingCase()
     }
   }
 }

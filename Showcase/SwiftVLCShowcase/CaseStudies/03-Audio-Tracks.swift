@@ -36,6 +36,7 @@ struct AudioTracksCase: View {
         }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Audio tracks")
     .task { try? player.play(url: TestMedia.tearsOfSteel) }
     .onDisappear { player.stop() }

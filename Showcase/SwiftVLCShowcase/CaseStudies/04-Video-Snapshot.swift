@@ -43,6 +43,7 @@ struct SnapshotCase: View {
         }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Snapshot")
     .task {
       try? player.play(url: TestMedia.bigBuckBunny)

@@ -64,6 +64,7 @@ struct PlaylistQueueCase: View {
         }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Playlist queue")
     .task {
       listPlayer.mediaPlayer = player

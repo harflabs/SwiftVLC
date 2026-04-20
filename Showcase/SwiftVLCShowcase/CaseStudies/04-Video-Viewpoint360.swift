@@ -39,6 +39,7 @@ struct ViewpointCase: View {
         }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("360° viewpoint")
     .task { try? player.play(url: TestMedia.bigBuckBunny) }
     .onChange(of: yaw) { apply() }

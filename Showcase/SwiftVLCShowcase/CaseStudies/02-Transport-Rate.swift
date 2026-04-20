@@ -28,6 +28,7 @@ struct RateCase: View {
         CompatSlider(value: $bindable.rate, range: 0.25...4.0, step: 0.25)
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Playback rate")
     .task { try? player.play(url: TestMedia.bigBuckBunny) }
     .onDisappear { player.stop() }

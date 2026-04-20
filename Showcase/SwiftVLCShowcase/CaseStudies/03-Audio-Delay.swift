@@ -27,6 +27,7 @@ struct AudioDelayCase: View {
         LabeledContent("Offset", value: String(format: "%+d ms", Int(delayMs)))
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Audio delay")
     .task { try? player.play(url: TestMedia.bigBuckBunny) }
     .onChange(of: delayMs) {

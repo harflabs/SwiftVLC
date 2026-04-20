@@ -68,6 +68,15 @@ public final class Player {
         _position = newValue
         libvlc_media_player_set_position(pointer, newValue, /* fast */ false)
       }
+      // libVLC doesn't reliably emit `MediaPlayerTimeChanged` after a
+      // `set_position` — especially while paused — so `currentTime`
+      // appears stuck at its pre-seek value for consumers observing the
+      // property. Update optimistically to the position-implied time
+      // whenever duration is known; the eventual timeChanged event will
+      // refine the estimate with libVLC's real post-seek frame timestamp.
+      if let dur = duration {
+        currentTime = dur * newValue
+      }
     }
   }
 

@@ -41,6 +41,7 @@ struct RecordingCase: View {
         }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Recording")
     .task {
       try? player.play(url: TestMedia.bigBuckBunny)

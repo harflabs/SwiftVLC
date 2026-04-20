@@ -53,6 +53,7 @@ struct StatisticsCase: View {
         Section { ProgressView("Waiting for statistics…") }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Statistics")
     .task { try? player.play(url: TestMedia.hls) }
     .onDisappear { player.stop() }

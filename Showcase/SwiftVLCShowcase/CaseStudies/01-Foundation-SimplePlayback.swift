@@ -39,6 +39,7 @@ struct SimplePlaybackCase: View {
         }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Simple playback")
     .task {
       try? player.play(url: TestMedia.bigBuckBunny)

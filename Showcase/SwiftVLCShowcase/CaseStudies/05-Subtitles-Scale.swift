@@ -27,6 +27,7 @@ struct SubtitlesScaleCase: View {
         LabeledContent("Scale", value: String(format: "%.1f×", bindable.subtitleTextScale))
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Subtitle scale")
     .task { try? player.play(url: TestMedia.tearsOfSteel) }
     .onDisappear { player.stop() }

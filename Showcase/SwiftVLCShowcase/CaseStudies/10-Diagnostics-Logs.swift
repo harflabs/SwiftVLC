@@ -54,6 +54,7 @@ struct LogsCase: View {
         }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Logs")
     .task { try? player.play(url: TestMedia.bigBuckBunny) }
     .task(id: level) {

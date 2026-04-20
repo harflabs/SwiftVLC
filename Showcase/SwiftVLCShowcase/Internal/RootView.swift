@@ -89,6 +89,7 @@ struct RootView: View {
         NavigationLink("Logs") { LogsCase() }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("SwiftVLC")
   }
 }

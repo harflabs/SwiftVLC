@@ -44,6 +44,7 @@ struct AspectRatioCase: View {
         }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Aspect ratio")
     .task { try? player.play(url: TestMedia.bigBuckBunny) }
     .onDisappear { player.stop() }

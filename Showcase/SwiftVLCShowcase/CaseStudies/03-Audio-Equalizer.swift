@@ -67,6 +67,7 @@ struct EqualizerCase: View {
         }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Equalizer")
     .task {
       try? player.play(url: TestMedia.bigBuckBunny)

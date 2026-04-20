@@ -46,6 +46,7 @@ struct PiPCase: View {
         }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Picture in Picture")
     .task { try? player.play(url: TestMedia.bigBuckBunny) }
     .onDisappear { player.stop() }

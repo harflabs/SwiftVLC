@@ -57,6 +57,7 @@ struct AudioOutputsCase: View {
         }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Audio outputs")
     .task {
       outputs = VLCInstance.shared.audioOutputs()

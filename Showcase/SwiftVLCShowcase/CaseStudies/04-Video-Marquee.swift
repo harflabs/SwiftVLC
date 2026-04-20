@@ -34,6 +34,7 @@ struct MarqueeCase: View {
         }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Marquee")
     .task { try? player.play(url: TestMedia.bigBuckBunny) }
     .onChange(of: isEnabled) { player.withMarquee { $0.isEnabled = isEnabled } }

@@ -36,6 +36,7 @@ struct FrameStepCase: View {
         .disabled(!player.isPausable || player.isPlaying)
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Frame step")
     .task { try? player.play(url: TestMedia.bigBuckBunny) }
     .onDisappear { player.stop() }

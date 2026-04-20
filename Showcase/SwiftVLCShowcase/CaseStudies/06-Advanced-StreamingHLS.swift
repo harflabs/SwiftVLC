@@ -33,6 +33,7 @@ struct StreamingHLSCase: View {
         Section { ProgressView("Opening stream…") }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("HLS streaming")
     .task { try? player.play(url: TestMedia.hls) }
     .onDisappear { player.stop() }

@@ -39,6 +39,7 @@ struct DiscoveryLANCase: View {
         }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("LAN discovery")
     .task {
       services = MediaDiscoverer.availableServices(category: .lan)

@@ -27,6 +27,7 @@ struct SubtitlesDelayCase: View {
         LabeledContent("Offset", value: String(format: "%+d ms", Int(delayMs)))
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Subtitle delay")
     .task { try? player.play(url: TestMedia.tearsOfSteel) }
     .onChange(of: delayMs) {

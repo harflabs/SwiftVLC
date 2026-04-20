@@ -40,6 +40,7 @@ struct SubtitlesSelectionCase: View {
         }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Subtitles")
     .task { try? player.play(url: TestMedia.tearsOfSteel) }
     .onDisappear { player.stop() }

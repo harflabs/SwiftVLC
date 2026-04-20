@@ -34,6 +34,7 @@ struct RelativeSeekCase: View {
         }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Relative seek")
     .task { try? player.play(url: TestMedia.bigBuckBunny) }
     .onDisappear { player.stop() }

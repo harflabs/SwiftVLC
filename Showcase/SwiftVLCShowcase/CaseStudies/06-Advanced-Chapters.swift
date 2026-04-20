@@ -41,6 +41,7 @@ struct ChaptersCase: View {
         }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Chapters")
     .task { try? player.play(url: TestMedia.bigBuckBunny) }
     .onDisappear { player.stop() }

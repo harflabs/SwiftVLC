@@ -39,6 +39,7 @@ struct SubtitlesExternalCase: View {
         }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("External subtitles")
     .task { try? player.play(url: TestMedia.bigBuckBunny) }
     .onDisappear { player.stop() }

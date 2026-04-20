@@ -43,6 +43,7 @@ struct PlayerStateCase: View {
         )
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Player state")
     .task { try? player.play(url: TestMedia.bigBuckBunny) }
     .onDisappear { player.stop() }

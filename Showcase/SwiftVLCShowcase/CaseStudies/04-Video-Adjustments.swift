@@ -36,6 +36,7 @@ struct VideoAdjustmentsCase: View {
         row("Gamma", value: $gamma, in: 0.1...10)
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Adjustments")
     .task { try? player.play(url: TestMedia.bigBuckBunny) }
     .onDisappear { player.stop() }

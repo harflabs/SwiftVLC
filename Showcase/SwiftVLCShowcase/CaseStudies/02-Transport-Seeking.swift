@@ -17,14 +17,17 @@ struct SeekingCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.Seeking.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.Seeking.playPauseButton)
       }
 
       Section("Position") {
         SeekBar(player: player)
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Seeking")
     .task { try? player.play(url: TestMedia.bigBuckBunny) }
     .onDisappear { player.stop() }

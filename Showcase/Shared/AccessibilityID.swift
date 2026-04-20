@@ -28,4 +28,18 @@ enum AccessibilityID {
     static let seekableLabel = "ps.seekable"
     static let pausableLabel = "ps.pausable"
   }
+
+  enum Seeking {
+    static let videoView = "seek.videoView"
+    static let playPauseButton = "seek.playPause"
+  }
+
+  /// Shared across every showcase that uses `SeekBar`, so consumers
+  /// (tests for Seeking, RelativeSeek, ABLoop, Chapters, …) can query
+  /// the same identifiers without each showcase redefining them.
+  enum SeekBar {
+    static let slider = "seekbar.slider"
+    static let currentTime = "seekbar.currentTime"
+    static let duration = "seekbar.duration"
+  }
 }

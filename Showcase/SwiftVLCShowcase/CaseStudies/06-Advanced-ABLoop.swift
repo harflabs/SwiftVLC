@@ -39,6 +39,7 @@ struct ABLoopCase: View {
         }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("A-B loop")
     .task { try? player.play(url: TestMedia.bigBuckBunny) }
     .onDisappear { player.stop() }

@@ -30,6 +30,7 @@ struct LifecycleCase: View {
         }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Lifecycle")
     .task(id: source) { try? player.play(url: source) }
     .onDisappear { player.stop() }

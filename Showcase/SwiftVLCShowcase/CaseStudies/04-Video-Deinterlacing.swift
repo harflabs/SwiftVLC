@@ -63,6 +63,7 @@ struct DeinterlacingCase: View {
         }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Deinterlacing")
     .task { try? player.play(url: TestMedia.bigBuckBunny) }
     .onChange(of: state) { apply() }

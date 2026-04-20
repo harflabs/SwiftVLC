@@ -52,6 +52,7 @@ struct DiscoveryRenderersCase: View {
         }
       }
     }
+    .showcaseFormStyle()
     .navigationTitle("Renderer discovery")
     .task {
       services = RendererDiscoverer.availableServices()
