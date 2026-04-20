@@ -101,6 +101,67 @@ struct LoggingExtendedTests {
     // No crash = success
   }
 
+  @Test(.tags(.async))
+  func `Concurrent subscription churn leaves logging reusable`() async {
+    await withTaskGroup(of: Void.self) { group in
+      for _ in 0..<16 {
+        group.addTask {
+          for _ in 0..<8 {
+            let stream = VLCInstance.shared.logStream(minimumLevel: .debug)
+            let task = Task {
+              for await _ in stream {
+                break
+              }
+            }
+            task.cancel()
+            await task.value
+          }
+        }
+      }
+    }
+
+    let stream = VLCInstance.shared.logStream(minimumLevel: .debug)
+    let task = Task {
+      for await _ in stream {
+        break
+      }
+    }
+    task.cancel()
+    await task.value
+  }
+
+  @Test(.tags(.async))
+  func `Failed log install retries only on later reconciles`() async {
+    let attempts = Mutex(0)
+    let broadcaster = LogBroadcaster(
+      instancePointer: VLCInstance.shared.pointer,
+      installBridge: { _, _ in
+        attempts.withLock { $0 += 1 }
+        return nil
+      },
+      uninstallBridge: { _, _ in }
+    )
+    defer { broadcaster.invalidate() }
+
+    let (stream1, continuation1) = AsyncStream<LogEntry>.makeStream()
+    _ = stream1
+    let firstID = broadcaster.add(continuation: continuation1, minimumLevel: .debug)
+    try? await Task.sleep(for: .milliseconds(100))
+    #expect(attempts.withLock { $0 } == 1)
+
+    broadcaster.remove(id: firstID)
+    continuation1.finish()
+    try? await Task.sleep(for: .milliseconds(100))
+    #expect(attempts.withLock { $0 } == 1)
+
+    let (stream2, continuation2) = AsyncStream<LogEntry>.makeStream()
+    _ = stream2
+    _ = broadcaster.add(continuation: continuation2, minimumLevel: .debug)
+    try? await Task.sleep(for: .milliseconds(100))
+    #expect(attempts.withLock { $0 } == 2)
+    continuation2.finish()
+  }
+
   @Test
   func `LogLevel comparison operators work correctly for all pairs`() {
     let levels: [LogLevel] = [.debug, .notice, .warning, .error]

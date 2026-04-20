@@ -206,12 +206,14 @@ public final class Player {
 
   /// Whether the player is currently playing.
   public var isPlaying: Bool {
-    state == .playing
+    access(keyPath: \.isPlaying)
+    return state == .playing
   }
 
   /// Whether playback is active (playing or buffering during playback).
   public var isActive: Bool {
-    switch state {
+    access(keyPath: \.isActive)
+    return switch state {
     case .playing, .opening, .buffering:
       true
     default:
@@ -239,7 +241,6 @@ public final class Player {
   private var eventTask: Task<Void, Never>?
   private var _position: Double = 0
   private var _equalizer: Equalizer?
-
   let instance: VLCInstance
 
   // MARK: - Lifecycle
@@ -290,6 +291,8 @@ public final class Player {
   /// reference after the call.
   public func load(_ media: sending Media) {
     currentMedia = media
+    resetMediaDerivedState()
+    withMutation(keyPath: \.abLoopState) {}
     libvlc_media_player_set_media(pointer, media.pointer)
     refreshTracks()
   }
@@ -521,6 +524,7 @@ public final class Player {
     guard libvlc_media_player_set_abloop_time(pointer, a.milliseconds, b.milliseconds) == 0 else {
       throw .operationFailed("Set A-B loop by time")
     }
+    withMutation(keyPath: \.abLoopState) {}
   }
 
   /// Sets an A-B loop using fractional positions (0.0...1.0).
@@ -529,6 +533,7 @@ public final class Player {
     guard libvlc_media_player_set_abloop_position(pointer, aPosition, bPosition) == 0 else {
       throw .operationFailed("Set A-B loop by position")
     }
+    withMutation(keyPath: \.abLoopState) {}
   }
 
   /// Resets (disables) the A-B loop.
@@ -537,10 +542,12 @@ public final class Player {
     guard libvlc_media_player_reset_abloop(pointer) == 0 else {
       throw .operationFailed("Reset A-B loop")
     }
+    withMutation(keyPath: \.abLoopState) {}
   }
 
   /// Current A-B loop state.
   public var abLoopState: ABLoopState {
+    access(keyPath: \.abLoopState)
     var aTime: Int64 = 0
     var aPos: Double = 0
     var bTime: Int64 = 0
@@ -687,6 +694,7 @@ public final class Player {
 
   /// Current audio output device identifier.
   public var currentAudioDevice: String? {
+    access(keyPath: \.currentAudioDevice)
     guard let cstr = libvlc_audio_output_device_get(pointer) else { return nil }
     defer { free(cstr) }
     return String(cString: cstr)
@@ -724,6 +732,7 @@ public final class Player {
 
   /// Lists all available programs in the current media.
   public var programs: [Program] {
+    access(keyPath: \.programs)
     guard let list = libvlc_media_player_get_programlist(pointer) else { return [] }
     defer { libvlc_player_programlist_delete(list) }
 
@@ -735,6 +744,7 @@ public final class Player {
 
   /// The currently selected program.
   public var selectedProgram: Program? {
+    access(keyPath: \.selectedProgram)
     guard let prog = libvlc_media_player_get_selected_program(pointer) else { return nil }
     defer { libvlc_player_program_delete(prog) }
     return Program(from: prog.pointee)
@@ -747,17 +757,29 @@ public final class Player {
 
   /// Whether the current program is scrambled (encrypted).
   public var isProgramScrambled: Bool {
-    libvlc_media_player_program_scrambled(pointer)
+    access(keyPath: \.isProgramScrambled)
+    return libvlc_media_player_program_scrambled(pointer)
   }
 
   // MARK: - Renderer (Chromecast / AirPlay)
 
   /// Sets a renderer for output (e.g. Chromecast).
   ///
-  /// Pass `nil` to revert to local playback.
+  /// Pass `nil` to revert to local playback. libVLC rejects renderer
+  /// changes while media is active, so this is only valid when the
+  /// player is `.idle`, `.stopped`, or `.error` — call `stop()` first
+  /// if you need to reconfigure casting mid-session.
+  ///
   /// - Parameter renderer: A ``RendererItem`` discovered by ``RendererDiscoverer``, or `nil`.
-  /// - Throws: `VLCError.operationFailed` if the renderer cannot be set.
+  /// - Throws: `VLCError.operationFailed` if the renderer cannot be set,
+  ///   or if the player isn't in an idle-like state.
   public func setRenderer(_ renderer: RendererItem?) throws(VLCError) {
+    switch state {
+    case .idle, .stopped, .error:
+      break
+    default:
+      throw .operationFailed("Set renderer while player is \(state)")
+    }
     let result = libvlc_media_player_set_renderer(pointer, renderer?.pointer)
     guard result == 0 else { throw .operationFailed("Set renderer") }
   }
@@ -821,6 +843,8 @@ public final class Player {
     audioTracks = fetchTracks(type: .audio)
     videoTracks = fetchTracks(type: .video)
     subtitleTracks = fetchTracks(type: .subtitle)
+    withMutation(keyPath: \.selectedAudioTrack) {}
+    withMutation(keyPath: \.selectedSubtitleTrack) {}
   }
 
   private func fetchTracks(type: TrackType) -> [Track] {
@@ -858,11 +882,14 @@ public final class Player {
     switch event {
     case .stateChanged(let newState):
       state = newState
+      withMutation(keyPath: \.isPlaying) {}
+      withMutation(keyPath: \.isActive) {}
       if case .stopped = newState {
         currentTime = .zero
         withMutation(keyPath: \.position) {
           _position = 0
         }
+        withMutation(keyPath: \.abLoopState) {}
       }
 
     case .timeChanged(let time):
@@ -886,10 +913,18 @@ public final class Player {
       refreshTracks()
 
     case .mediaChanged:
+      syncCurrentMediaFromNative()
+      resetMediaDerivedState()
+      withMutation(keyPath: \.abLoopState) {}
+      withMutation(keyPath: \.programs) {}
+      withMutation(keyPath: \.selectedProgram) {}
+      withMutation(keyPath: \.isProgramScrambled) {}
       refreshTracks()
 
     case .encounteredError:
       state = .error
+      withMutation(keyPath: \.isPlaying) {}
+      withMutation(keyPath: \.isActive) {}
 
     case .bufferingProgress(let pct):
       // VLC sends buffer-level events continuously during playback.
@@ -897,6 +932,7 @@ public final class Player {
       switch state {
       case .idle, .opening, .buffering:
         state = .buffering(pct)
+        withMutation(keyPath: \.isActive) {}
       default:
         break
       }
@@ -920,11 +956,69 @@ public final class Player {
 
     // Events without a matching observable property are exposed only
     // via the raw `events` stream — consumers that care subscribe there.
-    case .corked, .uncorked, .audioDeviceChanged, .voutChanged,
+    case .audioDeviceChanged:
+      withMutation(keyPath: \.currentAudioDevice) {}
+
+    case .programAdded, .programDeleted, .programSelected, .programUpdated:
+      withMutation(keyPath: \.programs) {}
+      withMutation(keyPath: \.selectedProgram) {}
+      withMutation(keyPath: \.isProgramScrambled) {}
+
+    case .corked, .uncorked, .voutChanged,
          .recordingChanged, .titleListChanged, .snapshotTaken,
-         .mediaStopping, .programAdded, .programDeleted,
-         .programSelected, .programUpdated:
+         .mediaStopping:
       break
+    }
+  }
+
+  private func resetMediaDerivedState() {
+    currentTime = .zero
+    duration = nil
+    isSeekable = false
+    isPausable = false
+    withMutation(keyPath: \.position) {
+      _position = 0
+    }
+  }
+
+  private func syncCurrentMediaFromNative() {
+    guard let media = libvlc_media_player_get_media(pointer) else {
+      currentMedia = nil
+      return
+    }
+    libvlc_media_retain(media)
+    currentMedia = Media(retaining: media)
+  }
+
+  func _handleEventForTesting(_ event: PlayerEvent) {
+    handleEvent(event)
+  }
+
+  func _setStateForTesting(
+    state: PlayerState? = nil,
+    currentTime: Duration? = nil,
+    duration: Duration? = nil,
+    position: Double? = nil,
+    isSeekable: Bool? = nil,
+    isPausable: Bool? = nil
+  ) {
+    if let state {
+      self.state = state
+    }
+    if let currentTime {
+      self.currentTime = currentTime
+    }
+    if let duration {
+      self.duration = duration
+    }
+    if let position {
+      _position = position
+    }
+    if let isSeekable {
+      self.isSeekable = isSeekable
+    }
+    if let isPausable {
+      self.isPausable = isPausable
     }
   }
 }

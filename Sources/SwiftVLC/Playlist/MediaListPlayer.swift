@@ -18,14 +18,16 @@ import Dispatch
 /// ```
 @MainActor
 public final class MediaListPlayer {
-  let pointer: OpaquePointer // libvlc_media_list_player_t*
+  var pointer: OpaquePointer // libvlc_media_list_player_t*
   private var _mediaPlayer: Player?
   private var _mediaList: MediaList?
   private var _playbackMode: PlaybackMode = .default
+  private let instance: VLCInstance
 
   /// Creates a new media list player.
   /// - Parameter instance: The VLC instance to use.
   public init(instance: VLCInstance = .shared) {
+    self.instance = instance
     guard let p = libvlc_media_list_player_new(instance.pointer) else {
       preconditionFailure("Failed to create libvlc media list player. Is the libvlc.xcframework linked correctly?")
     }
@@ -49,6 +51,8 @@ public final class MediaListPlayer {
       _mediaPlayer = newValue
       if let newValue {
         libvlc_media_list_player_set_media_player(pointer, newValue.pointer)
+      } else {
+        rebuildNativePlayer()
       }
     }
   }
@@ -60,6 +64,8 @@ public final class MediaListPlayer {
       _mediaList = newValue
       if let newValue {
         libvlc_media_list_player_set_media_list(pointer, newValue.pointer)
+      } else {
+        rebuildNativePlayer()
       }
     }
   }
@@ -137,6 +143,28 @@ public final class MediaListPlayer {
   public func previous() throws(VLCError) {
     guard libvlc_media_list_player_previous(pointer) == 0 else {
       throw .operationFailed("Go to previous item")
+    }
+  }
+
+  private func rebuildNativePlayer() {
+    guard let replacement = libvlc_media_list_player_new(instance.pointer) else {
+      preconditionFailure("Failed to rebuild libvlc media list player. Is the libvlc.xcframework linked correctly?")
+    }
+
+    libvlc_media_list_player_set_playback_mode(replacement, _playbackMode.cValue)
+    if let mediaPlayer = _mediaPlayer {
+      libvlc_media_list_player_set_media_player(replacement, mediaPlayer.pointer)
+    }
+    if let mediaList = _mediaList {
+      libvlc_media_list_player_set_media_list(replacement, mediaList.pointer)
+    }
+
+    let previous = pointer
+    pointer = replacement
+    nonisolated(unsafe) let oldPointer = previous
+    DispatchQueue.global(qos: .utility).async {
+      libvlc_media_list_player_stop_async(oldPointer)
+      libvlc_media_list_player_release(oldPointer)
     }
   }
 }

@@ -60,6 +60,22 @@ struct PlayerControlTests {
   }
 
   @Test
+  func `Setting renderer while playing throws`() async throws {
+    let player = Player(instance: TestInstance.makeAudioOnly())
+    // Subscribe before `play()` so we don't miss `.playing`. `setRenderer`
+    // is only rejected when the player is past `.idle`/`.stopped`, so we
+    // must wait for a non-idle state before asserting.
+    let playing = subscribeAndAwait(.playing, on: player)
+    try player.play(Media(url: TestMedia.twosecURL))
+    try #require(await playing.value)
+
+    #expect(throws: VLCError.self) {
+      try player.setRenderer(nil)
+    }
+    player.stop()
+  }
+
+  @Test
   func `setDeinterlace accepts auto disable enable`() throws {
     let player = Player(instance: TestInstance.makeAudioOnly())
     try player.setDeinterlace(state: -1)

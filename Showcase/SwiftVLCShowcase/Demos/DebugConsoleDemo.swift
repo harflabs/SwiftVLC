@@ -113,6 +113,12 @@ struct DebugConsoleDemo: View {
   }
 
   private func setUp() async {
+    // Reset the previous session before creating a new player/log stream
+    // so retries don't keep old playback or stale log rows alive.
+    logTask?.cancel()
+    player?.stop()
+    player = nil
+    logEntries.removeAll()
     error = nil
     do {
       let p = Player()

@@ -1,4 +1,5 @@
 @testable import SwiftVLC
+import CLibVLC
 import Testing
 
 @Suite(.tags(.integration, .mainActor))
@@ -203,6 +204,14 @@ struct MediaListPlayerTests {
     #expect(listPlayer.mediaPlayer != nil)
     listPlayer.mediaPlayer = nil
     #expect(listPlayer.mediaPlayer == nil)
+    let nativePlayer = libvlc_media_list_player_get_media_player(listPlayer.pointer)
+    defer {
+      if let nativePlayer {
+        libvlc_media_player_release(nativePlayer)
+      }
+    }
+    #expect(nativePlayer != nil)
+    #expect(nativePlayer != player.pointer)
   }
 
   @Test
@@ -213,5 +222,21 @@ struct MediaListPlayerTests {
     #expect(listPlayer.mediaList != nil)
     listPlayer.mediaList = nil
     #expect(listPlayer.mediaList == nil)
+  }
+
+  @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+  func `Clearing media list removes stale native playback state`() async throws {
+    let listPlayer = MediaListPlayer()
+    let player = Player()
+    listPlayer.mediaPlayer = player
+
+    let list = MediaList()
+    try list.append(Media(url: TestMedia.twosecURL))
+    listPlayer.mediaList = list
+    listPlayer.mediaList = nil
+
+    listPlayer.play()
+    try await Task.sleep(for: .milliseconds(300))
+    #expect(!listPlayer.isPlaying)
   }
 }

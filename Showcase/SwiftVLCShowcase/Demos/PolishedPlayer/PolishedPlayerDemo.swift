@@ -73,6 +73,9 @@ struct PolishedPlayerDemo: View {
       #endif
     }
     .onChange(of: player?.state) { _, newState in
+      if newState == .playing {
+        scheduleHide()
+      }
       // Show controls when playback ends or errors
       if let newState, newState == .stopped || newState == .error {
         withAnimation(.easeInOut(duration: 0.3)) {

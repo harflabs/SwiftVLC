@@ -49,14 +49,22 @@ struct AudioPlayerDemo: View {
   }
 
   private func setUp() async {
+    // Tear down the previous run first so retries don't leave an old
+    // player decoding in the background or stale metadata/equalizer
+    // state hanging around in the UI.
+    player?.stop()
+    player = nil
+    metadata = nil
+    equalizer = nil
+    selectedPreset = 0
     error = nil
     do {
       let p = Player()
       player = p
 
       let media = try Media(url: TestMedia.bigBuckBunny)
-      metadata = try await media.parse()
       try p.play(media)
+      metadata = try? await media.parse()
 
       let eq = Equalizer()
       equalizer = eq

@@ -39,18 +39,29 @@ public struct PiPVideoView: UIViewRepresentable {
 
     context.coordinator.pipController = controller
     context.coordinator.displayLayer = displayLayer
+    context.coordinator.player = player
 
     // Defer binding update — SwiftUI doesn't allow state changes during view construction
-    let binding = controllerBinding
-    Task { @MainActor in
-      binding?.wrappedValue = controller
-    }
+    pushControllerBinding(controller)
 
     return container
   }
 
-  public func updateUIView(_: UIView, context _: Context) {
-    // Layout is handled by SampleBufferVideoView.layoutSubviews
+  public func updateUIView(_ uiView: UIView, context: Context) {
+    guard let container = uiView as? SampleBufferVideoView else { return }
+    if context.coordinator.player !== player {
+      context.coordinator.pipController?.stop()
+
+      let controller = PiPController(player: player)
+      let displayLayer = controller.layer
+      container.setDisplayLayer(displayLayer)
+
+      context.coordinator.player = player
+      context.coordinator.pipController = controller
+      context.coordinator.displayLayer = displayLayer
+    }
+
+    pushControllerBinding(context.coordinator.pipController)
   }
 
   public static func dismantleUIView(_: UIView, coordinator: Coordinator) {
@@ -70,20 +81,28 @@ public struct PiPVideoView: UIViewRepresentable {
   /// view updates and are cleaned up on dismantle.
   @MainActor
   public final class Coordinator {
+    weak var player: Player?
     var pipController: PiPController?
     var displayLayer: AVSampleBufferDisplayLayer?
+  }
+
+  @MainActor
+  private func pushControllerBinding(_ controller: PiPController?) {
+    let binding = controllerBinding
+    Task { @MainActor in
+      binding?.wrappedValue = controller
+    }
   }
 }
 
 /// UIView subclass that keeps the AVSampleBufferDisplayLayer
 /// sized to fill its bounds on every layout pass.
 private final class SampleBufferVideoView: UIView {
-  private let displayLayer: AVSampleBufferDisplayLayer
+  private var displayLayer: AVSampleBufferDisplayLayer?
 
   init(displayLayer: AVSampleBufferDisplayLayer) {
-    self.displayLayer = displayLayer
     super.init(frame: .zero)
-    layer.addSublayer(displayLayer)
+    setDisplayLayer(displayLayer)
   }
 
   @available(*, unavailable)
@@ -91,12 +110,20 @@ private final class SampleBufferVideoView: UIView {
     fatalError()
   }
 
+  func setDisplayLayer(_ displayLayer: AVSampleBufferDisplayLayer) {
+    self.displayLayer?.removeFromSuperlayer()
+    self.displayLayer = displayLayer
+    layer.addSublayer(displayLayer)
+    setNeedsLayout()
+    layoutIfNeeded()
+  }
+
   override func layoutSubviews() {
     super.layoutSubviews()
     // Disable implicit animations so the layer doesn't animate to the new size
     CATransaction.begin()
     CATransaction.setDisableActions(true)
-    displayLayer.frame = bounds
+    displayLayer?.frame = bounds
     CATransaction.commit()
   }
 }
@@ -129,16 +156,29 @@ public struct PiPVideoView: NSViewRepresentable {
 
     context.coordinator.pipController = controller
     context.coordinator.displayLayer = displayLayer
+    context.coordinator.player = player
 
-    let binding = controllerBinding
-    Task { @MainActor in
-      binding?.wrappedValue = controller
-    }
+    pushControllerBinding(controller)
 
     return container
   }
 
-  public func updateNSView(_: NSView, context _: Context) {}
+  public func updateNSView(_ nsView: NSView, context: Context) {
+    guard let container = nsView as? SampleBufferVideoView else { return }
+    if context.coordinator.player !== player {
+      context.coordinator.pipController?.stop()
+
+      let controller = PiPController(player: player)
+      let displayLayer = controller.layer
+      container.setDisplayLayer(displayLayer)
+
+      context.coordinator.player = player
+      context.coordinator.pipController = controller
+      context.coordinator.displayLayer = displayLayer
+    }
+
+    pushControllerBinding(context.coordinator.pipController)
+  }
 
   public static func dismantleNSView(_: NSView, coordinator: Coordinator) {
     coordinator.pipController?.stop()
@@ -157,20 +197,28 @@ public struct PiPVideoView: NSViewRepresentable {
   /// view updates and are cleaned up on dismantle.
   @MainActor
   public final class Coordinator {
+    weak var player: Player?
     var pipController: PiPController?
     var displayLayer: AVSampleBufferDisplayLayer?
+  }
+
+  @MainActor
+  private func pushControllerBinding(_ controller: PiPController?) {
+    let binding = controllerBinding
+    Task { @MainActor in
+      binding?.wrappedValue = controller
+    }
   }
 }
 
 private final class SampleBufferVideoView: NSView {
-  private let displayLayer: AVSampleBufferDisplayLayer
+  private var displayLayer: AVSampleBufferDisplayLayer?
 
   init(displayLayer: AVSampleBufferDisplayLayer) {
-    self.displayLayer = displayLayer
     super.init(frame: .zero)
     wantsLayer = true
     layer?.backgroundColor = NSColor.black.cgColor
-    layer?.addSublayer(displayLayer)
+    setDisplayLayer(displayLayer)
   }
 
   @available(*, unavailable)
@@ -178,11 +226,19 @@ private final class SampleBufferVideoView: NSView {
     fatalError()
   }
 
+  func setDisplayLayer(_ displayLayer: AVSampleBufferDisplayLayer) {
+    self.displayLayer?.removeFromSuperlayer()
+    self.displayLayer = displayLayer
+    layer?.addSublayer(displayLayer)
+    needsLayout = true
+    layoutSubtreeIfNeeded()
+  }
+
   override func layout() {
     super.layout()
     CATransaction.begin()
     CATransaction.setDisableActions(true)
-    displayLayer.frame = bounds
+    displayLayer?.frame = bounds
     CATransaction.commit()
   }
 }

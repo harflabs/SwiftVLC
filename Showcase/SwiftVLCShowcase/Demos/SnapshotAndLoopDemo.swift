@@ -61,6 +61,12 @@ struct SnapshotAndLoopDemo: View {
       .frame(maxWidth: 720)
       .frame(maxWidth: .infinity)
     }
+    .onChange(of: player.abLoopState) { _, newState in
+      if newState == .none {
+        aTime = nil
+        bTime = nil
+      }
+    }
   }
 
   // MARK: - Video
@@ -77,7 +83,7 @@ struct SnapshotAndLoopDemo: View {
 
   @ViewBuilder
   private var loopStatePill: some View {
-    if aTime != nil || bTime != nil {
+    if loopPillText.isEmpty == false {
       HStack(spacing: 4) {
         Image(systemName: "repeat")
         Text(loopPillText)
@@ -92,11 +98,21 @@ struct SnapshotAndLoopDemo: View {
   }
 
   private var loopPillText: String {
-    switch (aTime, bTime) {
-    case (let a?, let b?): "\(a.formatted) → \(b.formatted)"
-    case (let a?, nil): "A = \(a.formatted)"
-    case (nil, let b?): "B = \(b.formatted)"
-    default: ""
+    switch player?.abLoopState {
+    case .active?:
+      return switch (aTime, bTime) {
+      case (let a?, let b?): "\(a.formatted) → \(b.formatted)"
+      default: "Loop active"
+      }
+    case .pointASet?:
+      return "Point A set"
+    case .none?:
+      if let aTime, bTime == nil {
+        return "Pending A = \(aTime.formatted)"
+      }
+      return ""
+    case nil:
+      return ""
     }
   }
 
@@ -186,7 +202,7 @@ struct SnapshotAndLoopDemo: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
-        .disabled(aTime == nil && bTime == nil)
+        .disabled(player.abLoopState == .none && aTime == nil && bTime == nil)
       }
 
       loopStatusRow

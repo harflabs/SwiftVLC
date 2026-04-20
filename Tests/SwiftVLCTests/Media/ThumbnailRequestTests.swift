@@ -35,18 +35,77 @@ struct ThumbnailRequestTests {
   }
 
   @Test
-  func `Cancellation safety`() async throws {
+  func `Cancellation completes promptly`() async throws {
     let media = try Media(url: TestMedia.testMP4URL)
-    let task = Task {
-      try await media.thumbnail(at: .zero, width: 64)
+    let completed = await withTaskGroup(of: Bool.self) { group in
+      group.addTask {
+        let task = Task {
+          try await media.thumbnail(at: .zero, width: 64)
+        }
+        task.cancel()
+        do {
+          _ = try await task.value
+        } catch {
+          // Expected — cancellation or operation failure
+        }
+        return true
+      }
+      group.addTask {
+        try? await Task.sleep(for: .seconds(3))
+        return false
+      }
+      let first = await group.next() ?? false
+      group.cancelAll()
+      return first
     }
-    task.cancel()
-    // Should not crash regardless of outcome
-    do {
-      _ = try await task.value
-    } catch {
-      // Expected — cancellation or operation failure
+
+    #expect(completed, "Cancelled thumbnail request should not hang indefinitely")
+  }
+
+  @Test
+  func `Concurrent thumbnails on the same media stay isolated`() async throws {
+    let media = try Media(url: TestMedia.testMP4URL)
+    async let first = media.thumbnail(at: .zero, width: 64, height: 0)
+    async let second = media.thumbnail(at: .milliseconds(250), width: 64, height: 0)
+    let thumbnails = try await [first, second]
+    #expect(thumbnails.count == 2)
+    #expect(thumbnails.allSatisfy { !$0.isEmpty })
+  }
+
+  @Test(.tags(.async))
+  func `Queued thumbnail coordinator cancellation completes promptly`() async throws {
+    let coordinator = ThumbnailCoordinator()
+    try await coordinator.acquire()
+    defer {
+      Task {
+        await coordinator.release()
+      }
     }
+
+    let completed = await withTaskGroup(of: Bool.self) { group in
+      group.addTask {
+        let task = Task {
+          do {
+            try await coordinator.acquire()
+            await coordinator.release()
+          } catch {
+            // Expected cancellation path
+          }
+        }
+        task.cancel()
+        await task.value
+        return true
+      }
+      group.addTask {
+        try? await Task.sleep(for: .seconds(1))
+        return false
+      }
+      let first = await group.next() ?? false
+      group.cancelAll()
+      return first
+    }
+
+    #expect(completed, "Queued acquire should stop waiting as soon as it is cancelled")
   }
 
   @Test
