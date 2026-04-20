@@ -72,6 +72,18 @@ enum LogNoiseFilter {
       return .warning
     }
 
+    // libVLC's input/decoder thread wakes its buffer predicate under
+    // rapid seeks and detects a would-be deadlock between the demuxer,
+    // the decoder, and the output — it breaks the deadlock defensively
+    // (no actual hang, no data loss) and logs a `msg_Err`. The
+    // successful recovery makes this informational; only real
+    // unrecovered deadlocks would escalate via subsequent fatal errors
+    // from `core`. Pinned to exact equality to avoid demoting unrelated
+    // messages that happen to mention a buffer.
+    if message == "buffer deadlock prevented" {
+      return .warning
+    }
+
     return level
   }
 }

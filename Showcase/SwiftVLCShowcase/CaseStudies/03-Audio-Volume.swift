@@ -19,14 +19,24 @@ struct VolumeCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.Volume.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.Volume.playPauseButton)
       }
 
       Section("Volume") {
         Toggle("Muted", isOn: $bindable.isMuted)
+          .accessibilityIdentifier(AccessibilityID.Volume.muteToggle)
         CompatSlider(value: $bindable.volume, range: 0...1.25, step: 0.05)
-        LabeledContent("Level", value: String(format: "%.0f%%", bindable.volume * 100))
+          .accessibilityIdentifier(AccessibilityID.Volume.slider)
+        HStack {
+          Text("Level")
+          Spacer()
+          Text(String(format: "%.0f%%", bindable.volume * 100))
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(AccessibilityID.Volume.level)
+        }
       }
     }
     .showcaseFormStyle()

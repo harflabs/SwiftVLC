@@ -42,4 +42,12 @@ enum AccessibilityID {
     static let currentTime = "seekbar.currentTime"
     static let duration = "seekbar.duration"
   }
+
+  enum Volume {
+    static let videoView = "vol.videoView"
+    static let playPauseButton = "vol.playPause"
+    static let slider = "vol.slider"
+    static let level = "vol.level"
+    static let muteToggle = "vol.mute"
+  }
 }

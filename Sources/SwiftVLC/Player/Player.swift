@@ -82,26 +82,40 @@ public final class Player {
 
   /// Volume level, normalized. 0.0 = silent, 1.0 = normal (100%).
   /// Values above 1.0 amplify beyond normal volume (up to 1.25 = 125%).
+  ///
+  /// Backed by a shadow `_volume` rather than a live libVLC read: before
+  /// the audio output is initialized `libvlc_audio_get_volume` returns a
+  /// negative sentinel (observed as `-100` on libVLC 4.0), which would
+  /// surface in the UI as "-100%" even though the user is hearing audio
+  /// at the default level. The shadow starts at nominal `1.0` and is
+  /// refreshed from the native player on state transitions via
+  /// `refreshNativeStateIfNeeded()` once libVLC's audio output can be
+  /// trusted to report a real value.
   public var volume: Float {
     get {
       access(keyPath: \.volume)
-      return Float(libvlc_audio_get_volume(pointer)) / 100.0
+      return _volume
     }
     set {
-      _ = withMutation(keyPath: \.volume) {
-        libvlc_audio_set_volume(pointer, Int32(max(newValue, 0) * 100))
+      withMutation(keyPath: \.volume) {
+        _volume = max(0, newValue)
+        libvlc_audio_set_volume(pointer, Int32(_volume * 100))
       }
     }
   }
 
-  /// Whether audio is muted.
+  /// Whether audio is muted. Backed by a shadow `_isMuted` for the same
+  /// reason as `volume` — `libvlc_audio_get_mute` returns `-1` when the
+  /// mute status is undefined, which Swift's `Int32 > 0` test would
+  /// quietly map to `false`, hiding a real mute toggle from the UI.
   public var isMuted: Bool {
     get {
       access(keyPath: \.isMuted)
-      return libvlc_audio_get_mute(pointer) > 0
+      return _isMuted
     }
     set {
       withMutation(keyPath: \.isMuted) {
+        _isMuted = newValue
         libvlc_audio_set_mute(pointer, newValue ? 1 : 0)
       }
     }
@@ -250,6 +264,8 @@ public final class Player {
   private var eventTask: Task<Void, Never>?
   private var _position: Double = 0
   private var _equalizer: Equalizer?
+  private var _volume: Float = 1.0
+  private var _isMuted: Bool = false
   let instance: VLCInstance
 
   // MARK: - Lifecycle
@@ -1045,6 +1061,31 @@ public final class Player {
     let nativePausable = libvlc_media_player_can_pause(pointer)
     if isPausable != nativePausable {
       isPausable = nativePausable
+    }
+
+    // libVLC reports volume/mute via `libvlc_audio_get_volume` and
+    // `libvlc_audio_get_mute`; both return negative sentinels (observed
+    // as `-100` and `-1` respectively on libVLC 4.0) when the audio
+    // output isn't initialized yet. Only sync the shadow state from
+    // valid (non-negative) reads.
+    let nativeVolume = libvlc_audio_get_volume(pointer)
+    if nativeVolume >= 0 {
+      let normalized = Float(nativeVolume) / 100.0
+      if abs(_volume - normalized) > 0.001 {
+        withMutation(keyPath: \.volume) {
+          _volume = normalized
+        }
+      }
+    }
+
+    let nativeMute = libvlc_audio_get_mute(pointer)
+    if nativeMute >= 0 {
+      let muted = nativeMute > 0
+      if _isMuted != muted {
+        withMutation(keyPath: \.isMuted) {
+          _isMuted = muted
+        }
+      }
     }
   }
 

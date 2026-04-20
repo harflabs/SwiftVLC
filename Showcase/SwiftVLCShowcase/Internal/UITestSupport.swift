@@ -61,6 +61,7 @@ extension UITestRoute {
     case .simplePlayback: SimplePlaybackCase()
     case .playerState: PlayerStateCase()
     case .seeking: SeekingCase()
+    case .volume: VolumeCase()
     }
   }
 }

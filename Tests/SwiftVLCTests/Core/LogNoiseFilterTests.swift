@@ -48,6 +48,16 @@ struct LogNoiseFilterTests {
   }
 
   @Test
+  func `'buffer deadlock prevented' at error is demoted to warning`() {
+    let result = LogNoiseFilter.reclassify(
+      level: .error,
+      module: "libvlc",
+      message: "buffer deadlock prevented"
+    )
+    #expect(result == .warning)
+  }
+
+  @Test
   func `Module field is irrelevant — rule fires regardless`() {
     // libVLC 4.0 reports the umbrella "libvlc" for every entry; future
     // versions or our own shim may surface the per-module name. Rules
