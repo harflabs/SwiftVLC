@@ -19,19 +19,47 @@ struct PlayerStateCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.PlayerState.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.PlayerState.playPauseButton)
       }
 
       Section("Live state") {
-        LabeledContent("State", value: label)
-        LabeledContent("Seekable", value: player.isSeekable ? "yes" : "no")
-        LabeledContent("Pausable", value: player.isPausable ? "yes" : "no")
+        row(
+          "State",
+          value: label,
+          identifier: AccessibilityID.PlayerState.stateLabel
+        )
+        row(
+          "Seekable",
+          value: player.isSeekable ? "yes" : "no",
+          identifier: AccessibilityID.PlayerState.seekableLabel
+        )
+        row(
+          "Pausable",
+          value: player.isPausable ? "yes" : "no",
+          identifier: AccessibilityID.PlayerState.pausableLabel
+        )
       }
     }
     .navigationTitle("Player state")
     .task { try? player.play(url: TestMedia.bigBuckBunny) }
     .onDisappear { player.stop() }
+  }
+
+  /// `LabeledContent` joins its label and content into a single accessibility
+  /// element (e.g. "State, playing"), which defeats per-value XCUITest
+  /// queries. A plain HStack keeps each value's `XCUIElement.label`
+  /// identical to its visible string.
+  private func row(_ title: String, value: String, identifier: String) -> some View {
+    HStack {
+      Text(title)
+      Spacer()
+      Text(value)
+        .foregroundStyle(.secondary)
+        .accessibilityIdentifier(identifier)
+    }
   }
 
   private var label: String {

@@ -47,6 +47,7 @@ enum LaunchArguments {
 /// resolve the matching view.
 enum UITestRoute: String, CaseIterable {
   case simplePlayback = "SimplePlayback"
+  case playerState = "PlayerState"
 
   static var current: UITestRoute? {
     LaunchArguments.routeValue.flatMap(UITestRoute.init(rawValue:))

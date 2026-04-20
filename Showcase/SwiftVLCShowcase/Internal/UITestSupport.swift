@@ -59,6 +59,7 @@ extension UITestRoute {
   var view: some View {
     switch self {
     case .simplePlayback: SimplePlaybackCase()
+    case .playerState: PlayerStateCase()
     }
   }
 }

@@ -50,22 +50,24 @@ final class SimplePlaybackUITests: ShowcaseUITestCase {
     waitForLabel(duration, notEqual: "—", timeout: 5)
     waitForLabel(currentTime, notEqual: "00:00", timeout: 5)
 
-    let timeBeforePause = currentTime.label
-
     playPauseButton.tap()
     waitForLabel(playPauseButton, equals: "Play", timeout: 3)
 
-    // Wait two seconds with the player paused; the time label must not
-    // advance.
+    // libVLC's `timeChanged` events for the pre-pause window can still be
+    // in flight when the state flip lands. Give the event queue a moment
+    // to drain, then sample; the subsequent 2s must not advance the label.
+    Thread.sleep(forTimeInterval: 1)
+    let timeAfterSettle = currentTime.label
+
     Thread.sleep(forTimeInterval: 2)
     XCTAssertEqual(
-      currentTime.label, timeBeforePause,
-      "Time advanced from \(timeBeforePause) to \(currentTime.label) while paused"
+      currentTime.label, timeAfterSettle,
+      "Time advanced from \(timeAfterSettle) to \(currentTime.label) while paused"
     )
 
     playPauseButton.tap()
     waitForLabel(playPauseButton, equals: "Pause", timeout: 3)
-    waitForLabel(currentTime, notEqual: timeBeforePause, timeout: 5)
+    waitForLabel(currentTime, notEqual: timeAfterSettle, timeout: 5)
 
     assertNoLibraryErrors()
   }

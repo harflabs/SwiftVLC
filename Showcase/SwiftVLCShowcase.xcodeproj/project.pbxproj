@@ -85,8 +85,8 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				B4000010 /* Shared */,
 				B4000002 /* SwiftVLCShowcase */,
+				B4000010 /* Shared */,
 			);
 			name = SwiftVLCShowcase;
 			packageProductDependencies = (

@@ -20,4 +20,12 @@ enum AccessibilityID {
     static let currentTime = "sp.currentTime"
     static let duration = "sp.duration"
   }
+
+  enum PlayerState {
+    static let videoView = "ps.videoView"
+    static let playPauseButton = "ps.playPause"
+    static let stateLabel = "ps.state"
+    static let seekableLabel = "ps.seekable"
+    static let pausableLabel = "ps.pausable"
+  }
 }

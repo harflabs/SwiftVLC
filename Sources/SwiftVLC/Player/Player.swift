@@ -331,9 +331,33 @@ public final class Player {
     libvlc_media_player_set_pause(pointer, 0)
   }
 
-  /// Toggles play/pause.
+  /// Toggles between playing and paused, or starts playback from an
+  /// idle/stopped state. No-op while the player is in a transient state
+  /// (`.opening`, `.buffering`, `.stopping`, `.error`).
+  ///
+  /// Dispatches based on the observed ``state`` rather than calling
+  /// `libvlc_media_player_pause` (which is itself a toggle). The naked
+  /// toggle is unsafe while libVLC is mid-transition: interleaving a
+  /// pause-toggle with the audio output's opening path corrupts
+  /// `stream->timing.pause_date` and trips the upstream assertion
+  /// `stream->timing.pause_date == VLC_TICK_INVALID` in
+  /// `src/audio_output/dec.c:876` once the stream enters Play, killing
+  /// the process. The usual repro is a user tapping a Play/Pause button
+  /// immediately after a `.task { try? player.play(url:) }` begins.
   public func togglePlayPause() {
-    libvlc_media_player_pause(pointer) // VLC's pause() is actually toggle
+    switch state {
+    case .playing:
+      pause()
+    case .paused:
+      resume()
+    case .idle, .stopped:
+      try? play()
+    case .opening, .buffering, .stopping, .error:
+      // Transient state — libVLC isn't ready to accept a pause-toggle
+      // safely. Ignore the input rather than corrupting its internal
+      // audio-output state.
+      break
+    }
   }
 
   /// Stops playback asynchronously.
@@ -891,13 +915,15 @@ public final class Player {
         }
         withMutation(keyPath: \.abLoopState) {}
       }
-      // `MediaPlayerLengthChanged` is not guaranteed to fire for every
-      // media — for some inputs, length is surfaced via the media-side
-      // `MediaParsedChanged` event (on `Media`, not on the player) and
-      // the player-side event never arrives. Read the length directly
-      // from libVLC on every non-terminal state transition as a
-      // safety-net source; early-exits once we know it.
-      refreshDurationFromNativeIfNeeded()
+      // libVLC doesn't always emit `MediaPlayerLengthChanged`,
+      // `MediaPlayerSeekableChanged`, or `MediaPlayerPausableChanged`
+      // events on the player-side — for some inputs the demuxer publishes
+      // those via `MediaParsedChanged` on `Media` (which we don't bridge
+      // to the player) or sets the fields before the player has a chance
+      // to attach its event listener. Polling the native player on every
+      // state transition catches those cases; it's cheap (three C calls)
+      // and idempotent when the events do fire.
+      refreshNativeStateIfNeeded()
 
     case .timeChanged(let time):
       currentTime = time
@@ -988,14 +1014,29 @@ public final class Player {
     }
   }
 
-  /// Reads length directly from libVLC and publishes it as ``duration`` if
-  /// we don't already have it. Called on every state transition as a
-  /// resilient companion to `MediaPlayerLengthChanged`.
-  private func refreshDurationFromNativeIfNeeded() {
-    guard duration == nil else { return }
-    let ms = libvlc_media_player_get_length(pointer)
-    guard ms > 0 else { return }
-    duration = .milliseconds(ms)
+  /// Reads length / seekable / pausable directly from libVLC and
+  /// publishes any changes to the matching observable property. Called
+  /// on every state transition as a resilient companion to
+  /// `MediaPlayerLengthChanged` / `SeekableChanged` / `PausableChanged`,
+  /// which are not guaranteed to fire on the player's event manager for
+  /// every media.
+  private func refreshNativeStateIfNeeded() {
+    if duration == nil {
+      let ms = libvlc_media_player_get_length(pointer)
+      if ms > 0 {
+        duration = .milliseconds(ms)
+      }
+    }
+
+    let nativeSeekable = libvlc_media_player_is_seekable(pointer)
+    if isSeekable != nativeSeekable {
+      isSeekable = nativeSeekable
+    }
+
+    let nativePausable = libvlc_media_player_can_pause(pointer)
+    if isPausable != nativePausable {
+      isPausable = nativePausable
+    }
   }
 
   private func syncCurrentMediaFromNative() {
