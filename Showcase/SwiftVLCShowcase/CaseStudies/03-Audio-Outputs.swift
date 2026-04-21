@@ -22,19 +22,24 @@ struct AudioOutputsCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.AudioOutputs.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.AudioOutputs.playPauseButton)
       }
 
       Section("Output") {
         if outputs.isEmpty {
-          Text("None available").foregroundStyle(.secondary)
+          Text("None available")
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(AccessibilityID.AudioOutputs.outputEmptyLabel)
         } else {
           Picker("Output", selection: $selectedOutput) {
             ForEach(outputs) { output in
               Text(output.outputDescription).tag(output.name)
             }
           }
+          .accessibilityIdentifier(AccessibilityID.AudioOutputs.outputPicker)
           .onChange(of: selectedOutput) {
             try? player.setAudioOutput(selectedOutput)
             devices = player.audioDevices()
@@ -44,13 +49,16 @@ struct AudioOutputsCase: View {
 
       Section("Device") {
         if devices.isEmpty {
-          Text("None available").foregroundStyle(.secondary)
+          Text("None available")
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(AccessibilityID.AudioOutputs.deviceEmptyLabel)
         } else {
           Picker("Device", selection: $selectedDevice) {
             ForEach(devices) { device in
               Text(device.deviceDescription).tag(device.deviceId)
             }
           }
+          .accessibilityIdentifier(AccessibilityID.AudioOutputs.devicePicker)
           .onChange(of: selectedDevice) {
             try? player.setAudioDevice(selectedDevice)
           }

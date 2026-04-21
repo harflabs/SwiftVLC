@@ -118,4 +118,13 @@ enum AccessibilityID {
     static let toggleButton = "pip.toggle"
     static let preparingLabel = "pip.preparing"
   }
+
+  enum AudioOutputs {
+    static let videoView = "audioout.videoView"
+    static let playPauseButton = "audioout.playPause"
+    static let outputEmptyLabel = "audioout.outputEmpty"
+    static let outputPicker = "audioout.outputPicker"
+    static let deviceEmptyLabel = "audioout.deviceEmpty"
+    static let devicePicker = "audioout.devicePicker"
+  }
 }
