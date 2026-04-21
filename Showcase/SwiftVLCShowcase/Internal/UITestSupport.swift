@@ -91,6 +91,7 @@ extension UITestRoute {
     #else
     case .subtitlesExternal: EmptyView()
     #endif
+    case .chapters: ChaptersCase()
     }
   }
 }

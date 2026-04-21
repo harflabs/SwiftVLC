@@ -212,4 +212,13 @@ enum AccessibilityID {
     static let playPauseButton = "subext.playPause"
     static let loadButton = "subext.load"
   }
+
+  enum Chapters {
+    static let videoView = "chapters.videoView"
+    static let playPauseButton = "chapters.playPause"
+    static let emptyLabel = "chapters.empty"
+    static let picker = "chapters.picker"
+    static let previousButton = "chapters.previous"
+    static let nextButton = "chapters.next"
+  }
 }

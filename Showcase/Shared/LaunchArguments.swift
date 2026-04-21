@@ -71,6 +71,7 @@ enum UITestRoute: String, CaseIterable {
   case viewpoint = "Viewpoint"
   case subtitlesSelection = "SubtitlesSelection"
   case subtitlesExternal = "SubtitlesExternal"
+  case chapters = "Chapters"
 
   static var current: UITestRoute? {
     LaunchArguments.routeValue.flatMap(UITestRoute.init(rawValue:))
