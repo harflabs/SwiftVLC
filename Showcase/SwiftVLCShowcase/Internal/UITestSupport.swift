@@ -81,6 +81,7 @@ extension UITestRoute {
     case .equalizer: EqualizerCase()
     case .audioChannels: AudioChannelsCase()
     case .audioDelay: AudioDelayCase()
+    case .recording: RecordingCase()
     }
   }
 }

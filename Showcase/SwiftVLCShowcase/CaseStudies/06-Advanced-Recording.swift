@@ -19,8 +19,10 @@ struct RecordingCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.Recording.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.Recording.playPauseButton)
       }
 
       Section {
@@ -29,14 +31,18 @@ struct RecordingCase: View {
           systemImage: isRecording ? "stop.circle.fill" : "record.circle.fill",
           action: toggle
         )
+        .accessibilityIdentifier(AccessibilityID.Recording.toggleButton)
         .tint(isRecording ? .red : .accentColor)
         .frame(maxWidth: .infinity)
 
         if let outputFile {
-          LabeledContent(
-            "Saved to",
-            value: URL(fileURLWithPath: outputFile).lastPathComponent
-          )
+          HStack {
+            Text("Saved to")
+            Spacer()
+            Text(URL(fileURLWithPath: outputFile).lastPathComponent)
+              .foregroundStyle(.secondary)
+              .accessibilityIdentifier(AccessibilityID.Recording.savedToLabel)
+          }
           .font(.caption)
         }
       }

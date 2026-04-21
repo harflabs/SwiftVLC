@@ -168,4 +168,11 @@ enum AccessibilityID {
     static let slider = "audiodelay.slider"
     static let offsetLabel = "audiodelay.offset"
   }
+
+  enum Recording {
+    static let videoView = "rec.videoView"
+    static let playPauseButton = "rec.playPause"
+    static let toggleButton = "rec.toggle"
+    static let savedToLabel = "rec.savedTo"
+  }
 }

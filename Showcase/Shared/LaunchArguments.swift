@@ -65,6 +65,7 @@ enum UITestRoute: String, CaseIterable {
   case equalizer = "Equalizer"
   case audioChannels = "AudioChannels"
   case audioDelay = "AudioDelay"
+  case recording = "Recording"
 
   static var current: UITestRoute? {
     LaunchArguments.routeValue.flatMap(UITestRoute.init(rawValue:))
