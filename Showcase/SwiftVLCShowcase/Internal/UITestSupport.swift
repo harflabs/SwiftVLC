@@ -66,6 +66,7 @@ extension UITestRoute {
     case .relativeSeek: RelativeSeekCase()
     case .frameStep: FrameStepCase()
     case .rate: RateCase()
+    case .thumbnails: ThumbnailsCase()
     }
   }
 }

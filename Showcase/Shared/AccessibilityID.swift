@@ -86,4 +86,13 @@ enum AccessibilityID {
     static let currentLabel = "rate.current"
     static let slider = "rate.slider"
   }
+
+  enum Thumbnails {
+    static let generateButton = "thumb.generate"
+    static let offsetSlider = "thumb.offsetSlider"
+    static let offsetLabel = "thumb.offsetLabel"
+    static let thumbnailImage = "thumb.image"
+    static let emptyPlaceholder = "thumb.empty"
+    static let progressIndicator = "thumb.progress"
+  }
 }
