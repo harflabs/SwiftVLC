@@ -19,8 +19,10 @@ struct AudioChannelsCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.AudioChannels.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.AudioChannels.playPauseButton)
       }
 
       Section("Stereo") {
@@ -33,6 +35,7 @@ struct AudioChannelsCase: View {
           Text("Dolby Surround").tag(StereoMode.dolbySurround)
           Text("Mono").tag(StereoMode.mono)
         }
+        .accessibilityIdentifier(AccessibilityID.AudioChannels.stereoPicker)
       }
 
       Section("Mix") {
@@ -44,6 +47,7 @@ struct AudioChannelsCase: View {
           Text("5.1").tag(MixMode.fivePointOne)
           Text("7.1").tag(MixMode.sevenPointOne)
         }
+        .accessibilityIdentifier(AccessibilityID.AudioChannels.mixPicker)
       }
     }
     .showcaseFormStyle()

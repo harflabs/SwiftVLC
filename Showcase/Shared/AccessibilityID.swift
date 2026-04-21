@@ -154,4 +154,11 @@ enum AccessibilityID {
     static let preampSlider = "eq.preampSlider"
     static let preampGainLabel = "eq.preampGain"
   }
+
+  enum AudioChannels {
+    static let videoView = "channels.videoView"
+    static let playPauseButton = "channels.playPause"
+    static let stereoPicker = "channels.stereoPicker"
+    static let mixPicker = "channels.mixPicker"
+  }
 }
