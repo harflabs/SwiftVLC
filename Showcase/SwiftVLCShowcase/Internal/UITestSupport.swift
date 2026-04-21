@@ -92,6 +92,8 @@ extension UITestRoute {
     case .subtitlesExternal: EmptyView()
     #endif
     case .chapters: ChaptersCase()
+    case .subtitlesDelay: SubtitlesDelayCase()
+    case .subtitlesScale: SubtitlesScaleCase()
     }
   }
 }

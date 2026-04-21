@@ -18,13 +18,20 @@ struct SubtitlesDelayCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.SubtitlesDelay.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.SubtitlesDelay.playPauseButton)
       }
 
       Section("Delay") {
         CompatSlider(value: $delayMs, range: -5000...5000, step: 50)
-        LabeledContent("Offset", value: String(format: "%+d ms", Int(delayMs)))
+          .accessibilityIdentifier(AccessibilityID.SubtitlesDelay.slider)
+        HStack {
+          Text("Offset")
+          Spacer()
+          Text(String(format: "%+d ms", Int(delayMs))).foregroundStyle(.secondary)
+        }
       }
     }
     .showcaseFormStyle()

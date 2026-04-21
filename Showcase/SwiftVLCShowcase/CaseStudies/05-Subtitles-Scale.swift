@@ -18,13 +18,20 @@ struct SubtitlesScaleCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.SubtitlesScale.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.SubtitlesScale.playPauseButton)
       }
 
       Section("Scale") {
         CompatSlider(value: $bindable.subtitleTextScale, range: 0.1...5.0, step: 0.1)
-        LabeledContent("Scale", value: String(format: "%.1f×", bindable.subtitleTextScale))
+          .accessibilityIdentifier(AccessibilityID.SubtitlesScale.slider)
+        HStack {
+          Text("Scale")
+          Spacer()
+          Text(String(format: "%.1f×", bindable.subtitleTextScale)).foregroundStyle(.secondary)
+        }
       }
     }
     .showcaseFormStyle()

@@ -221,4 +221,16 @@ enum AccessibilityID {
     static let previousButton = "chapters.previous"
     static let nextButton = "chapters.next"
   }
+
+  enum SubtitlesDelay {
+    static let videoView = "subdelay.videoView"
+    static let playPauseButton = "subdelay.playPause"
+    static let slider = "subdelay.slider"
+  }
+
+  enum SubtitlesScale {
+    static let videoView = "subscale.videoView"
+    static let playPauseButton = "subscale.playPause"
+    static let slider = "subscale.slider"
+  }
 }
