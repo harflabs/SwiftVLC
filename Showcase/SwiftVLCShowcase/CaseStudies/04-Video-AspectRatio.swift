@@ -27,8 +27,10 @@ struct AspectRatioCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.AspectRatio.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.AspectRatio.playPauseButton)
       }
 
       Section("Aspect ratio") {
@@ -37,6 +39,7 @@ struct AspectRatioCase: View {
             Text(option.label).tag(option.key)
           }
         }
+        .accessibilityIdentifier(AccessibilityID.AspectRatio.ratioPicker)
         .onChange(of: selected) { _, new in
           if let option = options.first(where: { $0.key == new }) {
             player.aspectRatio = option.ratio

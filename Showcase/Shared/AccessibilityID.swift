@@ -133,4 +133,10 @@ enum AccessibilityID {
     static let playPauseButton = "lifecycle.playPause"
     static let sourcePicker = "lifecycle.sourcePicker"
   }
+
+  enum AspectRatio {
+    static let videoView = "aspect.videoView"
+    static let playPauseButton = "aspect.playPause"
+    static let ratioPicker = "aspect.ratioPicker"
+  }
 }
