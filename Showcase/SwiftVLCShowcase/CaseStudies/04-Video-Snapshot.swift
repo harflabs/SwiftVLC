@@ -18,6 +18,7 @@ struct SnapshotCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.Snapshot.videoView)
       } footer: {
         HStack(spacing: 40) {
           Button(
@@ -26,8 +27,10 @@ struct SnapshotCase: View {
             action: player.togglePlayPause
           )
           .contentTransition(.symbolEffect(.replace))
+          .accessibilityIdentifier(AccessibilityID.Snapshot.playPauseButton)
 
           Button("Take snapshot", systemImage: "camera.fill", action: capture)
+            .accessibilityIdentifier(AccessibilityID.Snapshot.takeSnapshotButton)
         }
         .labelStyle(.iconOnly)
         .font(.largeTitle)
@@ -40,6 +43,7 @@ struct SnapshotCase: View {
             .resizable()
             .aspectRatio(contentMode: .fit)
             .listRowInsets(EdgeInsets())
+            .accessibilityIdentifier(AccessibilityID.Snapshot.snapshotImage)
         }
       }
     }

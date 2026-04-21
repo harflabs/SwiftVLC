@@ -68,6 +68,7 @@ extension UITestRoute {
     case .rate: RateCase()
     case .thumbnails: ThumbnailsCase()
     case .audioTracks: AudioTracksCase()
+    case .snapshot: SnapshotCase()
     }
   }
 }

@@ -102,4 +102,11 @@ enum AccessibilityID {
     static let loadingLabel = "audiotracks.loading"
     static let trackPicker = "audiotracks.picker"
   }
+
+  enum Snapshot {
+    static let videoView = "snapshot.videoView"
+    static let playPauseButton = "snapshot.playPause"
+    static let takeSnapshotButton = "snapshot.take"
+    static let snapshotImage = "snapshot.image"
+  }
 }
