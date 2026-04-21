@@ -78,6 +78,7 @@ extension UITestRoute {
     case .lifecycle: LifecycleCase()
     case .aspectRatio: AspectRatioCase()
     case .deinterlacing: DeinterlacingCase()
+    case .equalizer: EqualizerCase()
     }
   }
 }

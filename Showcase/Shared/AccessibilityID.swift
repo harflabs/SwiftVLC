@@ -146,4 +146,12 @@ enum AccessibilityID {
     static let statePicker = "deinterlace.statePicker"
     static let modePicker = "deinterlace.modePicker"
   }
+
+  enum Equalizer {
+    static let videoView = "eq.videoView"
+    static let playPauseButton = "eq.playPause"
+    static let presetPicker = "eq.presetPicker"
+    static let preampSlider = "eq.preampSlider"
+    static let preampGainLabel = "eq.preampGain"
+  }
 }

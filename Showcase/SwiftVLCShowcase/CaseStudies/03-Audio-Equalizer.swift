@@ -19,8 +19,10 @@ struct EqualizerCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.Equalizer.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.Equalizer.playPauseButton)
       }
 
       Section("Preset") {
@@ -29,6 +31,7 @@ struct EqualizerCase: View {
             Text(name).tag(offset)
           }
         }
+        .accessibilityIdentifier(AccessibilityID.Equalizer.presetPicker)
         .onChange(of: preset) { _, new in
           equalizer = Equalizer(preset: new)
           player.equalizer = equalizer
@@ -43,7 +46,14 @@ struct EqualizerCase: View {
           ),
           range: -20...20, step: 0.5
         )
-        LabeledContent("Gain", value: String(format: "%+.1f dB", equalizer.preamp))
+        .accessibilityIdentifier(AccessibilityID.Equalizer.preampSlider)
+        HStack {
+          Text("Gain")
+          Spacer()
+          Text(String(format: "%+.1f dB", equalizer.preamp))
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(AccessibilityID.Equalizer.preampGainLabel)
+        }
       }
 
       Section("Bands") {
