@@ -79,4 +79,11 @@ enum AccessibilityID {
     static let timeLabel = "framestep.time"
     static let nextFrameButton = "framestep.nextFrame"
   }
+
+  enum Rate {
+    static let videoView = "rate.videoView"
+    static let playPauseButton = "rate.playPause"
+    static let currentLabel = "rate.current"
+    static let slider = "rate.slider"
+  }
 }

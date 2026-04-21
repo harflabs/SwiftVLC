@@ -65,6 +65,7 @@ extension UITestRoute {
     case .abLoop: ABLoopCase()
     case .relativeSeek: RelativeSeekCase()
     case .frameStep: FrameStepCase()
+    case .rate: RateCase()
     }
   }
 }
