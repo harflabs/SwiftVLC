@@ -86,6 +86,11 @@ extension UITestRoute {
     case .adjustments: VideoAdjustmentsCase()
     case .viewpoint: ViewpointCase()
     case .subtitlesSelection: SubtitlesSelectionCase()
+    #if os(iOS) || os(macOS)
+    case .subtitlesExternal: SubtitlesExternalCase()
+    #else
+    case .subtitlesExternal: EmptyView()
+    #endif
     }
   }
 }

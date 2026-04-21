@@ -206,4 +206,10 @@ enum AccessibilityID {
     static let emptyLabel = "subsel.empty"
     static let picker = "subsel.picker"
   }
+
+  enum SubtitlesExternal {
+    static let videoView = "subext.videoView"
+    static let playPauseButton = "subext.playPause"
+    static let loadButton = "subext.load"
+  }
 }

@@ -20,8 +20,10 @@ struct SubtitlesExternalCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.SubtitlesExternal.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.SubtitlesExternal.playPauseButton)
       }
 
       Section("Position") {
@@ -32,10 +34,15 @@ struct SubtitlesExternalCase: View {
         Button("Load subtitle file…", systemImage: "doc.badge.plus") {
           isPickingFile = true
         }
+        .accessibilityIdentifier(AccessibilityID.SubtitlesExternal.loadButton)
         .frame(maxWidth: .infinity)
 
         if let loaded {
-          LabeledContent("Loaded", value: loaded.lastPathComponent)
+          HStack {
+            Text("Loaded")
+            Spacer()
+            Text(loaded.lastPathComponent).foregroundStyle(.secondary)
+          }
         }
       }
     }
