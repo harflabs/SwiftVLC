@@ -63,6 +63,7 @@ extension UITestRoute {
     case .seeking: SeekingCase()
     case .volume: VolumeCase()
     case .abLoop: ABLoopCase()
+    case .relativeSeek: RelativeSeekCase()
     }
   }
 }

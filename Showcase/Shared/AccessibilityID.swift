@@ -62,4 +62,13 @@ enum AccessibilityID {
     static let markBButton = "abloop.markB"
     static let resetButton = "abloop.reset"
   }
+
+  enum RelativeSeek {
+    static let videoView = "relseek.videoView"
+    static let playPauseButton = "relseek.playPause"
+    static let skipBack30 = "relseek.skipBack30"
+    static let skipBack10 = "relseek.skipBack10"
+    static let skipForward10 = "relseek.skipForward10"
+    static let skipForward30 = "relseek.skipForward30"
+  }
 }

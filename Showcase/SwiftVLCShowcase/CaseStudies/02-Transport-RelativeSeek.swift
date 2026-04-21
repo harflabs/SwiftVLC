@@ -17,8 +17,10 @@ struct RelativeSeekCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.RelativeSeek.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.RelativeSeek.playPauseButton)
       }
 
       Section("Position") {
@@ -27,11 +29,15 @@ struct RelativeSeekCase: View {
 
       Section("Skip") {
         HStack(spacing: 12) {
-          skip(-30)
-          skip(-10)
-          skip(+10)
-          skip(+30)
+          skip(-30, identifier: AccessibilityID.RelativeSeek.skipBack30)
+          skip(-10, identifier: AccessibilityID.RelativeSeek.skipBack10)
+          skip(+10, identifier: AccessibilityID.RelativeSeek.skipForward10)
+          skip(+30, identifier: AccessibilityID.RelativeSeek.skipForward30)
         }
+        // Each skip Button needs an explicit hit target, otherwise the
+        // Form row swallows individual taps and routes them through the
+        // cell. See `ABLoopCase` for the same fix.
+        .buttonStyle(.borderless)
       }
     }
     .showcaseFormStyle()
@@ -40,12 +46,13 @@ struct RelativeSeekCase: View {
     .onDisappear { player.stop() }
   }
 
-  private func skip(_ seconds: Int) -> some View {
+  private func skip(_ seconds: Int, identifier: String) -> some View {
     Button {
       player.seek(by: .seconds(seconds))
     } label: {
       Text(seconds > 0 ? "+\(seconds)s" : "\(seconds)s")
         .frame(maxWidth: .infinity)
     }
+    .accessibilityIdentifier(identifier)
   }
 }

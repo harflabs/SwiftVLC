@@ -398,6 +398,12 @@ public final class Player {
   /// completion.
   public func seek(to time: Duration) {
     libvlc_media_player_set_time(pointer, time.milliseconds, /* fast */ false)
+    // Same reason as the `position` setter: libVLC doesn't always emit
+    // `MediaPlayerTimeChanged` after a seek (especially while paused),
+    // so the published `currentTime` would appear stuck. The
+    // subsequent timeChanged event refines this with libVLC's actual
+    // post-seek frame timestamp.
+    currentTime = time
   }
 
   /// Seeks by a relative offset from the current position.
@@ -406,6 +412,16 @@ public final class Player {
   /// if the media is not seekable.
   public func seek(by offset: Duration) {
     libvlc_media_player_jump_time(pointer, offset.milliseconds)
+    // Optimistic `currentTime` update for the same reason as `seek(to:)`.
+    // Clamp to [0, duration] so the published value can never go
+    // negative or past the end while libVLC catches up.
+    var target = currentTime + offset
+    if target < .zero {
+      target = .zero
+    } else if let dur = duration, target > dur {
+      target = dur
+    }
+    currentTime = target
   }
 
   /// Pauses playback and advances one video frame.
