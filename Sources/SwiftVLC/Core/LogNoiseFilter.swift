@@ -98,6 +98,20 @@ enum LogNoiseFilter {
       return .warning
     }
 
+    // UPnP renderer discovery fails on iOS simulator because the
+    // simulator's network interface doesn't expose a multicast-capable
+    // route. The discoverer probe fails with `UPNP_E_INVALID_INTERFACE`;
+    // the cascade then reports no suitable module for `upnp_renderer`.
+    // Neither is fatal — the simulator just has no UPnP network to
+    // discover on. On real hardware with Wi-Fi / Ethernet available,
+    // these messages don't fire.
+    if message == "Initialization failed: UPNP_E_INVALID_INTERFACE" {
+      return .warning
+    }
+    if message == "no suitable renderer discovery module for 'upnp_renderer'" {
+      return .warning
+    }
+
     return level
   }
 }

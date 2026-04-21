@@ -78,6 +78,26 @@ struct LogNoiseFilterTests {
   }
 
   @Test
+  func `'Initialization failed UPNP_E_INVALID_INTERFACE' at error is demoted to warning`() {
+    let result = LogNoiseFilter.reclassify(
+      level: .error,
+      module: "libvlc",
+      message: "Initialization failed: UPNP_E_INVALID_INTERFACE"
+    )
+    #expect(result == .warning)
+  }
+
+  @Test
+  func `'no suitable renderer discovery module for upnp_renderer' at error is demoted to warning`() {
+    let result = LogNoiseFilter.reclassify(
+      level: .error,
+      module: "libvlc",
+      message: "no suitable renderer discovery module for 'upnp_renderer'"
+    )
+    #expect(result == .warning)
+  }
+
+  @Test
   func `Module field is irrelevant — rule fires regardless`() {
     // libVLC 4.0 reports the umbrella "libvlc" for every entry; future
     // versions or our own shim may surface the per-module name. Rules

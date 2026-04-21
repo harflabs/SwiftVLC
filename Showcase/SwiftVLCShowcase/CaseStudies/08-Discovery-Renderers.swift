@@ -29,13 +29,16 @@ struct DiscoveryRenderersCase: View {
 
       Section("Service") {
         if services.isEmpty {
-          Text("No renderer discoverers on this platform").foregroundStyle(.secondary)
+          Text("No renderer discoverers on this platform")
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(AccessibilityID.DiscoveryRenderers.emptyServices)
         } else {
           Picker("Service", selection: $selectedService) {
             ForEach(services, id: \.name) { service in
               Text(service.longName).tag(service.name)
             }
           }
+          .accessibilityIdentifier(AccessibilityID.DiscoveryRenderers.servicePicker)
         }
       }
 

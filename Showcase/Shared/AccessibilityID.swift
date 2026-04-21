@@ -233,4 +233,49 @@ enum AccessibilityID {
     static let playPauseButton = "subscale.playPause"
     static let slider = "subscale.slider"
   }
+
+  enum StreamingHLS {
+    static let videoView = "hls.videoView"
+    static let playPauseButton = "hls.playPause"
+  }
+
+  enum PlaylistQueue {
+    static let videoView = "queue.videoView"
+    static let playPauseButton = "queue.playPause"
+    static let modePicker = "queue.modePicker"
+    static let previousButton = "queue.previous"
+    static let nextButton = "queue.next"
+  }
+
+  enum DiscoveryLAN {
+    static let emptyServices = "lan.emptyServices"
+    static let servicePicker = "lan.servicePicker"
+    static let emptyDiscovered = "lan.emptyDiscovered"
+  }
+
+  enum DiscoveryRenderers {
+    static let emptyServices = "rend.emptyServices"
+    static let servicePicker = "rend.servicePicker"
+  }
+
+  enum Metadata {
+    static let videoView = "meta.videoView"
+    static let playPauseButton = "meta.playPause"
+  }
+
+  enum Events {
+    static let videoView = "events.videoView"
+    static let playPauseButton = "events.playPause"
+  }
+
+  enum Statistics {
+    static let videoView = "stats.videoView"
+    static let playPauseButton = "stats.playPause"
+  }
+
+  enum Logs {
+    static let videoView = "logs.videoView"
+    static let playPauseButton = "logs.playPause"
+    static let levelPicker = "logs.levelPicker"
+  }
 }

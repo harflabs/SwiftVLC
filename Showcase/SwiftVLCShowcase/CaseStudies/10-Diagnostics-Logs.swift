@@ -24,8 +24,10 @@ struct LogsCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.Logs.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.Logs.playPauseButton)
       }
 
       Section("Minimum level") {
@@ -36,6 +38,7 @@ struct LogsCase: View {
           Text("Error").tag(LogLevel.error)
         }
         .pickerStyle(.segmented)
+        .accessibilityIdentifier(AccessibilityID.Logs.levelPicker)
       }
 
       Section("Log") {

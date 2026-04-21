@@ -19,19 +19,24 @@ struct DiscoveryLANCase: View {
 
       Section("Service") {
         if services.isEmpty {
-          Text("No LAN discoverers on this platform").foregroundStyle(.secondary)
+          Text("No LAN discoverers on this platform")
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(AccessibilityID.DiscoveryLAN.emptyServices)
         } else {
           Picker("Service", selection: $selectedService) {
             ForEach(services, id: \.name) { service in
               Text(service.longName).tag(service.name)
             }
           }
+          .accessibilityIdentifier(AccessibilityID.DiscoveryLAN.servicePicker)
         }
       }
 
       Section("Discovered") {
         if items.isEmpty {
-          Text("Nothing yet").foregroundStyle(.secondary)
+          Text("Nothing yet")
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(AccessibilityID.DiscoveryLAN.emptyDiscovered)
         } else {
           ForEach(items, id: \.self) { item in
             Text(item).font(.caption.monospaced())

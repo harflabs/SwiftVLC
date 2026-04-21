@@ -26,11 +26,13 @@ struct PlaylistQueueCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.PlaylistQueue.videoView)
       } footer: {
         Button(
           player.isPlaying ? "Pause" : "Play",
           systemImage: player.isPlaying ? "pause.circle.fill" : "play.circle.fill"
         ) { listPlayer.togglePause() }
+          .accessibilityIdentifier(AccessibilityID.PlaylistQueue.playPauseButton)
           .labelStyle(.iconOnly)
           .contentTransition(.symbolEffect(.replace))
           .font(.largeTitle)

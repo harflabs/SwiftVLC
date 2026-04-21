@@ -94,6 +94,14 @@ extension UITestRoute {
     case .chapters: ChaptersCase()
     case .subtitlesDelay: SubtitlesDelayCase()
     case .subtitlesScale: SubtitlesScaleCase()
+    case .streamingHLS: StreamingHLSCase()
+    case .playlistQueue: PlaylistQueueCase()
+    case .discoveryLAN: DiscoveryLANCase()
+    case .discoveryRenderers: DiscoveryRenderersCase()
+    case .metadata: MetadataCase()
+    case .events: EventsCase()
+    case .statistics: StatisticsCase()
+    case .logs: LogsCase()
     }
   }
 }

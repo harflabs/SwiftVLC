@@ -17,8 +17,10 @@ struct StreamingHLSCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.StreamingHLS.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.StreamingHLS.playPauseButton)
       }
 
       if let stats = player.statistics {

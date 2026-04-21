@@ -74,6 +74,14 @@ enum UITestRoute: String, CaseIterable {
   case chapters = "Chapters"
   case subtitlesDelay = "SubtitlesDelay"
   case subtitlesScale = "SubtitlesScale"
+  case streamingHLS = "StreamingHLS"
+  case playlistQueue = "PlaylistQueue"
+  case discoveryLAN = "DiscoveryLAN"
+  case discoveryRenderers = "DiscoveryRenderers"
+  case metadata = "Metadata"
+  case events = "Events"
+  case statistics = "Statistics"
+  case logs = "Logs"
 
   static var current: UITestRoute? {
     LaunchArguments.routeValue.flatMap(UITestRoute.init(rawValue:))
