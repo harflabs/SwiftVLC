@@ -84,6 +84,20 @@ enum LogNoiseFilter {
       return .warning
     }
 
+    // libVLC's UIKit video-output module logs these two during the
+    // transient window between `PiPVideoView.makeUIView` returning and
+    // the layer host being attached. The module's cascade retries with
+    // the correct view once the layer host arrives, so the initial
+    // failures are structural (not actual failures). Observed every
+    // time PiP / pixel-buffer consumers initialize; pinned to exact
+    // equality.
+    if message == "provided view container is nil" {
+      return .warning
+    }
+    if message == "Creating UIView window provider failed" {
+      return .warning
+    }
+
     return level
   }
 }

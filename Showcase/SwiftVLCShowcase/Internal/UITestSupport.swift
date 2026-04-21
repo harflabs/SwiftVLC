@@ -69,6 +69,11 @@ extension UITestRoute {
     case .thumbnails: ThumbnailsCase()
     case .audioTracks: AudioTracksCase()
     case .snapshot: SnapshotCase()
+    #if os(iOS) || os(macOS)
+    case .pip: PiPCase()
+    #else
+    case .pip: EmptyView()
+    #endif
     }
   }
 }

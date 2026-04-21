@@ -109,4 +109,13 @@ enum AccessibilityID {
     static let takeSnapshotButton = "snapshot.take"
     static let snapshotImage = "snapshot.image"
   }
+
+  enum PiP {
+    static let videoView = "pip.videoView"
+    static let playPauseButton = "pip.playPause"
+    static let possibleLabel = "pip.possible"
+    static let activeLabel = "pip.active"
+    static let toggleButton = "pip.toggle"
+    static let preparingLabel = "pip.preparing"
+  }
 }

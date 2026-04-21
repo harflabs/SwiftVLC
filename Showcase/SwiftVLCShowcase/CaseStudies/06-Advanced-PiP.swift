@@ -19,24 +19,37 @@ struct PiPCase: View {
         PiPVideoView(player, controller: $controller)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.PiP.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.PiP.playPauseButton)
       }
 
       Section {
         if let controller {
-          LabeledContent("Possible", value: controller.isPossible ? "yes" : "no")
-          LabeledContent("Active", value: controller.isActive ? "yes" : "no")
+          infoRow(
+            "Possible",
+            value: controller.isPossible ? "yes" : "no",
+            identifier: AccessibilityID.PiP.possibleLabel
+          )
+          infoRow(
+            "Active",
+            value: controller.isActive ? "yes" : "no",
+            identifier: AccessibilityID.PiP.activeLabel
+          )
 
           Button(
             controller.isActive ? "Stop PiP" : "Start PiP",
             systemImage: "pip",
             action: controller.toggle
           )
+          .accessibilityIdentifier(AccessibilityID.PiP.toggleButton)
           .frame(maxWidth: .infinity)
           .disabled(!controller.isPossible)
         } else {
-          Text("Preparing…").foregroundStyle(.secondary)
+          Text("Preparing…")
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(AccessibilityID.PiP.preparingLabel)
         }
       } header: {
         Text("Picture in Picture")
@@ -50,6 +63,21 @@ struct PiPCase: View {
     .navigationTitle("Picture in Picture")
     .task { try? player.play(url: TestMedia.bigBuckBunny) }
     .onDisappear { player.stop() }
+  }
+
+  // `LabeledContent` aggregates its label with the value into a single
+  // accessibility element, preventing XCUITest from querying the value
+  // independently. Plain HStack + Text keeps `XCUIElement.label`
+  // identical to the visible string.
+  @ViewBuilder
+  private func infoRow(_ title: String, value: String, identifier: String) -> some View {
+    HStack {
+      Text(title)
+      Spacer()
+      Text(value)
+        .foregroundStyle(.secondary)
+        .accessibilityIdentifier(identifier)
+    }
   }
 }
 #endif

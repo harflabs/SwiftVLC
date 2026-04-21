@@ -58,6 +58,26 @@ struct LogNoiseFilterTests {
   }
 
   @Test
+  func `'provided view container is nil' at error is demoted to warning`() {
+    let result = LogNoiseFilter.reclassify(
+      level: .error,
+      module: "libvlc",
+      message: "provided view container is nil"
+    )
+    #expect(result == .warning)
+  }
+
+  @Test
+  func `'Creating UIView window provider failed' at error is demoted to warning`() {
+    let result = LogNoiseFilter.reclassify(
+      level: .error,
+      module: "libvlc",
+      message: "Creating UIView window provider failed"
+    )
+    #expect(result == .warning)
+  }
+
+  @Test
   func `Module field is irrelevant — rule fires regardless`() {
     // libVLC 4.0 reports the umbrella "libvlc" for every entry; future
     // versions or our own shim may surface the per-module name. Rules
