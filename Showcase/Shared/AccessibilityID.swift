@@ -184,4 +184,11 @@ enum AccessibilityID {
     static let opacityLabel = "marquee.opacityLabel"
     static let opacitySlider = "marquee.opacitySlider"
   }
+
+  enum Adjustments {
+    static let videoView = "adj.videoView"
+    static let playPauseButton = "adj.playPause"
+    static let enabledToggle = "adj.enabled"
+    static let brightnessSlider = "adj.brightnessSlider"
+  }
 }

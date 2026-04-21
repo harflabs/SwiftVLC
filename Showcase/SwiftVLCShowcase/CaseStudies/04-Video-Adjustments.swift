@@ -23,17 +23,25 @@ struct VideoAdjustmentsCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.Adjustments.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.Adjustments.playPauseButton)
       }
 
       Section("Adjustments") {
         Toggle("Enabled", isOn: $isEnabled)
-        row("Brightness", value: $brightness, in: 0...2)
-        row("Contrast", value: $contrast, in: 0...2)
-        row("Hue", value: $hue, in: 0...360)
-        row("Saturation", value: $saturation, in: 0...3)
-        row("Gamma", value: $gamma, in: 0.1...10)
+          .accessibilityIdentifier(AccessibilityID.Adjustments.enabledToggle)
+        row(
+          "Brightness",
+          value: $brightness,
+          in: 0...2,
+          identifier: AccessibilityID.Adjustments.brightnessSlider
+        )
+        row("Contrast", value: $contrast, in: 0...2, identifier: nil)
+        row("Hue", value: $hue, in: 0...360, identifier: nil)
+        row("Saturation", value: $saturation, in: 0...3, identifier: nil)
+        row("Gamma", value: $gamma, in: 0.1...10, identifier: nil)
       }
     }
     .showcaseFormStyle()
@@ -48,10 +56,21 @@ struct VideoAdjustmentsCase: View {
     .onChange(of: gamma) { player.withAdjustments { $0.gamma = gamma } }
   }
 
-  private func row(_ title: String, value: Binding<Float>, in range: ClosedRange<Float>) -> some View {
+  private func row(
+    _ title: String,
+    value: Binding<Float>,
+    in range: ClosedRange<Float>,
+    identifier: String?
+  ) -> some View {
     VStack(alignment: .leading) {
-      LabeledContent(title, value: String(format: "%.2f", value.wrappedValue))
+      HStack {
+        Text(title)
+        Spacer()
+        Text(String(format: "%.2f", value.wrappedValue))
+          .foregroundStyle(.secondary)
+      }
       CompatSlider(value: value, range: range, step: 0.05)
+        .accessibilityIdentifier(identifier ?? "")
     }
   }
 }
