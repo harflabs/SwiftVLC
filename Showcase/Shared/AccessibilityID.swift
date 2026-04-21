@@ -191,4 +191,12 @@ enum AccessibilityID {
     static let enabledToggle = "adj.enabled"
     static let brightnessSlider = "adj.brightnessSlider"
   }
+
+  enum Viewpoint {
+    static let videoView = "viewpoint.videoView"
+    static let playPauseButton = "viewpoint.playPause"
+    static let yawSlider = "viewpoint.yawSlider"
+    static let pitchSlider = "viewpoint.pitchSlider"
+    static let fovSlider = "viewpoint.fovSlider"
+  }
 }

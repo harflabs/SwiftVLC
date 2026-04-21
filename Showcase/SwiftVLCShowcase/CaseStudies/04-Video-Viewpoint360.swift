@@ -20,22 +20,39 @@ struct ViewpointCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.Viewpoint.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.Viewpoint.playPauseButton)
       }
 
       Section("Viewpoint") {
         VStack(alignment: .leading) {
-          LabeledContent("Yaw", value: String(format: "%.0f°", yaw))
+          HStack {
+            Text("Yaw")
+            Spacer()
+            Text(String(format: "%.0f°", yaw)).foregroundStyle(.secondary)
+          }
           CompatSlider(value: $yaw, range: -180...180, step: 5)
+            .accessibilityIdentifier(AccessibilityID.Viewpoint.yawSlider)
         }
         VStack(alignment: .leading) {
-          LabeledContent("Pitch", value: String(format: "%.0f°", pitch))
+          HStack {
+            Text("Pitch")
+            Spacer()
+            Text(String(format: "%.0f°", pitch)).foregroundStyle(.secondary)
+          }
           CompatSlider(value: $pitch, range: -90...90, step: 5)
+            .accessibilityIdentifier(AccessibilityID.Viewpoint.pitchSlider)
         }
         VStack(alignment: .leading) {
-          LabeledContent("Field of view", value: String(format: "%.0f°", fov))
+          HStack {
+            Text("Field of view")
+            Spacer()
+            Text(String(format: "%.0f°", fov)).foregroundStyle(.secondary)
+          }
           CompatSlider(value: $fov, range: 20...120, step: 5)
+            .accessibilityIdentifier(AccessibilityID.Viewpoint.fovSlider)
         }
       }
     }

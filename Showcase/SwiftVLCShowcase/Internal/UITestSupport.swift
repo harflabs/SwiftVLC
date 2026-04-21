@@ -84,6 +84,7 @@ extension UITestRoute {
     case .recording: RecordingCase()
     case .marquee: MarqueeCase()
     case .adjustments: VideoAdjustmentsCase()
+    case .viewpoint: ViewpointCase()
     }
   }
 }
