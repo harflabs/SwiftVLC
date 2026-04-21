@@ -50,6 +50,7 @@ enum UITestRoute: String, CaseIterable {
   case playerState = "PlayerState"
   case seeking = "Seeking"
   case volume = "Volume"
+  case abLoop = "ABLoop"
 
   static var current: UITestRoute? {
     LaunchArguments.routeValue.flatMap(UITestRoute.init(rawValue:))

@@ -62,6 +62,7 @@ extension UITestRoute {
     case .playerState: PlayerStateCase()
     case .seeking: SeekingCase()
     case .volume: VolumeCase()
+    case .abLoop: ABLoopCase()
     }
   }
 }

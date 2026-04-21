@@ -50,4 +50,16 @@ enum AccessibilityID {
     static let level = "vol.level"
     static let muteToggle = "vol.mute"
   }
+
+  enum ABLoop {
+    static let videoView = "abloop.videoView"
+    static let playPauseButton = "abloop.playPause"
+    static let stateLabel = "abloop.state"
+    static let aLabel = "abloop.a"
+    static let bLabel = "abloop.b"
+    static let currentTimeLabel = "abloop.currentTime"
+    static let markAButton = "abloop.markA"
+    static let markBButton = "abloop.markB"
+    static let resetButton = "abloop.reset"
+  }
 }

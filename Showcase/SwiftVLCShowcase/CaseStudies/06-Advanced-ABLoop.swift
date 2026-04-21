@@ -19,30 +19,56 @@ struct ABLoopCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.ABLoop.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.ABLoop.playPauseButton)
       }
 
       Section("Loop") {
-        LabeledContent("State", value: stateLabel)
-        LabeledContent("A", value: aTime.map(format) ?? "—")
-        LabeledContent("B", value: bTime.map(format) ?? "—")
+        infoRow("State", value: stateLabel, identifier: AccessibilityID.ABLoop.stateLabel)
+        infoRow("A", value: aTime.map(format) ?? "—", identifier: AccessibilityID.ABLoop.aLabel)
+        infoRow("B", value: bTime.map(format) ?? "—", identifier: AccessibilityID.ABLoop.bLabel)
+        infoRow("Now", value: format(player.currentTime), identifier: AccessibilityID.ABLoop.currentTimeLabel)
 
         HStack {
           Button("Mark A") { aTime = player.currentTime }
+            .accessibilityIdentifier(AccessibilityID.ABLoop.markAButton)
           Spacer()
           Button("Mark B") { markB() }
             .disabled(aTime == nil)
+            .accessibilityIdentifier(AccessibilityID.ABLoop.markBButton)
           Spacer()
           Button("Reset") { reset() }
             .tint(.red)
+            .accessibilityIdentifier(AccessibilityID.ABLoop.resetButton)
         }
+        // SwiftUI Form rows with multiple buttons route taps through the
+        // cell's tap area unless each button opts out with an explicit
+        // style. `.borderless` makes each button its own hit target —
+        // required so XCUITest can fire them individually.
+        .buttonStyle(.borderless)
       }
     }
     .showcaseFormStyle()
     .navigationTitle("A-B loop")
     .task { try? player.play(url: TestMedia.bigBuckBunny) }
     .onDisappear { player.stop() }
+  }
+
+  // `LabeledContent` aggregates label + value into one accessibility
+  // element, preventing XCUITest from querying the value independently.
+  // Plain HStack + Text keeps `XCUIElement.label` identical to the visible
+  // string.
+  @ViewBuilder
+  private func infoRow(_ title: String, value: String, identifier: String) -> some View {
+    HStack {
+      Text(title)
+      Spacer()
+      Text(value)
+        .foregroundStyle(.secondary)
+        .accessibilityIdentifier(identifier)
+    }
   }
 
   private func markB() {
