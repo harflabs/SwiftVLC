@@ -80,6 +80,7 @@ extension UITestRoute {
     case .deinterlacing: DeinterlacingCase()
     case .equalizer: EqualizerCase()
     case .audioChannels: AudioChannelsCase()
+    case .audioDelay: AudioDelayCase()
     }
   }
 }

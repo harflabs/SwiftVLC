@@ -161,4 +161,11 @@ enum AccessibilityID {
     static let stereoPicker = "channels.stereoPicker"
     static let mixPicker = "channels.mixPicker"
   }
+
+  enum AudioDelay {
+    static let videoView = "audiodelay.videoView"
+    static let playPauseButton = "audiodelay.playPause"
+    static let slider = "audiodelay.slider"
+    static let offsetLabel = "audiodelay.offset"
+  }
 }
