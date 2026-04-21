@@ -71,4 +71,12 @@ enum AccessibilityID {
     static let skipForward10 = "relseek.skipForward10"
     static let skipForward30 = "relseek.skipForward30"
   }
+
+  enum FrameStep {
+    static let videoView = "framestep.videoView"
+    static let playPauseButton = "framestep.playPause"
+    static let pausableLabel = "framestep.pausable"
+    static let timeLabel = "framestep.time"
+    static let nextFrameButton = "framestep.nextFrame"
+  }
 }

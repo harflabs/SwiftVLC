@@ -430,6 +430,14 @@ public final class Player {
   /// Calling repeatedly yields frame-by-frame stepping.
   public func nextFrame() {
     libvlc_media_player_next_frame(pointer)
+    // libVLC doesn't emit `MediaPlayerTimeChanged` after a next-frame
+    // step while paused — the decoder advances one frame but the event
+    // thread stays quiescent. Read the authoritative time directly so
+    // `currentTime` reflects the step.
+    let ms = libvlc_media_player_get_time(pointer)
+    if ms >= 0 {
+      currentTime = .milliseconds(ms)
+    }
   }
 
   // MARK: - External Tracks
