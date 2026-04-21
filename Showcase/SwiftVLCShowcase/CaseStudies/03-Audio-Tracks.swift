@@ -19,13 +19,17 @@ struct AudioTracksCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.AudioTracks.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.AudioTracks.playPauseButton)
       }
 
       Section("Audio tracks") {
         if player.audioTracks.isEmpty {
-          Text("Loading…").foregroundStyle(.secondary)
+          Text("Loading…")
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(AccessibilityID.AudioTracks.loadingLabel)
         } else {
           Picker("Track", selection: $bindable.selectedAudioTrack) {
             Text("Off").tag(Track?.none)
@@ -33,6 +37,7 @@ struct AudioTracksCase: View {
               Text(label(for: track)).tag(Track?.some(track))
             }
           }
+          .accessibilityIdentifier(AccessibilityID.AudioTracks.trackPicker)
         }
       }
     }

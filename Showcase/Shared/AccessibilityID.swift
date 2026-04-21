@@ -95,4 +95,11 @@ enum AccessibilityID {
     static let emptyPlaceholder = "thumb.empty"
     static let progressIndicator = "thumb.progress"
   }
+
+  enum AudioTracks {
+    static let videoView = "audiotracks.videoView"
+    static let playPauseButton = "audiotracks.playPause"
+    static let loadingLabel = "audiotracks.loading"
+    static let trackPicker = "audiotracks.picker"
+  }
 }
