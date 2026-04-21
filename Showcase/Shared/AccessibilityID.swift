@@ -199,4 +199,11 @@ enum AccessibilityID {
     static let pitchSlider = "viewpoint.pitchSlider"
     static let fovSlider = "viewpoint.fovSlider"
   }
+
+  enum SubtitlesSelection {
+    static let videoView = "subsel.videoView"
+    static let playPauseButton = "subsel.playPause"
+    static let emptyLabel = "subsel.empty"
+    static let picker = "subsel.picker"
+  }
 }

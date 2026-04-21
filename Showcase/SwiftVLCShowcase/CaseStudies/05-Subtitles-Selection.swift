@@ -19,8 +19,10 @@ struct SubtitlesSelectionCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.SubtitlesSelection.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.SubtitlesSelection.playPauseButton)
       }
 
       Section("Position") {
@@ -29,7 +31,9 @@ struct SubtitlesSelectionCase: View {
 
       Section("Subtitles") {
         if player.subtitleTracks.isEmpty {
-          Text("No subtitle tracks").foregroundStyle(.secondary)
+          Text("No subtitle tracks")
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(AccessibilityID.SubtitlesSelection.emptyLabel)
         } else {
           Picker("Track", selection: $bindable.selectedSubtitleTrack) {
             Text("Off").tag(Track?.none)
@@ -37,6 +41,7 @@ struct SubtitlesSelectionCase: View {
               Text(track.name).tag(Track?.some(track))
             }
           }
+          .accessibilityIdentifier(AccessibilityID.SubtitlesSelection.picker)
         }
       }
     }
