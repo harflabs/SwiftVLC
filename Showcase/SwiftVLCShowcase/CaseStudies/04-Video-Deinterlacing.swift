@@ -46,8 +46,10 @@ struct DeinterlacingCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.Deinterlacing.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.Deinterlacing.playPauseButton)
       }
 
       Section("State") {
@@ -55,12 +57,14 @@ struct DeinterlacingCase: View {
           ForEach(Deinterlace.allCases) { Text($0.label).tag($0) }
         }
         .pickerStyle(.segmented)
+        .accessibilityIdentifier(AccessibilityID.Deinterlacing.statePicker)
       }
 
       Section("Mode") {
         Picker("Mode", selection: $mode) {
           ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
         }
+        .accessibilityIdentifier(AccessibilityID.Deinterlacing.modePicker)
       }
     }
     .showcaseFormStyle()

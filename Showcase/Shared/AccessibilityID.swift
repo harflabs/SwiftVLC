@@ -139,4 +139,11 @@ enum AccessibilityID {
     static let playPauseButton = "aspect.playPause"
     static let ratioPicker = "aspect.ratioPicker"
   }
+
+  enum Deinterlacing {
+    static let videoView = "deinterlace.videoView"
+    static let playPauseButton = "deinterlace.playPause"
+    static let statePicker = "deinterlace.statePicker"
+    static let modePicker = "deinterlace.modePicker"
+  }
 }
