@@ -82,6 +82,7 @@ extension UITestRoute {
     case .audioChannels: AudioChannelsCase()
     case .audioDelay: AudioDelayCase()
     case .recording: RecordingCase()
+    case .marquee: MarqueeCase()
     }
   }
 }

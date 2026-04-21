@@ -21,16 +21,27 @@ struct MarqueeCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.Marquee.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.Marquee.playPauseButton)
       }
 
       Section("Marquee") {
         Toggle("Enabled", isOn: $isEnabled)
+          .accessibilityIdentifier(AccessibilityID.Marquee.enabledToggle)
         TextField("Text", text: $text)
+          .accessibilityIdentifier(AccessibilityID.Marquee.textField)
         VStack(alignment: .leading) {
-          LabeledContent("Opacity", value: String(format: "%.0f%%", opacity / 255 * 100))
+          HStack {
+            Text("Opacity")
+            Spacer()
+            Text(String(format: "%.0f%%", opacity / 255 * 100))
+              .foregroundStyle(.secondary)
+              .accessibilityIdentifier(AccessibilityID.Marquee.opacityLabel)
+          }
           CompatSlider(value: $opacity, range: 0...255, step: 5)
+            .accessibilityIdentifier(AccessibilityID.Marquee.opacitySlider)
         }
       }
     }

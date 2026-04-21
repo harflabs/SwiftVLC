@@ -175,4 +175,13 @@ enum AccessibilityID {
     static let toggleButton = "rec.toggle"
     static let savedToLabel = "rec.savedTo"
   }
+
+  enum Marquee {
+    static let videoView = "marquee.videoView"
+    static let playPauseButton = "marquee.playPause"
+    static let enabledToggle = "marquee.enabled"
+    static let textField = "marquee.text"
+    static let opacityLabel = "marquee.opacityLabel"
+    static let opacitySlider = "marquee.opacitySlider"
+  }
 }
