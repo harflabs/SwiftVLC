@@ -75,6 +75,7 @@ extension UITestRoute {
     case .pip: EmptyView()
     #endif
     case .audioOutputs: AudioOutputsCase()
+    case .lifecycle: LifecycleCase()
     }
   }
 }

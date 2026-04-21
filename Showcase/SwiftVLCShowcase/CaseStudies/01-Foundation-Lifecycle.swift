@@ -18,8 +18,10 @@ struct LifecycleCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.Lifecycle.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.Lifecycle.playPauseButton)
       }
 
       Section("Source") {
@@ -28,6 +30,7 @@ struct LifecycleCase: View {
           Text("Tears of Steel").tag(TestMedia.tearsOfSteel)
           Text("HLS stream").tag(TestMedia.hls)
         }
+        .accessibilityIdentifier(AccessibilityID.Lifecycle.sourcePicker)
       }
     }
     .showcaseFormStyle()

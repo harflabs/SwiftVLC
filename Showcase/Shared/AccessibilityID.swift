@@ -127,4 +127,10 @@ enum AccessibilityID {
     static let deviceEmptyLabel = "audioout.deviceEmpty"
     static let devicePicker = "audioout.devicePicker"
   }
+
+  enum Lifecycle {
+    static let videoView = "lifecycle.videoView"
+    static let playPauseButton = "lifecycle.playPause"
+    static let sourcePicker = "lifecycle.sourcePicker"
+  }
 }
