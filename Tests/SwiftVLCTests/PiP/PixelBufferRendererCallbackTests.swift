@@ -200,5 +200,69 @@ struct PixelBufferRendererCallbackTests {
   func `Cleanup callback with nil opaque is a no-op`() {
     pixelBufferCleanupCallback(opaque: nil)
   }
+
+  // MARK: - Display callback
+
+  /// Synthesize a BGRA `CVPixelBuffer`, hand it to the display callback,
+  /// and verify the function wraps it into a `CMSampleBuffer` and
+  /// enqueues it onto the attached display layer without crashing.
+  ///
+  /// Runs on `@MainActor` because `AVSampleBufferDisplayLayer` is not
+  /// `Sendable` — the layer and the renderer must be allocated on the
+  /// same actor. The callback itself is invoked synchronously; the
+  /// `DispatchQueue.main.async` enqueue inside is awaited via a
+  /// `Task.sleep` afterwards.
+  @MainActor
+  @Test
+  func `Display callback enqueues a sample onto the display layer`() async {
+    let displayLayer = AVSampleBufferDisplayLayer()
+    let renderer = PixelBufferRenderer(displayLayer: displayLayer)
+    let retained = Unmanaged.passRetained(renderer)
+    defer { retained.release() }
+
+    // Build a 2x2 BGRA pixel buffer.
+    var pixelBuffer: CVPixelBuffer?
+    let attrs: [String: Any] = [
+      kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+      kCVPixelBufferWidthKey as String: 2,
+      kCVPixelBufferHeightKey as String: 2,
+      kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any]
+    ]
+    let status = CVPixelBufferCreate(
+      kCFAllocatorDefault, 2, 2,
+      kCVPixelFormatType_32BGRA,
+      attrs as CFDictionary,
+      &pixelBuffer
+    )
+    #expect(status == kCVReturnSuccess)
+    guard let pb = pixelBuffer else { return }
+
+    // The display callback expects a retained `AnyObject` pointer —
+    // matches the `passRetained(pb as AnyObject)` on the lock path.
+    let pictureHandle = Unmanaged.passRetained(pb as AnyObject).toOpaque()
+
+    pixelBufferDisplayCallback(opaque: retained.toOpaque(), picture: pictureHandle)
+
+    // Give the main-queue async enqueue a moment to settle.
+    try? await Task.sleep(for: .milliseconds(20))
+  }
+
+  /// A nil `opaque` guards-out early.
+  @Test
+  func `Display callback with nil opaque is a no-op`() {
+    pixelBufferDisplayCallback(opaque: nil, picture: nil)
+  }
+
+  /// A non-nil `opaque` with a nil `picture` also guards-out without
+  /// touching the display layer.
+  @MainActor
+  @Test
+  func `Display callback with nil picture is a no-op`() {
+    let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+    let retained = Unmanaged.passRetained(renderer)
+    defer { retained.release() }
+
+    pixelBufferDisplayCallback(opaque: retained.toOpaque(), picture: nil)
+  }
 }
 #endif

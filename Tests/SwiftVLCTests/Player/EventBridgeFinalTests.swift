@@ -12,7 +12,7 @@ struct EventBridgeFinalTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `TracksChanged fires from ESAdded during video playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let receivedTracksChanged = Mutex(false)
@@ -47,7 +47,7 @@ struct EventBridgeFinalTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `MediaChanged fires when media is loaded`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let receivedMediaChanged = Mutex(false)
@@ -78,7 +78,7 @@ struct EventBridgeFinalTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `MediaChanged fires on media switch`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let mediaChangedCount = Mutex(0)
@@ -123,7 +123,7 @@ struct EventBridgeFinalTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `VoutChanged fires during video playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let receivedVout = Mutex(false)
@@ -158,7 +158,7 @@ struct EventBridgeFinalTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `Idle state event fires after stop`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let receivedIdle = Mutex(false)
@@ -200,7 +200,7 @@ struct EventBridgeFinalTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `Multiple consumers receive tracksChanged and mediaChanged`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream1 = player.events
     let stream2 = player.events
     let stream3 = player.events
@@ -261,7 +261,7 @@ struct EventBridgeFinalTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `Multiple tracksChanged events accumulate during playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let tracksCount = Mutex(0)
@@ -301,7 +301,7 @@ struct EventBridgeFinalTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `Full event coverage during video playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let receivedState = Mutex(false)

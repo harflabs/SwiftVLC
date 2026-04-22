@@ -6,13 +6,13 @@ import Testing
 struct VideoAdjustmentsTests {
   @Test
   func `isEnabled default false`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.adjustments.isEnabled == false)
   }
 
   @Test
   func `Enable and disable doesn't crash`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     // libVLC may not persist adjust flag without active video output,
     // so just verify the calls don't crash
     player.adjustments.isEnabled = true
@@ -23,7 +23,7 @@ struct VideoAdjustmentsTests {
 
   @Test
   func `Contrast get and set`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.adjustments.isEnabled = true
     player.adjustments.contrast = 1.5
     #expect(player.adjustments.contrast == 1.5)
@@ -31,7 +31,7 @@ struct VideoAdjustmentsTests {
 
   @Test
   func `Brightness get and set`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.adjustments.isEnabled = true
     player.adjustments.brightness = 0.8
     #expect(player.adjustments.brightness == 0.8)
@@ -39,7 +39,7 @@ struct VideoAdjustmentsTests {
 
   @Test
   func `Hue get and set`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.adjustments.isEnabled = true
     player.adjustments.hue = 180
     #expect(player.adjustments.hue == 180)
@@ -47,7 +47,7 @@ struct VideoAdjustmentsTests {
 
   @Test
   func `Saturation get and set`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.adjustments.isEnabled = true
     player.adjustments.saturation = 2.0
     #expect(player.adjustments.saturation == 2.0)
@@ -55,7 +55,7 @@ struct VideoAdjustmentsTests {
 
   @Test
   func `Gamma get and set`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.adjustments.isEnabled = true
     player.adjustments.gamma = 1.5
     #expect(player.adjustments.gamma == 1.5)
@@ -63,7 +63,7 @@ struct VideoAdjustmentsTests {
 
   @Test
   func `Default values`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     // Default values before enabling
     #expect(player.adjustments.contrast == 1.0)
     #expect(player.adjustments.brightness == 1.0)

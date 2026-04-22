@@ -23,7 +23,7 @@ struct LogNoiseFilterIntegrationTests {
     // Small delay so the callback is installed before we trigger errors.
     try await Task.sleep(for: .milliseconds(50))
 
-    let player = await Player()
+    let player = await Player(instance: .shared)
     try? await player.play(url: URL(fileURLWithPath: "/definitely/does/not/exist/\(UUID().uuidString).mp4"))
 
     // Race the stream watcher against a 10s timeout. Whichever finishes

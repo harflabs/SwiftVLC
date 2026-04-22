@@ -8,14 +8,14 @@ struct ProgramTests {
   @Test(.tags(.mainActor))
   @MainActor
   func `Programs empty for simple media`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.programs.isEmpty)
   }
 
   @Test(.tags(.mainActor))
   @MainActor
   func `Selected program nil`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.selectedProgram == nil)
   }
 

@@ -22,14 +22,14 @@ struct VideoViewTests {
 
   @Test
   func `attach to player does not crash`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let surface = VideoSurface()
     surface.attach(to: player)
   }
 
   @Test
   func `detach does not crash`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let surface = VideoSurface()
     surface.attach(to: player)
     surface.detach()
@@ -37,7 +37,7 @@ struct VideoViewTests {
 
   @Test
   func `attach twice with same player is idempotent`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let surface = VideoSurface()
     surface.attach(to: player)
     surface.attach(to: player)
@@ -52,7 +52,7 @@ struct VideoViewTests {
 
   @Test
   func `attach then detach lifecycle`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let surface = VideoSurface()
     surface.attach(to: player)
     surface.detach()
@@ -62,7 +62,7 @@ struct VideoViewTests {
 
   @Test
   func `VideoSurface with non-zero bounds triggers layout`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let surface = VideoSurface()
     surface.attach(to: player)
 

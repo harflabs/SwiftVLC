@@ -7,7 +7,7 @@ struct MediaExtendedTests {
   @Test(.tags(.async, .media, .mainActor), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   @MainActor
   func `Statistics become available during playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let media = try Media(url: TestMedia.twosecURL)
     try player.play(media)
     guard try await poll(until: { player.isPlaying }) else {

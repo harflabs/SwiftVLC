@@ -16,7 +16,7 @@ struct LoggingExtendedTests {
       }
     }
     // Start playback to generate log entries
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let media = try Media(url: TestMedia.twosecURL)
     try player.play(media)
     guard

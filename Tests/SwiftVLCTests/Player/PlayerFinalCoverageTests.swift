@@ -9,14 +9,14 @@ struct PlayerFinalCoverageTests {
 
   @Test
   func `isActive false for idle state`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.state == .idle)
     #expect(player.isActive == false)
   }
 
   @Test
   func `Play with no media loaded exercises throw path`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     do {
       try player.play()
       player.stop()
@@ -27,20 +27,20 @@ struct PlayerFinalCoverageTests {
 
   @Test
   func `Play with invalid path media exercises throw path`() throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.load(Media(path: "/nonexistent/totally/bogus/file.xyz"))
     do { try player.play(); player.stop() } catch { _ = error }
   }
 
   @Test
   func `Take snapshot without video does not crash`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     do { try player.takeSnapshot(to: NSTemporaryDirectory() + "snap.png") } catch { _ = error }
   }
 
   @Test
   func `Add external track without playback exercises path`() throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     do { try player.addExternalTrack(from: #require(URL(string: "file:///bogus.srt")), type: .subtitle) } catch { _ = error }
   }
 
@@ -48,7 +48,7 @@ struct PlayerFinalCoverageTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `All observable properties and mutations during playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.twosecURL))
     try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     try #require(await poll(until: { player.duration != nil }), "Waiting for: player.duration != nil")
@@ -94,7 +94,7 @@ struct PlayerFinalCoverageTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Track selection and audio devices during playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.twosecURL))
     try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     try #require(await poll(until: { !player.audioTracks.isEmpty }), "Waiting for: !player.audioTracks.isEmpty")
@@ -133,7 +133,7 @@ struct PlayerFinalCoverageTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Pause resume isActive and event consumer during playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.twosecURL))
 
     // Event consumer (line 814) - state changes prove it's running
@@ -164,7 +164,7 @@ struct PlayerFinalCoverageTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `AB loop titles chapters programs and snapshot during playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.twosecURL))
     try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     // Titles (lines 452-460)
@@ -210,7 +210,7 @@ struct PlayerFinalCoverageTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `isActive during opening state`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.twosecURL))
     // Rapidly poll for opening/buffering
     for _ in 0..<100 {

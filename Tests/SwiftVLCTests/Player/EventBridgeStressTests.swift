@@ -10,7 +10,7 @@ import Testing
 struct EventBridgeStressTests {
   @Test(.timeLimit(.minutes(1)))
   func `Many concurrent consumers all receive events`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let consumerCount = 12
     let streams = (0..<consumerCount).map { _ in player.events }
     let counts = Mutex([Int](repeating: 0, count: consumerCount))
@@ -54,7 +54,7 @@ struct EventBridgeStressTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `Rapid stream creation and cancellation`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let iterations = 20
 
     // Rapidly create and cancel streams without playback
@@ -95,7 +95,7 @@ struct EventBridgeStressTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `Stream created after previous cancelled still works`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
 
     // Create and cancel a first stream
     let stream1 = player.events
@@ -133,7 +133,7 @@ struct EventBridgeStressTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `Slow consumer does not block fast consumer`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let fastStream = player.events
     let slowStream = player.events
 
@@ -186,7 +186,7 @@ struct EventBridgeStressTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `All major event types received during full playthrough`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let receivedState = Mutex(false)
@@ -264,8 +264,8 @@ struct EventBridgeStressTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `Multiple players with independent event bridges`() async throws {
-    let player1 = Player()
-    let player2 = Player()
+    let player1 = Player(instance: TestInstance.shared)
+    let player2 = Player(instance: TestInstance.shared)
     let stream1 = player1.events
     let stream2 = player2.events
 
@@ -327,7 +327,7 @@ struct EventBridgeStressTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `Media changed event fires when switching media`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let mediaChangedCount = Mutex(0)
@@ -372,7 +372,7 @@ struct EventBridgeStressTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `Vout event during video playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let receivedVout = Mutex(false)

@@ -28,7 +28,7 @@ struct VideoViewFinalTests {
 
   @Test
   func `attach sets nsobject on player`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let surface = VideoSurface()
     let surfacePtr = Unmanaged.passUnretained(surface).toOpaque()
     surface.attach(to: player)
@@ -38,7 +38,7 @@ struct VideoViewFinalTests {
 
   @Test
   func `detach clears nsobject`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let surface = VideoSurface()
     surface.attach(to: player)
     surface.detach()
@@ -49,7 +49,7 @@ struct VideoViewFinalTests {
 
   @Test
   func `layout with non-zero bounds updates sublayers`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let surface = VideoSurface()
     surface.attach(to: player)
 
@@ -73,7 +73,7 @@ struct VideoViewFinalTests {
 
   @Test
   func `attach same player twice is no-op`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let surface = VideoSurface()
     surface.attach(to: player)
     // Second attach with same player should hit the guard and return early
@@ -83,7 +83,7 @@ struct VideoViewFinalTests {
 
   @Test
   func `multiple attach detach cycles`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let surface = VideoSurface()
 
     for _ in 0..<5 {
@@ -101,8 +101,8 @@ struct VideoViewFinalTests {
 
   @Test
   func `attach different players replaces previous`() {
-    let player1 = Player()
-    let player2 = Player()
+    let player1 = Player(instance: TestInstance.shared)
+    let player2 = Player(instance: TestInstance.shared)
     let surface = VideoSurface()
     let surfacePtr = Unmanaged.passUnretained(surface).toOpaque()
 
@@ -130,7 +130,7 @@ struct VideoViewFinalTests {
 
   @Test
   func `layout after detach does not crash`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let surface = VideoSurface()
     surface.attach(to: player)
     surface.detach()

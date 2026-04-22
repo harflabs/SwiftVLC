@@ -9,7 +9,7 @@ struct PlayerExtendedTests {
 
   @Test
   func `withAdjustments sets multiple values in one call`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.withAdjustments { adj in
       adj.contrast = 1.5
       adj.brightness = 1.2
@@ -27,7 +27,7 @@ struct PlayerExtendedTests {
 
   @Test
   func `withAdjustments returns a value`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let contrast = player.withAdjustments { adj -> Float in
       adj.contrast = 1.8
       return adj.contrast
@@ -39,7 +39,7 @@ struct PlayerExtendedTests {
 
   @Test
   func `withMarquee sets multiple values in one call`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.withMarquee { m in
       m.isEnabled = true
       m.setText("Hello SwiftVLC")
@@ -64,7 +64,7 @@ struct PlayerExtendedTests {
 
   @Test
   func `withMarquee returns a value`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let opacity = player.withMarquee { m in
       m.opacity = 128
       return m.opacity
@@ -76,7 +76,7 @@ struct PlayerExtendedTests {
 
   @Test
   func `withLogo sets multiple values in one call`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.withLogo { logo in
       logo.isEnabled = true
       logo.setFile("/tmp/logo.png")
@@ -99,7 +99,7 @@ struct PlayerExtendedTests {
 
   @Test
   func `withLogo returns a value`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let x = player.withLogo { logo in
       logo.x = 42
       return logo.x
@@ -111,7 +111,7 @@ struct PlayerExtendedTests {
 
   @Test
   func `Volume amplification up to 1_25`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.volume = 1.25
     // Volume may not persist exactly without active pipeline
     _ = player.volume
@@ -119,7 +119,7 @@ struct PlayerExtendedTests {
 
   @Test
   func `Volume at exact 1_0`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.volume = 1.0
     // Volume may not persist exactly without active pipeline
     _ = player.volume
@@ -129,7 +129,7 @@ struct PlayerExtendedTests {
 
   @Test
   func `Rate minimum boundary 0_25`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.rate = 0.25
     // Rate may not persist without active pipeline
     _ = player.rate
@@ -137,7 +137,7 @@ struct PlayerExtendedTests {
 
   @Test
   func `Rate maximum boundary 4_0`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.rate = 4.0
     // Rate may not persist without active pipeline
     _ = player.rate
@@ -147,7 +147,7 @@ struct PlayerExtendedTests {
 
   @Test
   func `Multiple loads replace currentMedia`() throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
 
     let media1 = try Media(url: TestMedia.testMP4URL)
     player.load(media1)
@@ -187,7 +187,7 @@ struct PlayerExtendedTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `isPlaying true during playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.twosecURL))
     try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     // State was .playing at poll time; exercise the properties
@@ -198,7 +198,7 @@ struct PlayerExtendedTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `isPlaying false after stop`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.twosecURL))
     try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     player.stop()
@@ -208,7 +208,7 @@ struct PlayerExtendedTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `isActive false after stop`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.twosecURL))
     try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     player.stop()
@@ -220,7 +220,7 @@ struct PlayerExtendedTests {
 
   @Test
   func `currentAudioDevice returns a value`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let device = player.currentAudioDevice
     // On macOS there should be an audio device; on CI it may be nil
     // Just verify the accessor does not crash and returns a string or nil
@@ -233,7 +233,7 @@ struct PlayerExtendedTests {
 
   @Test
   func `Audio delay set does not crash`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     // Audio delay may not persist without active playback pipeline,
     // but the setter should not crash
     player.audioDelay = .microseconds(1500)
@@ -248,7 +248,7 @@ struct PlayerExtendedTests {
 
   @Test
   func `Subtitle delay set does not crash`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     // Subtitle delay may not persist without active playback pipeline,
     // but the setter should not crash
     player.subtitleDelay = .milliseconds(300)
@@ -263,7 +263,7 @@ struct PlayerExtendedTests {
 
   @Test
   func `Stereo mode round-trip stereo`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.stereoMode = .stereo
     // May not persist without active pipeline
     _ = player.stereoMode
@@ -271,35 +271,35 @@ struct PlayerExtendedTests {
 
   @Test
   func `Stereo mode round-trip mono`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.stereoMode = .mono
     _ = player.stereoMode
   }
 
   @Test
   func `Stereo mode round-trip left`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.stereoMode = .left
     _ = player.stereoMode
   }
 
   @Test
   func `Stereo mode round-trip right`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.stereoMode = .right
     _ = player.stereoMode
   }
 
   @Test
   func `Stereo mode round-trip reverseStereo`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.stereoMode = .reverseStereo
     _ = player.stereoMode
   }
 
   @Test
   func `Stereo mode round-trip dolbySurround`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.stereoMode = .dolbySurround
     _ = player.stereoMode
   }
@@ -308,7 +308,7 @@ struct PlayerExtendedTests {
 
   @Test
   func `Mix mode round-trip stereo`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.mixMode = .stereo
     // May not persist without active pipeline
     _ = player.mixMode
@@ -316,21 +316,21 @@ struct PlayerExtendedTests {
 
   @Test
   func `Mix mode round-trip binaural`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.mixMode = .binaural
     _ = player.mixMode
   }
 
   @Test
   func `Mix mode round-trip fivePointOne`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.mixMode = .fivePointOne
     _ = player.mixMode
   }
 
   @Test
   func `Mix mode round-trip sevenPointOne`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.mixMode = .sevenPointOne
     _ = player.mixMode
   }
@@ -339,7 +339,7 @@ struct PlayerExtendedTests {
 
   @Test
   func `Navigate all actions do not crash`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let actions: [NavigationAction] = [.activate, .up, .down, .left, .right, .popup]
     for action in actions {
       player.navigate(action)
@@ -350,14 +350,14 @@ struct PlayerExtendedTests {
 
   @Test
   func `Toggle play pause from idle`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.togglePlayPause()
     // Should not crash from idle state
   }
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Toggle play pause during playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.twosecURL))
     try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     player.togglePlayPause()
@@ -369,7 +369,7 @@ struct PlayerExtendedTests {
 
   @Test
   func `Toggle play pause after stop`() throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let media = try Media(url: TestMedia.testMP4URL)
     player.load(media)
     player.stop()
@@ -381,14 +381,14 @@ struct PlayerExtendedTests {
 
   @Test
   func `nextFrame without playback does not crash`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.nextFrame()
     // Calling nextFrame with no media should be a no-op
   }
 
   @Test
   func `nextFrame after load without play`() throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let media = try Media(url: TestMedia.testMP4URL)
     player.load(media)
     player.nextFrame()
@@ -399,14 +399,14 @@ struct PlayerExtendedTests {
 
   @Test
   func `Set renderer to nil is safe`() throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.setRenderer(nil)
     // Setting nil renderer should succeed without error
   }
 
   @Test
   func `Set renderer to nil after load`() throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let media = try Media(url: TestMedia.testMP4URL)
     player.load(media)
     try player.setRenderer(nil)
@@ -416,9 +416,9 @@ struct PlayerExtendedTests {
 
   @Test
   func `Multiple players can coexist`() {
-    let player1 = Player()
-    let player2 = Player()
-    let player3 = Player()
+    let player1 = Player(instance: TestInstance.shared)
+    let player2 = Player(instance: TestInstance.shared)
+    let player3 = Player(instance: TestInstance.shared)
 
     #expect(player1.state == .idle)
     #expect(player2.state == .idle)
@@ -436,8 +436,8 @@ struct PlayerExtendedTests {
 
   @Test
   func `Multiple players independent media`() throws {
-    let player1 = Player()
-    let player2 = Player()
+    let player1 = Player(instance: TestInstance.shared)
+    let player2 = Player(instance: TestInstance.shared)
 
     let media1 = try Media(url: TestMedia.testMP4URL)
     let media2 = try Media(url: TestMedia.twosecURL)
@@ -451,8 +451,8 @@ struct PlayerExtendedTests {
 
   @Test
   func `Multiple players independent settings`() {
-    let player1 = Player()
-    let player2 = Player()
+    let player1 = Player(instance: TestInstance.shared)
+    let player2 = Player(instance: TestInstance.shared)
 
     player1.isMuted = true
     player2.isMuted = false
@@ -470,8 +470,8 @@ struct PlayerExtendedTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Multiple players simultaneous playback`() async throws {
-    let player1 = Player()
-    let player2 = Player()
+    let player1 = Player(instance: TestInstance.shared)
+    let player2 = Player(instance: TestInstance.shared)
 
     try player1.play(Media(url: TestMedia.twosecURL))
     try player2.play(Media(url: TestMedia.silenceURL))

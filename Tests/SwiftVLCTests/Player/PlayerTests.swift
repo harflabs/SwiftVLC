@@ -8,49 +8,49 @@ import Testing
 struct PlayerTests {
   @Test
   func `Init succeeds`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.state == .idle)
   }
 
   @Test
   func `Initial state is idle`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.state == .idle)
   }
 
   @Test
   func `Initial time is zero`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.currentTime == .zero)
   }
 
   @Test
   func `Initial duration is nil`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.duration == nil)
   }
 
   @Test
   func `Initial not seekable`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.isSeekable == false)
   }
 
   @Test
   func `Initial not pausable`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.isPausable == false)
   }
 
   @Test
   func `Initial media is nil`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.currentMedia == nil)
   }
 
   @Test
   func `Initial tracks are empty`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.audioTracks.isEmpty)
     #expect(player.videoTracks.isEmpty)
     #expect(player.subtitleTracks.isEmpty)
@@ -58,7 +58,7 @@ struct PlayerTests {
 
   @Test
   func `Load sets media`() throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let media = try Media(url: TestMedia.testMP4URL)
     player.load(media)
     #expect(player.currentMedia != nil)
@@ -114,7 +114,7 @@ struct PlayerTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Play starts playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.testMP4URL))
     try #require(await poll(until: { player.state != .idle }), "Waiting for: player.state != .idle")
     #expect(player.state != .idle)
@@ -123,7 +123,7 @@ struct PlayerTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Pause pauses playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.twosecURL))
     try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     player.pause()
@@ -134,7 +134,7 @@ struct PlayerTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Resume after pause`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.twosecURL))
     try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     player.pause()
@@ -147,7 +147,7 @@ struct PlayerTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Stop stops playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.testMP4URL))
     try #require(await poll(until: { player.state != .idle }), "Waiting for: player.state != .idle")
     player.stop()
@@ -157,7 +157,7 @@ struct PlayerTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Seek to time`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.twosecURL))
     try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     player.seek(to: .seconds(1))
@@ -167,7 +167,7 @@ struct PlayerTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Seek by offset`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.twosecURL))
     try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     player.seek(by: .milliseconds(500))
@@ -177,7 +177,7 @@ struct PlayerTests {
 
   @Test
   func `Volume get and set`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.volume = 0.5
     let vol = player.volume
     #expect(vol >= 0.4 && vol <= 0.6)
@@ -185,14 +185,14 @@ struct PlayerTests {
 
   @Test
   func `Volume clamping`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.volume = -1.0
     #expect(player.volume >= 0)
   }
 
   @Test
   func mute() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.isMuted = true
     #expect(player.isMuted == true)
     player.isMuted = false
@@ -201,7 +201,7 @@ struct PlayerTests {
 
   @Test
   func `Rate get and set`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.rate = 2.0
     #expect(player.rate == 2.0)
     player.rate = 1.0
@@ -209,27 +209,27 @@ struct PlayerTests {
 
   @Test
   func `Position get and set`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.position = 0.5
   }
 
   @Test
   func `Audio delay get and set`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.audioDelay = .milliseconds(500)
     _ = player.audioDelay
   }
 
   @Test
   func `Subtitle delay get and set`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.subtitleDelay = .milliseconds(200)
     _ = player.subtitleDelay
   }
 
   @Test
   func `Subtitle text scale get and set`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.subtitleTextScale = 1.5
     let scale = player.subtitleTextScale
     #expect(scale > 0)
@@ -237,7 +237,7 @@ struct PlayerTests {
 
   @Test
   func `Role get and set`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.role = .music
     #expect(player.role == .music)
     player.role = .none
@@ -245,25 +245,25 @@ struct PlayerTests {
 
   @Test
   func `isPlaying reflects state`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.isPlaying == false)
   }
 
   @Test
   func `isActive reflects state`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.isActive == false)
   }
 
   @Test
   func `Statistics nil without media`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.statistics == nil)
   }
 
   @Test(.tags(.async))
   func `Events stream`() async {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
     let task = Task {
       for await _ in stream {
@@ -276,25 +276,25 @@ struct PlayerTests {
 
   @Test
   func `Chapter count zero without media`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.chapterCount <= 0)
   }
 
   @Test
   func `Title count zero without media`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.titleCount <= 0)
   }
 
   @Test
   func `AB loop initial state`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.abLoopState == .none)
   }
 
   @Test
   func `Equalizer get and set`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.equalizer == nil)
     let eq = Equalizer()
     player.equalizer = eq
@@ -305,7 +305,7 @@ struct PlayerTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Play URL convenience`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(url: TestMedia.testMP4URL)
     try #require(await poll(until: { player.state != .idle }), "Waiting for: player.state != .idle")
     #expect(player.state != .idle)
@@ -314,33 +314,33 @@ struct PlayerTests {
 
   @Test
   func `Audio devices`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     _ = player.audioDevices()
   }
 
   @Test
   func `Stereo mode get and set`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.stereoMode = .mono
     _ = player.stereoMode
   }
 
   @Test
   func `Mix mode get and set`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.mixMode = .stereo
     _ = player.mixMode
   }
 
   @Test
   func `Programs empty`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.programs.isEmpty)
   }
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Stop resets position`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.twosecURL))
     try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     player.stop()
@@ -350,7 +350,7 @@ struct PlayerTests {
 
   @Test
   func `Play invalid media throws error`() throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let media = try Media(path: "/dev/null")
     do {
       try player.play(media)
@@ -362,26 +362,26 @@ struct PlayerTests {
 
   @Test
   func `Toggle play pause`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.togglePlayPause()
   }
 
   @Test
   func `Navigate doesn't crash`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.navigate(.activate)
     player.navigate(.up)
   }
 
   @Test
   func `Next frame doesn't crash`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.nextFrame()
   }
 
   @Test
   func `Current audio device`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     _ = player.currentAudioDevice
   }
 
@@ -389,71 +389,71 @@ struct PlayerTests {
 
   @Test
   func `Selected audio track nil without media`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.selectedAudioTrack == nil)
   }
 
   @Test
   func `Selected subtitle track nil without media`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.selectedSubtitleTrack == nil)
   }
 
   @Test
   func `Deselect audio track doesn't crash`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.selectedAudioTrack = nil
   }
 
   @Test
   func `Deselect subtitle track doesn't crash`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.selectedSubtitleTrack = nil
   }
 
   @Test
   func `Start and stop recording doesn't crash`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.startRecording()
     player.stopRecording()
   }
 
   @Test
   func `Next and previous chapter don't crash`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.nextChapter()
     player.previousChapter()
   }
 
   @Test
   func `Current chapter get and set`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     _ = player.currentChapter
     player.currentChapter = 0
   }
 
   @Test
   func `Current title get and set`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     _ = player.currentTitle
     player.currentTitle = 0
   }
 
   @Test
   func `Titles empty without media`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.titles.isEmpty)
   }
 
   @Test
   func `Chapters empty without media`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.chapters().isEmpty)
   }
 
   @Test
   func `Set AB loop by time without media`() throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(throws: VLCError.self) {
       try player.setABLoop(a: .seconds(1), b: .seconds(2))
     }
@@ -461,7 +461,7 @@ struct PlayerTests {
 
   @Test
   func `Set AB loop by position without media`() throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(throws: VLCError.self) {
       try player.setABLoop(aPosition: 0.1, bPosition: 0.9)
     }
@@ -469,7 +469,7 @@ struct PlayerTests {
 
   @Test
   func `Reset AB loop without media`() throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(throws: VLCError.self) {
       try player.resetABLoop()
     }
@@ -477,7 +477,7 @@ struct PlayerTests {
 
   @Test
   func `Take snapshot without playback doesn't crash`() throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     do {
       try player.takeSnapshot(to: "/tmp/snapshot_test.png")
     } catch {
@@ -487,7 +487,7 @@ struct PlayerTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Add external subtitle track`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.twosecURL))
     try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     do {
@@ -500,7 +500,7 @@ struct PlayerTests {
 
   @Test
   func `Set audio output with invalid name fails`() throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(throws: VLCError.self) {
       try player.setAudioOutput("nonexistent_output_xyz")
     }
@@ -508,7 +508,7 @@ struct PlayerTests {
 
   @Test
   func `Set audio device with invalid id`() throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     do {
       try player.setAudioDevice("nonexistent_device_xyz")
     } catch {
@@ -518,25 +518,25 @@ struct PlayerTests {
 
   @Test
   func `Select program by id doesn't crash`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.selectProgram(id: 0)
   }
 
   @Test
   func `Is program scrambled`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.isProgramScrambled == false)
   }
 
   @Test
   func `Set renderer nil doesn't crash`() throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.setRenderer(nil)
   }
 
   @Test
   func `Set deinterlace auto`() throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     do {
       try player.setDeinterlace(state: -1)
     } catch {
@@ -546,7 +546,7 @@ struct PlayerTests {
 
   @Test
   func `Set deinterlace with mode`() throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     do {
       try player.setDeinterlace(state: 1, mode: "blend")
     } catch {
@@ -556,14 +556,14 @@ struct PlayerTests {
 
   @Test
   func `Teletext page get and set`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     _ = player.teletextPage
     player.teletextPage = 100
   }
 
   @Test
   func `Aspect ratio set and get`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.aspectRatio = .ratio(16, 9)
     #expect(player.aspectRatio == .ratio(16, 9))
     player.aspectRatio = .fill
@@ -574,7 +574,7 @@ struct PlayerTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Tracks refresh during playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.twosecURL))
     try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     _ = player.audioTracks
@@ -585,7 +585,7 @@ struct PlayerTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Duration available during playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.twosecURL))
 
     // libVLC's `MediaPlayerLengthChanged` event is not guaranteed to fire
@@ -604,7 +604,7 @@ struct PlayerTests {
 
   @Test
   func `Update viewpoint doesn't crash`() throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let vp = Viewpoint(yaw: 90, pitch: 0, roll: 0, fieldOfView: 80)
     do {
       try player.updateViewpoint(vp)
@@ -623,13 +623,13 @@ struct PlayerTests {
 
   @Test
   func `Selected program nil without media`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.selectedProgram == nil)
   }
 
   @Test
   func `Load replaces previous media`() throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let media1 = try Media(url: TestMedia.testMP4URL)
     player.load(media1)
     #expect(player.currentMedia != nil)
@@ -640,7 +640,7 @@ struct PlayerTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Duration set via event during playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.twosecURL))
     try #require(await poll(until: { player.duration != nil }), "Waiting for: player.duration != nil")
     if let dur = player.duration {
@@ -651,7 +651,7 @@ struct PlayerTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Position updates during playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.twosecURL))
     try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     _ = player.position
@@ -660,7 +660,7 @@ struct PlayerTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Seekable and pausable update during playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.twosecURL))
     try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     _ = player.isSeekable
@@ -670,7 +670,7 @@ struct PlayerTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `isActive true during playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.twosecURL))
     try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     if player.state == .playing || player.state == .opening {
@@ -681,7 +681,7 @@ struct PlayerTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Stop sets state to stopped`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     try player.play(Media(url: TestMedia.twosecURL))
     try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     player.stop()
@@ -691,28 +691,28 @@ struct PlayerTests {
 
   @Test
   func `Adjustments accessor`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let adj = player.adjustments
     _ = adj.isEnabled
   }
 
   @Test
   func `Marquee accessor`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let m = player.marquee
     _ = m.isEnabled
   }
 
   @Test
   func `Logo accessor`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let l = player.logo
     _ = l.isEnabled
   }
 
   @Test
   func `Statistics accessible with loaded media`() throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let media = try Media(url: TestMedia.testMP4URL)
     player.load(media)
     _ = player.statistics

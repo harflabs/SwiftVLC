@@ -10,7 +10,7 @@ import Testing
 struct EventBridgeTests {
   @Test(.timeLimit(.minutes(1)))
   func `Independent streams`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream1 = player.events
     let stream2 = player.events
     let t1 = Task { for await _ in stream1 {
@@ -25,7 +25,7 @@ struct EventBridgeTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `Events arrive on playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let receivedEvent = Mutex(false)
@@ -48,7 +48,7 @@ struct EventBridgeTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `Multiple consumers receive same events`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream1 = player.events
     let stream2 = player.events
 
@@ -83,7 +83,7 @@ struct EventBridgeTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `Terminated stream cleanup`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
     let task = Task { for await _ in stream {
       break
@@ -100,7 +100,7 @@ struct EventBridgeTests {
   func `Invalidate finishes streams`() async throws {
     let stream: AsyncStream<PlayerEvent>
     do {
-      let player = Player()
+      let player = Player(instance: TestInstance.shared)
       stream = player.events
     }
     let task = Task { for await _ in stream {} }
@@ -110,7 +110,7 @@ struct EventBridgeTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `State transitions received during playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let receivedStates = Mutex<[PlayerState]>([])
@@ -145,7 +145,7 @@ struct EventBridgeTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `Time and position events during playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let receivedTime = Mutex(false)
@@ -173,7 +173,7 @@ struct EventBridgeTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `Length changed event during playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let receivedLength = Mutex(false)
@@ -198,7 +198,7 @@ struct EventBridgeTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `Seekable and pausable events during playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let receivedSeekable = Mutex(false)
@@ -226,7 +226,7 @@ struct EventBridgeTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `Mute events`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let receivedMuted = Mutex(false)
@@ -262,7 +262,7 @@ struct EventBridgeTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `Volume changed event`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let receivedVolumeChanged = Mutex(false)
@@ -293,7 +293,7 @@ struct EventBridgeTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `Stopped event resets player state`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let receivedStopped = Mutex(false)
@@ -322,7 +322,7 @@ struct EventBridgeTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `Tracks changed event after load`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let receivedTracksChanged = Mutex(false)
@@ -353,7 +353,7 @@ struct EventBridgeTests {
 
   @Test(.timeLimit(.minutes(1)))
   func `Buffering progress event during playback`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let receivedBuffering = Mutex(false)

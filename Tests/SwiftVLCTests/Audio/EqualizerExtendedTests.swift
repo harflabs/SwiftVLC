@@ -109,7 +109,7 @@ struct EqualizerExtendedTests {
 
   @Test
   func `Assign equalizer to player then modify and reassign`() throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let eq = Equalizer()
 
     // Assign flat equalizer

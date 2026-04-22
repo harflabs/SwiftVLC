@@ -169,7 +169,13 @@ private func playerEventCallback(
   }
 }
 
-private func mapEvent(_ event: libvlc_event_t) -> PlayerEvent? {
+/// Maps a single libVLC `libvlc_event_t` to a typed `PlayerEvent`.
+///
+/// Internal rather than `private` so unit tests can synthesize each
+/// event variant with hand-built `libvlc_event_t` values and cover
+/// the full switch — most of these events don't fire in a headless
+/// test environment.
+func mapEvent(_ event: libvlc_event_t) -> PlayerEvent? {
   let type = libvlc_event_e(rawValue: UInt32(event.type))
 
   switch type {

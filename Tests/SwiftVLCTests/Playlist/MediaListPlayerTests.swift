@@ -7,22 +7,22 @@ import Testing
 struct MediaListPlayerTests {
   @Test
   func `Init succeeds`() {
-    let listPlayer = MediaListPlayer()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
     _ = listPlayer
   }
 
   @Test
   func `MediaPlayer get and set`() {
-    let listPlayer = MediaListPlayer()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
     #expect(listPlayer.mediaPlayer == nil)
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     listPlayer.mediaPlayer = player
     #expect(listPlayer.mediaPlayer != nil)
   }
 
   @Test
   func `MediaList get and set`() {
-    let listPlayer = MediaListPlayer()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
     #expect(listPlayer.mediaList == nil)
     let list = MediaList()
     listPlayer.mediaList = list
@@ -33,39 +33,39 @@ struct MediaListPlayerTests {
     arguments: [PlaybackMode.default, .loop, .repeat]
   )
   func `Playback mode get and set`(mode: PlaybackMode) {
-    let listPlayer = MediaListPlayer()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
     listPlayer.playbackMode = mode
     #expect(listPlayer.playbackMode == mode)
   }
 
   @Test
   func `Play without list doesn't crash`() {
-    let listPlayer = MediaListPlayer()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
     listPlayer.play()
     listPlayer.stop()
   }
 
   @Test
   func `Pause without playback doesn't crash`() {
-    let listPlayer = MediaListPlayer()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
     listPlayer.pause()
   }
 
   @Test
   func `Resume without playback doesn't crash`() {
-    let listPlayer = MediaListPlayer()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
     listPlayer.resume()
   }
 
   @Test
   func `Stop without playback doesn't crash`() {
-    let listPlayer = MediaListPlayer()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
     listPlayer.stop()
   }
 
   @Test
   func `Play at invalid index throws`() throws {
-    let listPlayer = MediaListPlayer()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
     let list = MediaList()
     listPlayer.mediaList = list
     #expect(throws: VLCError.self) {
@@ -75,7 +75,7 @@ struct MediaListPlayerTests {
 
   @Test
   func `Next without items throws`() throws {
-    let listPlayer = MediaListPlayer()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
     #expect(throws: VLCError.self) {
       try listPlayer.next()
     }
@@ -83,7 +83,7 @@ struct MediaListPlayerTests {
 
   @Test
   func `Previous without items throws`() throws {
-    let listPlayer = MediaListPlayer()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
     #expect(throws: VLCError.self) {
       try listPlayer.previous()
     }
@@ -91,26 +91,26 @@ struct MediaListPlayerTests {
 
   @Test
   func `State property`() {
-    let listPlayer = MediaListPlayer()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
     _ = listPlayer.state
   }
 
   @Test
   func `isPlaying property`() {
-    let listPlayer = MediaListPlayer()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
     #expect(listPlayer.isPlaying == false)
   }
 
   @Test
   func `Toggle pause doesn't crash`() {
-    let listPlayer = MediaListPlayer()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
     listPlayer.togglePause()
   }
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Play at valid index`() async throws {
-    let listPlayer = MediaListPlayer()
-    let player = Player()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+    let player = Player(instance: TestInstance.shared)
     listPlayer.mediaPlayer = player
     let list = MediaList()
     try list.append(Media(url: TestMedia.testMP4URL))
@@ -122,7 +122,7 @@ struct MediaListPlayerTests {
 
   @Test
   func `Play media item not in list throws`() throws {
-    let listPlayer = MediaListPlayer()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
     let list = MediaList()
     listPlayer.mediaList = list
     let media = try Media(url: TestMedia.testMP4URL)
@@ -133,7 +133,7 @@ struct MediaListPlayerTests {
 
   @Test
   func `Next at end of list throws`() throws {
-    let listPlayer = MediaListPlayer()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
     let list = MediaList()
     listPlayer.mediaList = list
     #expect(throws: VLCError.self) {
@@ -143,7 +143,7 @@ struct MediaListPlayerTests {
 
   @Test
   func `Previous at start of list throws`() throws {
-    let listPlayer = MediaListPlayer()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
     let list = MediaList()
     listPlayer.mediaList = list
     #expect(throws: VLCError.self) {
@@ -153,8 +153,8 @@ struct MediaListPlayerTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Play and stop lifecycle`() async throws {
-    let listPlayer = MediaListPlayer()
-    let player = Player()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+    let player = Player(instance: TestInstance.shared)
     listPlayer.mediaPlayer = player
     let list = MediaList()
     try list.append(Media(url: TestMedia.twosecURL))
@@ -167,8 +167,8 @@ struct MediaListPlayerTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Pause and resume lifecycle`() async throws {
-    let listPlayer = MediaListPlayer()
-    let player = Player()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+    let player = Player(instance: TestInstance.shared)
     listPlayer.mediaPlayer = player
     let list = MediaList()
     try list.append(Media(url: TestMedia.twosecURL))
@@ -184,8 +184,8 @@ struct MediaListPlayerTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `State during playback`() async throws {
-    let listPlayer = MediaListPlayer()
-    let player = Player()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+    let player = Player(instance: TestInstance.shared)
     listPlayer.mediaPlayer = player
     let list = MediaList()
     try list.append(Media(url: TestMedia.twosecURL))
@@ -198,8 +198,8 @@ struct MediaListPlayerTests {
 
   @Test
   func `Set media player to nil`() {
-    let listPlayer = MediaListPlayer()
-    let player = Player()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+    let player = Player(instance: TestInstance.shared)
     listPlayer.mediaPlayer = player
     #expect(listPlayer.mediaPlayer != nil)
     listPlayer.mediaPlayer = nil
@@ -216,7 +216,7 @@ struct MediaListPlayerTests {
 
   @Test
   func `Set media list to nil`() {
-    let listPlayer = MediaListPlayer()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
     let list = MediaList()
     listPlayer.mediaList = list
     #expect(listPlayer.mediaList != nil)
@@ -226,8 +226,8 @@ struct MediaListPlayerTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Clearing media list removes stale native playback state`() async throws {
-    let listPlayer = MediaListPlayer()
-    let player = Player()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+    let player = Player(instance: TestInstance.shared)
     listPlayer.mediaPlayer = player
 
     let list = MediaList()

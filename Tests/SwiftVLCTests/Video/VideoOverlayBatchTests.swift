@@ -8,7 +8,7 @@ struct VideoOverlayBatchTests {
 
   @Test
   func `withAdjustments sets multiple properties in one scoped call`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.withAdjustments { adj in
       adj.contrast = 1.5
       adj.brightness = 0.7
@@ -25,7 +25,7 @@ struct VideoOverlayBatchTests {
 
   @Test
   func `withAdjustments returns a value`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let contrast = player.withAdjustments { adj -> Float in
       adj.contrast = 1.8
       return adj.contrast
@@ -37,7 +37,7 @@ struct VideoOverlayBatchTests {
 
   @Test
   func `withMarquee sets multiple properties in one scoped call`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.withMarquee { m in
       m.isEnabled = true
       m.setText("Batch Test")
@@ -61,7 +61,7 @@ struct VideoOverlayBatchTests {
 
   @Test
   func `withMarquee returns a value`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let opacity = player.withMarquee { m -> Int in
       m.opacity = 180
       return m.opacity
@@ -73,7 +73,7 @@ struct VideoOverlayBatchTests {
 
   @Test
   func `withLogo sets multiple properties in one scoped call`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.withLogo { l in
       l.isEnabled = true
       l.setFile("/tmp/test-logo.png")
@@ -95,7 +95,7 @@ struct VideoOverlayBatchTests {
 
   @Test
   func `withLogo returns a value`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let pos = player.withLogo { l -> Int in
       l.position = 5
       return l.position
@@ -107,7 +107,7 @@ struct VideoOverlayBatchTests {
 
   @Test
   func `adjustments persist across multiple accessor calls`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.adjustments.isEnabled = true
     player.adjustments.contrast = 1.3
     player.adjustments.brightness = 0.9
@@ -124,7 +124,7 @@ struct VideoOverlayBatchTests {
 
   @Test
   func `marquee setText does not crash`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     // Write-only: libVLC exposes no getter. Just verify calls are accepted.
     player.marquee.setText("")
     player.marquee.setText("Some text")
@@ -132,7 +132,7 @@ struct VideoOverlayBatchTests {
 
   @Test
   func `logo setFile does not crash`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     // Write-only: libVLC exposes no getter. Just verify calls are accepted.
     player.logo.setFile("")
     player.logo.setFile("/tmp/logo.png")
@@ -142,7 +142,7 @@ struct VideoOverlayBatchTests {
 
   @Test
   func `multiple sequential withAdjustments calls compound correctly`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.withAdjustments { adj in
       adj.isEnabled = true
       adj.contrast = 1.2
@@ -163,7 +163,7 @@ struct VideoOverlayBatchTests {
 
   @Test
   func `enabling then disabling adjustments does not crash`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     // isEnabled may not persist without active video output,
     // but the calls should not crash
     player.adjustments.isEnabled = true
@@ -177,7 +177,7 @@ struct VideoOverlayBatchTests {
 
   @Test
   func `marquee default values`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.marquee.isEnabled == false)
     #expect(player.marquee.opacity == 255)
     #expect(player.marquee.x == 0)
@@ -187,7 +187,7 @@ struct VideoOverlayBatchTests {
 
   @Test
   func `logo default values`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     #expect(player.logo.isEnabled == false)
   }
 
@@ -195,7 +195,7 @@ struct VideoOverlayBatchTests {
 
   @Test
   func `adjustment values at extreme ranges`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.adjustments.isEnabled = true
 
     // Minimum values
@@ -227,7 +227,7 @@ struct VideoOverlayBatchTests {
 
   @Test
   func `marquee opacity boundaries`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.marquee.opacity = 0
     #expect(player.marquee.opacity == 0)
     player.marquee.opacity = 255
@@ -238,7 +238,7 @@ struct VideoOverlayBatchTests {
 
   @Test
   func `logo opacity boundaries`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     player.logo.opacity = 0
     #expect(player.logo.opacity == 0)
     player.logo.opacity = 255
@@ -251,7 +251,7 @@ struct VideoOverlayBatchTests {
 
   @Test
   func `marquee position values`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
 
     // center
     player.marquee.position = 0
@@ -292,7 +292,7 @@ struct VideoOverlayBatchTests {
 
   @Test
   func `logo position values`() {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
 
     // center
     player.logo.position = 0

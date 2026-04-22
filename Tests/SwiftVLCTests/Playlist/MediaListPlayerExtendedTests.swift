@@ -6,8 +6,8 @@ import Testing
 struct MediaListPlayerExtendedTests {
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Play specific item at index from list`() async throws {
-    let listPlayer = MediaListPlayer()
-    let player = Player()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+    let player = Player(instance: TestInstance.shared)
     listPlayer.mediaPlayer = player
     let list = MediaList()
     try list.append(Media(url: TestMedia.testMP4URL))
@@ -24,8 +24,8 @@ struct MediaListPlayerExtendedTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Mode switching during playback`() async throws {
-    let listPlayer = MediaListPlayer()
-    let player = Player()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+    let player = Player(instance: TestInstance.shared)
     listPlayer.mediaPlayer = player
     let list = MediaList()
     try list.append(Media(url: TestMedia.twosecURL))
@@ -47,8 +47,8 @@ struct MediaListPlayerExtendedTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Toggle pause during playback`() async throws {
-    let listPlayer = MediaListPlayer()
-    let player = Player()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+    let player = Player(instance: TestInstance.shared)
     listPlayer.mediaPlayer = player
     let list = MediaList()
     try list.append(Media(url: TestMedia.twosecURL))
@@ -69,8 +69,8 @@ struct MediaListPlayerExtendedTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Replace mediaList while playing`() async throws {
-    let listPlayer = MediaListPlayer()
-    let player = Player()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+    let player = Player(instance: TestInstance.shared)
     listPlayer.mediaPlayer = player
     let list1 = MediaList()
     try list1.append(Media(url: TestMedia.twosecURL))
@@ -90,20 +90,20 @@ struct MediaListPlayerExtendedTests {
 
   @Test
   func `Replace mediaPlayer while configured`() {
-    let listPlayer = MediaListPlayer()
-    let player1 = Player()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+    let player1 = Player(instance: TestInstance.shared)
     listPlayer.mediaPlayer = player1
     #expect(listPlayer.mediaPlayer != nil)
     // Replace with a different player
-    let player2 = Player()
+    let player2 = Player(instance: TestInstance.shared)
     listPlayer.mediaPlayer = player2
     #expect(listPlayer.mediaPlayer != nil)
   }
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Play from beginning after stop`() async throws {
-    let listPlayer = MediaListPlayer()
-    let player = Player()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+    let player = Player(instance: TestInstance.shared)
     listPlayer.mediaPlayer = player
     let list = MediaList()
     try list.append(Media(url: TestMedia.twosecURL))
@@ -127,8 +127,8 @@ struct MediaListPlayerExtendedTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `State reflects paused during pause`() async throws {
-    let listPlayer = MediaListPlayer()
-    let player = Player()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+    let player = Player(instance: TestInstance.shared)
     listPlayer.mediaPlayer = player
     let list = MediaList()
     try list.append(Media(url: TestMedia.twosecURL))
@@ -148,8 +148,8 @@ struct MediaListPlayerExtendedTests {
 
   @Test
   func `Multiple stop calls don't crash`() {
-    let listPlayer = MediaListPlayer()
-    let player = Player()
+    let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+    let player = Player(instance: TestInstance.shared)
     listPlayer.mediaPlayer = player
     let list = MediaList()
     listPlayer.mediaList = list

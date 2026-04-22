@@ -9,7 +9,7 @@ struct EventBridgeDeepTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `MediaChanged event fires when media is loaded`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let receivedMediaChanged = Mutex(false)
@@ -38,7 +38,7 @@ struct EventBridgeDeepTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `TracksChanged event fires after load`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let receivedTracksChanged = Mutex(false)
@@ -71,7 +71,7 @@ struct EventBridgeDeepTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Multiple events accumulate correctly`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let eventCounts = Mutex<[String: Int]>([:])
@@ -121,7 +121,7 @@ struct EventBridgeDeepTests {
 
   @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
   func `Stream can be consumed with for-await-in pattern`() async throws {
-    let player = Player()
+    let player = Player(instance: TestInstance.shared)
     let stream = player.events
 
     let collected = Mutex<[PlayerEvent]>([])
