@@ -13,7 +13,11 @@ let package = Package(
     .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.4.6")
   ],
   targets: [
-    .binaryTarget(name: "libvlc", path: "Vendor/libvlc.xcframework"),
+    .binaryTarget(
+      name: "libvlc",
+      url: "https://github.com/harflabs/SwiftVLC/releases/download/v0.6.0/libvlc.xcframework.zip",
+      checksum: "937ce936716d52b7e7f2e89767db7a041809c55558497e380824fe6648bc77cf"
+    ),
     .target(
       name: "CLibVLC",
       dependencies: ["libvlc"],
