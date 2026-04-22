@@ -48,7 +48,7 @@ The existing iOS wrapper, [VLCKit](https://code.videolan.org/videolan/VLCKit), i
 ## Requirements
 
 - Swift 6.3+ / Xcode 26+
-- iOS 18+ / macOS 15+ / tvOS 18+
+- iOS 18+ / macOS 15+ / tvOS 18+ / Mac Catalyst 18+
 
 ## Installation
 
@@ -117,6 +117,11 @@ for await event in player.events {
   }
 }
 ```
+
+## Documentation
+
+Full API reference is hosted on Swift Package Index:
+**[swiftpackageindex.com/harflabs/swiftvlc/documentation](https://swiftpackageindex.com/harflabs/swiftvlc/documentation)**
 
 ## Showcase App
 
