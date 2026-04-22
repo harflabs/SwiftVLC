@@ -167,28 +167,21 @@ struct PiPControllerTests {
     )
     let pip = AVPictureInPictureController(contentSource: contentSource)
 
-    let controllerOpaque = UInt(bitPattern: Unmanaged.passRetained(controller).toOpaque())
-    let pipOpaque = UInt(bitPattern: Unmanaged.passRetained(pip).toOpaque())
-    // `defer` bodies can't throw, so force-unwrap — both pointers were
-    // just produced by `passRetained` a line ago and are guaranteed
-    // non-nil. If they somehow were nil we'd have bigger problems than
-    // a leaked retain.
-    // swiftformat:disable noForceUnwrapInTests
-    defer {
-      let controllerPtr = UnsafeMutableRawPointer(bitPattern: controllerOpaque)!
-      Unmanaged<PiPController>.fromOpaque(controllerPtr).release()
-      let pipPtr = UnsafeMutableRawPointer(bitPattern: pipOpaque)!
-      Unmanaged<AVPictureInPictureController>.fromOpaque(pipPtr).release()
+    // `AVPictureInPictureController` isn't `Sendable`, but
+    // `PiPController._isPlaybackPausedForTesting` is `nonisolated` and
+    // documented as safe to call off the main thread. Wrap both refs
+    // in an `@unchecked Sendable` box so they can be captured by the
+    // background closure without pointer-to-Int round-trips. ARC keeps
+    // both alive until the box (and the closure) goes out of scope.
+    struct Refs: @unchecked Sendable {
+      let controller: PiPController
+      let pip: AVPictureInPictureController
     }
-    // swiftformat:enable noForceUnwrapInTests
+    let refs = Refs(controller: controller, pip: pip)
 
     let paused = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
       DispatchQueue.global().async {
-        let controllerPtr = UnsafeMutableRawPointer(bitPattern: controllerOpaque)!
-        let controller = Unmanaged<PiPController>.fromOpaque(controllerPtr).takeUnretainedValue()
-        let pipPtr = UnsafeMutableRawPointer(bitPattern: pipOpaque)!
-        let pip = Unmanaged<AVPictureInPictureController>.fromOpaque(pipPtr).takeUnretainedValue()
-        continuation.resume(returning: controller._isPlaybackPausedForTesting(pip))
+        continuation.resume(returning: refs.controller._isPlaybackPausedForTesting(refs.pip))
       }
     }
 

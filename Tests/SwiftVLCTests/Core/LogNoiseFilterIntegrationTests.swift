@@ -20,29 +20,33 @@ struct LogNoiseFilterIntegrationTests {
   func `Genuine errors still reach .error subscribers (filter does not over-reach)`() async throws {
     let stream = VLCInstance.shared.logStream(minimumLevel: .error)
 
-    let errorSeen = Task { () -> Bool in
-      for await entry in stream {
-        if entry.level == .error { return true }
-      }
-      return false
-    }
-
     // Small delay so the callback is installed before we trigger errors.
     try await Task.sleep(for: .milliseconds(50))
 
     let player = await Player()
     try? await player.play(url: URL(fileURLWithPath: "/definitely/does/not/exist/\(UUID().uuidString).mp4"))
 
-    let deadline = ContinuousClock.now + .seconds(10)
-    while !errorSeen.isCancelled && ContinuousClock.now < deadline {
-      if await errorSeen.value { break }
-      try await Task.sleep(for: .milliseconds(100))
+    // Race the stream watcher against a 10s timeout. Whichever finishes
+    // first produces the result; the other is cancelled. `Task.value`
+    // on a running task blocks until completion, so a polling loop
+    // wouldn't be able to check a deadline between iterations.
+    let saw = await withTaskGroup(of: Bool.self) { group in
+      group.addTask {
+        for await entry in stream where entry.level == .error {
+          return true
+        }
+        return false
+      }
+      group.addTask {
+        try? await Task.sleep(for: .seconds(10))
+        return false
+      }
+      let first = await group.next() ?? false
+      group.cancelAll()
+      return first
     }
 
-    errorSeen.cancel()
     await player.stop()
-
-    let saw = await errorSeen.value
     #expect(saw, "Expected at least one .error-level log entry for an unreachable media URL")
   }
 }

@@ -13,7 +13,7 @@ struct CompatSlider<Value: BinaryFloatingPoint>: View where Value.Stride: Binary
       .monospacedDigit()
       .foregroundStyle(.secondary)
     #else
-    Slider(value: $value, in: range)
+    Slider(value: $value, in: range, step: step)
     #endif
   }
 }

@@ -169,10 +169,10 @@ struct MarqueeCase: View {
         Spacer()
         Text(format(value.wrappedValue))
           .foregroundStyle(.secondary)
-          .accessibilityIdentifier(valueID ?? "")
+          .accessibilityIdentifier(ifPresent: valueID)
       }
       CompatSlider(value: value, range: range)
-        .accessibilityIdentifier(sliderID ?? "")
+        .accessibilityIdentifier(ifPresent: sliderID)
     }
   }
 }

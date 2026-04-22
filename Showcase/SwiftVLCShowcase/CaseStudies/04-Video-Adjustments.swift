@@ -84,7 +84,7 @@ struct VideoAdjustmentsCase: View {
           .foregroundStyle(.secondary)
       }
       CompatSlider(value: value, range: range, step: 0.05)
-        .accessibilityIdentifier(identifier ?? "")
+        .accessibilityIdentifier(ifPresent: identifier)
     }
   }
 }

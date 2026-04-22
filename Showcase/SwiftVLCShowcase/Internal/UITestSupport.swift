@@ -51,6 +51,21 @@ enum UITestSupport {
   }
 }
 
+extension View {
+  /// Applies `.accessibilityIdentifier(_:)` only when `identifier` is
+  /// non-nil. Avoids setting an empty-string identifier, which would
+  /// make multiple sliders/rows share the same ambiguous ID and break
+  /// UI test queries.
+  @ViewBuilder
+  func accessibilityIdentifier(ifPresent identifier: String?) -> some View {
+    if let identifier {
+      accessibilityIdentifier(identifier)
+    } else {
+      self
+    }
+  }
+}
+
 @MainActor
 extension UITestRoute {
   /// The case-study view this route resolves to. Add a case here as each
