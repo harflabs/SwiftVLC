@@ -70,7 +70,10 @@ let package = Package(
     ),
     .testTarget(
       name: "SwiftVLCTests",
-      dependencies: ["SwiftVLC", "CLibVLC"],
+      // CLibVLC is available transitively through SwiftVLC — re-linking it
+      // here causes "Class X is implemented in both A and B" runtime warnings
+      // when a test binary ends up with two copies of the same symbol graph.
+      dependencies: ["SwiftVLC"],
       resources: [.copy("Fixtures")],
       swiftSettings: [
         .swiftLanguageMode(.v6),

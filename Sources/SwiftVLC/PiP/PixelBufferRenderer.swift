@@ -53,7 +53,10 @@ func pixelBufferFormatCallback(
     let opaque, let chroma, let width, let height,
     let pitches, let lines else { return 0 }
 
-  let renderer = Unmanaged<PixelBufferRenderer>.fromOpaque(opaque.pointee!).takeUnretainedValue()
+  // libVLC populates `*opaque` with the context we passed to
+  // `libvlc_video_set_callbacks`. Guard against an unattached context.
+  guard let rendererBox = opaque.pointee else { return 0 }
+  let renderer = Unmanaged<PixelBufferRenderer>.fromOpaque(rendererBox).takeUnretainedValue()
 
   let w = Int(width.pointee)
   let h = Int(height.pointee)
@@ -135,6 +138,8 @@ func pixelBufferUnlockCallback(
 ) {
   guard let picture else { return }
 
+  // `as!` (not `as?`): the compiler emits "conditional downcast will
+  // always succeed" for CoreFoundation bridged types.
   let pb = Unmanaged<AnyObject>.fromOpaque(picture).takeUnretainedValue() as! CVPixelBuffer
   CVPixelBufferUnlockBaseAddress(pb, [])
 }
@@ -148,6 +153,7 @@ func pixelBufferDisplayCallback(
   guard let opaque, let picture else { return }
 
   let renderer = Unmanaged<PixelBufferRenderer>.fromOpaque(opaque).takeUnretainedValue()
+  // `takeRetainedValue` balances the `passRetained` in `pixelBufferLockCallback`.
   let pb = Unmanaged<AnyObject>.fromOpaque(picture).takeRetainedValue() as! CVPixelBuffer
 
   var formatDesc: CMVideoFormatDescription?

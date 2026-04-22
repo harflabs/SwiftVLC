@@ -17,8 +17,10 @@ extension Duration {
   ///
   /// Negative durations are prefixed with "-" (e.g. "-0:05").
   public var formatted: String {
-    let isNegative = milliseconds < 0
-    let totalSeconds = Int(abs(milliseconds) / 1000)
+    let ms = milliseconds
+    let isNegative = ms < 0
+    // Divide before `abs` so `Int64.min` (whose negation overflows) doesn't trap.
+    let totalSeconds = Int(abs(ms / 1000))
     let hours = totalSeconds / 3600
     let minutes = (totalSeconds % 3600) / 60
     let seconds = totalSeconds % 60

@@ -23,7 +23,7 @@ import Synchronization
 /// ```
 public final class DialogHandler: Sendable {
   private static let registryQueue = DispatchQueue(label: "swiftvlc.dialog-handler.registry")
-  private nonisolated(unsafe) static var activeHandlers: [UInt: UUID] = [:]
+  private nonisolated(unsafe) static var activeHandlers: [OpaquePointer: UUID] = [:]
 
   private let instance: VLCInstance
   private let continuation: AsyncStream<DialogEvent>.Continuation
@@ -50,7 +50,7 @@ public final class DialogHandler: Sendable {
     registrationToken = token
 
     let registration = Self.registryQueue.sync { () -> (registered: Bool, box: UnsafeMutableRawPointer?) in
-      let key = dialogInstanceKey(instance.pointer)
+      let key = instance.pointer
       guard Self.activeHandlers[key] == nil else {
         return (false, nil)
       }
@@ -89,7 +89,7 @@ public final class DialogHandler: Sendable {
     let token = self.registrationToken
     nonisolated(unsafe) let box = self.boxOpaque
     Self.registryQueue.async {
-      let key = dialogInstanceKey(instance.pointer)
+      let key = instance.pointer
       if Self.activeHandlers[key] == token {
         Self.activeHandlers.removeValue(forKey: key)
         libvlc_dialog_set_callbacks(instance.pointer, nil, nil)
@@ -102,10 +102,6 @@ public final class DialogHandler: Sendable {
       }
     }
   }
-}
-
-private func dialogInstanceKey(_ pointer: OpaquePointer) -> UInt {
-  UInt(bitPattern: Int(bitPattern: pointer))
 }
 
 // MARK: - Internal Box
@@ -437,26 +433,25 @@ private final class DialogIDStorage: @unchecked Sendable {
   }
 
   private static let registryQueue = DispatchQueue(label: "swiftvlc.dialog-id.registry")
-  private nonisolated(unsafe) static var registry: [UInt: WeakDialogIDStorage] = [:]
+  private nonisolated(unsafe) static var registry: [OpaquePointer: WeakDialogIDStorage] = [:]
 
   static func shared(for pointer: OpaquePointer) -> DialogIDStorage {
-    let key = UInt(bitPattern: Int(bitPattern: pointer))
-    return registryQueue.sync {
-      if let storage = registry[key]?.value {
+    registryQueue.sync {
+      if let storage = registry[pointer]?.value {
         return storage
       }
 
-      let storage = DialogIDStorage(pointer: pointer, key: key)
-      registry[key] = WeakDialogIDStorage(storage)
+      let storage = DialogIDStorage(pointer: pointer)
+      registry[pointer] = WeakDialogIDStorage(storage)
       return storage
     }
   }
 
-  private let key: UInt
+  private let key: OpaquePointer
   private let state: Mutex<State>
 
-  private init(pointer: OpaquePointer, key: UInt) {
-    self.key = key
+  private init(pointer: OpaquePointer) {
+    key = pointer
     state = Mutex(State(pointer: pointer))
   }
 
@@ -472,7 +467,8 @@ private final class DialogIDStorage: @unchecked Sendable {
     }
 
     if pointer != nil {
-      Self.registryQueue.async { [key] in
+      nonisolated(unsafe) let key = key
+      Self.registryQueue.async {
         if Self.registry[key]?.value === self {
           Self.registry.removeValue(forKey: key)
         }
@@ -483,7 +479,7 @@ private final class DialogIDStorage: @unchecked Sendable {
   }
 
   deinit {
-    let key = self.key
+    nonisolated(unsafe) let key = key
     Self.registryQueue.async {
       if Self.registry[key]?.value == nil {
         Self.registry.removeValue(forKey: key)
