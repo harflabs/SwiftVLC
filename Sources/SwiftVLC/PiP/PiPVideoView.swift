@@ -42,7 +42,7 @@ public struct PiPVideoView: UIViewRepresentable {
     context.coordinator.player = player
 
     // Defer binding update — SwiftUI doesn't allow state changes during view construction
-    pushControllerBinding(controller)
+    pushControllerBinding(controller, via: context.coordinator)
 
     return container
   }
@@ -61,7 +61,7 @@ public struct PiPVideoView: UIViewRepresentable {
       context.coordinator.displayLayer = displayLayer
     }
 
-    pushControllerBinding(context.coordinator.pipController)
+    pushControllerBinding(context.coordinator.pipController, via: context.coordinator)
   }
 
   public static func dismantleUIView(_: UIView, coordinator: Coordinator) {
@@ -69,6 +69,12 @@ public struct PiPVideoView: UIViewRepresentable {
     coordinator.displayLayer?.removeFromSuperlayer()
     coordinator.pipController = nil
     coordinator.displayLayer = nil
+    // Clear any external binding so callers who observe it don't
+    // retain a stopped controller.
+    if let binding = coordinator.controllerBinding {
+      Task { @MainActor in binding.wrappedValue = nil }
+      coordinator.controllerBinding = nil
+    }
   }
 
   public func makeCoordinator() -> Coordinator {
@@ -84,11 +90,13 @@ public struct PiPVideoView: UIViewRepresentable {
     weak var player: Player?
     var pipController: PiPController?
     var displayLayer: AVSampleBufferDisplayLayer?
+    var controllerBinding: Binding<PiPController?>?
   }
 
   @MainActor
-  private func pushControllerBinding(_ controller: PiPController?) {
+  private func pushControllerBinding(_ controller: PiPController?, via coordinator: Coordinator) {
     let binding = controllerBinding
+    coordinator.controllerBinding = binding
     Task { @MainActor in
       binding?.wrappedValue = controller
     }
@@ -158,7 +166,7 @@ public struct PiPVideoView: NSViewRepresentable {
     context.coordinator.displayLayer = displayLayer
     context.coordinator.player = player
 
-    pushControllerBinding(controller)
+    pushControllerBinding(controller, via: context.coordinator)
 
     return container
   }
@@ -177,7 +185,7 @@ public struct PiPVideoView: NSViewRepresentable {
       context.coordinator.displayLayer = displayLayer
     }
 
-    pushControllerBinding(context.coordinator.pipController)
+    pushControllerBinding(context.coordinator.pipController, via: context.coordinator)
   }
 
   public static func dismantleNSView(_: NSView, coordinator: Coordinator) {
@@ -200,11 +208,13 @@ public struct PiPVideoView: NSViewRepresentable {
     weak var player: Player?
     var pipController: PiPController?
     var displayLayer: AVSampleBufferDisplayLayer?
+    var controllerBinding: Binding<PiPController?>?
   }
 
   @MainActor
-  private func pushControllerBinding(_ controller: PiPController?) {
+  private func pushControllerBinding(_ controller: PiPController?, via coordinator: Coordinator) {
     let binding = controllerBinding
+    coordinator.controllerBinding = binding
     Task { @MainActor in
       binding?.wrappedValue = controller
     }

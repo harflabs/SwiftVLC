@@ -1,17 +1,30 @@
 import CLibVLC
+import Observation
 
 /// A 10-band audio equalizer with preamp and preset support.
 ///
-/// Create an equalizer, configure it, then apply to a player:
+/// `Equalizer` is `@Observable` and `@MainActor` — SwiftUI views that read
+/// ``preamp`` or ``bands`` update automatically, and the player it is
+/// attached to re-applies its audio output on every change.
+///
 /// ```swift
 /// let eq = Equalizer()
 /// eq.preamp = 5.0
 /// try eq.setAmplification(10.0, forBand: 0)
 /// player.equalizer = eq
 /// ```
+@Observable
 @MainActor
 public final class Equalizer {
+  @ObservationIgnored
   let pointer: OpaquePointer // libvlc_equalizer_t*
+
+  /// Fires on the main actor after any observable change. `Player`
+  /// installs a handler here on assignment to re-apply the equalizer to
+  /// its audio output, since libVLC copies settings on
+  /// `libvlc_media_player_set_equalizer` and does not retain the reference.
+  @ObservationIgnored
+  var onChange: (@MainActor () -> Void)?
 
   /// Creates a new equalizer with flat (0 dB) settings.
   public init() {
@@ -43,8 +56,17 @@ public final class Equalizer {
   /// Valid range is `-20.0` to `+20.0`; libVLC clamps values outside
   /// that window.
   public var preamp: Float {
-    get { libvlc_audio_equalizer_get_preamp(pointer) }
-    set { libvlc_audio_equalizer_set_preamp(pointer, newValue) }
+    get {
+      access(keyPath: \.preamp)
+      return libvlc_audio_equalizer_get_preamp(pointer)
+    }
+    set {
+      guard libvlc_audio_equalizer_get_preamp(pointer) != newValue else { return }
+      _ = withMutation(keyPath: \.preamp) {
+        libvlc_audio_equalizer_set_preamp(pointer, newValue)
+      }
+      onChange?()
+    }
   }
 
   // MARK: - Bands
@@ -62,11 +84,44 @@ public final class Equalizer {
     return libvlc_audio_equalizer_get_band_frequency(UInt32(index))
   }
 
+  /// Per-band amplification in dB, in frequency order. The array length
+  /// always equals ``bandCount``.
+  ///
+  /// Reading takes a snapshot of the current band values. Assigning a
+  /// new array writes each element through to libVLC and triggers
+  /// re-application on the attached player. Assigning an array of the
+  /// wrong length traps.
+  public var bands: [Float] {
+    get {
+      access(keyPath: \.bands)
+      return (0..<Self.bandCount).map {
+        libvlc_audio_equalizer_get_amp_at_index(pointer, UInt32($0))
+      }
+    }
+    set {
+      precondition(
+        newValue.count == Self.bandCount,
+        "bands.count (\(newValue.count)) must equal Equalizer.bandCount (\(Self.bandCount))"
+      )
+      let current = (0..<Self.bandCount).map {
+        libvlc_audio_equalizer_get_amp_at_index(pointer, UInt32($0))
+      }
+      guard current != newValue else { return }
+      withMutation(keyPath: \.bands) {
+        for (index, amp) in newValue.enumerated() where current[index] != amp {
+          libvlc_audio_equalizer_set_amp_at_index(pointer, amp, UInt32(index))
+        }
+      }
+      onChange?()
+    }
+  }
+
   /// Returns the amplification (dB) for a specific band.
   /// - Parameter band: Band index (0 ..< ``bandCount``).
   /// - Precondition: `band` must be in `0 ..< bandCount`.
   public func amplification(forBand band: Int) -> Float {
     precondition(band >= 0 && band < Self.bandCount, "Band index \(band) out of range (0 ..< \(Self.bandCount))")
+    access(keyPath: \.bands)
     return libvlc_audio_equalizer_get_amp_at_index(pointer, UInt32(band))
   }
 
@@ -79,6 +134,8 @@ public final class Equalizer {
     guard libvlc_audio_equalizer_set_amp_at_index(pointer, amp, UInt32(band)) == 0 else {
       throw .operationFailed("Set equalizer amplification for band \(band)")
     }
+    withMutation(keyPath: \.bands) {}
+    onChange?()
   }
 
   // MARK: - Presets

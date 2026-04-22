@@ -1,13 +1,19 @@
 import CLibVLC
 
 /// The playback state of a ``Player``.
+///
+/// The lifecycle is distinct from buffer fill: a player can be `.paused`
+/// while libVLC is still buffering ahead, or `.playing` while buffer
+/// levels fluctuate. Read ``Player/bufferFill`` separately when you want
+/// to display fill percentage — it's published continuously and is not
+/// gated by this enum.
 public enum PlayerState: Sendable, Hashable, CustomStringConvertible {
   /// No media loaded or playback not yet started.
   case idle
   /// Media is being opened (connecting, demuxing).
   case opening
-  /// Buffering in progress. The associated value is normalized (0.0–1.0).
-  case buffering(Float)
+  /// Waiting for enough data to start (or resume) playback.
+  case buffering
   /// Media is actively playing.
   case playing
   /// Playback is paused.
@@ -23,7 +29,7 @@ public enum PlayerState: Sendable, Hashable, CustomStringConvertible {
     switch self {
     case .idle: "idle"
     case .opening: "opening"
-    case .buffering(let pct): "buffering(\(Int(pct * 100))%)"
+    case .buffering: "buffering"
     case .playing: "playing"
     case .paused: "paused"
     case .stopped: "stopped"
@@ -36,7 +42,7 @@ public enum PlayerState: Sendable, Hashable, CustomStringConvertible {
     switch cState {
     case libvlc_NothingSpecial: self = .idle
     case libvlc_Opening: self = .opening
-    case libvlc_Buffering: self = .buffering(0)
+    case libvlc_Buffering: self = .buffering
     case libvlc_Playing: self = .playing
     case libvlc_Paused: self = .paused
     case libvlc_Stopped: self = .stopped

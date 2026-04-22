@@ -116,7 +116,7 @@ struct PlayerTests {
   func `Play starts playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.testMP4URL))
-    guard try await poll(until: { player.state != .idle }) else { player.stop(); return }
+    try #require(await poll(until: { player.state != .idle }), "Waiting for: player.state != .idle")
     #expect(player.state != .idle)
     player.stop()
   }
@@ -125,9 +125,9 @@ struct PlayerTests {
   func `Pause pauses playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     player.pause()
-    guard try await poll(until: { player.state == .paused }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .paused }), "Waiting for: player.state == .paused")
     #expect(player.state == .paused)
     player.stop()
   }
@@ -136,11 +136,11 @@ struct PlayerTests {
   func `Resume after pause`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     player.pause()
-    guard try await poll(until: { player.state == .paused }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .paused }), "Waiting for: player.state == .paused")
     player.resume()
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     #expect(player.state == .playing)
     player.stop()
   }
@@ -149,9 +149,9 @@ struct PlayerTests {
   func `Stop stops playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.testMP4URL))
-    guard try await poll(until: { player.state != .idle }) else { player.stop(); return }
+    try #require(await poll(until: { player.state != .idle }), "Waiting for: player.state != .idle")
     player.stop()
-    guard try await poll(until: { player.state == .stopped || player.state == .idle }) else { return }
+    try #require(await poll(until: { player.state == .stopped || player.state == .idle }), "Waiting for: player.state == .stopped || player.state == .idle")
     #expect(player.state == .stopped || player.state == .idle || player.state == .stopping)
   }
 
@@ -159,7 +159,7 @@ struct PlayerTests {
   func `Seek to time`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     player.seek(to: .seconds(1))
     try await Task.sleep(for: .milliseconds(100))
     player.stop()
@@ -169,7 +169,7 @@ struct PlayerTests {
   func `Seek by offset`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     player.seek(by: .milliseconds(500))
     try await Task.sleep(for: .milliseconds(100))
     player.stop()
@@ -307,7 +307,7 @@ struct PlayerTests {
   func `Play URL convenience`() async throws {
     let player = Player()
     try player.play(url: TestMedia.testMP4URL)
-    guard try await poll(until: { player.state != .idle }) else { player.stop(); return }
+    try #require(await poll(until: { player.state != .idle }), "Waiting for: player.state != .idle")
     #expect(player.state != .idle)
     player.stop()
   }
@@ -342,9 +342,9 @@ struct PlayerTests {
   func `Stop resets position`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     player.stop()
-    guard try await poll(until: { player.state == .stopped || player.state == .idle }) else { return }
+    try #require(await poll(until: { player.state == .stopped || player.state == .idle }), "Waiting for: player.state == .stopped || player.state == .idle")
     #expect(player.currentTime == .zero)
   }
 
@@ -489,7 +489,7 @@ struct PlayerTests {
   func `Add external subtitle track`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     do {
       try player.addExternalTrack(from: TestMedia.subtitleURL, type: .subtitle)
     } catch {
@@ -576,7 +576,7 @@ struct PlayerTests {
   func `Tracks refresh during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     _ = player.audioTracks
     _ = player.videoTracks
     _ = player.subtitleTracks
@@ -587,7 +587,15 @@ struct PlayerTests {
   func `Duration available during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.duration != nil }) else { player.stop(); return }
+
+    // libVLC's `MediaPlayerLengthChanged` event is not guaranteed to fire
+    // for every media — for some inputs, the player never receives it.
+    // `Player` polls `libvlc_media_player_get_length` on state transitions
+    // as a safety net (see `refreshDurationFromNativeIfNeeded`); this test
+    // is the regression guard for that path.
+    let got = try await poll(timeout: .seconds(5), until: { player.duration != nil })
+    #expect(got, "Player.duration stayed nil — the state-transition fallback isn't publishing length")
+
     if let dur = player.duration {
       #expect(dur.milliseconds > 0)
     }
@@ -634,7 +642,7 @@ struct PlayerTests {
   func `Duration set via event during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.duration != nil }) else { player.stop(); return }
+    try #require(await poll(until: { player.duration != nil }), "Waiting for: player.duration != nil")
     if let dur = player.duration {
       #expect(dur.milliseconds > 0)
     }
@@ -645,7 +653,7 @@ struct PlayerTests {
   func `Position updates during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     _ = player.position
     player.stop()
   }
@@ -654,7 +662,7 @@ struct PlayerTests {
   func `Seekable and pausable update during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     _ = player.isSeekable
     _ = player.isPausable
     player.stop()
@@ -664,7 +672,7 @@ struct PlayerTests {
   func `isActive true during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     if player.state == .playing || player.state == .opening {
       #expect(player.isActive == true)
     }
@@ -675,9 +683,9 @@ struct PlayerTests {
   func `Stop sets state to stopped`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     player.stop()
-    guard try await poll(until: { player.state == .stopped || player.state == .idle }) else { return }
+    try #require(await poll(until: { player.state == .stopped || player.state == .idle }), "Waiting for: player.state == .stopped || player.state == .idle")
     #expect(player.currentTime == .zero)
   }
 

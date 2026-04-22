@@ -115,7 +115,7 @@ struct MediaListPlayerExtendedTests {
       return
     }
     listPlayer.stop()
-    guard try await poll(until: { !listPlayer.isPlaying }) else { return }
+    try #require(await poll(until: { !listPlayer.isPlaying }), "Waiting for: !listPlayer.isPlaying")
     // Second play cycle — should start from beginning
     listPlayer.play()
     guard try await poll(until: { listPlayer.isPlaying }) else {

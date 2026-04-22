@@ -75,4 +75,35 @@ public struct Logo: ~Copyable, ~Escapable {
     get { Int(libvlc_video_get_logo_int(pointer, UInt32(libvlc_logo_position.rawValue))) }
     nonmutating set { libvlc_video_set_logo_int(pointer, UInt32(libvlc_logo_position.rawValue), Int32(newValue)) }
   }
+
+  /// Shows a logo overlay with the given file, in one call.
+  ///
+  /// Flipping `Enable` before the `File` property is set activates the
+  /// filter with no image to draw; this method sets the file and any
+  /// visual attributes first, then enables.
+  ///
+  /// ```swift
+  /// player.logo.show(file: logoPath, opacity: 200, position: 4 | 2)
+  /// ```
+  ///
+  /// - Parameters:
+  ///   - file: Path to the logo image, or a
+  ///     `"path,delay,transparency;path,delay,transparency;..."` sequence.
+  ///   - opacity: `0-255`. Defaults to fully opaque.
+  ///   - position: Position bitmask. Defaults to `0` (center).
+  public func show(
+    file: String,
+    opacity: Int = 255,
+    position: Int = 0
+  ) {
+    setFile(file)
+    self.opacity = opacity
+    self.position = position
+    isEnabled = true
+  }
+
+  /// Hides the logo overlay (equivalent to `isEnabled = false`).
+  public func hide() {
+    isEnabled = false
+  }
 }

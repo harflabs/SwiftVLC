@@ -354,17 +354,19 @@ public final class PiPController: NSObject {
 
   // MARK: - State Observation
 
-  /// Observes player state, currentTime, and duration to keep the
-  /// controlTimebase and PiP UI in sync.
+  /// Observes player state, currentTime, duration, and rate to keep
+  /// the controlTimebase and PiP UI in sync.
   private func startStateObserver() {
     stateObserverTask = Task { @MainActor [weak self] in
       var wasActive = false
       var lastDurationMs: Int64?
+      var lastRate: Float = 1.0
       while !Task.isCancelled {
         guard let self else { return }
 
         let active = player.isActive
         let durationMs = player.duration?.milliseconds
+        let rate = player.rate
 
         // State transition — sync timebase rate
         if active != wasActive {
@@ -383,6 +385,17 @@ public final class PiPController: NSObject {
           if active != pipPlaybackActive {
             pipPlaybackActive = active
             pipController?.invalidatePlaybackState()
+          }
+        }
+
+        // Rate changed — retrack the timebase so PiP's scrubber
+        // advances at the real playback speed. Without this the
+        // scrubber stays at 1.0× even when the player is playing at
+        // 2.0× or 0.5×, which looks like desync to the user.
+        if rate != lastRate {
+          lastRate = rate
+          if pipPlaybackActive, let tb = controlTimebase {
+            CMTimebaseSetRate(tb, rate: Float64(rate))
           }
         }
 
@@ -412,6 +425,7 @@ public final class PiPController: NSObject {
             _ = self.player.state
             _ = self.player.currentTime
             _ = self.player.duration
+            _ = self.player.rate
           } onChange: {
             cont.resume()
           }
@@ -461,7 +475,7 @@ public final class PiPController: NSObject {
         seconds: Double(targetMs) / 1000.0,
         preferredTimescale: 1000
       ))
-      CMTimebaseSetRate(tb, rate: pipPlaybackActive ? 1.0 : 0.0)
+      CMTimebaseSetRate(tb, rate: pipPlaybackActive ? Float64(player.rate) : 0.0)
     }
 
     completionHandler()
@@ -476,10 +490,13 @@ public final class PiPController: NSObject {
   }
 
   /// Updates the controlTimebase time and rate to match playback state.
+  ///
+  /// When `playing` is true the timebase tracks the player's current
+  /// `rate` so PiP's scrubber animates at the real playback speed.
   private func syncTimebase(playing: Bool) {
     guard let tb = controlTimebase else { return }
     syncTimebaseTime()
-    CMTimebaseSetRate(tb, rate: playing ? 1.0 : 0.0)
+    CMTimebaseSetRate(tb, rate: playing ? Float64(player.rate) : 0.0)
   }
 
   func _setStateForTesting(

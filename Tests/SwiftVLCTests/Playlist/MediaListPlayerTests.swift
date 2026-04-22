@@ -116,7 +116,7 @@ struct MediaListPlayerTests {
     try list.append(Media(url: TestMedia.testMP4URL))
     listPlayer.mediaList = list
     try listPlayer.play(at: 0)
-    guard try await poll(until: { listPlayer.isPlaying }) else { listPlayer.stop(); return }
+    try #require(await poll(until: { listPlayer.isPlaying }), "Waiting for: listPlayer.isPlaying")
     listPlayer.stop()
   }
 
@@ -160,7 +160,7 @@ struct MediaListPlayerTests {
     try list.append(Media(url: TestMedia.twosecURL))
     listPlayer.mediaList = list
     listPlayer.play()
-    guard try await poll(until: { listPlayer.isPlaying }) else { listPlayer.stop(); return }
+    try #require(await poll(until: { listPlayer.isPlaying }), "Waiting for: listPlayer.isPlaying")
     #expect(listPlayer.isPlaying)
     listPlayer.stop()
   }
@@ -174,7 +174,7 @@ struct MediaListPlayerTests {
     try list.append(Media(url: TestMedia.twosecURL))
     listPlayer.mediaList = list
     listPlayer.play()
-    guard try await poll(until: { listPlayer.isPlaying }) else { listPlayer.stop(); return }
+    try #require(await poll(until: { listPlayer.isPlaying }), "Waiting for: listPlayer.isPlaying")
     listPlayer.pause()
     try await Task.sleep(for: .milliseconds(100))
     listPlayer.resume()
@@ -191,7 +191,7 @@ struct MediaListPlayerTests {
     try list.append(Media(url: TestMedia.twosecURL))
     listPlayer.mediaList = list
     listPlayer.play()
-    guard try await poll(until: { listPlayer.state == .playing }) else { listPlayer.stop(); return }
+    try #require(await poll(until: { listPlayer.state == .playing }), "Waiting for: listPlayer.state == .playing")
     #expect(listPlayer.state == .playing)
     listPlayer.stop()
   }

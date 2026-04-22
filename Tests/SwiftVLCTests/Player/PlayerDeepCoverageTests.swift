@@ -29,9 +29,8 @@ struct PlayerDeepCoverageTests {
   func `Track selection and external subtitle during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
-    guard try await poll(until: { !player.audioTracks.isEmpty }) else { player.stop(); return }
-
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
+    try #require(await poll(until: { !player.audioTracks.isEmpty }), "Waiting for: !player.audioTracks.isEmpty")
     // Select audio track (may be empty on iOS simulator)
     let tracks = player.audioTracks
     if !tracks.isEmpty {
@@ -64,8 +63,7 @@ struct PlayerDeepCoverageTests {
   func `Aspect ratio seek rate volume during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
-
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     // Aspect ratio all cases
     for ar: AspectRatio in [.default, .ratio(4, 3), .ratio(16, 9), .fill, .default] {
       player.aspectRatio = ar
@@ -108,7 +106,7 @@ struct PlayerDeepCoverageTests {
   func `Statistics recording snapshot equalizer during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     try await Task.sleep(for: .milliseconds(300))
 
     // Statistics (may be nil on some platforms/timing)
@@ -137,14 +135,12 @@ struct PlayerDeepCoverageTests {
   func `Pause resume delay role scale nextFrame during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
-
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     // Pause/resume
     player.pause()
-    guard try await poll(until: { player.state == .paused }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .paused }), "Waiting for: player.state == .paused")
     player.resume()
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
-
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     // Audio/subtitle delay (may not persist on all platforms/simulators)
     player.audioDelay = .milliseconds(500)
     _ = player.audioDelay
@@ -175,8 +171,7 @@ struct PlayerDeepCoverageTests {
   func `Titles chapters programs ABloop mediaSwitch during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
-
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     // Titles & chapters
     _ = player.titles; _ = player.chapters(); _ = player.chapters(forTitle: 0)
     _ = player.titleCount; _ = player.chapterCount
@@ -195,7 +190,7 @@ struct PlayerDeepCoverageTests {
 
     // Media switch
     try player.play(Media(url: TestMedia.testMP4URL))
-    guard try await poll(until: { player.state == .playing || player.state == .opening }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .playing || player.state == .opening }), "Waiting for: player.state == .playing || player.state == .opening")
     #expect(player.currentMedia != nil)
 
     player.stop()
@@ -212,20 +207,18 @@ struct PlayerDeepCoverageTests {
     #expect(player.state == .idle)
 
     try player.play()
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
-
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     // Seekable + pausable (may not be true on all platforms)
-    guard try await poll(until: { player.isSeekable }) else { player.stop(); return }
+    try #require(await poll(until: { player.isSeekable }), "Waiting for: player.isSeekable")
     _ = player.isSeekable
     _ = player.isPausable
 
     // Duration
-    guard try await poll(until: { player.duration != nil }) else { player.stop(); return }
+    try #require(await poll(until: { player.duration != nil }), "Waiting for: player.duration != nil")
     _ = player.duration
 
     // Time advances
-    guard try await poll(until: { player.currentTime > .zero }) else { player.stop(); return }
-
+    try #require(await poll(until: { player.currentTime > .zero }), "Waiting for: player.currentTime > .zero")
     // Tracks (may be empty on some simulators)
     _ = try await poll(until: { !player.videoTracks.isEmpty })
     _ = player.audioTracks
@@ -234,7 +227,7 @@ struct PlayerDeepCoverageTests {
     player.seek(to: .milliseconds(500))
     try await Task.sleep(for: .milliseconds(100))
     player.stop()
-    guard try await poll(until: { player.state == .stopped }) else { return }
+    try #require(await poll(until: { player.state == .stopped }), "Waiting for: player.state == .stopped")
     _ = player.currentTime
 
     // Deinit during playback (nested scope)
