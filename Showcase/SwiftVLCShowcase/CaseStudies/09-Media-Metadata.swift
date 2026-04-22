@@ -39,13 +39,15 @@ struct MetadataCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Metadata")
-    .task {
-      try? player.play(url: TestMedia.bigBuckBunny)
-      if let media = try? Media(url: TestMedia.bigBuckBunny) {
-        metadata = try? await media.parse()
-      }
-    }
+    .task { await task() }
     .onDisappear { player.stop() }
+  }
+
+  private func task() async {
+    try? player.play(url: TestMedia.bigBuckBunny)
+    if let media = try? Media(url: TestMedia.bigBuckBunny) {
+      metadata = try? await media.parse()
+    }
   }
 
   @ViewBuilder

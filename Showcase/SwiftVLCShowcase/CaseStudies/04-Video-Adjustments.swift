@@ -46,19 +46,7 @@ struct VideoAdjustmentsCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Adjustments")
-    .task {
-      try? player.play(url: TestMedia.bigBuckBunny)
-      // Push initial slider values before the user touches anything —
-      // `onChange` doesn't fire for initial state.
-      player.withAdjustments { adj in
-        adj.brightness = brightness
-        adj.contrast = contrast
-        adj.hue = hue
-        adj.saturation = saturation
-        adj.gamma = gamma
-        adj.isEnabled = isEnabled
-      }
-    }
+    .task { task() }
     .onDisappear { player.stop() }
     .onChange(of: isEnabled) { player.withAdjustments { $0.isEnabled = isEnabled } }
     .onChange(of: brightness) { player.withAdjustments { $0.brightness = brightness } }
@@ -66,6 +54,20 @@ struct VideoAdjustmentsCase: View {
     .onChange(of: hue) { player.withAdjustments { $0.hue = hue } }
     .onChange(of: saturation) { player.withAdjustments { $0.saturation = saturation } }
     .onChange(of: gamma) { player.withAdjustments { $0.gamma = gamma } }
+  }
+
+  private func task() {
+    try? player.play(url: TestMedia.bigBuckBunny)
+    // Push initial slider values before the user touches anything —
+    // `onChange` doesn't fire for initial state.
+    player.withAdjustments { adj in
+      adj.brightness = brightness
+      adj.contrast = contrast
+      adj.hue = hue
+      adj.saturation = saturation
+      adj.gamma = gamma
+      adj.isEnabled = isEnabled
+    }
   }
 
   private func row(

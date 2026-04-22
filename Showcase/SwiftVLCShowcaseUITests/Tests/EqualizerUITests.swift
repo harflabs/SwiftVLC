@@ -1,8 +1,9 @@
 import XCTest
 
 /// Equalizer attaches a real-time filter to the player's audio output.
-/// Assigning `player.equalizer = equalizer` is how you (re)attach, so
-/// rapid preamp or band slider drags flood libVLC with reattach calls.
+/// Every preamp or band mutation re-applies the equalizer to libVLC
+/// (it copies settings rather than retaining the reference), so rapid
+/// slider drags flood libVLC with reattach calls.
 final class EqualizerUITests: ShowcaseUITestCase {
   // Inherits `@MainActor` from `ShowcaseUITestCase`.
 
@@ -32,8 +33,9 @@ final class EqualizerUITests: ShowcaseUITestCase {
   }
 
   /// Rapid preamp drags re-attach the equalizer on each value change
-  /// (the setter also calls `player.equalizer = equalizer`). libVLC's
-  /// audio output must remain coherent across the churn.
+  /// — `Equalizer.preamp` writes through to libVLC and pings the
+  /// installed onChange handler, which re-applies to the player.
+  /// libVLC's audio output must remain coherent across the churn.
   func test_stress_rapidPreampChanges() {
     launch(route: .equalizer)
     waitForLabel(playPauseButton, equals: "Pause", timeout: 10)

@@ -57,29 +57,33 @@ struct DiscoveryRenderersCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Renderer discovery")
-    .task {
-      services = RendererDiscoverer.availableServices()
-      selectedService = services.first?.name ?? ""
-    }
-    .task(id: selectedService) {
-      guard !selectedService.isEmpty else { return }
-      discoverer?.stop()
-      renderers = []
+    .task { task() }
+    .task(id: selectedService) { await consumeDiscoveryEvents() }
+    .onDisappear { discoverer?.stop() }
+  }
 
-      guard let d = try? RendererDiscoverer(name: selectedService) else { return }
-      discoverer = d
-      try? d.start()
+  private func task() {
+    services = RendererDiscoverer.availableServices()
+    selectedService = services.first?.name ?? ""
+  }
 
-      for await event in d.events {
-        switch event {
-        case .itemAdded(let renderer):
-          renderers.append(Entry(renderer))
-        case .itemDeleted(let renderer):
-          let deletedId = "\(renderer.name)|\(renderer.type)"
-          renderers.removeAll { $0.id == deletedId }
-        }
+  private func consumeDiscoveryEvents() async {
+    guard !selectedService.isEmpty else { return }
+    discoverer?.stop()
+    renderers = []
+
+    guard let d = try? RendererDiscoverer(name: selectedService) else { return }
+    discoverer = d
+    try? d.start()
+
+    for await event in d.events {
+      switch event {
+      case .itemAdded(let renderer):
+        renderers.append(Entry(renderer))
+      case .itemDeleted(let renderer):
+        let deletedId = "\(renderer.name)|\(renderer.type)"
+        renderers.removeAll { $0.id == deletedId }
       }
     }
-    .onDisappear { discoverer?.stop() }
   }
 }

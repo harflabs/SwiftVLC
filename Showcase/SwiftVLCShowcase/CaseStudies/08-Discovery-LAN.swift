@@ -46,23 +46,27 @@ struct DiscoveryLANCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("LAN discovery")
-    .task {
-      services = MediaDiscoverer.availableServices(category: .lan)
-      selectedService = services.first?.name ?? ""
-    }
-    .task(id: selectedService) {
-      guard !selectedService.isEmpty else { return }
-      discoverer?.stop()
-      discoverer = try? MediaDiscoverer(name: selectedService)
-      try? discoverer?.start()
-      items = []
-
-      while !Task.isCancelled {
-        try? await Task.sleep(for: .seconds(1))
-        refresh()
-      }
-    }
+    .task { task() }
+    .task(id: selectedService) { await pollSelectedService() }
     .onDisappear { discoverer?.stop() }
+  }
+
+  private func task() {
+    services = MediaDiscoverer.availableServices(category: .lan)
+    selectedService = services.first?.name ?? ""
+  }
+
+  private func pollSelectedService() async {
+    guard !selectedService.isEmpty else { return }
+    discoverer?.stop()
+    discoverer = try? MediaDiscoverer(name: selectedService)
+    try? discoverer?.start()
+    items = []
+
+    while !Task.isCancelled {
+      try? await Task.sleep(for: .seconds(1))
+      refresh()
+    }
   }
 
   private func refresh() {

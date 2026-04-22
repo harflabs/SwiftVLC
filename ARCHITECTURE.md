@@ -203,7 +203,7 @@ Audio output, equalization, and channel configuration.
 | File | Type | Purpose |
 |---|---|---|
 | `AudioOutput.swift` | `struct AudioOutput`, `struct AudioDevice` | Available output modules and devices. Extensions on `VLCInstance` and `Player`. |
-| `Equalizer.swift` | `@MainActor class Equalizer` | 10-band EQ with preamp (-20 to +20 dB). libVLC's built-in presets. Attach via `player.equalizer`. |
+| `Equalizer.swift` | `@Observable @MainActor class Equalizer` | 10-band EQ with preamp (-20 to +20 dB). libVLC's built-in presets. Attach via `player.equalizer`; mutations re-apply automatically. |
 | `AudioChannelMode.swift` | `enum StereoMode`, `enum MixMode` | Stereo/mono/Dolby, 4.0/5.1/7.1/binaural mixing |
 
 ### Video

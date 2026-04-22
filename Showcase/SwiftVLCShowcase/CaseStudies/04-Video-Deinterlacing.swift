@@ -69,16 +69,18 @@ struct DeinterlacingCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Deinterlacing")
-    .task {
-      try? player.play(url: TestMedia.bigBuckBunny)
-      // SwiftUI's `onChange(of:)` doesn't fire for initial values, so
-      // the picker's default selection would never reach libVLC. Push
-      // once on appear so the UI and the filter agree from frame one.
-      apply()
-    }
+    .task { task() }
     .onChange(of: state) { apply() }
     .onChange(of: mode) { apply() }
     .onDisappear { player.stop() }
+  }
+
+  private func task() {
+    try? player.play(url: TestMedia.bigBuckBunny)
+    // SwiftUI's `onChange(of:)` doesn't fire for initial values, so
+    // the picker's default selection would never reach libVLC. Push
+    // once on appear so the UI and the filter agree from frame one.
+    apply()
   }
 
   private func apply() {

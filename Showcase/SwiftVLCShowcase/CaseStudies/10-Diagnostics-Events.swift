@@ -42,16 +42,18 @@ struct EventsCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Events")
-    .task {
-      try? player.play(url: TestMedia.bigBuckBunny)
-      for await event in player.events {
-        if let text = describe(event) {
-          log.insert(LogLine(text: text), at: 0)
-          if log.count > 50 { log.removeLast() }
-        }
+    .task { await task() }
+    .onDisappear { player.stop() }
+  }
+
+  private func task() async {
+    try? player.play(url: TestMedia.bigBuckBunny)
+    for await event in player.events {
+      if let text = describe(event) {
+        log.insert(LogLine(text: text), at: 0)
+        if log.count > 50 { log.removeLast() }
       }
     }
-    .onDisappear { player.stop() }
   }
 
   private func describe(_ event: PlayerEvent) -> String? {

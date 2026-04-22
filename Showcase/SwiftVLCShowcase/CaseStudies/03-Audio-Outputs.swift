@@ -40,10 +40,7 @@ struct AudioOutputsCase: View {
             }
           }
           .accessibilityIdentifier(AccessibilityID.AudioOutputs.outputPicker)
-          .onChange(of: selectedOutput) {
-            try? player.setAudioOutput(selectedOutput)
-            devices = player.audioDevices()
-          }
+          .onChange(of: selectedOutput) { outputPickerChanged() }
         }
       }
 
@@ -67,11 +64,18 @@ struct AudioOutputsCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Audio outputs")
-    .task {
-      outputs = VLCInstance.shared.audioOutputs()
-      try? player.play(url: TestMedia.bigBuckBunny)
-      devices = player.audioDevices()
-    }
+    .task { task() }
     .onDisappear { player.stop() }
+  }
+
+  private func task() {
+    outputs = VLCInstance.shared.audioOutputs()
+    try? player.play(url: TestMedia.bigBuckBunny)
+    devices = player.audioDevices()
+  }
+
+  private func outputPickerChanged() {
+    try? player.setAudioOutput(selectedOutput)
+    devices = player.audioDevices()
   }
 }

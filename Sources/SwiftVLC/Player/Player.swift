@@ -767,11 +767,21 @@ public final class Player {
   // MARK: - Equalizer
 
   /// The audio equalizer applied to this player. Set `nil` to disable.
+  ///
+  /// Subsequent mutations to the assigned `Equalizer` are re-applied to
+  /// the audio output automatically via an installed change handler —
+  /// libVLC copies settings on each `libvlc_media_player_set_equalizer`
+  /// call and does not retain the reference.
   public var equalizer: Equalizer? {
     get { _equalizer }
     set {
+      _equalizer?.onChange = nil
       _equalizer = newValue
       libvlc_media_player_set_equalizer(pointer, newValue?.pointer)
+      newValue?.onChange = { [weak self, weak newValue] in
+        guard let self, let newValue else { return }
+        libvlc_media_player_set_equalizer(pointer, newValue.pointer)
+      }
     }
   }
 

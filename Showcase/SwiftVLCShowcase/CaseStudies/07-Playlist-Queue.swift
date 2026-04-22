@@ -68,17 +68,19 @@ struct PlaylistQueueCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Playlist queue")
-    .task {
-      listPlayer.mediaPlayer = player
-      listPlayer.mediaList = list
-      for source in sources {
-        if let media = try? Media(url: source.url) {
-          try? list.append(media)
-        }
-      }
-      listPlayer.play()
-    }
+    .task { task() }
     .onChange(of: mode) { listPlayer.playbackMode = mode }
     .onDisappear { listPlayer.stop() }
+  }
+
+  private func task() {
+    listPlayer.mediaPlayer = player
+    listPlayer.mediaList = list
+    for source in sources {
+      if let media = try? Media(url: source.url) {
+        try? list.append(media)
+      }
+    }
+    listPlayer.play()
   }
 }

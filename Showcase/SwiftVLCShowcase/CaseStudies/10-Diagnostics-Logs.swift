@@ -60,14 +60,16 @@ struct LogsCase: View {
     .showcaseFormStyle()
     .navigationTitle("Logs")
     .task { try? player.play(url: TestMedia.bigBuckBunny) }
-    .task(id: level) {
-      entries.removeAll()
-      for await entry in VLCInstance.shared.logStream(minimumLevel: level) {
-        entries.insert(Entry(value: entry), at: 0)
-        if entries.count > 100 { entries.removeLast() }
-      }
-    }
+    .task(id: level) { await consumeLogs() }
     .onDisappear { player.stop() }
+  }
+
+  private func consumeLogs() async {
+    entries.removeAll()
+    for await entry in VLCInstance.shared.logStream(minimumLevel: level) {
+      entries.insert(Entry(value: entry), at: 0)
+      if entries.count > 100 { entries.removeLast() }
+    }
   }
 
   private func levelText(_ level: LogLevel) -> String {

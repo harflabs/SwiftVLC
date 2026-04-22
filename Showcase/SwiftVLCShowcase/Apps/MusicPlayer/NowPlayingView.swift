@@ -41,13 +41,15 @@ struct NowPlayingView: View {
     .padding()
     .frame(maxWidth: 520)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .task {
-      try? player.play(url: song.url)
-      if let media = try? Media(url: song.url) {
-        metadata = try? await media.parse()
-      }
-    }
+    .task { await task() }
     .onDisappear { player.stop() }
+  }
+
+  private func task() async {
+    try? player.play(url: song.url)
+    if let media = try? Media(url: song.url) {
+      metadata = try? await media.parse()
+    }
   }
 }
 

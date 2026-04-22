@@ -108,24 +108,7 @@ struct MarqueeCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Marquee")
-    .task {
-      try? player.play(url: TestMedia.bigBuckBunny)
-      // Push every property into libVLC *before* the Enable flag flips —
-      // otherwise the overlay filter activates with NULL text or a zero-size
-      // font and draws nothing. `onChange` can't do this: it doesn't fire
-      // for initial values.
-      player.withMarquee { m in
-        m.setText(text)
-        m.fontSize = Int(fontSize)
-        m.color = color.rgb
-        m.opacity = Int(opacity)
-        m.position = anchor.bitmask
-        m.x = Int(x)
-        m.y = Int(y)
-        m.timeout = Int(timeoutMs)
-        m.isEnabled = isEnabled
-      }
-    }
+    .task { task() }
     .onChange(of: isEnabled) { player.withMarquee { $0.isEnabled = isEnabled } }
     .onChange(of: text) { player.withMarquee { $0.setText(text) } }
     .onChange(of: opacity) { player.withMarquee { $0.opacity = Int(opacity) } }
@@ -136,6 +119,25 @@ struct MarqueeCase: View {
     .onChange(of: y) { player.withMarquee { $0.y = Int(y) } }
     .onChange(of: timeoutMs) { player.withMarquee { $0.timeout = Int(timeoutMs) } }
     .onDisappear { player.stop() }
+  }
+
+  private func task() {
+    try? player.play(url: TestMedia.bigBuckBunny)
+    // Push every property into libVLC *before* the Enable flag flips —
+    // otherwise the overlay filter activates with NULL text or a zero-size
+    // font and draws nothing. `onChange` can't do this: it doesn't fire
+    // for initial values.
+    player.withMarquee { m in
+      m.setText(text)
+      m.fontSize = Int(fontSize)
+      m.color = color.rgb
+      m.opacity = Int(opacity)
+      m.position = anchor.bitmask
+      m.x = Int(x)
+      m.y = Int(y)
+      m.timeout = Int(timeoutMs)
+      m.isEnabled = isEnabled
+    }
   }
 
   #if os(iOS) || os(macOS)

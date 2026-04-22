@@ -2,7 +2,7 @@
 ///
 /// Most consumers should use ``Player``'s `@Observable` properties instead.
 /// Use ``Player/events`` only when you need event-level granularity.
-public enum PlayerEvent: Sendable {
+public enum PlayerEvent: Sendable, CustomStringConvertible {
   /// Playback state changed.
   case stateChanged(PlayerState)
   /// Current playback time updated.
@@ -62,4 +62,38 @@ public enum PlayerEvent: Sendable {
   case programSelected(unselectedId: Int, selectedId: Int)
   /// A DVB/MPEG-TS program's metadata was updated (value is the program group ID).
   case programUpdated(Int)
+
+  public var description: String {
+    switch self {
+    case .stateChanged(let state): "stateChanged(\(state))"
+    case .timeChanged(let time): "timeChanged(\(time.formatted))"
+    case .positionChanged(let position): "positionChanged(\(position))"
+    case .lengthChanged(let length): "lengthChanged(\(length.formatted))"
+    case .seekableChanged(let seekable): "seekableChanged(\(seekable))"
+    case .pausableChanged(let pausable): "pausableChanged(\(pausable))"
+    case .tracksChanged: "tracksChanged"
+    case .mediaChanged: "mediaChanged"
+    case .encounteredError: "encounteredError"
+    case .volumeChanged(let volume): "volumeChanged(\(volume))"
+    case .muted: "muted"
+    case .unmuted: "unmuted"
+    case .corked: "corked"
+    case .uncorked: "uncorked"
+    case .audioDeviceChanged(let device): "audioDeviceChanged(\(device ?? "nil"))"
+    case .mediaStopping: "mediaStopping"
+    case .voutChanged(let count): "voutChanged(\(count))"
+    case .bufferingProgress(let progress): "bufferingProgress(\(progress))"
+    case .chapterChanged(let chapter): "chapterChanged(\(chapter))"
+    case .recordingChanged(let isRecording, let filePath):
+      "recordingChanged(isRecording: \(isRecording), filePath: \(filePath ?? "nil"))"
+    case .titleListChanged: "titleListChanged"
+    case .titleSelectionChanged(let title): "titleSelectionChanged(\(title))"
+    case .snapshotTaken(let path): "snapshotTaken(\(path))"
+    case .programAdded(let id): "programAdded(\(id))"
+    case .programDeleted(let id): "programDeleted(\(id))"
+    case .programSelected(let unselected, let selected):
+      "programSelected(unselectedId: \(unselected), selectedId: \(selected))"
+    case .programUpdated(let id): "programUpdated(\(id))"
+    }
+  }
 }

@@ -49,16 +49,18 @@ struct RecordingCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Recording")
-    .task {
-      try? player.play(url: TestMedia.bigBuckBunny)
-      for await event in player.events {
-        if case .recordingChanged(let rec, let path) = event {
-          isRecording = rec
-          if let path { outputFile = path }
-        }
+    .task { await task() }
+    .onDisappear { player.stop() }
+  }
+
+  private func task() async {
+    try? player.play(url: TestMedia.bigBuckBunny)
+    for await event in player.events {
+      if case .recordingChanged(let rec, let path) = event {
+        isRecording = rec
+        if let path { outputFile = path }
       }
     }
-    .onDisappear { player.stop() }
   }
 
   private func toggle() {

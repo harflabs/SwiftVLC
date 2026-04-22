@@ -32,21 +32,12 @@ struct EqualizerCase: View {
           }
         }
         .accessibilityIdentifier(AccessibilityID.Equalizer.presetPicker)
-        .onChange(of: preset) { _, new in
-          equalizer = Equalizer(preset: new)
-          player.equalizer = equalizer
-        }
+        .onChange(of: preset) { _, new in presetPickerChanged(to: new) }
       }
 
       Section("Preamp") {
-        CompatSlider(
-          value: Binding(
-            get: { equalizer.preamp },
-            set: { equalizer.preamp = $0; player.equalizer = equalizer }
-          ),
-          range: -20...20, step: 0.5
-        )
-        .accessibilityIdentifier(AccessibilityID.Equalizer.preampSlider)
+        CompatSlider(value: $equalizer.preamp, range: -20...20, step: 0.5)
+          .accessibilityIdentifier(AccessibilityID.Equalizer.preampSlider)
         HStack {
           Text("Gain")
           Spacer()
@@ -60,30 +51,28 @@ struct EqualizerCase: View {
         ForEach(0..<Equalizer.bandCount, id: \.self) { band in
           VStack(alignment: .leading) {
             LabeledContent(frequencyLabel(band)) {
-              Text(String(format: "%+.1f dB", equalizer.amplification(forBand: band)))
+              Text(String(format: "%+.1f dB", equalizer.bands[band]))
                 .monospacedDigit()
             }
-            CompatSlider(
-              value: Binding(
-                get: { equalizer.amplification(forBand: band) },
-                set: {
-                  try? equalizer.setAmplification($0, forBand: band)
-                  player.equalizer = equalizer
-                }
-              ),
-              range: -20...20, step: 0.5
-            )
+            CompatSlider(value: $equalizer.bands[band], range: -20...20, step: 0.5)
           }
         }
       }
     }
     .showcaseFormStyle()
     .navigationTitle("Equalizer")
-    .task {
-      try? player.play(url: TestMedia.bigBuckBunny)
-      player.equalizer = equalizer
-    }
+    .task { task() }
     .onDisappear { player.stop() }
+  }
+
+  private func task() {
+    try? player.play(url: TestMedia.bigBuckBunny)
+    player.equalizer = equalizer
+  }
+
+  private func presetPickerChanged(to preset: Int) {
+    equalizer = Equalizer(preset: preset)
+    player.equalizer = equalizer
   }
 
   private func frequencyLabel(_ band: Int) -> String {

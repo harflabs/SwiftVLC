@@ -49,15 +49,17 @@ struct SnapshotCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Snapshot")
-    .task {
-      try? player.play(url: TestMedia.bigBuckBunny)
-      for await event in player.events {
-        if case .snapshotTaken(let path) = event {
-          snapshot = PlatformImage(contentsOfFile: path)
-        }
+    .task { await task() }
+    .onDisappear { player.stop() }
+  }
+
+  private func task() async {
+    try? player.play(url: TestMedia.bigBuckBunny)
+    for await event in player.events {
+      if case .snapshotTaken(let path) = event {
+        snapshot = PlatformImage(contentsOfFile: path)
       }
     }
-    .onDisappear { player.stop() }
   }
 
   private func capture() {
