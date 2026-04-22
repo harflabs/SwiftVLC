@@ -50,9 +50,8 @@ struct PlayerFinalCoverageTests {
   func `All observable properties and mutations during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
-    guard try await poll(until: { player.duration != nil }) else { player.stop(); return }
-
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
+    try #require(await poll(until: { player.duration != nil }), "Waiting for: player.duration != nil")
     // Read every observable property (exercises all access(keyPath:) paths)
     _ = player.position; _ = player.volume; _ = player.isMuted; _ = player.rate
     _ = player.selectedAudioTrack; _ = player.selectedSubtitleTrack
@@ -97,9 +96,8 @@ struct PlayerFinalCoverageTests {
   func `Track selection and audio devices during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
-    guard try await poll(until: { !player.audioTracks.isEmpty }) else { player.stop(); return }
-
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
+    try #require(await poll(until: { !player.audioTracks.isEmpty }), "Waiting for: !player.audioTracks.isEmpty")
     // selectedAudioTrack getter (line 118)
     _ = player.selectedAudioTrack
 
@@ -139,9 +137,8 @@ struct PlayerFinalCoverageTests {
     try player.play(Media(url: TestMedia.twosecURL))
 
     // Event consumer (line 814) - state changes prove it's running
-    guard try await poll(until: { player.state != .idle }) else { player.stop(); return }
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
-
+    try #require(await poll(until: { player.state != .idle }), "Waiting for: player.state != .idle")
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     // isActive true during playing
     _ = player.isActive
 
@@ -151,16 +148,15 @@ struct PlayerFinalCoverageTests {
 
     // Pause (line 312)
     player.pause()
-    guard try await poll(until: { player.state == .paused }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .paused }), "Waiting for: player.state == .paused")
     _ = player.isActive // isActive default case (line 208)
 
     // Resume (line 317)
     player.resume()
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
-
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     // Stop and verify reset
     player.stop()
-    guard try await poll(until: { player.state == .stopped || player.state == .idle }) else { return }
+    try #require(await poll(until: { player.state == .stopped || player.state == .idle }), "Waiting for: player.state == .stopped || player.state == .idle")
     _ = player.isActive
   }
 
@@ -170,8 +166,7 @@ struct PlayerFinalCoverageTests {
   func `AB loop titles chapters programs and snapshot during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
-
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     // Titles (lines 452-460)
     _ = player.titles
 

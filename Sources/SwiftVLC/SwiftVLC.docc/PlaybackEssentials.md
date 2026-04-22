@@ -25,7 +25,8 @@ binds to them directly, without a publisher or Combine adapter.
 
 | Property | Type | Meaning |
 |---|---|---|
-| ``Player/state`` | ``PlayerState`` | `.idle`, `.opening`, `.buffering(pct)`, `.playing`, `.paused`, `.stopped`, `.stopping`, `.error` |
+| ``Player/state`` | ``PlayerState`` | `.idle`, `.opening`, `.buffering`, `.playing`, `.paused`, `.stopped`, `.stopping`, `.error` |
+| ``Player/bufferFill`` | `Float` | Continuously-updated cache level (`0.0…1.0`), independent of `state` |
 | ``Player/currentTime`` | `Duration` | Wall-clock position, millisecond resolution |
 | ``Player/duration`` | `Duration?` | `nil` until the container reports length |
 | ``Player/isSeekable`` | `Bool` | Whether seek operations take effect |

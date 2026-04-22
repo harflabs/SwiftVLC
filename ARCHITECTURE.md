@@ -106,7 +106,7 @@ Foundation types shared across all modules.
 | `Logging.swift` | `AsyncStream<LogEntry>` | Filterable log stream (debug/notice/warning/error). C shim formats `va_list` before Swift callback. |
 | `Duration+Extensions.swift` | Extensions on `Duration` | `milliseconds`, `microseconds` properties and `formatted` display string |
 
-**Default VLC arguments:** `["--no-video-title-show", "--no-stats", "--no-snapshot-preview"]`
+**Default VLC arguments:** `["--no-video-title-show", "--no-snapshot-preview"]`. `--no-stats` is *not* in the defaults — leaving it on would silently zero every `Media.statistics()` read, which is almost never what a caller wants.
 
 ### Player
 
@@ -116,7 +116,7 @@ The central observable type that drives all playback.
 |---|---|---|
 | `Player.swift` | `@Observable @MainActor class` | Wraps `libvlc_media_player_t*`. All playback control, state, and track management. |
 | `EventBridge.swift` | `internal class` | C callbacks → `AsyncStream<PlayerEvent>` multi-consumer broadcaster |
-| `PlayerState.swift` | `enum PlayerState` | `.idle`, `.opening`, `.buffering(Float)`, `.playing`, `.paused`, `.stopped`, `.stopping`, `.error` |
+| `PlayerState.swift` | `enum PlayerState` | `.idle`, `.opening`, `.buffering`, `.playing`, `.paused`, `.stopped`, `.stopping`, `.error`. Buffer fill is exposed separately as `Player.bufferFill` so `.paused` players still publish progress. |
 | `PlayerEvent.swift` | `enum PlayerEvent` | Typed Swift cases mapped from libVLC's player event types |
 | `PlayerRole.swift` | `enum PlayerRole` | Audio behavior hints: `.music`, `.video`, `.communication`, `.game`, etc. |
 | `ABLoop.swift` | `enum ABLoopState` | `.none` → `.pointASet` → `.active` |

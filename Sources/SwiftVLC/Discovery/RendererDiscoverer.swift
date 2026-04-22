@@ -25,6 +25,7 @@ import Dispatch
 /// ```
 public final class RendererDiscoverer: Sendable {
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_renderer_discoverer_t*
+  private let instance: VLCInstance
   private let continuation: AsyncStream<RendererEvent>.Continuation
   private nonisolated(unsafe) let opaque: UnsafeMutableRawPointer
 
@@ -43,6 +44,9 @@ public final class RendererDiscoverer: Sendable {
       throw .instanceCreationFailed
     }
     pointer = p
+    // Retain the instance so it outlives the discoverer — see the
+    // matching note in `MediaDiscoverer`.
+    self.instance = instance
 
     let (stream, cont) = AsyncStream<RendererEvent>.makeStream(bufferingPolicy: .bufferingNewest(16))
     events = stream

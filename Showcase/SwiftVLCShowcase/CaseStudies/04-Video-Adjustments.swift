@@ -46,7 +46,19 @@ struct VideoAdjustmentsCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Adjustments")
-    .task { try? player.play(url: TestMedia.bigBuckBunny) }
+    .task {
+      try? player.play(url: TestMedia.bigBuckBunny)
+      // Push initial slider values before the user touches anything —
+      // `onChange` doesn't fire for initial state.
+      player.withAdjustments { adj in
+        adj.brightness = brightness
+        adj.contrast = contrast
+        adj.hue = hue
+        adj.saturation = saturation
+        adj.gamma = gamma
+        adj.isEnabled = isEnabled
+      }
+    }
     .onDisappear { player.stop() }
     .onChange(of: isEnabled) { player.withAdjustments { $0.isEnabled = isEnabled } }
     .onChange(of: brightness) { player.withAdjustments { $0.brightness = brightness } }

@@ -59,10 +59,12 @@ struct VLCInstanceTests {
   @Test
   func `Default arguments contains expected values`() {
     let args = VLCInstance.defaultArguments
-    #expect(args.count == 3)
+    #expect(args.count == 2)
     #expect(args.contains("--no-video-title-show"))
-    #expect(args.contains("--no-stats"))
     #expect(args.contains("--no-snapshot-preview"))
+    // --no-stats is intentionally absent: it would zero every stats
+    // counter every app ever reads. Opt in by passing it explicitly.
+    #expect(!args.contains("--no-stats"))
   }
 
   @Test

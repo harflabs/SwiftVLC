@@ -53,7 +53,6 @@ struct FrameStepCase: View {
     .onDisappear { player.stop() }
   }
 
-  @ViewBuilder
   private func infoRow(_ title: String, value: String, identifier: String) -> some View {
     HStack {
       Text(title)

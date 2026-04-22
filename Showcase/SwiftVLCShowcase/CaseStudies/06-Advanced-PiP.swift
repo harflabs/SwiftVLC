@@ -65,11 +65,10 @@ struct PiPCase: View {
     .onDisappear { player.stop() }
   }
 
-  // `LabeledContent` aggregates its label with the value into a single
-  // accessibility element, preventing XCUITest from querying the value
-  // independently. Plain HStack + Text keeps `XCUIElement.label`
-  // identical to the visible string.
-  @ViewBuilder
+  /// `LabeledContent` aggregates its label with the value into a single
+  /// accessibility element, preventing XCUITest from querying the value
+  /// independently. Plain HStack + Text keeps `XCUIElement.label`
+  /// identical to the visible string.
   private func infoRow(_ title: String, value: String, identifier: String) -> some View {
     HStack {
       Text(title)

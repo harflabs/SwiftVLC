@@ -10,7 +10,15 @@ struct StatisticsCase: View {
   @State private var player = Player()
 
   var body: some View {
-    Form {
+    // `player.statistics` is a computed property that isn't itself
+    // @Observable — it snapshots libVLC counters on demand. For SwiftUI
+    // to re-run this body as stats evolve, the body must read at least
+    // one observed property that updates during playback. `currentTime`
+    // ticks every ~250ms via `.timeChanged` events, which is exactly the
+    // cadence we want for a live stats panel.
+    _ = player.currentTime
+
+    return Form {
       Section { AboutView(readMe: readMe) }
 
       Section {
@@ -25,39 +33,73 @@ struct StatisticsCase: View {
 
       if let stats = player.statistics {
         Section("Input") {
-          LabeledContent("Read", value: "\(stats.readBytes) bytes")
-          LabeledContent("Bitrate", value: String(format: "%.2f", stats.inputBitrate))
+          statRow("Read", value: "\(stats.readBytes) bytes", id: AccessibilityID.Statistics.readBytes)
+          statRow("Bitrate", value: String(format: "%.2f", stats.inputBitrate), id: AccessibilityID.Statistics.inputBitrate)
         }
 
         Section("Demux") {
-          LabeledContent("Read", value: "\(stats.demuxReadBytes) bytes")
-          LabeledContent("Bitrate", value: String(format: "%.2f", stats.demuxBitrate))
-          LabeledContent("Corrupted", value: "\(stats.demuxCorrupted)")
-          LabeledContent("Discontinuity", value: "\(stats.demuxDiscontinuity)")
+          statRow("Read", value: "\(stats.demuxReadBytes) bytes", id: AccessibilityID.Statistics.demuxReadBytes)
+          statRow("Bitrate", value: String(format: "%.2f", stats.demuxBitrate), id: AccessibilityID.Statistics.demuxBitrate)
+          statRow("Corrupted", value: "\(stats.demuxCorrupted)", id: AccessibilityID.Statistics.demuxCorrupted)
+          statRow("Discontinuity", value: "\(stats.demuxDiscontinuity)", id: AccessibilityID.Statistics.demuxDiscontinuity)
         }
 
         Section("Video") {
-          LabeledContent("Decoded", value: "\(stats.decodedVideo)")
-          LabeledContent("Displayed", value: "\(stats.displayedPictures)")
-          LabeledContent("Late", value: "\(stats.latePictures)")
-            .foregroundStyle(stats.latePictures > 0 ? .orange : .primary)
-          LabeledContent("Lost", value: "\(stats.lostPictures)")
-            .foregroundStyle(stats.lostPictures > 0 ? .red : .primary)
+          statRow("Decoded", value: "\(stats.decodedVideo)", id: AccessibilityID.Statistics.decodedVideo)
+          statRow("Displayed", value: "\(stats.displayedPictures)", id: AccessibilityID.Statistics.displayedPictures)
+          statRow(
+            "Late",
+            value: "\(stats.latePictures)",
+            id: AccessibilityID.Statistics.latePictures,
+            tint: stats.latePictures > 0 ? .orange : .primary
+          )
+          statRow(
+            "Lost",
+            value: "\(stats.lostPictures)",
+            id: AccessibilityID.Statistics.lostPictures,
+            tint: stats.lostPictures > 0 ? .red : .primary
+          )
         }
 
         Section("Audio") {
-          LabeledContent("Decoded", value: "\(stats.decodedAudio)")
-          LabeledContent("Played", value: "\(stats.playedAudioBuffers)")
-          LabeledContent("Lost", value: "\(stats.lostAudioBuffers)")
-            .foregroundStyle(stats.lostAudioBuffers > 0 ? .red : .primary)
+          statRow("Decoded", value: "\(stats.decodedAudio)", id: AccessibilityID.Statistics.decodedAudio)
+          statRow("Played", value: "\(stats.playedAudioBuffers)", id: AccessibilityID.Statistics.playedAudioBuffers)
+          statRow(
+            "Lost",
+            value: "\(stats.lostAudioBuffers)",
+            id: AccessibilityID.Statistics.lostAudioBuffers,
+            tint: stats.lostAudioBuffers > 0 ? .red : .primary
+          )
         }
       } else {
-        Section { ProgressView("Waiting for statistics…") }
+        Section {
+          ProgressView("Waiting for statistics…")
+            .accessibilityIdentifier(AccessibilityID.Statistics.waitingLabel)
+        }
       }
     }
     .showcaseFormStyle()
     .navigationTitle("Statistics")
     .task { try? player.play(url: TestMedia.hls) }
     .onDisappear { player.stop() }
+  }
+
+  /// `LabeledContent` merges label + value into a single accessibility
+  /// element, which defeats per-value XCUITest queries. A plain HStack
+  /// keeps each value's `XCUIElement.label` identical to its visible
+  /// string — same approach as the Player State showcase.
+  private func statRow(
+    _ title: String,
+    value: String,
+    id: String,
+    tint: Color = .primary
+  ) -> some View {
+    HStack {
+      Text(title)
+      Spacer()
+      Text(value)
+        .foregroundStyle(tint)
+        .accessibilityIdentifier(id)
+    }
   }
 }

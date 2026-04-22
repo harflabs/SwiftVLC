@@ -43,6 +43,15 @@ public final class Player {
   /// Whether the current media can be paused.
   public private(set) var isPausable: Bool = false
 
+  /// Buffer fill, normalized to `0.0...1.0`.
+  ///
+  /// Updated continuously while playback is active — including while
+  /// ``state`` is `.paused` or `.playing`. Consult this instead of
+  /// reading the old `PlayerState.buffering` associated value when you
+  /// need a progress bar; the `state` enum only carries lifecycle
+  /// information.
+  public private(set) var bufferFill: Float = 0
+
   /// The currently loaded media.
   public private(set) var currentMedia: Media?
 
@@ -124,15 +133,38 @@ public final class Player {
   /// Playback rate, where `1.0` is normal speed, `0.5` is half, and `2.0`
   /// is double. Any positive rate is accepted, but extreme values may
   /// degrade audio/video sync; `0.25` to `4.0` is the practical range.
+  ///
+  /// The setter on this binding-friendly property swallows libVLC's
+  /// "couldn't apply this rate" signal (e.g. live HLS streams reject
+  /// non-1.0 rates). If your UI needs to react to that failure, call
+  /// ``setRate(_:)`` instead — it throws ``VLCError/operationFailed(_:)``
+  /// when libVLC declines.
   public var rate: Float {
     get {
       access(keyPath: \.rate)
       return libvlc_media_player_get_rate(pointer)
     }
     set {
-      _ = withMutation(keyPath: \.rate) {
-        libvlc_media_player_set_rate(pointer, newValue)
-      }
+      try? setRate(newValue)
+    }
+  }
+
+  /// Sets the playback rate, throwing if libVLC rejects the value.
+  ///
+  /// Typical rejection causes:
+  /// - Live streams (HLS, RTSP) that don't support non-`1.0` playback.
+  /// - No media loaded yet — libVLC ignores the call until playback
+  ///   starts.
+  /// - Format-specific decoder limitations.
+  ///
+  /// - Parameter newRate: Target rate (`1.0` = normal speed).
+  /// - Throws: ``VLCError/operationFailed(_:)`` if libVLC rejects the rate.
+  public func setRate(_ newRate: Float) throws(VLCError) {
+    let rc = withMutation(keyPath: \.rate) {
+      libvlc_media_player_set_rate(pointer, newRate)
+    }
+    if rc != 0 {
+      throw .operationFailed("Set rate to \(newRate)")
     }
   }
 
@@ -266,6 +298,12 @@ public final class Player {
   private var _equalizer: Equalizer?
   private var _volume: Float = 1.0
   private var _isMuted: Bool = false
+  // Shadow of the string last passed to `Marquee.setText`. libVLC's text
+  // renderer keys its glyph-bitmap cache on the text string — a style-only
+  // write (color/opacity/fontSize) hits the cached entry and draws with
+  // the old style. To bust the cache, the `Marquee` setters briefly write
+  // a different text, then restore this cached value.
+  var _marqueeText: String = ""
   let instance: VLCInstance
 
   // MARK: - Lifecycle
@@ -317,9 +355,12 @@ public final class Player {
   public func load(_ media: sending Media) {
     currentMedia = media
     resetMediaDerivedState()
-    withMutation(keyPath: \.abLoopState) {}
     libvlc_media_player_set_media(pointer, media.pointer)
-    refreshTracks()
+    // Intentionally no eager `refreshTracks()` here — the track list
+    // isn't populated until libVLC emits `ESAdded` events after the
+    // demuxer opens. The `.tracksChanged` / `.mediaChanged` handlers
+    // refresh from a single source of truth.
+    notifyMediaDependentObservables()
   }
 
   // MARK: - Playback Control
@@ -883,7 +924,11 @@ public final class Player {
     } else {
       libvlc_media_player_unselect_track_type(pointer, type.cValue)
     }
-    refreshTracks()
+    // No eager refresh here. libVLC emits `ESSelected` / `ESUpdated`
+    // once the new selection settles (typically <10ms), and the event
+    // handler's `refreshTracks()` is the single source of truth. An
+    // eager refresh would race libVLC's internal state and briefly
+    // show stale `isSelected` flags.
   }
 
   // MARK: - Video
@@ -959,6 +1004,7 @@ public final class Player {
       withMutation(keyPath: \.isActive) {}
       if case .stopped = newState {
         currentTime = .zero
+        bufferFill = 0
         withMutation(keyPath: \.position) {
           _position = 0
         }
@@ -997,11 +1043,8 @@ public final class Player {
     case .mediaChanged:
       syncCurrentMediaFromNative()
       resetMediaDerivedState()
-      withMutation(keyPath: \.abLoopState) {}
-      withMutation(keyPath: \.programs) {}
-      withMutation(keyPath: \.selectedProgram) {}
-      withMutation(keyPath: \.isProgramScrambled) {}
       refreshTracks()
+      notifyMediaDependentObservables()
 
     case .encounteredError:
       state = .error
@@ -1009,12 +1052,18 @@ public final class Player {
       withMutation(keyPath: \.isActive) {}
 
     case .bufferingProgress(let pct):
-      // VLC sends buffer-level events continuously during playback.
-      // Only show buffering state before playback has started.
+      // Fill level is always useful to surface — update it regardless
+      // of state so a `.paused` player mid-preload still shows progress.
+      bufferFill = pct
+      // Lifecycle transition: only enter `.buffering` from a pre-play
+      // state. Once libVLC is `.playing`/`.paused`/etc., the state
+      // machine is driven by `.stateChanged` events — don't fight it.
       switch state {
       case .idle, .opening, .buffering:
-        state = .buffering(pct)
-        withMutation(keyPath: \.isActive) {}
+        if state != .buffering {
+          state = .buffering
+          withMutation(keyPath: \.isActive) {}
+        }
       default:
         break
       }
@@ -1058,9 +1107,36 @@ public final class Player {
     duration = nil
     isSeekable = false
     isPausable = false
+    bufferFill = 0
     withMutation(keyPath: \.position) {
       _position = 0
     }
+  }
+
+  /// Signals every observable whose value is read live from libVLC and
+  /// can change when a new media is loaded. libVLC emits no standalone
+  /// events for most of these (no `RateChanged`, no `AudioDelayChanged`,
+  /// etc. on the player's event manager), so SwiftUI would otherwise
+  /// keep showing the pre-swap value. Empty `withMutation` calls force
+  /// the getters to re-run next frame.
+  private func notifyMediaDependentObservables() {
+    withMutation(keyPath: \.rate) {}
+    withMutation(keyPath: \.audioDelay) {}
+    withMutation(keyPath: \.subtitleDelay) {}
+    withMutation(keyPath: \.subtitleTextScale) {}
+    withMutation(keyPath: \.role) {}
+    withMutation(keyPath: \.stereoMode) {}
+    withMutation(keyPath: \.mixMode) {}
+    withMutation(keyPath: \.teletextPage) {}
+    withMutation(keyPath: \.currentChapter) {}
+    withMutation(keyPath: \.currentTitle) {}
+    withMutation(keyPath: \.abLoopState) {}
+    withMutation(keyPath: \.programs) {}
+    withMutation(keyPath: \.selectedProgram) {}
+    withMutation(keyPath: \.isProgramScrambled) {}
+    withMutation(keyPath: \.currentAudioDevice) {}
+    withMutation(keyPath: \.selectedAudioTrack) {}
+    withMutation(keyPath: \.selectedSubtitleTrack) {}
   }
 
   /// Reads length / seekable / pausable directly from libVLC and

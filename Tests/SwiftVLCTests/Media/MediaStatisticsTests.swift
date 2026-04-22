@@ -15,7 +15,7 @@ struct MediaStatisticsTests {
     let player = Player()
     let media = try Media(url: TestMedia.testMP4URL)
     try player.play(media)
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     _ = player.statistics
     player.stop()
   }
@@ -26,7 +26,7 @@ struct MediaStatisticsTests {
     let player = Player()
     let media = try Media(url: TestMedia.twosecURL)
     try player.play(media)
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     if let stats = player.statistics {
       #expect(stats.readBytes >= 0)
       #expect(stats.inputBitrate >= 0)
@@ -51,7 +51,7 @@ struct MediaStatisticsTests {
     let player = Player()
     let media = try Media(url: TestMedia.twosecURL)
     try player.play(media)
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     _ = player.statistics
     _ = player.currentMedia?.statistics()
     player.stop()

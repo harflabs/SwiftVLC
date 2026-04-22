@@ -189,7 +189,7 @@ struct PlayerExtendedTests {
   func `isPlaying true during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     // State was .playing at poll time; exercise the properties
     _ = player.isPlaying
     _ = player.isActive
@@ -200,9 +200,9 @@ struct PlayerExtendedTests {
   func `isPlaying false after stop`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     player.stop()
-    guard try await poll(until: { player.state == .stopped || player.state == .idle }) else { return }
+    try #require(await poll(until: { player.state == .stopped || player.state == .idle }), "Waiting for: player.state == .stopped || player.state == .idle")
     _ = player.isPlaying
   }
 
@@ -210,9 +210,9 @@ struct PlayerExtendedTests {
   func `isActive false after stop`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     player.stop()
-    guard try await poll(until: { player.state == .stopped || player.state == .idle }) else { return }
+    try #require(await poll(until: { player.state == .stopped || player.state == .idle }), "Waiting for: player.state == .stopped || player.state == .idle")
     _ = player.isActive
   }
 
@@ -359,11 +359,11 @@ struct PlayerExtendedTests {
   func `Toggle play pause during playback`() async throws {
     let player = Player()
     try player.play(Media(url: TestMedia.twosecURL))
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     player.togglePlayPause()
-    guard try await poll(until: { player.state == .paused }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .paused }), "Waiting for: player.state == .paused")
     player.togglePlayPause()
-    guard try await poll(until: { player.state == .playing }) else { player.stop(); return }
+    try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
     player.stop()
   }
 

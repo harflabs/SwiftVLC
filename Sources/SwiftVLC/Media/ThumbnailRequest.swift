@@ -32,13 +32,17 @@ extension Media {
   )
     async throws(VLCError) -> Data {
     try await thumbnailCoordinator.acquire()
-    defer {
-      Task {
-        await thumbnailCoordinator.release()
-      }
-    }
+    // Structured release: bind the coordinator into a local actor
+    // reference so we can release synchronously at the end of this
+    // function. The old `defer { Task { await release() } }` form
+    // deferred the release into an unstructured task, which meant a
+    // second thumbnail on the same Media could see the coordinator
+    // still "busy" and block even though the first caller had
+    // returned — a stall that looked like "thumbnails queue up."
+    let coordinator = thumbnailCoordinator
 
     if Task.isCancelled {
+      await coordinator.release()
       throw .operationFailed("Generate thumbnail: cancelled")
     }
 
@@ -118,6 +122,7 @@ extension Media {
     } onCancel: {
       operationRef.value()?.cancel()
     }
+    await coordinator.release()
     return try result.get()
   }
 }

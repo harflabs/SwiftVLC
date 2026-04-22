@@ -67,7 +67,7 @@ struct PlayerStateCase: View {
     switch player.state {
     case .idle: "idle"
     case .opening: "opening"
-    case .buffering(let p): "buffering \(Int(p * 100))%"
+    case .buffering: "buffering \(Int(player.bufferFill * 100))%"
     case .playing: "playing"
     case .paused: "paused"
     case .stopped: "stopped"

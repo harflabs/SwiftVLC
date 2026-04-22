@@ -183,6 +183,13 @@ enum AccessibilityID {
     static let textField = "marquee.text"
     static let opacityLabel = "marquee.opacityLabel"
     static let opacitySlider = "marquee.opacitySlider"
+    static let fontSizeSlider = "marquee.fontSizeSlider"
+    static let xSlider = "marquee.xSlider"
+    static let ySlider = "marquee.ySlider"
+    static let timeoutSlider = "marquee.timeoutSlider"
+    static let colorPicker = "marquee.colorPicker"
+    static let anchorPicker = "marquee.anchorPicker"
+    static let resetButton = "marquee.resetButton"
   }
 
   enum Adjustments {
@@ -271,6 +278,20 @@ enum AccessibilityID {
   enum Statistics {
     static let videoView = "stats.videoView"
     static let playPauseButton = "stats.playPause"
+    static let waitingLabel = "stats.waiting"
+    static let readBytes = "stats.readBytes"
+    static let inputBitrate = "stats.inputBitrate"
+    static let demuxReadBytes = "stats.demuxReadBytes"
+    static let demuxBitrate = "stats.demuxBitrate"
+    static let demuxCorrupted = "stats.demuxCorrupted"
+    static let demuxDiscontinuity = "stats.demuxDiscontinuity"
+    static let decodedVideo = "stats.decodedVideo"
+    static let displayedPictures = "stats.displayedPictures"
+    static let latePictures = "stats.latePictures"
+    static let lostPictures = "stats.lostPictures"
+    static let decodedAudio = "stats.decodedAudio"
+    static let playedAudioBuffers = "stats.playedAudioBuffers"
+    static let lostAudioBuffers = "stats.lostAudioBuffers"
   }
 
   enum Logs {

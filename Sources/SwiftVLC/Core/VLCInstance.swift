@@ -19,9 +19,14 @@ public final class VLCInstance: Sendable {
   public static let shared = VLCInstance()
 
   /// Default libVLC arguments used by ``shared``.
+  ///
+  /// Intentionally excludes `--no-stats`: disabling stats globally would
+  /// make ``Media/statistics()`` return an all-zero struct for every
+  /// caller, which is almost never what an app wants. Pass a custom
+  /// argument list to ``init(arguments:)`` if you need that mode
+  /// (embedded contexts with tight memory budgets, CLI tools).
   public static let defaultArguments: [String] = [
     "--no-video-title-show",
-    "--no-stats",
     "--no-snapshot-preview"
   ]
 
@@ -50,8 +55,8 @@ public final class VLCInstance: Sendable {
   /// Creates a new libVLC instance with the given arguments.
   ///
   /// - Parameter arguments: Command-line style arguments for libVLC configuration.
-  ///   Common arguments include `"--no-video-title-show"`, `"--no-stats"`,
-  ///   `"--no-snapshot-preview"`.
+  ///   Common arguments include `"--no-video-title-show"`,
+  ///   `"--no-snapshot-preview"`, `"--no-stats"`.
   /// - Throws: `VLCError.instanceCreationFailed` if libVLC cannot be initialized.
   public init(arguments: [String] = VLCInstance.defaultArguments) throws(VLCError) {
     // Convert Swift strings to C strings for libvlc_new.

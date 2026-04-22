@@ -25,6 +25,7 @@ import Dispatch
 /// ```
 public final class MediaDiscoverer: Sendable {
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_media_discoverer_t*
+  private let instance: VLCInstance
 
   /// Creates a media discoverer by service name.
   ///
@@ -38,6 +39,11 @@ public final class MediaDiscoverer: Sendable {
       throw .instanceCreationFailed
     }
     pointer = p
+    // Retain the instance so it outlives the discoverer. Otherwise a
+    // caller that drops their only `VLCInstance` reference while the
+    // discoverer is still alive would free the libVLC instance out
+    // from under our C pointer, crashing on the next callback.
+    self.instance = instance
   }
 
   deinit {
