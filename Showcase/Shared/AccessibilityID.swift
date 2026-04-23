@@ -96,6 +96,17 @@ enum AccessibilityID {
     static let progressIndicator = "thumb.progress"
   }
 
+  enum ThumbnailScrub {
+    static let videoView = "thumbscrub.videoView"
+    static let playPauseButton = "thumbscrub.playPause"
+    static let slider = "thumbscrub.slider"
+    static let previewOverlayImage = "thumbscrub.previewImage"
+    static let previewLoadingPlaceholder = "thumbscrub.previewLoading"
+    static let previewTimeBadge = "thumbscrub.previewBadge"
+    static let previewTimeLabel = "thumbscrub.previewTime"
+    static let currentTimeLabel = "thumbscrub.currentTime"
+  }
+
   enum AudioTracks {
     static let videoView = "audiotracks.videoView"
     static let playPauseButton = "audiotracks.playPause"

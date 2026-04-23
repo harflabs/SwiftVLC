@@ -2,6 +2,27 @@ import CLibVLC
 import Foundation
 import Synchronization
 
+/// How libVLC should locate the source frame when generating a thumbnail.
+public enum ThumbnailSeekMode: Sendable, Hashable {
+  /// Snap to the nearest keyframe. Fast but imprecise — for videos with
+  /// sparse keyframes (e.g. Big Buck Bunny), every thumbnail can land on
+  /// the same frame regardless of the requested offset. Use for library
+  /// cover art where the exact frame doesn't matter.
+  case fast
+
+  /// Decode intervening frames until the exact requested offset is
+  /// reached. Slower but visually correct — required for scrubber
+  /// previews or time-accurate thumbnails.
+  case precise
+
+  var cValue: libvlc_thumbnailer_seek_speed_t {
+    switch self {
+    case .fast: libvlc_media_thumbnail_seek_fast
+    case .precise: libvlc_media_thumbnail_seek_precise
+    }
+  }
+}
+
 /// Generates thumbnails from media asynchronously.
 ///
 /// ```swift
@@ -18,6 +39,11 @@ extension Media {
   ///   - width: Desired width (0 to derive from aspect ratio).
   ///   - height: Desired height (0 to derive from aspect ratio).
   ///   - crop: Whether to crop to match exact dimensions.
+  ///   - seekMode: How libVLC locates the source frame. Defaults to
+  ///     ``ThumbnailSeekMode/precise`` — scrubber previews and
+  ///     time-accurate thumbnails need the exact frame. Use
+  ///     ``ThumbnailSeekMode/fast`` if you're generating library
+  ///     cover art and speed matters more than frame accuracy.
   ///   - timeout: Maximum time to wait.
   ///   - instance: VLC instance.
   /// - Returns: The raw image data (PNG format).
@@ -27,6 +53,7 @@ extension Media {
     width: Int = 320,
     height: Int = 0,
     crop: Bool = false,
+    seekMode: ThumbnailSeekMode = .precise,
     timeout: Duration = .seconds(10),
     instance: VLCInstance = .shared
   )
@@ -99,7 +126,7 @@ extension Media {
             instancePtr,
             media,
             time.milliseconds,
-            libvlc_media_thumbnail_seek_fast,
+            seekMode.cValue,
             UInt32(width),
             UInt32(height),
             crop,

@@ -117,6 +117,7 @@ extension UITestRoute {
     case .events: EventsCase()
     case .statistics: StatisticsCase()
     case .logs: LogsCase()
+    case .thumbnailScrub: ThumbnailScrubCase()
     }
   }
 }
