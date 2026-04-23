@@ -19,10 +19,12 @@ extension Integration {
     func `NSView VideoSurface creation`() {
       let surface = VideoSurface()
       #if canImport(AppKit)
-      #expect(surface is NSView)
-      #expect(surface.wantsLayer == false) // wantsLayer not set until makeNSView
-      #elseif canImport(UIKit)
-      #expect(surface is UIView)
+      // `wantsLayer` is set inside `VideoView.makeNSView`, not on the
+      // bare `VideoSurface()` initializer. Pin that contract so a
+      // refactor that moves the side effect here would fail loudly.
+      #expect(surface.wantsLayer == false)
+      #else
+      _ = surface
       #endif
     }
 

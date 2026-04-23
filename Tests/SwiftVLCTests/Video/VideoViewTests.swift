@@ -12,12 +12,13 @@ extension Integration {
   @MainActor struct VideoViewTests {
     @Test
     func `VideoSurface can be created`() {
+      // `VideoSurface` is declared as `final class VideoSurface: NSView`
+      // (or UIView), so the subclass relationship is a compile-time
+      // guarantee, not something to assert. This test exercises the
+      // no-argument designated initializer and that the instance holds
+      // together long enough to be released.
       let surface = VideoSurface()
-      #if canImport(AppKit)
-      #expect(surface is NSView)
-      #elseif canImport(UIKit)
-      #expect(surface is UIView)
-      #endif
+      _ = surface
     }
 
     @Test

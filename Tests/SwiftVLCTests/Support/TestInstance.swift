@@ -78,16 +78,17 @@ enum TestInstance {
     try! VLCInstance(arguments: playbackArguments)
   }
 
-  /// Default shared instance. Wired with dummy output modules so tests
-  /// that don't care about per-test isolation can still drive playback
-  /// to `.playing`. Tests that attach vmem callbacks (PiP) can't use
-  /// this — see ``lifecycleShared``.
-  static let shared: VLCInstance = makePlayback()
-
   /// A single shared instance with audio and video outputs disabled.
-  /// Use in tests that attach vmem callbacks (PiP) or only exercise
-  /// Swift-side lifecycle: the dummy aout/vout in ``shared`` would
-  /// either collide with vmem or trip upstream ffmpeg asserts when
-  /// decoded frames hit the pipeline without a sink.
-  static let lifecycleShared: VLCInstance = makeAudioOnly()
+  /// Default for tests that don't care about per-test isolation and
+  /// don't need to reach `.playing`. Skips the ~50 ms instance-creation
+  /// cost for lightweight lifecycle tests.
+  ///
+  /// Dummy-output wiring is deliberately **not** the default: GitHub
+  /// Actions' `macos-latest` runners are paravirtualized and crash
+  /// inside `IOServiceMatching("AppleM2ScalerParavirtDriver")` when
+  /// libVLC probes for hardware video acceleration — even if the test
+  /// never calls `play()`. Tests that need to reach `.playing` should
+  /// opt into ``makePlayback()`` explicitly and remain gated by
+  /// ``TestCondition/canPlayMedia``.
+  static let shared: VLCInstance = makeAudioOnly()
 }
