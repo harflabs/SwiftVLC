@@ -118,6 +118,9 @@ extension UITestRoute {
     case .statistics: StatisticsCase()
     case .logs: LogsCase()
     case .thumbnailScrub: ThumbnailScrubCase()
+    case .roleAndCork: RoleAndCorkCase()
+    case .multiTrackSelection: MultiTrackSelectionCase()
+    case .multiConsumer: MultiConsumerEventsCase()
     }
   }
 }

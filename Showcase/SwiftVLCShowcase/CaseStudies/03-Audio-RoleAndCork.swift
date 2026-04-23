@@ -30,8 +30,10 @@ struct RoleAndCorkCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.RoleAndCork.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.RoleAndCork.playPauseButton)
       }
 
       Section("Role") {
@@ -40,6 +42,7 @@ struct RoleAndCorkCase: View {
             Text(role.description.capitalized).tag(role)
           }
         }
+        .accessibilityIdentifier(AccessibilityID.RoleAndCork.rolePicker)
         .onChange(of: selectedRole) { _, new in
           player.role = new
         }
@@ -52,16 +55,23 @@ struct RoleAndCorkCase: View {
           Text(isCorked ? "Corked" : "Active")
             .foregroundStyle(isCorked ? .orange : .green)
             .fontWeight(.semibold)
+            .accessibilityIdentifier(AccessibilityID.RoleAndCork.statusLabel)
         }
         HStack {
           Text("Cork events")
           Spacer()
-          Text("\(corkedCount)").foregroundStyle(.secondary).monospacedDigit()
+          Text("\(corkedCount)")
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+            .accessibilityIdentifier(AccessibilityID.RoleAndCork.corkedCountLabel)
         }
         HStack {
           Text("Uncork events")
           Spacer()
-          Text("\(uncorkedCount)").foregroundStyle(.secondary).monospacedDigit()
+          Text("\(uncorkedCount)")
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+            .accessibilityIdentifier(AccessibilityID.RoleAndCork.uncorkedCountLabel)
         }
       } header: {
         Text("Corking")

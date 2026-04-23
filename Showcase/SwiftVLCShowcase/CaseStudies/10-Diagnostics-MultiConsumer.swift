@@ -25,26 +25,36 @@ struct MultiConsumerEventsCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.MultiConsumer.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.MultiConsumer.playPauseButton)
       }
 
       Section("Consumer A · lifecycle") {
         if lifecycleLog.isEmpty {
-          Text("Waiting…").foregroundStyle(.secondary)
+          Text("Waiting…")
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(AccessibilityID.MultiConsumer.lifecycleWaitingLabel)
         } else {
           ForEach(lifecycleLog) { line in
-            Text(line.text).font(.caption.monospaced())
+            Text(line.text)
+              .font(.caption.monospaced())
+              .accessibilityIdentifier(AccessibilityID.MultiConsumer.lifecycleLogEntry)
           }
         }
       }
 
       Section("Consumer B · tracks + media") {
         if trackLog.isEmpty {
-          Text("Waiting…").foregroundStyle(.secondary)
+          Text("Waiting…")
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(AccessibilityID.MultiConsumer.trackWaitingLabel)
         } else {
           ForEach(trackLog) { line in
-            Text(line.text).font(.caption.monospaced())
+            Text(line.text)
+              .font(.caption.monospaced())
+              .accessibilityIdentifier(AccessibilityID.MultiConsumer.trackLogEntry)
           }
         }
       }

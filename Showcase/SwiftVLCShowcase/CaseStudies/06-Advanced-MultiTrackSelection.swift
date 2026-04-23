@@ -22,13 +22,17 @@ struct MultiTrackSelectionCase: View {
         VideoView(player)
           .aspectRatio(16 / 9, contentMode: .fit)
           .listRowInsets(EdgeInsets())
+          .accessibilityIdentifier(AccessibilityID.MultiTrackSelection.videoView)
       } footer: {
         PlayPauseFooter(player: player)
+          .accessibilityIdentifier(AccessibilityID.MultiTrackSelection.playPauseButton)
       }
 
       Section("Audio") {
         if player.audioTracks.isEmpty {
-          Text("Loading…").foregroundStyle(.secondary)
+          Text("Loading…")
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(AccessibilityID.MultiTrackSelection.audioTracksLoadingLabel)
         } else {
           Picker("Track", selection: $bindable.selectedAudioTrack) {
             Text("Off").tag(Track?.none)
@@ -36,6 +40,7 @@ struct MultiTrackSelectionCase: View {
               Text(label(for: track)).tag(Track?.some(track))
             }
           }
+          .accessibilityIdentifier(AccessibilityID.MultiTrackSelection.audioTrackPicker)
         }
       }
 
@@ -43,6 +48,7 @@ struct MultiTrackSelectionCase: View {
         if player.subtitleTracks.isEmpty {
           Text("No subtitle tracks in this stream.")
             .foregroundStyle(.secondary)
+            .accessibilityIdentifier(AccessibilityID.MultiTrackSelection.subtitleTracksEmptyLabel)
         } else {
           Picker("Track", selection: $bindable.selectedSubtitleTrack) {
             Text("Off").tag(Track?.none)
@@ -50,12 +56,15 @@ struct MultiTrackSelectionCase: View {
               Text(label(for: track)).tag(Track?.some(track))
             }
           }
+          .accessibilityIdentifier(AccessibilityID.MultiTrackSelection.subtitleTrackPicker)
         }
       }
 
       Section("Video variants") {
         if player.videoTracks.isEmpty {
-          Text("Loading…").foregroundStyle(.secondary)
+          Text("Loading…")
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(AccessibilityID.MultiTrackSelection.videoTracksLoadingLabel)
         } else {
           ForEach(player.videoTracks) { track in
             HStack {
@@ -73,6 +82,7 @@ struct MultiTrackSelectionCase: View {
         if player.programs.isEmpty {
           Text("No program metadata — stream is not MPEG-TS or DVB.")
             .foregroundStyle(.secondary)
+            .accessibilityIdentifier(AccessibilityID.MultiTrackSelection.programsEmptyLabel)
         } else {
           ForEach(player.programs) { program in
             HStack {

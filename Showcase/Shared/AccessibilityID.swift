@@ -310,4 +310,33 @@ enum AccessibilityID {
     static let playPauseButton = "logs.playPause"
     static let levelPicker = "logs.levelPicker"
   }
+
+  enum RoleAndCork {
+    static let videoView = "rolecork.videoView"
+    static let playPauseButton = "rolecork.playPause"
+    static let rolePicker = "rolecork.rolePicker"
+    static let statusLabel = "rolecork.status"
+    static let corkedCountLabel = "rolecork.corkedCount"
+    static let uncorkedCountLabel = "rolecork.uncorkedCount"
+  }
+
+  enum MultiTrackSelection {
+    static let videoView = "multitrack.videoView"
+    static let playPauseButton = "multitrack.playPause"
+    static let audioTracksLoadingLabel = "multitrack.audioLoading"
+    static let subtitleTracksEmptyLabel = "multitrack.subtitleEmpty"
+    static let videoTracksLoadingLabel = "multitrack.videoLoading"
+    static let programsEmptyLabel = "multitrack.programsEmpty"
+    static let audioTrackPicker = "multitrack.audioPicker"
+    static let subtitleTrackPicker = "multitrack.subtitlePicker"
+  }
+
+  enum MultiConsumer {
+    static let videoView = "multiconsumer.videoView"
+    static let playPauseButton = "multiconsumer.playPause"
+    static let lifecycleWaitingLabel = "multiconsumer.lifecycleWaiting"
+    static let trackWaitingLabel = "multiconsumer.trackWaiting"
+    static let lifecycleLogEntry = "multiconsumer.lifecycleEntry"
+    static let trackLogEntry = "multiconsumer.trackEntry"
+  }
 }
