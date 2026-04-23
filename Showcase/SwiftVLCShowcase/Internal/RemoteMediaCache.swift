@@ -21,7 +21,6 @@ final class RemoteMediaCache {
   }
 
   private(set) var state: State = .idle
-  private var task: URLSessionDownloadTask?
   private let session: URLSession
   private let observer: DownloadDelegate
 
@@ -57,18 +56,12 @@ final class RemoteMediaCache {
       try FileManager.default.moveItem(at: tmp, to: local)
       state = .ready(local)
       return local
+    } catch is CancellationError {
+      state = .idle
+      throw CancellationError()
     } catch {
       state = .failed(error.localizedDescription)
       throw error
-    }
-  }
-
-  /// Cancels the in-flight download, if any. Safe to call when idle.
-  func cancel() {
-    task?.cancel()
-    task = nil
-    if case .downloading = state {
-      state = .idle
     }
   }
 

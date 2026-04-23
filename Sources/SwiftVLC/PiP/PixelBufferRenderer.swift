@@ -11,15 +11,26 @@ import Synchronization
 /// Thread safety: all vmem callbacks run on libVLC's decode thread.
 /// `Mutex<State>` protects shared state accessed from both the decode thread and main thread.
 final class PixelBufferRenderer: Sendable {
-  /// @unchecked because CF types (CVPixelBufferPool, CMTimebase) and
-  /// AVSampleBufferDisplayLayer lack Sendable conformance. Thread safety
-  /// is guaranteed by the enclosing Mutex.
+  /// @unchecked because CF types (CVPixelBufferPool, CMTimebase) lack
+  /// Sendable conformance. Thread safety is guaranteed by the enclosing
+  /// Mutex.
   struct State: @unchecked Sendable {
     var pool: CVPixelBufferPool?
     var width: Int = 0
     var height: Int = 0
-    weak var displayLayer: AVSampleBufferDisplayLayer?
+    /// The display layer is held inside a class box rather than as a
+    /// direct `weak var` on the struct. `Mutex` stores `State` in raw
+    /// managed memory and any `withLock { $0 }` read produces a struct
+    /// copy; bit-copying a `__weak` slot side-steps the ObjC runtime's
+    /// weak-reference table and surfaces as "unregister unknown __weak
+    /// variable" warnings at teardown. The box gives the weak a single
+    /// stable home the runtime can track across struct copies.
+    let displayLayer: DisplayLayerBox
     var timebase: CMTimebase?
+
+    init(displayLayer: AVSampleBufferDisplayLayer?) {
+      self.displayLayer = DisplayLayerBox(displayLayer)
+    }
   }
 
   let state: Mutex<State>
@@ -29,11 +40,21 @@ final class PixelBufferRenderer: Sendable {
   }
 
   func setDisplayLayer(_ layer: AVSampleBufferDisplayLayer?) {
-    state.withLock { $0.displayLayer = layer }
+    state.withLock { $0.displayLayer.layer = layer }
   }
 
   func setTimebase(_ tb: CMTimebase?) {
     state.withLock { $0.timebase = tb }
+  }
+}
+
+/// Class wrapper around `weak var layer` so the ObjC weak-reference
+/// table sees a single stable address regardless of how `State` is
+/// copied in and out of the surrounding `Mutex`.
+final class DisplayLayerBox: @unchecked Sendable {
+  weak var layer: AVSampleBufferDisplayLayer?
+  init(_ layer: AVSampleBufferDisplayLayer?) {
+    self.layer = layer
   }
 }
 
@@ -164,7 +185,7 @@ func pixelBufferDisplayCallback(
   )
   guard fmtStatus == noErr, let desc = formatDesc else { return }
 
-  let (timebase, layer) = renderer.state.withLock { ($0.timebase, $0.displayLayer) }
+  let (timebase, layer) = renderer.state.withLock { ($0.timebase, $0.displayLayer.layer) }
 
   guard let layer else { return }
 

@@ -11,8 +11,8 @@ struct PixelBufferRendererTests {
   func `Can be created with an AVSampleBufferDisplayLayer`() {
     let layer = AVSampleBufferDisplayLayer()
     let renderer = PixelBufferRenderer(displayLayer: layer)
-    let state = renderer.state.withLock { $0 }
-    #expect(state.displayLayer === layer)
+    let current = renderer.state.withLock { $0.displayLayer.layer }
+    #expect(current === layer)
   }
 
   @Test
@@ -20,7 +20,7 @@ struct PixelBufferRendererTests {
     let layer = AVSampleBufferDisplayLayer()
     let renderer = PixelBufferRenderer(displayLayer: layer)
     renderer.setDisplayLayer(nil)
-    let current = renderer.state.withLock { $0.displayLayer }
+    let current = renderer.state.withLock { $0.displayLayer.layer }
     #expect(current == nil)
   }
 
@@ -74,7 +74,7 @@ struct PixelBufferRendererExtendedTests {
   func `setDisplayLayer stores weak reference`() {
     let layer = AVSampleBufferDisplayLayer()
     let renderer = PixelBufferRenderer(displayLayer: layer)
-    let current = renderer.state.withLock { $0.displayLayer }
+    let current = renderer.state.withLock { $0.displayLayer.layer }
     #expect(current === layer)
   }
 
@@ -83,7 +83,7 @@ struct PixelBufferRendererExtendedTests {
     let layer = AVSampleBufferDisplayLayer()
     let renderer = PixelBufferRenderer(displayLayer: layer)
     renderer.setDisplayLayer(nil)
-    let current = renderer.state.withLock { $0.displayLayer }
+    let current = renderer.state.withLock { $0.displayLayer.layer }
     #expect(current == nil)
   }
 
@@ -93,11 +93,11 @@ struct PixelBufferRendererExtendedTests {
     let layer2 = AVSampleBufferDisplayLayer()
     let renderer = PixelBufferRenderer(displayLayer: layer1)
 
-    let before = renderer.state.withLock { $0.displayLayer }
+    let before = renderer.state.withLock { $0.displayLayer.layer }
     #expect(before === layer1)
 
     renderer.setDisplayLayer(layer2)
-    let after = renderer.state.withLock { $0.displayLayer }
+    let after = renderer.state.withLock { $0.displayLayer.layer }
     #expect(after === layer2)
   }
 
@@ -159,7 +159,7 @@ struct PixelBufferRendererExtendedTests {
     renderer.setDisplayLayer(AVSampleBufferDisplayLayer())
     renderer.setDisplayLayer(nil)
     // If we reach here without crashing, the test passes
-    let current = renderer.state.withLock { $0.displayLayer }
+    let current = renderer.state.withLock { $0.displayLayer.layer }
     #expect(current == nil)
   }
 
@@ -188,12 +188,14 @@ struct PixelBufferRendererExtendedTests {
   func `Initial state has all fields at default values`() {
     let layer = AVSampleBufferDisplayLayer()
     let renderer = PixelBufferRenderer(displayLayer: layer)
-    let state = renderer.state.withLock { $0 }
-    #expect(state.pool == nil)
-    #expect(state.width == 0)
-    #expect(state.height == 0)
-    #expect(state.timebase == nil)
-    #expect(state.displayLayer === layer)
+    let (pool, w, h, tb, stored) = renderer.state.withLock {
+      ($0.pool, $0.width, $0.height, $0.timebase, $0.displayLayer.layer)
+    }
+    #expect(pool == nil)
+    #expect(w == 0)
+    #expect(h == 0)
+    #expect(tb == nil)
+    #expect(stored === layer)
   }
 }
 #endif

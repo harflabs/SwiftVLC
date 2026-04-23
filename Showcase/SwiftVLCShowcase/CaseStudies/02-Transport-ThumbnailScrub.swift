@@ -39,10 +39,7 @@ struct ThumbnailScrubCase: View {
     .showcaseFormStyle()
     .navigationTitle("Thumbnail scrubbing")
     .task { await prepare() }
-    .onDisappear {
-      cache.cancel()
-      player.stop()
-    }
+    .onDisappear { player.stop() }
   }
 
   // MARK: - Subviews
