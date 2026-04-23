@@ -183,6 +183,12 @@ final class LogBroadcaster: Sendable {
     }
   }
 
+  func hasSubscriber(atOrBelow level: LogLevel) -> Bool {
+    state.withLock { state in
+      state.subscribers.values.contains { $0.minimumLevel <= level }
+    }
+  }
+
   private enum Action {
     case install
     case uninstall(box: UnsafeMutableRawPointer, bridge: UnsafeMutableRawPointer?)
@@ -259,6 +265,9 @@ private func logCallback(
   let broadcaster = Unmanaged<LogBroadcaster>.fromOpaque(data).takeUnretainedValue()
 
   guard let logLevel = LogLevel(rawValue: level) else { return }
+  guard broadcaster.hasSubscriber(atOrBelow: LogNoiseFilter.mostSeverePossibleResult(for: logLevel)) else {
+    return
+  }
 
   let messageString = String(cString: message)
   let moduleString = module.map { String(cString: $0) }

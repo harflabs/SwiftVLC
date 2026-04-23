@@ -5,12 +5,11 @@
 # Prerequisites:
 #   - ./scripts/build-libvlc.sh --all  (produces Vendor/libvlc.xcframework)
 #   - gh authed (gh auth login)
-#   - Clean Package.swift + Showcase project on main (unless --allow-dirty-branch)
+#   - Clean Package.swift + Showcase project on main
 #
 # Usage:
 #   ./scripts/release.sh 0.1.0
 #   ./scripts/release.sh 0.1.0 --dry-run            # strip/zip/checksum only, no push
-#   ./scripts/release.sh 0.1.0 --allow-dirty-branch # skip the "on main" check
 #
 set -euo pipefail
 
@@ -35,12 +34,14 @@ EXPECTED_SLICES=(
 
 VERSION=""
 DRY_RUN=false
-ALLOW_DIRTY_BRANCH=false
 
 for arg in "$@"; do
   case "$arg" in
     --dry-run)            DRY_RUN=true ;;
-    --allow-dirty-branch) ALLOW_DIRTY_BRANCH=true ;;
+    --allow-dirty-branch)
+      echo "Error: --allow-dirty-branch is no longer supported." >&2
+      echo "  Releases advance origin/main and must be run from main." >&2
+      exit 1 ;;
     --help|-h)
       sed -n 's/^# \{0,1\}//p' "$0" | sed -n '/^Usage:/,/^$/p'
       exit 0 ;;
@@ -57,7 +58,7 @@ for arg in "$@"; do
 done
 
 if [[ -z "$VERSION" ]]; then
-  echo "Usage: $0 <version> [--dry-run] [--allow-dirty-branch]" >&2
+  echo "Usage: $0 <version> [--dry-run]" >&2
   echo "  e.g. $0 0.1.0" >&2
   exit 1
 fi
@@ -68,6 +69,42 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT_DIR"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+WORK_DIR=""
+RELEASE_RESTORE_DIR=""
+RELEASE_RESTORE_FILES=false
+
+cleanup() {
+  local status=$?
+
+  if [[ "$RELEASE_RESTORE_FILES" == true ]]; then
+    if [[ -n "$RELEASE_RESTORE_DIR" && -f "$RELEASE_RESTORE_DIR/Package.swift" ]]; then
+      cp "$RELEASE_RESTORE_DIR/Package.swift" Package.swift
+    fi
+    if [[ -n "$RELEASE_RESTORE_DIR" && -f "$RELEASE_RESTORE_DIR/project.pbxproj" ]]; then
+      cp "$RELEASE_RESTORE_DIR/project.pbxproj" "$SHOWCASE_PROJECT"
+    fi
+    git reset -q -- Package.swift "$SHOWCASE_PROJECT" 2>/dev/null || true
+    if [[ "$status" -ne 0 ]]; then
+      echo "Restored Package.swift and $SHOWCASE_PROJECT after failed release rewrite." >&2
+    fi
+  fi
+
+  if [[ -n "$WORK_DIR" ]]; then
+    rm -rf "$WORK_DIR"
+  fi
+  if [[ -n "$RELEASE_RESTORE_DIR" ]]; then
+    rm -rf "$RELEASE_RESTORE_DIR"
+  fi
+}
+trap cleanup EXIT
+
+begin_release_file_restore() {
+  RELEASE_RESTORE_DIR=$(mktemp -d)
+  cp Package.swift "$RELEASE_RESTORE_DIR/Package.swift"
+  cp "$SHOWCASE_PROJECT" "$RELEASE_RESTORE_DIR/project.pbxproj"
+  RELEASE_RESTORE_FILES=true
+}
 
 switch_package_to_release_url() {
   RELEASE_URL="$RELEASE_URL" CHECKSUM="$CHECKSUM" python3 - <<'PYEOF'
@@ -109,14 +146,14 @@ PYEOF
 }
 
 switch_showcase_to_release_version() {
-  RELEASE_VERSION="$VERSION" python3 - <<'PYEOF'
+  RELEASE_VERSION="$VERSION" SHOWCASE_PROJECT="$SHOWCASE_PROJECT" python3 - <<'PYEOF'
 import os
 import re
 import sys
 import tempfile
 
 version = os.environ["RELEASE_VERSION"]
-path = "Showcase/SwiftVLCShowcase.xcodeproj/project.pbxproj"
+path = os.environ["SHOWCASE_PROJECT"]
 
 with open(path, "r") as f:
     text = f.read()
@@ -216,10 +253,9 @@ if [[ "$DRY_RUN" == false ]]; then
   fi
 
   CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-  if [[ "$CURRENT_BRANCH" != "main" && "$ALLOW_DIRTY_BRANCH" == false ]]; then
-    echo "Error: on branch '$CURRENT_BRANCH', not 'main'." >&2
-    echo "  Releases should usually be cut from main." >&2
-    echo "  Pass --allow-dirty-branch to override." >&2
+  if [[ "$CURRENT_BRANCH" != "main" ]]; then
+    echo "Error: refusing to release from branch '$CURRENT_BRANCH'." >&2
+    echo "  Release commits advance origin/main, so rerun from main." >&2
     exit 1
   fi
 
@@ -247,7 +283,6 @@ fi
 # ── Strip ─────────────────────────────────────────────────────────────────────
 
 WORK_DIR=$(mktemp -d)
-trap 'rm -rf "$WORK_DIR"' EXIT
 
 echo "Copying xcframework to temp dir..."
 cp -R "$XCFW_PATH" "$WORK_DIR/libvlc.xcframework"
@@ -328,6 +363,8 @@ fi
 echo ""
 echo "Creating release commit on $CURRENT_BRANCH..."
 
+begin_release_file_restore
+
 echo "Pointing Package.swift at $RELEASE_URL..."
 switch_package_to_release_url
 
@@ -347,6 +384,7 @@ fi
 
 git add Package.swift "$SHOWCASE_PROJECT"
 git commit --quiet -m "Release $TAG"
+RELEASE_RESTORE_FILES=false
 TAG_COMMIT=$(git rev-parse HEAD)
 git tag "$TAG" "$TAG_COMMIT"
 

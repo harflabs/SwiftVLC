@@ -32,7 +32,10 @@ import AppKit
 /// server so the macOS vout never fully spins up — these tests still
 /// cover the attach/detach ordering that the bug lived in.
 extension Integration {
-  @Suite(.tags(.mainActor))
+  @Suite(
+    .tags(.mainActor),
+    .enabled(if: TestCondition.canPlayMedia, "Requires video output (skipped on CI)")
+  )
   @MainActor struct VideoSurfaceRaceTests {
     /// Scenario (a): attach → play → mid-render detach → drop surface →
     /// drop player. The detach is called explicitly, matching the

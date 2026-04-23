@@ -130,6 +130,31 @@ extension Integration {
       await task.value
     }
 
+    @Test
+    func `Broadcaster interest check respects subscriber minimum levels`() {
+      let broadcaster = LogBroadcaster(
+        instancePointer: VLCInstance.shared.pointer,
+        installBridge: { _, _ in nil },
+        uninstallBridge: { _, _ in }
+      )
+      defer { broadcaster.invalidate() }
+
+      #expect(!broadcaster.hasSubscriber(atOrBelow: .error))
+
+      let (stream, continuation) = AsyncStream<LogEntry>.makeStream()
+      _ = stream
+      let id = broadcaster.add(continuation: continuation, minimumLevel: .warning)
+      defer {
+        broadcaster.remove(id: id)
+        continuation.finish()
+      }
+
+      #expect(!broadcaster.hasSubscriber(atOrBelow: .debug))
+      #expect(!broadcaster.hasSubscriber(atOrBelow: .notice))
+      #expect(broadcaster.hasSubscriber(atOrBelow: .warning))
+      #expect(broadcaster.hasSubscriber(atOrBelow: .error))
+    }
+
     @Test(.tags(.async))
     func `Failed log install retries only on later reconciles`() async {
       let attempts = Mutex(0)

@@ -87,13 +87,13 @@ PYEOF
 }
 
 switch_showcase_to_local_package() {
-  python3 - <<'PYEOF'
+  SHOWCASE_PROJECT="$SHOWCASE_PROJECT" python3 - <<'PYEOF'
 import os
 import re
 import sys
 import tempfile
 
-path = "Showcase/SwiftVLCShowcase.xcodeproj/project.pbxproj"
+path = os.environ["SHOWCASE_PROJECT"]
 
 with open(path, "r") as f:
     text = f.read()

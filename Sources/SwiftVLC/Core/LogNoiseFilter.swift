@@ -39,6 +39,17 @@
 /// Until those land, this filter is how SwiftVLC consumers get a clean
 /// error level.
 enum LogNoiseFilter {
+  /// Returns the highest severity this filter can emit for a raw libVLC
+  /// level, before the message string has been allocated.
+  ///
+  /// The current rules only demote `.error` entries to `.warning`; they
+  /// never promote lower-severity entries. That invariant lets the log
+  /// callback skip String allocation when no subscriber is interested in
+  /// the raw level.
+  static func mostSeverePossibleResult(for level: LogLevel) -> LogLevel {
+    level
+  }
+
   /// Returns the effective level for a libVLC log entry. Pure; safe to
   /// call from the C log callback thread.
   ///

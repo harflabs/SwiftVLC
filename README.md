@@ -224,7 +224,7 @@ What `release.sh` does:
 7. Uploads the zip to a new GitHub Release.
 8. Pushes `main` to the same commit, so `main` always references the latest published xcframework and Showcase package version.
 
-Preflight refuses non-`main` branches (`--allow-dirty-branch` to override), uncommitted changes in `Package.swift` or the Showcase project, pre-existing local or remote tags, and unauthenticated `gh`. If the tag push succeeds but a later step fails, `origin/main` is still untouched; finish the GitHub Release (or delete the tag) before retrying.
+Preflight refuses non-`main` branches, uncommitted changes in `Package.swift` or the Showcase project, pre-existing local or remote tags, and unauthenticated `gh`. If a pre-commit rewrite fails, the script restores `Package.swift` and the Showcase project before exiting. If the tag push succeeds but a later step fails, `origin/main` is still untouched; finish the GitHub Release (or delete the tag) before retrying.
 
 ## Architecture
 
