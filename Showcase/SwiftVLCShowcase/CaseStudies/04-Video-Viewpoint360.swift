@@ -58,7 +58,7 @@ struct ViewpointCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("360° viewpoint")
-    .task { try? player.play(url: TestMedia.bigBuckBunny) }
+    .task { try? player.play(url: TestMedia.demo) }
     .onChange(of: yaw) { apply() }
     .onChange(of: pitch) { apply() }
     .onChange(of: fov) { apply() }

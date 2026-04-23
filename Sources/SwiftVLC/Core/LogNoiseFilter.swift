@@ -2,25 +2,26 @@
 /// incongruent with how the surrounding cascade actually works.
 ///
 /// libVLC's decoder, video output, and demuxer subsystems pick a working
-/// module by *probing*: each candidate's `Open()` is called in turn, and a
-/// failure simply means "try the next one". A handful of upstream modules
-/// log those expected probe failures at `LIBVLC_ERROR`, so a subscriber
-/// filtering at ``LogLevel/error`` sees false alarms even when playback is
-/// healthy. This filter demotes those specific messages to
-/// ``LogLevel/warning`` so ``LogLevel/error`` retains its meaning ("playback
-/// actually broke") for downstream consumers.
+/// module by *probing*: each candidate's `Open()` is called in turn, and
+/// a failure means "try the next one." A handful of upstream modules log
+/// those expected probe failures at `LIBVLC_ERROR`, so a subscriber
+/// filtering at ``LogLevel/error`` sees false alarms even when playback
+/// is healthy. This filter demotes those specific messages to
+/// ``LogLevel/warning`` so ``LogLevel/error`` retains its meaning
+/// ("playback actually broke") for downstream consumers.
 ///
-/// The terminal failures emitted by the cascade itself ("no suitable decoder
-/// for ...", "Codec 'XXXX' (description) is not supported.") use distinct
-/// wording and are untouched by this filter — they remain at
+/// The terminal failures emitted by the cascade itself ("no suitable
+/// decoder for ...", "Codec 'XXXX' (description) is not supported.")
+/// use distinct wording and are untouched. They remain at
 /// ``LogLevel/error``.
 ///
 /// **Why not match on the module field?** libVLC 4.0's
-/// `libvlc_log_get_context` reports the umbrella library name (`"libvlc"`)
-/// rather than the per-module identifier (e.g. `"videotoolbox"`) — the
-/// per-module info lives in `file` / `psz_object_type` instead. Rather than
-/// widen our C shim, the rules below pin tight message-shape patterns that
-/// only the noisy emitters ever produce.
+/// `libvlc_log_get_context` reports the umbrella library name
+/// (`"libvlc"`) rather than the per-module identifier (e.g.
+/// `"videotoolbox"`); the per-module info lives in `file` /
+/// `psz_object_type` instead. Rather than widen our C shim, the rules
+/// below pin tight message-shape patterns that only the noisy emitters
+/// ever produce.
 ///
 /// **Performance**: pure function, no allocations, called once per log entry
 /// from the libVLC log thread. The early `level == .error` short-circuit
@@ -38,8 +39,8 @@
 /// Until those land, this filter is how SwiftVLC consumers get a clean
 /// error level.
 enum LogNoiseFilter {
-  /// Returns the effective level for a libVLC log entry. Pure — safe to call
-  /// from the C log callback thread.
+  /// Returns the effective level for a libVLC log entry. Pure; safe to
+  /// call from the C log callback thread.
   ///
   /// Returns `level` unchanged for any entry that doesn't match a rule below.
   /// Only entries that arrive at ``LogLevel/error`` are eligible for demotion;
@@ -54,8 +55,8 @@ enum LogNoiseFilter {
     // VideoToolbox decoder probe rejection.
     //   vlc/modules/codec/videotoolbox/decoder.c:990
     //     msg_Err(p_dec, "'%4.4s' is not supported", ...);
-    // produces strings of the form "'DIV2' is not supported" — opening with
-    // a single-quoted four-character FOURCC. The terminal "no decoder
+    // produces strings of the form "'DIV2' is not supported": a
+    // single-quoted four-character FOURCC. The terminal "no decoder
     // found" error in `src/input/decoder.c:2307` uses a different shape
     // ("Codec 'XXXX' (description) is not supported."), so this strict
     // prefix + suffix match unambiguously identifies the probe.
@@ -65,7 +66,7 @@ enum LogNoiseFilter {
 
     // The probe failure above leaves the chroma converter unable to
     // negotiate an output format, which fires a follow-up "Failed to
-    // create video converter" — same root cause, same severity correction.
+    // create video converter": same root cause, same severity correction.
     // Pinned to exact equality (not `contains`) so we don't accidentally
     // demote a longer message that mentions a converter as a side note.
     if message == "Failed to create video converter" {
@@ -74,12 +75,12 @@ enum LogNoiseFilter {
 
     // libVLC's input/decoder thread wakes its buffer predicate under
     // rapid seeks and detects a would-be deadlock between the demuxer,
-    // the decoder, and the output — it breaks the deadlock defensively
+    // the decoder, and the output. It breaks the deadlock defensively
     // (no actual hang, no data loss) and logs a `msg_Err`. The
-    // successful recovery makes this informational; only real
-    // unrecovered deadlocks would escalate via subsequent fatal errors
-    // from `core`. Pinned to exact equality to avoid demoting unrelated
-    // messages that happen to mention a buffer.
+    // successful recovery makes this informational; real unrecovered
+    // deadlocks escalate via subsequent fatal errors from `core`.
+    // Pinned to exact equality to avoid demoting unrelated messages
+    // that happen to mention a buffer.
     if message == "buffer deadlock prevented" {
       return .warning
     }
@@ -102,9 +103,9 @@ enum LogNoiseFilter {
     // simulator's network interface doesn't expose a multicast-capable
     // route. The discoverer probe fails with `UPNP_E_INVALID_INTERFACE`;
     // the cascade then reports no suitable module for `upnp_renderer`.
-    // Neither is fatal — the simulator just has no UPnP network to
-    // discover on. On real hardware with Wi-Fi / Ethernet available,
-    // these messages don't fire.
+    // Neither is fatal. The simulator has no UPnP network to discover
+    // on; on real hardware with Wi-Fi or Ethernet these messages don't
+    // fire.
     if message == "Initialization failed: UPNP_E_INVALID_INTERFACE" {
       return .warning
     }

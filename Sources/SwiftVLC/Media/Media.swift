@@ -45,8 +45,7 @@ public struct MediaSlave: Sendable, Hashable {
   public let uri: String
   /// Whether this slave is a subtitle or audio track.
   public let type: MediaSlaveType
-  /// Priority — higher values are preferred when the same type appears
-  /// multiple times.
+  /// Priority. Higher values win when the same type appears multiple times.
   public let priority: Int
 }
 
@@ -59,8 +58,8 @@ public struct MediaSlave: Sendable, Hashable {
 /// print(metadata.title ?? "Unknown")
 /// ```
 ///
-/// `Media` is `Sendable` — create it anywhere, then pass to a `@MainActor` Player
-/// via `player.load(media)`.
+/// `Media` is `Sendable`. Create it on any actor, then hand it to a
+/// `@MainActor` ``Player`` via `player.load(media)`.
 public final class Media: Sendable {
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_media_t*
   let thumbnailCoordinator = ThumbnailCoordinator()
@@ -113,12 +112,12 @@ public final class Media: Sendable {
     let em = libvlc_media_event_manager(media)!
     let instancePtr = instance.pointer
 
-    // `onCancel` is a `@Sendable` closure and `OpaquePointer` isn't Sendable,
-    // so bind the pointers to `nonisolated(unsafe)` locals — the same pattern
-    // used elsewhere for libVLC pointer captures (Player.deinit,
-    // PixelBufferRenderer). The pointers are valid for the duration of this
-    // call because `self` (Media) and `instance` (VLCInstance) are retained
-    // by the surrounding `async` frame.
+    // `onCancel` is a `@Sendable` closure and `OpaquePointer` isn't
+    // Sendable, so bind the pointers to `nonisolated(unsafe)` locals —
+    // the same pattern used elsewhere for libVLC pointer captures
+    // (Player.deinit, PixelBufferRenderer). The pointers stay valid for
+    // the duration of this call because `self` (Media) and `instance`
+    // (VLCInstance) are retained by the surrounding `async` frame.
     nonisolated(unsafe) let cancelMedia = media
     nonisolated(unsafe) let cancelInstance = instancePtr
 
@@ -178,10 +177,10 @@ public final class Media: Sendable {
 
   /// The category of this media source (file, stream, disc, etc.).
   ///
-  /// Useful for tailoring UI — e.g. show a network indicator for `.stream`,
-  /// or a disc icon for `.disc`. Reported as `.unknown` until libVLC has
-  /// enough context to determine the type (usually immediately after
-  /// creation for local paths, after parse for network URLs).
+  /// Useful for tailoring UI: show a network indicator for `.stream`,
+  /// a disc icon for `.disc`, and so on. Reports `.unknown` until
+  /// libVLC has enough context to determine the type — immediately
+  /// after creation for local paths, after parse for network URLs.
   public var mediaType: MediaType {
     MediaType(from: libvlc_media_get_type(pointer))
   }
@@ -265,11 +264,10 @@ public final class Media: Sendable {
   /// Applies a libVLC option to this media before playback starts.
   ///
   /// Options use libVLC's command-line syntax, with a leading `:` for
-  /// input options — for example, `:network-caching=1000` to set a
-  /// one-second network buffer, or `:start-time=30` to skip the first
-  /// 30 seconds. Multiple options can be added by calling this method
-  /// repeatedly. Options have no effect once the media has begun
-  /// playing.
+  /// input options. For example, `:network-caching=1000` sets a
+  /// one-second network buffer; `:start-time=30` skips the first 30
+  /// seconds. Call this repeatedly to add multiple options. Options
+  /// have no effect once the media has begun playing.
   public func addOption(_ option: String) {
     libvlc_media_add_option(pointer, option)
   }
@@ -318,7 +316,7 @@ private func parseCallback(
   let ctx = box.takeUnretainedValue()
   let em = libvlc_media_event_manager(ctx.media)!
 
-  // Detach immediately — one-shot
+  // Detach immediately: one-shot.
   libvlc_event_detach(em, Int32(libvlc_MediaParsedChanged.rawValue), parseCallback, opaque)
   box.release()
 

@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftVLC
 
 private let readMe = """
-`volume` is `0.0...1.25` (values above 1.0 amplify) and `isMuted` is orthogonal — \
+`volume` is `0.0...1.25` (values above 1.0 amplify). `isMuted` is orthogonal: \
 muting preserves the underlying level so unmuting restores it.
 """
 
@@ -41,7 +41,7 @@ struct VolumeCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Volume")
-    .task { try? player.play(url: TestMedia.bigBuckBunny) }
+    .task { try? player.play(url: TestMedia.demo) }
     .onDisappear { player.stop() }
   }
 }

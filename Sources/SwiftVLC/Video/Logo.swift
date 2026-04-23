@@ -2,9 +2,9 @@ import CLibVLC
 
 /// Image overlay (logo) controls.
 ///
-/// `~Copyable` and `~Escapable` — must be used inline, cannot be stored
-/// in properties or captured in closures. This prevents dangling pointer access
-/// if the player is deallocated.
+/// `~Copyable` and `~Escapable`. Must be used inline; cannot be stored
+/// in properties or captured in closures. The compiler-enforced scope
+/// rules out a dangling pointer if the player is deallocated.
 ///
 /// ```swift
 /// player.logo.isEnabled = true
@@ -28,8 +28,8 @@ public struct Logo: ~Copyable, ~Escapable {
 
   /// Sets the logo image file path(s).
   ///
-  /// libVLC does not expose a getter for the current logo file — this is
-  /// a write-only operation.
+  /// libVLC does not expose a getter for the current logo file, so this
+  /// is a write-only operation.
   ///
   /// Format: `"file"` for a single image or
   /// `"file,delay,transparency;file,delay,transparency;..."` for an
@@ -70,7 +70,7 @@ public struct Logo: ~Copyable, ~Escapable {
 
   /// Screen position as a bitmask: `0` = center, `1` = left, `2` = right,
   /// `4` = top, `8` = bottom. Combine horizontal and vertical flags with
-  /// bitwise OR — e.g. `4 | 1` for top-left.
+  /// bitwise OR (e.g. `4 | 1` for top-left).
   public var position: Int {
     get { Int(libvlc_video_get_logo_int(pointer, UInt32(libvlc_logo_position.rawValue))) }
     nonmutating set { libvlc_video_set_logo_int(pointer, UInt32(libvlc_logo_position.rawValue), Int32(newValue)) }

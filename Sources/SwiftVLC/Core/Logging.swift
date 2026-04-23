@@ -40,10 +40,11 @@ public enum LogLevel: Int32, Sendable, Comparable, CustomStringConvertible {
 extension VLCInstance {
   /// Creates an `AsyncStream` of libVLC log messages.
   ///
-  /// Multiple concurrent log streams per instance are supported — all active streams
-  /// receive every log event that meets their individual `minimumLevel` filter.
-  /// The underlying libVLC log callback is installed on first subscription and
-  /// removed when the last consumer's stream terminates.
+  /// Multiple concurrent log streams per instance are supported. Each
+  /// active stream receives every log event that meets its own
+  /// `minimumLevel` filter. The underlying libVLC log callback is
+  /// installed on first subscription and removed when the last
+  /// consumer's stream terminates.
   ///
   /// ```swift
   /// for await entry in VLCInstance.shared.logStream(minimumLevel: .warning) {
@@ -89,9 +90,9 @@ final class LogBroadcaster: Sendable {
   }
 
   /// `@unchecked` because `UnsafeMutableRawPointer` isn't Sendable under
-  /// Swift's region analysis. Safety is provided by the enclosing `Mutex`
-  /// — every read/write happens under `state.withLock`, so the non-Sendable
-  /// pointer fields never straddle isolation domains.
+  /// Swift's region analysis. Safety is provided by the enclosing
+  /// `Mutex`: every read and write happens under `state.withLock`, so
+  /// the non-Sendable pointer fields never straddle isolation domains.
   private struct State: @unchecked Sendable {
     var nextID: Int = 0
     var subscribers: [Int: Subscriber] = [:]
@@ -151,9 +152,9 @@ final class LogBroadcaster: Sendable {
   }
 
   /// Terminates all active subscribers and uninstalls the libVLC log
-  /// callback. Called from `VLCInstance.deinit` — after this returns,
-  /// the libVLC instance pointer is about to be released, so no further
-  /// callbacks can fire.
+  /// callback. Called from `VLCInstance.deinit`. After this returns,
+  /// the libVLC instance pointer is about to be released, so no
+  /// further callbacks can fire.
   func invalidate() {
     let subscribers = state.withLock { state -> [Subscriber] in
       let subs = Array(state.subscribers.values)
@@ -172,8 +173,8 @@ final class LogBroadcaster: Sendable {
 
   /// Called by the C callback (outside our lock) with a snapshot of subscribers.
   fileprivate func broadcast(_ entry: LogEntry) {
-    // Snapshot under lock, yield outside — same pattern as EventBridge to
-    // avoid AB-BA with task-cancellation locks.
+    // Snapshot under lock, yield outside. Same pattern as EventBridge,
+    // to avoid AB-BA with task-cancellation locks.
     let snapshot = state.withLock { state -> [Subscriber] in
       state.subscribers.values.filter { entry.level >= $0.minimumLevel }
     }
@@ -244,8 +245,8 @@ final class LogBroadcaster: Sendable {
   }
 }
 
-/// C callback — receives pre-formatted messages from the C shim.
-/// Runs on libVLC's internal logging thread.
+/// C callback. Receives pre-formatted messages from the C shim and
+/// runs on libVLC's internal logging thread.
 /// `AsyncStream.Continuation.yield` is safe to call from any thread.
 private func logCallback(
   data: UnsafeMutableRawPointer?,

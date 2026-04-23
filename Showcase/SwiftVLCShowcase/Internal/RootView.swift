@@ -30,6 +30,7 @@ struct RootView: View {
         NavigationLink("Relative seek") { RelativeSeekCase() }
         NavigationLink("Playback rate") { RateCase() }
         NavigationLink("Frame step") { FrameStepCase() }
+        NavigationLink("Thumbnail scrubbing") { ThumbnailScrubCase() }
       }
 
       Section("Audio") {
@@ -39,6 +40,7 @@ struct RootView: View {
         NavigationLink("Outputs") { AudioOutputsCase() }
         NavigationLink("Delay") { AudioDelayCase() }
         NavigationLink("Equalizer") { EqualizerCase() }
+        NavigationLink("Role & corking") { RoleAndCorkCase() }
       }
 
       Section("Video") {
@@ -67,6 +69,7 @@ struct RootView: View {
         NavigationLink("Picture in Picture") { PiPCase() }
         #endif
         NavigationLink("HLS streaming") { StreamingHLSCase() }
+        NavigationLink("Multi-track selection") { MultiTrackSelectionCase() }
       }
 
       Section("Playlist") {
@@ -85,6 +88,7 @@ struct RootView: View {
 
       Section("Diagnostics") {
         NavigationLink("Events") { EventsCase() }
+        NavigationLink("Multi-consumer events") { MultiConsumerEventsCase() }
         NavigationLink("Statistics") { StatisticsCase() }
         NavigationLink("Logs") { LogsCase() }
       }

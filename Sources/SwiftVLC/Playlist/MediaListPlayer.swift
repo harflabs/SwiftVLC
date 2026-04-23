@@ -35,8 +35,8 @@ public final class MediaListPlayer {
   }
 
   isolated deinit {
-    // Release off the main actor — stop_async and release can block
-    // waiting for VLC internal threads, stalling all async work.
+    // Release off the main actor. `stop_async` and `release` can block
+    // waiting for VLC's internal threads, stalling all async work.
     nonisolated(unsafe) let p = pointer
     DispatchQueue.global(qos: .utility).async {
       libvlc_media_list_player_stop_async(p)
@@ -84,9 +84,28 @@ public final class MediaListPlayer {
     libvlc_media_list_player_play(pointer)
   }
 
-  /// Toggles pause/resume.
+  /// Toggles between playing and paused. No-op in transient states
+  /// (`.opening`, `.buffering`, `.stopping`, `.error`).
+  ///
+  /// Dispatches on the observed ``state`` rather than calling the raw
+  /// `libvlc_media_list_player_pause` (which is itself a toggle). The
+  /// naked toggle is unsafe mid-transition: interleaving a pause-toggle
+  /// with the audio output's opening path corrupts
+  /// `stream->timing.pause_date` and trips the upstream assertion
+  /// `stream->timing.pause_date == VLC_TICK_INVALID` in
+  /// `src/audio_output/dec.c:876`, killing the process. Mirror the
+  /// guard in ``Player/togglePlayPause()``.
   public func togglePause() {
-    libvlc_media_list_player_pause(pointer)
+    switch state {
+    case .playing:
+      pause()
+    case .paused:
+      resume()
+    case .idle, .stopped:
+      play()
+    case .opening, .buffering, .stopping, .error:
+      break
+    }
   }
 
   /// Pauses playback.

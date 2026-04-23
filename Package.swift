@@ -10,7 +10,10 @@ let package = Package(
   ],
   dependencies: [
     // Build-time plugin only; not linked into consumers.
-    .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.4.6")
+    .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.4.6"),
+    // Test-only. Produces diff-style failure messages for struct/enum
+    // comparisons, replacing Swift Testing's "true vs false" default.
+    .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.3.3")
   ],
   targets: [
     .binaryTarget(name: "libvlc", path: "Vendor/libvlc.xcframework"),
@@ -70,7 +73,13 @@ let package = Package(
     ),
     .testTarget(
       name: "SwiftVLCTests",
-      dependencies: ["SwiftVLC", "CLibVLC"],
+      // CLibVLC is available transitively through SwiftVLC — re-linking it
+      // here causes "Class X is implemented in both A and B" runtime warnings
+      // when a test binary ends up with two copies of the same symbol graph.
+      dependencies: [
+        "SwiftVLC",
+        .product(name: "CustomDump", package: "swift-custom-dump")
+      ],
       resources: [.copy("Fixtures")],
       swiftSettings: [
         .swiftLanguageMode(.v6),

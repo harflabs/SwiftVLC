@@ -13,8 +13,8 @@ struct PlaylistQueueCase: View {
   @State private var mode: PlaybackMode = .default
 
   private let sources: [(url: URL, title: String)] = [
+    (TestMedia.demo, "Demo reel"),
     (TestMedia.bigBuckBunny, "Big Buck Bunny"),
-    (TestMedia.tearsOfSteel, "Tears of Steel"),
     (TestMedia.hls, "HLS stream")
   ]
 

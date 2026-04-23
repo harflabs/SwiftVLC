@@ -54,7 +54,7 @@ struct SnapshotCase: View {
   }
 
   private func task() async {
-    try? player.play(url: TestMedia.bigBuckBunny)
+    try? player.play(url: TestMedia.demo)
     for await event in player.events {
       if case .snapshotTaken(let path) = event {
         snapshot = PlatformImage(contentsOfFile: path)

@@ -5,8 +5,8 @@ struct VideoPlayerApp: View {
   @State private var presented: Source?
 
   private let sources: [Source] = [
+    Source(title: "Demo reel", subtitle: "Bundled · multi-track audio, subtitles & chapters", url: TestMedia.demo),
     Source(title: "Big Buck Bunny", subtitle: "Open movie · Blender · 2008", url: TestMedia.bigBuckBunny),
-    Source(title: "Tears of Steel", subtitle: "MKV · multiple audio & subtitle tracks", url: TestMedia.tearsOfSteel),
     Source(title: "Live HLS stream", subtitle: "Public test stream · Mux", url: TestMedia.hls)
   ]
 

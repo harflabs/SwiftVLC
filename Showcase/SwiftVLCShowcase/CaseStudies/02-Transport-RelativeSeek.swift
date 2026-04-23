@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftVLC
 
 private let readMe = """
-`seek(by:)` jumps forward or backward by a `Duration` offset — no absolute time math \
+`seek(by:)` jumps forward or backward by a `Duration` offset. No absolute time math \
 required.
 """
 
@@ -42,7 +42,7 @@ struct RelativeSeekCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Relative seek")
-    .task { try? player.play(url: TestMedia.bigBuckBunny) }
+    .task { try? player.play(url: TestMedia.demo) }
     .onDisappear { player.stop() }
   }
 

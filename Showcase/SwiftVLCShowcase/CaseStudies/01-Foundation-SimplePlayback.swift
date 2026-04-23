@@ -42,7 +42,7 @@ struct SimplePlaybackCase: View {
     .showcaseFormStyle()
     .navigationTitle("Simple playback")
     .task {
-      try? player.play(url: TestMedia.bigBuckBunny)
+      try? player.play(url: TestMedia.demo)
     }
     .onDisappear { player.stop() }
   }

@@ -48,7 +48,7 @@ struct SubtitlesExternalCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("External subtitles")
-    .task { try? player.play(url: TestMedia.bigBuckBunny) }
+    .task { try? player.play(url: TestMedia.demo) }
     .onDisappear { player.stop() }
     #if os(iOS) || os(macOS)
       .fileImporter(

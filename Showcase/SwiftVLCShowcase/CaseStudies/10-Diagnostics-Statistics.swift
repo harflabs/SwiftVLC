@@ -11,11 +11,11 @@ struct StatisticsCase: View {
 
   var body: some View {
     // `player.statistics` is a computed property that isn't itself
-    // @Observable — it snapshots libVLC counters on demand. For SwiftUI
+    // @Observable; it snapshots libVLC counters on demand. For SwiftUI
     // to re-run this body as stats evolve, the body must read at least
     // one observed property that updates during playback. `currentTime`
-    // ticks every ~250ms via `.timeChanged` events, which is exactly the
-    // cadence we want for a live stats panel.
+    // ticks every ~250ms via `.timeChanged` events, which is exactly
+    // the cadence we want for a live stats panel.
     _ = player.currentTime
 
     return Form {
@@ -87,7 +87,7 @@ struct StatisticsCase: View {
   /// `LabeledContent` merges label + value into a single accessibility
   /// element, which defeats per-value XCUITest queries. A plain HStack
   /// keeps each value's `XCUIElement.label` identical to its visible
-  /// string — same approach as the Player State showcase.
+  /// string; the Player State showcase uses the same approach.
   private func statRow(
     _ title: String,
     value: String,

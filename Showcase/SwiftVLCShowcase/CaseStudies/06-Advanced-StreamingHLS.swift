@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftVLC
 
 private let readMe = """
-HLS works out of the box — pass an `.m3u8` URL to `play(url:)`. `player.statistics` \
+HLS works out of the box: pass an `.m3u8` URL to `play(url:)`. `player.statistics` \
 reports live input bitrate and decode / display / lost frame counters.
 """
 

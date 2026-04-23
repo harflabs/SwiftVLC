@@ -79,10 +79,9 @@ Seeks are asynchronous. Observe ``Player/currentTime`` (or the
 
 ## The raw event stream
 
-The observable properties are enough for typical playback UI. For
-logic that needs event-level granularity — recording transitions,
-snapshot completion, program changes, or custom bridging — iterate
-``Player/events`` directly:
+The observable properties cover typical playback UI. When you need
+event-level detail — recording transitions, snapshot completion,
+program changes, custom bridging — iterate ``Player/events`` directly:
 
 ```swift
 for await event in player.events {

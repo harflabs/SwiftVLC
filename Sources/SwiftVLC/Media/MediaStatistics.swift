@@ -3,10 +3,10 @@ import CLibVLC
 /// Point-in-time playback statistics for a media item.
 ///
 /// Read via ``Player/statistics`` once a media has been loaded. The
-/// values are cumulative counters and instantaneous bitrates sampled at
-/// the moment of the call — capture multiple snapshots if you want to
-/// display rates over time. Counters read as `0` before their stage of
-/// the pipeline has processed any data.
+/// values are cumulative counters and instantaneous bitrates sampled
+/// at the moment of the call; capture multiple snapshots to display
+/// rates over time. Counters read as `0` before their stage of the
+/// pipeline has processed any data.
 public struct MediaStatistics: Sendable, Equatable {
   // MARK: - Input
 

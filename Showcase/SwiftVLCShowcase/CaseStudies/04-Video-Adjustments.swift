@@ -3,7 +3,7 @@ import SwiftVLC
 
 private let readMe = """
 Color adjustments live on `player.adjustments`: brightness, contrast, hue, saturation, \
-gamma. Enable first — disabled adjustments pass through untouched.
+gamma. Enable first; disabled adjustments pass through untouched.
 """
 
 struct VideoAdjustmentsCase: View {
@@ -57,8 +57,8 @@ struct VideoAdjustmentsCase: View {
   }
 
   private func task() {
-    try? player.play(url: TestMedia.bigBuckBunny)
-    // Push initial slider values before the user touches anything —
+    try? player.play(url: TestMedia.demo)
+    // Push initial slider values before the user touches anything.
     // `onChange` doesn't fire for initial state.
     player.withAdjustments { adj in
       adj.brightness = brightness

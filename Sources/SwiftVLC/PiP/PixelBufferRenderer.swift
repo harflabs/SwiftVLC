@@ -11,15 +11,26 @@ import Synchronization
 /// Thread safety: all vmem callbacks run on libVLC's decode thread.
 /// `Mutex<State>` protects shared state accessed from both the decode thread and main thread.
 final class PixelBufferRenderer: Sendable {
-  /// @unchecked because CF types (CVPixelBufferPool, CMTimebase) and
-  /// AVSampleBufferDisplayLayer lack Sendable conformance. Thread safety
-  /// is guaranteed by the enclosing Mutex.
+  /// @unchecked because CF types (CVPixelBufferPool, CMTimebase) lack
+  /// Sendable conformance. Thread safety is guaranteed by the enclosing
+  /// Mutex.
   struct State: @unchecked Sendable {
     var pool: CVPixelBufferPool?
     var width: Int = 0
     var height: Int = 0
-    weak var displayLayer: AVSampleBufferDisplayLayer?
+    /// The display layer is held inside a class box rather than as a
+    /// direct `weak var` on the struct. `Mutex` stores `State` in raw
+    /// managed memory and any `withLock { $0 }` read produces a struct
+    /// copy; bit-copying a `__weak` slot side-steps the ObjC runtime's
+    /// weak-reference table and surfaces as "unregister unknown __weak
+    /// variable" warnings at teardown. The box gives the weak a single
+    /// stable home the runtime can track across struct copies.
+    let displayLayer: DisplayLayerBox
     var timebase: CMTimebase?
+
+    init(displayLayer: AVSampleBufferDisplayLayer?) {
+      self.displayLayer = DisplayLayerBox(displayLayer)
+    }
   }
 
   let state: Mutex<State>
@@ -29,7 +40,7 @@ final class PixelBufferRenderer: Sendable {
   }
 
   func setDisplayLayer(_ layer: AVSampleBufferDisplayLayer?) {
-    state.withLock { $0.displayLayer = layer }
+    state.withLock { $0.displayLayer.layer = layer }
   }
 
   func setTimebase(_ tb: CMTimebase?) {
@@ -37,10 +48,20 @@ final class PixelBufferRenderer: Sendable {
   }
 }
 
+/// Class wrapper around `weak var layer` so the ObjC weak-reference
+/// table sees a single stable address regardless of how `State` is
+/// copied in and out of the surrounding `Mutex`.
+final class DisplayLayerBox: @unchecked Sendable {
+  weak var layer: AVSampleBufferDisplayLayer?
+  init(_ layer: AVSampleBufferDisplayLayer?) {
+    self.layer = layer
+  }
+}
+
 // MARK: - Free Function Callbacks
 
-/// Format callback — called by libVLC when video format is negotiated.
-/// Overrides chroma to BGRA, creates a `CVPixelBufferPool`.
+/// Format callback, invoked by libVLC when video format is negotiated.
+/// Overrides chroma to BGRA and creates a `CVPixelBufferPool`.
 func pixelBufferFormatCallback(
   opaque: UnsafeMutablePointer<UnsafeMutableRawPointer?>?,
   chroma: UnsafeMutablePointer<CChar>?,
@@ -53,12 +74,15 @@ func pixelBufferFormatCallback(
     let opaque, let chroma, let width, let height,
     let pitches, let lines else { return 0 }
 
-  let renderer = Unmanaged<PixelBufferRenderer>.fromOpaque(opaque.pointee!).takeUnretainedValue()
+  // libVLC populates `*opaque` with the context we passed to
+  // `libvlc_video_set_callbacks`. Guard against an unattached context.
+  guard let rendererBox = opaque.pointee else { return 0 }
+  let renderer = Unmanaged<PixelBufferRenderer>.fromOpaque(rendererBox).takeUnretainedValue()
 
   let w = Int(width.pointee)
   let h = Int(height.pointee)
 
-  // Force BGRA — native to iOS, no color space conversion needed
+  // Force BGRA: native to iOS, no color space conversion needed.
   let bgra: (CChar, CChar, CChar, CChar) = (0x42, 0x47, 0x52, 0x41) // "BGRA"
   chroma[0] = bgra.0
   chroma[1] = bgra.1
@@ -103,7 +127,7 @@ func pixelBufferFormatCallback(
   return 1 // number of picture buffers (1 plane for BGRA)
 }
 
-/// Lock callback — dequeues a `CVPixelBuffer` from the pool for libVLC to write into.
+/// Lock callback. Dequeues a `CVPixelBuffer` from the pool for libVLC to write into.
 func pixelBufferLockCallback(
   opaque: UnsafeMutableRawPointer?,
   planes: UnsafeMutablePointer<UnsafeMutableRawPointer?>?
@@ -127,7 +151,7 @@ func pixelBufferLockCallback(
   return retained.toOpaque()
 }
 
-/// Unlock callback — unlocks the `CVPixelBuffer` base address.
+/// Unlock callback. Unlocks the `CVPixelBuffer` base address.
 func pixelBufferUnlockCallback(
   opaque _: UnsafeMutableRawPointer?,
   picture: UnsafeMutableRawPointer?,
@@ -135,12 +159,14 @@ func pixelBufferUnlockCallback(
 ) {
   guard let picture else { return }
 
+  // `as!` (not `as?`): the compiler emits "conditional downcast will
+  // always succeed" for CoreFoundation bridged types.
   let pb = Unmanaged<AnyObject>.fromOpaque(picture).takeUnretainedValue() as! CVPixelBuffer
   CVPixelBufferUnlockBaseAddress(pb, [])
 }
 
-/// Display callback — wraps the `CVPixelBuffer` in a `CMSampleBuffer` and enqueues
-/// it onto the `AVSampleBufferDisplayLayer`.
+/// Display callback. Wraps the `CVPixelBuffer` in a `CMSampleBuffer`
+/// and enqueues it onto the `AVSampleBufferDisplayLayer`.
 func pixelBufferDisplayCallback(
   opaque: UnsafeMutableRawPointer?,
   picture: UnsafeMutableRawPointer?
@@ -148,6 +174,7 @@ func pixelBufferDisplayCallback(
   guard let opaque, let picture else { return }
 
   let renderer = Unmanaged<PixelBufferRenderer>.fromOpaque(opaque).takeUnretainedValue()
+  // `takeRetainedValue` balances the `passRetained` in `pixelBufferLockCallback`.
   let pb = Unmanaged<AnyObject>.fromOpaque(picture).takeRetainedValue() as! CVPixelBuffer
 
   var formatDesc: CMVideoFormatDescription?
@@ -158,7 +185,7 @@ func pixelBufferDisplayCallback(
   )
   guard fmtStatus == noErr, let desc = formatDesc else { return }
 
-  let (timebase, layer) = renderer.state.withLock { ($0.timebase, $0.displayLayer) }
+  let (timebase, layer) = renderer.state.withLock { ($0.timebase, $0.displayLayer.layer) }
 
   guard let layer else { return }
 
@@ -195,7 +222,7 @@ func pixelBufferDisplayCallback(
   }
 }
 
-/// Cleanup callback — releases the pixel buffer pool.
+/// Cleanup callback. Releases the pixel buffer pool.
 func pixelBufferCleanupCallback(opaque: UnsafeMutableRawPointer?) {
   guard let opaque else { return }
 

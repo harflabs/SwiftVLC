@@ -66,7 +66,7 @@ struct EqualizerCase: View {
   }
 
   private func task() {
-    try? player.play(url: TestMedia.bigBuckBunny)
+    try? player.play(url: TestMedia.demo)
     player.equalizer = equalizer
   }
 

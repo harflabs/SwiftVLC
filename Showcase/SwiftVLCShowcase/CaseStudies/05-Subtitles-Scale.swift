@@ -36,7 +36,7 @@ struct SubtitlesScaleCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Subtitle scale")
-    .task { try? player.play(url: TestMedia.tearsOfSteel) }
+    .task { try? player.play(url: TestMedia.demo) }
     .onDisappear { player.stop() }
   }
 }

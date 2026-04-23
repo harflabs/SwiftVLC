@@ -49,7 +49,7 @@ struct AspectRatioCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Aspect ratio")
-    .task { try? player.play(url: TestMedia.bigBuckBunny) }
+    .task { try? player.play(url: TestMedia.demo) }
     .onDisappear { player.stop() }
   }
 }

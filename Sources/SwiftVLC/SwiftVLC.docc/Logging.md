@@ -54,10 +54,10 @@ comparison:
 
 A small set of upstream libVLC messages declare themselves as
 ``LogLevel/error`` even though they are emitted as part of normal probe
-cascades — for example, when Apple's hardware decoder is asked to handle a
-codec it doesn't accept, libVLC logs the rejection at error level before
-falling back to software. SwiftVLC reclassifies these structural probe
-failures to ``LogLevel/warning`` so that subscribers filtering at
+cascades. For example, when Apple's hardware decoder is asked to handle
+a codec it doesn't accept, libVLC logs the rejection at error level
+before falling back to software. SwiftVLC reclassifies these structural
+probe failures to ``LogLevel/warning`` so that subscribers filtering at
 ``LogLevel/error`` only see entries where playback actually broke.
 
 The reclassification is applied once on the libVLC log thread, before

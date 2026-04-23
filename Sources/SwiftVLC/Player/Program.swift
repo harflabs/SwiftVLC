@@ -16,7 +16,9 @@ public struct Program: Sendable, Identifiable, Hashable {
 
   init(from cProgram: libvlc_player_program_t) {
     id = Int(cProgram.i_group_id)
-    name = String(cString: cProgram.psz_name)
+    // Unparsed / scrambled streams occasionally emit an empty service
+    // descriptor; fall back to the numeric id so the consumer loop can't crash.
+    name = cProgram.psz_name.map { String(cString: $0) } ?? "Program \(cProgram.i_group_id)"
     isSelected = cProgram.b_selected
     isScrambled = cProgram.b_scrambled
   }

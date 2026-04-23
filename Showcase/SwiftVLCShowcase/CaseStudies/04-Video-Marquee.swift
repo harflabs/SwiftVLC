@@ -2,10 +2,10 @@ import SwiftUI
 import SwiftVLC
 
 private let readMe = """
-`player.marquee` renders text over video. Every property — text, font size, \
-color, opacity, anchor, `x`/`y` pixel offset, timeout — is a nonmutating write \
-through the non-copyable `~Escapable` borrow. Drag the video to reposition \
-the overlay interactively; each gesture tick re-enters `player.withMarquee`.
+`player.marquee` renders text over video. Every property (text, font size, color, \
+opacity, anchor, `x`/`y` pixel offset, timeout) is a nonmutating write through the \
+non-copyable `~Escapable` borrow. Drag the video to reposition the overlay \
+interactively; each gesture tick re-enters `player.withMarquee`.
 """
 
 struct MarqueeCase: View {
@@ -122,11 +122,11 @@ struct MarqueeCase: View {
   }
 
   private func task() {
-    try? player.play(url: TestMedia.bigBuckBunny)
-    // Push every property into libVLC *before* the Enable flag flips —
-    // otherwise the overlay filter activates with NULL text or a zero-size
-    // font and draws nothing. `onChange` can't do this: it doesn't fire
-    // for initial values.
+    try? player.play(url: TestMedia.demo)
+    // Push every property into libVLC *before* the Enable flag flips.
+    // Otherwise the overlay filter activates with NULL text or a zero-
+    // size font and draws nothing. `onChange` can't do this: it doesn't
+    // fire for initial values.
     player.withMarquee { m in
       m.setText(text)
       m.fontSize = Int(fontSize)

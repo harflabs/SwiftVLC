@@ -44,7 +44,7 @@ public final class RendererDiscoverer: Sendable {
       throw .instanceCreationFailed
     }
     pointer = p
-    // Retain the instance so it outlives the discoverer — see the
+    // Retain the instance so it outlives the discoverer. See the
     // matching note in `MediaDiscoverer`.
     self.instance = instance
 
@@ -61,11 +61,11 @@ public final class RendererDiscoverer: Sendable {
   }
 
   deinit {
-    // libvlc_event_detach blocks on in-progress callbacks and
-    // libvlc_renderer_discoverer_release waits for the discovery thread to
-    // stop — offload off the calling thread. Pointers are trivially
-    // transferable via `nonisolated(unsafe)` locals, and the continuation
-    // is Sendable so it can be captured directly.
+    // libvlc_event_detach blocks on in-progress callbacks, and
+    // libvlc_renderer_discoverer_release waits for the discovery
+    // thread to stop. Offload off the calling thread. Pointers are
+    // trivially transferable via `nonisolated(unsafe)` locals, and the
+    // continuation is Sendable so it can be captured directly.
     nonisolated(unsafe) let discoverer = pointer
     nonisolated(unsafe) let box = opaque
     let continuation = self.continuation

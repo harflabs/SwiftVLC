@@ -5,8 +5,8 @@ struct MusicPlayerApp: View {
   @State private var presented: Song?
 
   private let library: [Song] = [
+    Song(title: "Showcase Reel", artist: "SwiftVLC", url: TestMedia.demo),
     Song(title: "Big Buck Bunny", artist: "Blender Foundation", url: TestMedia.bigBuckBunny),
-    Song(title: "Tears of Steel", artist: "Blender Foundation", url: TestMedia.tearsOfSteel),
     Song(title: "HLS test stream", artist: "Mux", url: TestMedia.hls)
   ]
 

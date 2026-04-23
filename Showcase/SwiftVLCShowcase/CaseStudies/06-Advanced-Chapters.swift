@@ -52,7 +52,7 @@ struct ChaptersCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Chapters")
-    .task { try? player.play(url: TestMedia.bigBuckBunny) }
+    .task { try? player.play(url: TestMedia.demo) }
     .onDisappear { player.stop() }
   }
 }

@@ -2,6 +2,27 @@ import CLibVLC
 import Foundation
 import Synchronization
 
+/// How libVLC should locate the source frame when generating a thumbnail.
+public enum ThumbnailSeekMode: Sendable, Hashable {
+  /// Snap to the nearest keyframe. Fast but imprecise: videos with
+  /// sparse keyframes (Big Buck Bunny is one example) can return the
+  /// same frame for every offset. Use for library cover art where the
+  /// exact frame doesn't matter.
+  case fast
+
+  /// Decode intervening frames until the exact requested offset is
+  /// reached. Slower but visually correct. Required for scrubber
+  /// previews or time-accurate thumbnails.
+  case precise
+
+  var cValue: libvlc_thumbnailer_seek_speed_t {
+    switch self {
+    case .fast: libvlc_media_thumbnail_seek_fast
+    case .precise: libvlc_media_thumbnail_seek_precise
+    }
+  }
+}
+
 /// Generates thumbnails from media asynchronously.
 ///
 /// ```swift
@@ -10,14 +31,20 @@ import Synchronization
 extension Media {
   /// Generates a thumbnail at the specified time.
   ///
-  /// Supports cooperative cancellation — cancelling the parent `Task` aborts
-  /// the in-flight thumbnail request via `libvlc_media_thumbnail_request_destroy`.
+  /// Supports cooperative cancellation: cancelling the parent `Task`
+  /// aborts the in-flight thumbnail request via
+  /// `libvlc_media_thumbnail_request_destroy`.
   ///
   /// - Parameters:
   ///   - time: Time position to capture the thumbnail.
   ///   - width: Desired width (0 to derive from aspect ratio).
   ///   - height: Desired height (0 to derive from aspect ratio).
   ///   - crop: Whether to crop to match exact dimensions.
+  ///   - seekMode: How libVLC locates the source frame. Defaults to
+  ///     ``ThumbnailSeekMode/precise``; scrubber previews and
+  ///     time-accurate thumbnails need the exact frame. Use
+  ///     ``ThumbnailSeekMode/fast`` for library cover art where
+  ///     speed matters more than frame accuracy.
   ///   - timeout: Maximum time to wait.
   ///   - instance: VLC instance.
   /// - Returns: The raw image data (PNG format).
@@ -27,6 +54,7 @@ extension Media {
     width: Int = 320,
     height: Int = 0,
     crop: Bool = false,
+    seekMode: ThumbnailSeekMode = .precise,
     timeout: Duration = .seconds(10),
     instance: VLCInstance = .shared
   )
@@ -35,10 +63,10 @@ extension Media {
     // Structured release: bind the coordinator into a local actor
     // reference so we can release synchronously at the end of this
     // function. The old `defer { Task { await release() } }` form
-    // deferred the release into an unstructured task, which meant a
-    // second thumbnail on the same Media could see the coordinator
-    // still "busy" and block even though the first caller had
-    // returned — a stall that looked like "thumbnails queue up."
+    // deferred the release into an unstructured task; a second
+    // thumbnail on the same Media could then see the coordinator still
+    // "busy" and block even though the first caller had already
+    // returned, which looked like "thumbnails queue up."
     let coordinator = thumbnailCoordinator
 
     if Task.isCancelled {
@@ -99,7 +127,7 @@ extension Media {
             instancePtr,
             media,
             time.milliseconds,
-            libvlc_media_thumbnail_seek_fast,
+            seekMode.cValue,
             UInt32(width),
             UInt32(height),
             crop,

@@ -5,8 +5,8 @@ import Dispatch
 ///
 /// Use ``availableServices(category:instance:)`` to enumerate the
 /// discoverers available on the host, construct one by `name`, then
-/// ``start()`` it. Discovered items populate ``mediaList`` as they are
-/// found — inspect the list while the discoverer runs.
+/// ``start()`` it. Discovered items populate ``mediaList`` as they
+/// are found; inspect the list while the discoverer runs.
 ///
 /// ```swift
 /// let services = MediaDiscoverer.availableServices(category: .lan)
@@ -47,9 +47,10 @@ public final class MediaDiscoverer: Sendable {
   }
 
   deinit {
-    // libvlc_media_discoverer_release waits for the discovery thread to stop —
-    // offload off the calling thread so the last reference drop doesn't stall
-    // main when the discoverer is owned by a SwiftUI view.
+    // libvlc_media_discoverer_release waits for the discovery thread
+    // to stop. Offload off the calling thread so the last reference
+    // drop doesn't stall main when the discoverer is owned by a
+    // SwiftUI view.
     nonisolated(unsafe) let discoverer = pointer
     DispatchQueue.global(qos: .utility).async {
       libvlc_media_discoverer_release(discoverer)

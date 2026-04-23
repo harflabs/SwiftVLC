@@ -7,7 +7,7 @@ import CLibVLC
 ///
 /// ```swift
 /// for track in player.audioTracks {
-///     print("\(track.name) — \(track.language ?? "unknown")")
+///     print("\(track.name) (\(track.language ?? "unknown"))")
 /// }
 /// ```
 public struct Track: Sendable, Identifiable, Hashable {

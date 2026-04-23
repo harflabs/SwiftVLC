@@ -6,9 +6,9 @@ import UIKit
 /// A SwiftUI view that renders video via `AVSampleBufferDisplayLayer`,
 /// enabling Picture-in-Picture support on iOS.
 ///
-/// Unlike ``VideoView`` which uses `libvlc_media_player_set_nsobject()`,
+/// Unlike ``VideoView``, which uses `libvlc_media_player_set_nsobject()`,
 /// this view uses vmem callbacks for rendering. The two approaches are
-/// mutually exclusive — use one or the other for a given player.
+/// mutually exclusive; use one or the other for a given player.
 ///
 /// ```swift
 /// @State private var pipController: PiPController?
@@ -41,7 +41,8 @@ public struct PiPVideoView: UIViewRepresentable {
     context.coordinator.displayLayer = displayLayer
     context.coordinator.player = player
 
-    // Defer binding update — SwiftUI doesn't allow state changes during view construction
+    // Defer the binding update. SwiftUI doesn't allow state changes
+    // during view construction.
     pushControllerBinding(controller, via: context.coordinator)
 
     return container

@@ -3,8 +3,8 @@ import Foundation
 /// The single error type thrown by every failable SwiftVLC API.
 ///
 /// All throwing functions in SwiftVLC use Swift's typed throws form
-/// `throws(VLCError)`, so the cases below are exhaustive — there is no
-/// need for a general `catch` when the compiler can statically see that
+/// `throws(VLCError)`, so the cases below are exhaustive. A general
+/// `catch` is unnecessary when the compiler can statically see that
 /// this is the only possible error.
 ///
 /// Every case carries enough context (URL, operation name, reason string)
