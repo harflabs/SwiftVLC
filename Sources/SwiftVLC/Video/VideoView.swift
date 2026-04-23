@@ -74,8 +74,11 @@ final class VideoSurface: UIView {
     super.layoutSubviews()
 
     // First valid layout: re-assert the drawable so libVLC can attach
-    // its rendering subview once we have non-zero bounds.
-    if let player = attachedPlayer, lastBounds == .zero, bounds.width > 0 {
+    // its rendering subview once we have non-zero bounds. Both width
+    // and height must be non-zero; attaching at `(>0, 0)` creates the
+    // rendering subview at zero height and a later resize doesn't
+    // retroactively fix the initial parenting.
+    if let player = attachedPlayer, lastBounds == .zero, bounds.width > 0, bounds.height > 0 {
       player.setDrawable(self)
     }
 
