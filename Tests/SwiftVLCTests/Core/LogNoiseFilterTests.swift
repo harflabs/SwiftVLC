@@ -11,6 +11,15 @@ import Testing
 /// `LogNoiseFilter` for the rationale.
 extension Logic {
   struct LogNoiseFilterTests {
+    // MARK: - Pre-allocation severity bound
+
+    @Test(
+      arguments: [LogLevel.debug, .notice, .warning, .error] as [LogLevel]
+    )
+    func `Most severe possible result is the raw level`(level: LogLevel) {
+      #expect(LogNoiseFilter.mostSeverePossibleResult(for: level) == level)
+    }
+
     // MARK: - Reclassification rules
 
     @Test

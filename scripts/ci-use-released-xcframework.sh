@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# ci-use-released-xcframework.sh — Swap Package.swift's libvlc binaryTarget
-# from the local-path form to the url+checksum form from the latest release,
-# so CI can resolve the xcframework via SPM just like a downstream consumer
-# pinning that tag would.
+# ci-use-released-xcframework.sh — Rewrite Package.swift's libvlc
+# binaryTarget to the url+checksum form from the latest release, so CI can
+# resolve the xcframework via SPM just like a downstream consumer pinning
+# that tag would.
 #
 # Only the binaryTarget is rewritten; other Package.swift changes on the
 # branch (swiftSettings, new targets, platform bumps) are preserved.

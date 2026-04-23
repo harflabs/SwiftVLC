@@ -626,33 +626,44 @@ func playAndWaitForState() async throws {
 
 | Script | Purpose |
 |---|---|
-| `scripts/setup-dev.sh` | First step on a fresh clone. Downloads the last-released xcframework into `Vendor/` and verifies `Package.swift` is in local-path form. Flags: `--force` (re-download), `--skip-download` (only flip the manifest). |
+| `scripts/setup-dev.sh` | First step for local repo work. Downloads the last-released xcframework into `Vendor/`, flips `Package.swift` to the local-path form, and points the Showcase app at the repo-local Swift package. Flags: `--force` (re-download), `--skip-download` (only flip local references). |
 | `scripts/build-libvlc.sh` | Compiles libVLC from VideoLAN source (pinned via `VLC_HASH`) into `Vendor/libvlc.xcframework`. Applies 5 in-tree patches needed for current Xcode (26) and Homebrew libtool (2.5) — see README. |
 | `scripts/fix-duplicate-symbols.sh` | Localizes `_json_parse_error` and `_json_read` in the chromecast plugin, which two VLC plugins each emit. Called automatically by `build-libvlc.sh` and `setup-dev.sh`. |
-| `scripts/release.sh` | Cuts a versioned release. Tag-only model — see below. |
-| `scripts/ci-use-released-xcframework.sh` | CI-only. Rewrites the current `Package.swift` `binaryTarget` from local path to the url+checksum of the latest release tag. Run at CI job start so tests resolve against the same binary a downstream consumer would. |
+| `scripts/release.sh` | Cuts a versioned release, uploads the xcframework asset, pins the Showcase app to that exact Swift package version, and advances `main`. |
+| `scripts/ci-use-released-xcframework.sh` | CI-only. Rewrites the current `Package.swift` `binaryTarget` to the url+checksum of the latest release tag. Run at CI job start so tests resolve against the same binary a downstream consumer would. |
 | `scripts/ci-run-with-timeouts.py` | CI-only. Wraps `swift test` with wall-clock and idle timeouts; SIGKILLs the process group if either fires. |
 
 ### Package.swift resolution strategy
 
-Every branch, including `main`, carries the local-path form of the libvlc `binaryTarget`:
+Published states (`main` and release tags) carry the remote form of the libvlc `binaryTarget`:
+
+```swift
+.binaryTarget(
+  name: "libvlc",
+  url: "https://github.com/harflabs/SwiftVLC/releases/download/vX.Y.Z/libvlc.xcframework.zip",
+  checksum: "<sha256>"
+)
+```
+
+That keeps the repository's default package state aligned with what downstream SPM consumers resolve. Local repo development flips the manifest back to the on-disk xcframework with `./scripts/setup-dev.sh`, which rewrites only the libvlc `binaryTarget` to:
 
 ```swift
 .binaryTarget(name: "libvlc", path: "Vendor/libvlc.xcframework")
 ```
 
-This keeps `git clone && ./scripts/setup-dev.sh && swift build` frictionless: no manifest rewriting needed to build or test, and no ambiguity about which binary is current. The remote `url:+checksum:` form exists only under release tags; it never lands on a branch.
+The Showcase app follows the same split: published states pin `SwiftVLC` by exact release version, while `setup-dev.sh` rewrites the Xcode project to use the repo-local package checkout.
 
 | Context | What `binaryTarget` looks like | Where the xcframework comes from |
 |---|---|---|
-| Local dev | `path: "Vendor/libvlc.xcframework"` | `setup-dev.sh` (download) or `build-libvlc.sh` (build) |
+| Published `main` | `url: + checksum:` of the latest release | GitHub Release asset |
+| Local dev after `setup-dev.sh` | `path: "Vendor/libvlc.xcframework"` | `setup-dev.sh` (download) or `build-libvlc.sh` (build) |
 | CI | rewritten in-memory to `url: + checksum:` of the latest release | SPM resolves + caches (keyed on checksum) |
-| Release tag `vX.Y.Z` | `url: + checksum:` (baked into a detached commit) | `release.sh` uploads the zip as a release asset at that URL |
+| Release tag `vX.Y.Z` | `url: + checksum:` | `release.sh` uploads the zip as a release asset at that URL |
 | SPM consumer pinning `X.Y.Z` | Reads the tag's `Package.swift` | SPM resolves + verifies checksum + caches |
 
 ### Release flow
 
-Tag-only: the commit that pins `Package.swift` to the remote url+checksum is reachable only through the tag. `main` is never advanced by `release.sh`.
+`release.sh` creates a real release commit that stays on `main`.
 
 ```mermaid
 flowchart LR
@@ -662,15 +673,15 @@ flowchart LR
     VERIFY --> STRIP["strip -S"]
     STRIP --> ZIP["ditto -c -k"]
     ZIP --> SUM["swift package compute-checksum"]
-    SUM --> DETACH["Detached commit:<br/>Package.swift → url+checksum"]
-    DETACH --> TAG["git tag vX.Y.Z"]
-    TAG --> RESET["git reset --hard HEAD~1<br/>(branch restored; tag keeps commit alive)"]
-    RESET --> PUSH["git push origin vX.Y.Z"]
-    PUSH --> GH["gh release create<br/>+ attached .zip"]
-    GH --> SPM["Consumers pin vX.Y.Z"]
+    SUM --> COMMIT["Commit on main:<br/>Package.swift → url+checksum<br/>Showcase → exactVersion X.Y.Z"]
+    COMMIT --> TAG["git tag vX.Y.Z"]
+    TAG --> PUSH_TAG["git push origin vX.Y.Z"]
+    PUSH_TAG --> GH["gh release create<br/>+ attached .zip"]
+    GH --> PUSH_MAIN["git push origin HEAD:main"]
+    PUSH_MAIN --> SPM["main and consumers resolve the same release"]
 ```
 
-Preflight refuses releases from non-`main` branches (`--allow-dirty-branch` overrides), pre-existing local tags, and unauthenticated `gh`. If any step fails after the detached commit is made, the `EXIT` trap resets the branch to its pre-release HEAD so nothing is left dangling. A post-write regex guard verifies that the rewritten `Package.swift` still contains the `CLibVLC` target, catching a malformed replacement before the tag is cut.
+Preflight refuses releases from non-`main` branches, uncommitted changes in `Package.swift` or the Showcase project, pre-existing local or remote tags, and unauthenticated `gh`. If a pre-commit rewrite or post-write sanity check fails, the script restores `Package.swift` and the Showcase project before exiting. The tag is pushed before `main`, so if GitHub Release creation fails, `origin/main` still points at the previous good release; finish the release or delete the tag before retrying. A post-write regex guard verifies that the rewritten `Package.swift` still contains the `CLibVLC` target, catching a malformed replacement before the tag is cut.
 
 ### CI/CD
 
@@ -713,7 +724,7 @@ SwiftVLC/
 ├── scripts/
 │   ├── build-libvlc.sh                   # Compile libvlc from source
 │   ├── setup-dev.sh                      # Download xcframework for local dev
-│   ├── release.sh                        # Cut a versioned tag (tag-only, detached)
+│   ├── release.sh                        # Cut a versioned release and advance main
 │   ├── fix-duplicate-symbols.sh          # Localize duplicate json symbols
 │   ├── ci-use-released-xcframework.sh    # CI: point Package.swift at latest release
 │   └── ci-run-with-timeouts.py           # CI: wall-clock + idle test timeouts
@@ -727,4 +738,3 @@ SwiftVLC/
 ├── .swiftformat                   # Format: 2-space indent
 └── README.md                     # User guide
 ```
-

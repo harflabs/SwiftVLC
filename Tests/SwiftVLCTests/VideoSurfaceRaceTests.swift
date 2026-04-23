@@ -32,7 +32,10 @@ import AppKit
 /// server so the macOS vout never fully spins up — these tests still
 /// cover the attach/detach ordering that the bug lived in.
 extension Integration {
-  @Suite(.tags(.mainActor))
+  @Suite(
+    .tags(.mainActor),
+    .enabled(if: TestCondition.canPlayMedia, "Requires video output (skipped on CI)")
+  )
   @MainActor struct VideoSurfaceRaceTests {
     /// Scenario (a): attach → play → mid-render detach → drop surface →
     /// drop player. The detach is called explicitly, matching the
@@ -167,21 +170,21 @@ extension Integration {
       player.stop()
     }
 
-    /// Scenario (f): host the surface in a real AppKit window (macOS
-    /// only). `NSWindow.contentView = surface` triggers the
-    /// view-hierarchy wiring that libVLC's vout expects, and dropping
-    /// the window exercises the real dismiss path. Closest a headless
-    /// test can get to the Showcase runtime.
-    ///
-    /// Disabled on CI: GitHub Actions' `macos-latest` runners are
-    /// paravirtualized M2 instances that lack
-    /// `AppleM2ScalerParavirtDriver`. libVLC's h264 decoder tries to
-    /// allocate hardware-backed frame buffers, `IOServiceMatching`
-    /// fails, and the process aborts before any test assertion can
-    /// run. The test passes locally against a real macOS GPU and is
-    /// kept around for manual runs; a proper equivalent for CI belongs
-    /// in the `SwiftVLCShowcaseUITests` target, which hosts the real
-    /// Showcase app with a real `NSApplication`.
+    // Scenario (f): host the surface in a real AppKit window (macOS
+    // only). `NSWindow.contentView = surface` triggers the
+    // view-hierarchy wiring that libVLC's vout expects, and dropping
+    // the window exercises the real dismiss path. Closest a headless
+    // test can get to the Showcase runtime.
+    //
+    // Disabled on CI: GitHub Actions' `macos-latest` runners are
+    // paravirtualized M2 instances that lack
+    // `AppleM2ScalerParavirtDriver`. libVLC's h264 decoder tries to
+    // allocate hardware-backed frame buffers, `IOServiceMatching`
+    // fails, and the process aborts before any test assertion can
+    // run. The test passes locally against a real macOS GPU and is
+    // kept around for manual runs; a proper equivalent for CI belongs
+    // in the `SwiftVLCShowcaseUITests` target, which hosts the real
+    // Showcase app with a real `NSApplication`.
     #if canImport(AppKit)
     @Test(.disabled("CI runners lack AppleM2ScalerParavirtDriver; run locally or via UI-test target"))
     func `NSWindow hosted surface attach play drop window 10 iterations`() async throws {

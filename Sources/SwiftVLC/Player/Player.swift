@@ -574,15 +574,18 @@ public final class Player {
   // MARK: - Recording
 
   /// Starts recording the current stream to the specified directory.
+  /// No-op when no media is loaded.
   ///
   /// Listen to ``PlayerEvent/recordingChanged(isRecording:filePath:)`` for state updates.
   /// - Parameter directory: Path to save recording (`nil` for default).
   public func startRecording(to directory: String? = nil) {
+    guard currentMedia != nil else { return }
     libvlc_media_player_record(pointer, true, directory)
   }
 
-  /// Stops recording the current stream.
+  /// Stops recording the current stream. No-op when no media is loaded.
   public func stopRecording() {
+    guard currentMedia != nil else { return }
     libvlc_media_player_record(pointer, false, nil)
   }
 
