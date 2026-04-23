@@ -2,11 +2,11 @@ import CLibVLC
 
 /// The playback state of a ``Player``.
 ///
-/// The lifecycle is distinct from buffer fill: a player can be `.paused`
-/// while libVLC is still buffering ahead, or `.playing` while buffer
-/// levels fluctuate. Read ``Player/bufferFill`` separately when you want
-/// to display fill percentage — it's published continuously and is not
-/// gated by this enum.
+/// The lifecycle is distinct from buffer fill: a player can be
+/// `.paused` while libVLC is still buffering ahead, or `.playing`
+/// while buffer levels fluctuate. Read ``Player/bufferFill``
+/// separately when you need a fill percentage; it's published
+/// continuously and is not gated by this enum.
 public enum PlayerState: Sendable, Hashable, CustomStringConvertible {
   /// No media loaded or playback not yet started.
   case idle

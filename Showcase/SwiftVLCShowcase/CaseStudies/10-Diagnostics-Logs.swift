@@ -59,7 +59,7 @@ struct LogsCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Logs")
-    .task { try? player.play(url: TestMedia.bigBuckBunny) }
+    .task { try? player.play(url: TestMedia.demo) }
     .task(id: level) { await consumeLogs() }
     .onDisappear { player.stop() }
   }

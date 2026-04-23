@@ -54,7 +54,7 @@ struct RecordingCase: View {
   }
 
   private func task() async {
-    try? player.play(url: TestMedia.bigBuckBunny)
+    try? player.play(url: TestMedia.demo)
     for await event in player.events {
       if case .recordingChanged(let rec, let path) = event {
         isRecording = rec

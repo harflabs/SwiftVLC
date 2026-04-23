@@ -15,8 +15,8 @@ extension Integration {
       player.load(media)
 
       // With media loaded, libVLC accepts A-B loop even before playing.
-      // If this throws, it means libVLC changed its API contract — pin
-      // the current behavior so that surfaces as a test failure.
+      // If this throws, libVLC changed its API contract; pin the
+      // current behavior so that shows up as a test failure.
       try player.setABLoop(a: .milliseconds(100), b: .milliseconds(500))
     }
 
@@ -30,7 +30,7 @@ extension Integration {
     }
 
     /// `resetABLoop` requires the player to be actively playing or
-    /// paused — libVLC rejects the reset before playback starts. Pin
+    /// paused; libVLC rejects the reset before playback starts. Pin
     /// the error shape so a future libVLC that relaxes the contract
     /// is a visible test surprise.
     @Test
@@ -49,7 +49,7 @@ extension Integration {
     /// the `access(keyPath:)` registration so the observation graph
     /// picks up the subsequent mutation. libVLC only promotes the
     /// state out of `.none` during active playback, which we can't
-    /// reach headlessly — so we pin that `.none` is reported at both
+    /// reach headlessly, so we pin that `.none` is reported at both
     /// points (no crash, idempotent read).
     @Test
     func `abLoopState can be read before and after setABLoop`() throws {
@@ -62,7 +62,7 @@ extension Integration {
       #expect(player.abLoopState == .none, "libVLC leaves state at .none until playback starts")
     }
 
-    /// Loading the same media twice re-invokes `load` — exercising the
+    /// Loading the same media twice re-invokes `load`, exercising the
     /// `currentMedia` replacement path and all the media-dependent
     /// observable notifications.
     @Test
@@ -119,7 +119,7 @@ extension Integration {
     }
 
     /// `statistics` is accessible on media even without reaching
-    /// `.playing` — it returns zeros until real decoder work happens.
+    /// `.playing`; it returns zeros until real decoder work happens.
     @Test
     func `statistics accessible after load before play`() throws {
       let player = Player(instance: TestInstance.shared)

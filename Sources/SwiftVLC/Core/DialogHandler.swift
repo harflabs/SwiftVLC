@@ -137,11 +137,11 @@ public enum DialogEvent: Sendable {
 
 /// A handle to an in-flight dialog issued by libVLC.
 ///
-/// Each ``DialogEvent`` that represents a user-facing prompt carries its
-/// own `DialogID`. Call ``dismiss()`` to close the dialog without
-/// responding — useful when the UI showing the prompt is no longer
-/// relevant (e.g. the user navigated away or the underlying operation
-/// was cancelled elsewhere).
+/// Each ``DialogEvent`` that represents a user-facing prompt carries
+/// its own `DialogID`. Call ``dismiss()`` to close the dialog without
+/// responding. This is useful when the UI showing the prompt is no
+/// longer relevant, for example when the user navigated away or the
+/// underlying operation was cancelled elsewhere.
 public struct DialogID: Sendable {
   private let storage: DialogIDStorage
 

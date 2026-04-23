@@ -6,14 +6,14 @@ import UIKit
 
 /// A SwiftUI view that renders video from a ``Player``.
 ///
-/// This is the entire public API for video rendering — one line:
+/// The entire public API for video rendering is one line:
 /// ```swift
 /// VideoView(player)
 ///     .frame(maxWidth: .infinity)
 /// ```
 ///
-/// No `UIViewRepresentable` coordinator needed. No delegate proxy.
-/// No lifecycle management. Just works.
+/// No `UIViewRepresentable` coordinator, no delegate proxy, no
+/// lifecycle wiring.
 public struct VideoView: UIViewRepresentable {
   private let player: Player
 
@@ -68,7 +68,7 @@ final class VideoSurface: UIView {
   override func layoutSubviews() {
     super.layoutSubviews()
 
-    // First valid layout — trigger attach if pending
+    // First valid layout: trigger attach if still pending.
     if let player = attachedPlayer, lastBounds == .zero, bounds.width > 0 {
       let viewPtr = Unmanaged.passUnretained(self).toOpaque()
       libvlc_media_player_set_nsobject(player.pointer, viewPtr)

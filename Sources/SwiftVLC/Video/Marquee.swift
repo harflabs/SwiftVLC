@@ -2,9 +2,9 @@ import CLibVLC
 
 /// Text overlay (marquee) controls.
 ///
-/// `~Copyable` and `~Escapable` — must be used inline, cannot be stored
-/// in properties or captured in closures. This prevents dangling pointer access
-/// if the player is deallocated.
+/// `~Copyable` and `~Escapable`. Must be used inline; cannot be stored
+/// in properties or captured in closures. The compiler-enforced scope
+/// rules out a dangling pointer if the player is deallocated.
 ///
 /// ```swift
 /// player.marquee.isEnabled = true
@@ -32,9 +32,9 @@ public struct Marquee: ~Copyable, ~Escapable {
 
   /// Sets the marquee text content.
   ///
-  /// libVLC does not expose a getter for the current marquee text — this is
-  /// a write-only operation. Store your own copy in application state if you
-  /// need to read it back.
+  /// libVLC does not expose a getter for the current marquee text, so
+  /// this is a write-only operation. Store your own copy in application
+  /// state if you need to read it back.
   ///
   /// Supports strftime-style placeholders (e.g. `%H:%M:%S`) which are
   /// refreshed at the interval configured by ``refresh``.
@@ -96,7 +96,7 @@ public struct Marquee: ~Copyable, ~Escapable {
 
   /// Screen position as a bitmask: `0` = center, `1` = left, `2` = right,
   /// `4` = top, `8` = bottom. Combine horizontal and vertical flags with
-  /// bitwise OR — e.g. `4 | 1` for top-left.
+  /// bitwise OR (e.g. `4 | 1` for top-left).
   public var position: Int {
     get { Int(libvlc_video_get_marquee_int(pointer, UInt32(libvlc_marquee_Position.rawValue))) }
     nonmutating set { writeInt(libvlc_marquee_Position, newValue) }
@@ -105,7 +105,7 @@ public struct Marquee: ~Copyable, ~Escapable {
   /// Shows a marquee overlay with the given text, in one call.
   ///
   /// libVLC requires the marquee to have text *and* visible visual
-  /// attributes *before* the Enable flag is flipped — otherwise the
+  /// attributes *before* the Enable flag is flipped. Otherwise the
   /// filter activates with `NULL` text or a zero-size font and draws
   /// nothing. This method sets every prerequisite, then enables, so
   /// callers don't have to remember the sequence.
@@ -132,9 +132,9 @@ public struct Marquee: ~Copyable, ~Escapable {
     position: Int = 0,
     timeout: Int = 0
   ) {
-    // Stage raw values directly, skipping the style setters — otherwise each
-    // write would schedule its own cache-bust dance for a filter that hasn't
-    // been instantiated yet.
+    // Stage raw values directly, skipping the style setters. Using
+    // those setters here would schedule a cache-bust per write on a
+    // filter that hasn't been instantiated yet.
     setText(text)
     writeInt(libvlc_marquee_Size, fontSize)
     writeInt(libvlc_marquee_Color, color)
@@ -165,9 +165,9 @@ public struct Marquee: ~Copyable, ~Escapable {
   /// the filter's internal state but still hits the cached bitmap, so the
   /// overlay keeps the old look until the text itself changes. We bust the
   /// cache by briefly writing a padded variant of the current text, then
-  /// restoring the original on the next main-actor tick — the intermediate
-  /// write produces a cache miss that re-renders with the new style, and the
-  /// restored text lands in the cache with the new style too.
+  /// restoring the original on the next main-actor tick. The intermediate
+  /// write produces a cache miss that re-renders with the new style, and
+  /// the restored text lands in the cache with the new style too.
   ///
   /// No-op while disabled: there's no live filter, and the next
   /// `isEnabled = true` will instantiate one with the freshly-written vars.
@@ -176,7 +176,7 @@ public struct Marquee: ~Copyable, ~Escapable {
     let text = player._marqueeText
     // Append a trailing space to force a different cache key. Invisible
     // controls like U+200B (ZWSP) don't alter the glyph sequence libVLC's
-    // shaper produces, so they collapse to the same cache entry — only a
+    // shaper produces, so they collapse to the same cache entry. Only a
     // visible-but-whitespace character reliably busts the cache.
     libvlc_video_set_marquee_string(pointer, UInt32(libvlc_marquee_Text.rawValue), text + " ")
     // Restore the original string on the next run-loop tick so the final

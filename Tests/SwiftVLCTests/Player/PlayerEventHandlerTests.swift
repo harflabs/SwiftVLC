@@ -60,8 +60,8 @@ extension Integration {
     }
 
     /// A second buffering event after the state is already `.buffering`
-    /// must NOT re-transition the state (would create spurious observer
-    /// invalidations) — only update `bufferFill`.
+    /// must NOT re-transition the state (which would create spurious
+    /// observer invalidations). Only `bufferFill` changes.
     @Test
     func `bufferingProgress while already buffering only updates fill`() {
       let player = Player(instance: TestInstance.shared)
@@ -81,7 +81,7 @@ extension Integration {
       #expect(firedCount.withLock { $0 } == 0, "State must not fire an observer change on fill-only update")
     }
 
-    /// From `.playing`, buffering events only update `bufferFill` — the
+    /// From `.playing`, buffering events only update `bufferFill`. The
     /// state machine is otherwise driven by `.stateChanged`.
     @Test
     func `bufferingProgress while playing does not downgrade state`() {
@@ -241,7 +241,7 @@ extension Integration {
     }
 
     /// Program-related events fan out to `programs`, `selectedProgram`,
-    /// and `isProgramScrambled` — any of those observers must fire.
+    /// and `isProgramScrambled`. Any of those observers must fire.
     @Test
     func `program events invalidate program observers`() {
       let player = Player(instance: TestInstance.shared)

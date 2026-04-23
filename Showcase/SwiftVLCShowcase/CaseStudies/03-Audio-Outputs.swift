@@ -4,7 +4,7 @@ import SwiftVLC
 private let readMe = """
 `VLCInstance.shared.audioOutputs()` lists available output modules; \
 `player.audioDevices()` enumerates devices for the current output. Most iOS apps only \
-see the system default — macOS and Catalyst see more.
+see the system default. macOS and Catalyst see more.
 """
 
 struct AudioOutputsCase: View {
@@ -70,7 +70,7 @@ struct AudioOutputsCase: View {
 
   private func task() {
     outputs = VLCInstance.shared.audioOutputs()
-    try? player.play(url: TestMedia.bigBuckBunny)
+    try? player.play(url: TestMedia.demo)
     devices = player.audioDevices()
   }
 

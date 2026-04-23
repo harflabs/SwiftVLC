@@ -2,9 +2,9 @@ import CLibVLC
 
 /// Video color adjustment controls (contrast, brightness, hue, saturation, gamma).
 ///
-/// `~Copyable` and `~Escapable` — must be used inline, cannot be stored
-/// in properties or captured in closures. This prevents dangling pointer access
-/// if the player is deallocated.
+/// `~Copyable` and `~Escapable`. Must be used inline; cannot be stored
+/// in properties or captured in closures. The compiler-enforced scope
+/// rules out a dangling pointer if the player is deallocated.
 ///
 /// ```swift
 /// player.adjustments.isEnabled = true

@@ -1,10 +1,10 @@
 @testable import SwiftVLC
 import Testing
 
-/// Covers `PlayerEvent.description` — the `CustomStringConvertible`
-/// conformance used by logging and debugging output. Every case is
-/// exercised with its own assertion so a typo in any one case
-/// produces a named failure rather than a generic "didn't match".
+/// Covers `PlayerEvent.description`, the `CustomStringConvertible`
+/// conformance used by logging and debugging output. Every case has
+/// its own assertion so a typo in any case produces a named failure
+/// rather than a generic "didn't match".
 extension Logic {
   struct PlayerEventDescriptionTests {
     @Test

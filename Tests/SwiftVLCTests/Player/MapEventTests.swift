@@ -2,15 +2,15 @@
 import CLibVLC
 import Testing
 
-/// Covers `mapEvent` — the switch-heavy C-event → Swift-PlayerEvent
+/// Covers `mapEvent`, the switch-heavy C-event to Swift-PlayerEvent
 /// translator. Most branches don't fire in headless tests because
-/// real decoder/output events never reach the event thread. We
-/// synthesize `libvlc_event_t` values directly and assert the mapped
-/// Swift variant.
+/// real decoder and output events never reach the event thread, so
+/// we synthesize `libvlc_event_t` values directly and assert the
+/// mapped Swift variant.
 ///
-/// This is the one file that exercises all 30+ libVLC event cases,
-/// so a future libVLC enum reshuffle surfaces as named test failures
-/// rather than silent `nil` returns.
+/// This file exercises every libVLC event case, so a future libVLC
+/// enum reshuffle surfaces as named test failures rather than silent
+/// `nil` returns.
 extension Logic {
   struct MapEventTests {
     // MARK: - Helpers

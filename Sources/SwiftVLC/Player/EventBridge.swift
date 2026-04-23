@@ -154,7 +154,7 @@ private final class ContinuationStore: Sendable {
 
 // MARK: - C Callback (free function)
 
-/// Free function — runs on libVLC's internal event thread.
+/// Free function invoked on libVLC's internal event thread.
 /// `AsyncStream.Continuation.yield` is documented safe from any thread.
 private func playerEventCallback(
   event: UnsafePointer<libvlc_event_t>?,
@@ -172,9 +172,9 @@ private func playerEventCallback(
 /// Maps a single libVLC `libvlc_event_t` to a typed `PlayerEvent`.
 ///
 /// Internal rather than `private` so unit tests can synthesize each
-/// event variant with hand-built `libvlc_event_t` values and cover
-/// the full switch — most of these events don't fire in a headless
-/// test environment.
+/// event variant with hand-built `libvlc_event_t` values. Most of
+/// these events don't fire in a headless test environment, so full
+/// switch coverage is impossible without direct invocation.
 func mapEvent(_ event: libvlc_event_t) -> PlayerEvent? {
   let type = libvlc_event_e(rawValue: UInt32(event.type))
 

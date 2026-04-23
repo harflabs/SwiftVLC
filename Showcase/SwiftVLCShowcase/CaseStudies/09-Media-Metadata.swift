@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftVLC
 
 private let readMe = """
-`media.parse()` is `async throws` and returns `Metadata` — title, artist, album, \
+`media.parse()` is `async throws` and returns `Metadata` with title, artist, album, \
 artwork URL, and more. Parsing is independent of playback.
 """
 
@@ -44,8 +44,8 @@ struct MetadataCase: View {
   }
 
   private func task() async {
-    try? player.play(url: TestMedia.bigBuckBunny)
-    if let media = try? Media(url: TestMedia.bigBuckBunny) {
+    try? player.play(url: TestMedia.demo)
+    if let media = try? Media(url: TestMedia.demo) {
       metadata = try? await media.parse()
     }
   }

@@ -4,7 +4,7 @@ import SwiftVLC
 private let readMe = """
 `player.events` is an `AsyncStream<PlayerEvent>`. Each call returns an independent \
 stream, so multiple views can observe concurrently. `timeChanged`, `positionChanged`, \
-and `bufferingProgress` are filtered out here — they fire constantly during playback.
+and `bufferingProgress` are filtered out below; they fire constantly during playback.
 """
 
 struct EventsCase: View {
@@ -47,7 +47,7 @@ struct EventsCase: View {
   }
 
   private func task() async {
-    try? player.play(url: TestMedia.bigBuckBunny)
+    try? player.play(url: TestMedia.demo)
     for await event in player.events {
       if let text = describe(event) {
         log.insert(LogLine(text: text), at: 0)

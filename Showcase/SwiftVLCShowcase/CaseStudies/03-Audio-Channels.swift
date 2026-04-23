@@ -52,7 +52,7 @@ struct AudioChannelsCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Audio channels")
-    .task { try? player.play(url: TestMedia.bigBuckBunny) }
+    .task { try? player.play(url: TestMedia.demo) }
     .onDisappear { player.stop() }
   }
 }

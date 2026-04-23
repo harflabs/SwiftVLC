@@ -60,8 +60,8 @@ final class DisplayLayerBox: @unchecked Sendable {
 
 // MARK: - Free Function Callbacks
 
-/// Format callback — called by libVLC when video format is negotiated.
-/// Overrides chroma to BGRA, creates a `CVPixelBufferPool`.
+/// Format callback, invoked by libVLC when video format is negotiated.
+/// Overrides chroma to BGRA and creates a `CVPixelBufferPool`.
 func pixelBufferFormatCallback(
   opaque: UnsafeMutablePointer<UnsafeMutableRawPointer?>?,
   chroma: UnsafeMutablePointer<CChar>?,
@@ -82,7 +82,7 @@ func pixelBufferFormatCallback(
   let w = Int(width.pointee)
   let h = Int(height.pointee)
 
-  // Force BGRA — native to iOS, no color space conversion needed
+  // Force BGRA: native to iOS, no color space conversion needed.
   let bgra: (CChar, CChar, CChar, CChar) = (0x42, 0x47, 0x52, 0x41) // "BGRA"
   chroma[0] = bgra.0
   chroma[1] = bgra.1
@@ -127,7 +127,7 @@ func pixelBufferFormatCallback(
   return 1 // number of picture buffers (1 plane for BGRA)
 }
 
-/// Lock callback — dequeues a `CVPixelBuffer` from the pool for libVLC to write into.
+/// Lock callback. Dequeues a `CVPixelBuffer` from the pool for libVLC to write into.
 func pixelBufferLockCallback(
   opaque: UnsafeMutableRawPointer?,
   planes: UnsafeMutablePointer<UnsafeMutableRawPointer?>?
@@ -151,7 +151,7 @@ func pixelBufferLockCallback(
   return retained.toOpaque()
 }
 
-/// Unlock callback — unlocks the `CVPixelBuffer` base address.
+/// Unlock callback. Unlocks the `CVPixelBuffer` base address.
 func pixelBufferUnlockCallback(
   opaque _: UnsafeMutableRawPointer?,
   picture: UnsafeMutableRawPointer?,
@@ -165,8 +165,8 @@ func pixelBufferUnlockCallback(
   CVPixelBufferUnlockBaseAddress(pb, [])
 }
 
-/// Display callback — wraps the `CVPixelBuffer` in a `CMSampleBuffer` and enqueues
-/// it onto the `AVSampleBufferDisplayLayer`.
+/// Display callback. Wraps the `CVPixelBuffer` in a `CMSampleBuffer`
+/// and enqueues it onto the `AVSampleBufferDisplayLayer`.
 func pixelBufferDisplayCallback(
   opaque: UnsafeMutableRawPointer?,
   picture: UnsafeMutableRawPointer?
@@ -222,7 +222,7 @@ func pixelBufferDisplayCallback(
   }
 }
 
-/// Cleanup callback — releases the pixel buffer pool.
+/// Cleanup callback. Releases the pixel buffer pool.
 func pixelBufferCleanupCallback(opaque: UnsafeMutableRawPointer?) {
   guard let opaque else { return }
 

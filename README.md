@@ -181,7 +181,7 @@ Expect ~15–20 minutes on a clean run and ~2–7 minutes warm on Apple Silicon.
 | Flag | Platforms |
 |---|---|
 | *(default)* | iOS device + simulator |
-| `--all` | iOS, tvOS, macOS, Mac Catalyst — six slices |
+| `--all` | iOS, tvOS, macOS, Mac Catalyst (six slices) |
 | `--ios-only` / `--tvos-only` / `--macos-only` / `--catalyst-only` | Replaces `Vendor/` with that single platform |
 | `--tvos` / `--macos` / `--catalyst` | Adds a platform to the default set |
 | `--clean` / `--clean-build` | Wipe `scripts/.build-libvlc/` (the latter rebuilds afterwards) |

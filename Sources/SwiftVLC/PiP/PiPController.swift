@@ -9,9 +9,8 @@ import Observation
 ///
 /// `PiPController` routes video through libVLC's vmem callbacks and an
 /// `AVSampleBufferDisplayLayer`, which is the only rendering path
-/// AVKit's PiP can attach to. Using a `PiPController` therefore
-/// replaces the default `VideoView` pipeline — do not use both on the
-/// same player.
+/// AVKit's PiP can attach to. A `PiPController` replaces the default
+/// `VideoView` pipeline: do not use both on the same player.
 ///
 /// Most apps should prefer ``PiPVideoView``, which creates and owns a
 /// `PiPController` behind a single SwiftUI view. Instantiate
@@ -63,12 +62,12 @@ public final class PiPController: NSObject {
   @ObservationIgnored
   private var activeObservation: NSKeyValueObservation?
 
-  /// Tracks the playback state as PiP sees it. Updated synchronously
-  /// in `setPlaying` (PiP-initiated) and by the observer (VLC-initiated,
-  /// e.g. end-of-media). This ensures `isPlaybackPaused` returns a
-  /// consistent value immediately, without waiting for VLC's async
-  /// state transitions — which is critical because PiP queries state
-  /// right after calling `setPlaying` and gets confused by stale values.
+  /// Playback state as PiP sees it. Updated synchronously in
+  /// `setPlaying` (PiP-initiated) and by the observer (VLC-initiated,
+  /// e.g. end-of-media). `isPlaybackPaused` reads this directly, so
+  /// the answer is consistent without waiting for VLC's async state
+  /// transitions. PiP queries state immediately after calling
+  /// `setPlaying` and would otherwise see stale values.
   @ObservationIgnored
   private var pipPlaybackActive: Bool = false
 
@@ -108,7 +107,7 @@ public final class PiPController: NSObject {
   /// presentations.
   ///
   /// Add it to your own view's layer hierarchy if you're not using
-  /// ``PiPVideoView``. Size the layer to fit its container — its
+  /// ``PiPVideoView``. Size the layer to fit its container. Its
   /// `videoGravity` is `.resizeAspect`.
   public var layer: AVSampleBufferDisplayLayer {
     displayLayer
@@ -212,7 +211,7 @@ public final class PiPController: NSObject {
     )
     guard let tb else { return }
 
-    // Start paused — rate will be synced with player state
+    // Start paused; rate is synced with player state later.
     CMTimebaseSetTime(tb, time: .zero)
     CMTimebaseSetRate(tb, rate: 0.0)
     displayLayer.controlTimebase = tb
@@ -368,7 +367,7 @@ public final class PiPController: NSObject {
         let durationMs = player.duration?.milliseconds
         let rate = player.rate
 
-        // State transition — sync timebase rate
+        // State transition: sync the timebase rate.
         if active != wasActive {
           wasActive = active
           syncTimebase(playing: active)
@@ -379,19 +378,19 @@ public final class PiPController: NSObject {
 
           // Only update pipPlaybackActive and notify PiP for
           // VLC-initiated changes (end-of-media, error). For
-          // PiP-initiated changes (from setPlaying), the value
-          // is already correct — don't override it with VLC's
-          // delayed state which causes blinking.
+          // PiP-initiated changes (from setPlaying), the value is
+          // already correct; overriding it with VLC's delayed state
+          // causes the PiP button to blink.
           if active != pipPlaybackActive {
             pipPlaybackActive = active
             pipController?.invalidatePlaybackState()
           }
         }
 
-        // Rate changed — retrack the timebase so PiP's scrubber
+        // Rate changed: retrack the timebase so PiP's scrubber
         // advances at the real playback speed. Without this the
-        // scrubber stays at 1.0× even when the player is playing at
-        // 2.0× or 0.5×, which looks like desync to the user.
+        // scrubber stays at 1.0× even when the player is running at
+        // 2.0× or 0.5×, which looks like desync.
         if rate != lastRate {
           lastRate = rate
           if pipPlaybackActive, let tb = controlTimebase {
@@ -399,7 +398,7 @@ public final class PiPController: NSObject {
           }
         }
 
-        // Duration became known or changed — re-query timeRange
+        // Duration became known or changed: re-query timeRange.
         if durationMs != lastDurationMs {
           lastDurationMs = durationMs
           pipController?.invalidatePlaybackState()
@@ -608,7 +607,7 @@ extension PiPController: AVPictureInPictureSampleBufferPlaybackDelegate {
   }
 
   /// `AVPictureInPictureSampleBufferPlaybackDelegate` hook. Returns the
-  /// paused state as PiP sees it — backed by the internal flag so the
+  /// paused state as PiP sees it. Reads from the internal flag so the
   /// answer is consistent right after a play/pause command, before
   /// libVLC's asynchronous state transition settles.
   public nonisolated func pictureInPictureControllerIsPlaybackPaused(

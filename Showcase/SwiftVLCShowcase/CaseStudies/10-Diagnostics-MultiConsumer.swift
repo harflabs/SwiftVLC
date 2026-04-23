@@ -4,7 +4,7 @@ import SwiftVLC
 private let readMe = """
 `player.events` returns an independent `AsyncStream` on every call, fanned out \
 internally by an `EventBridge`. Two consumer tasks each filter the firehose \
-down to a different subset — cancelling one doesn't affect the other.
+down to a different subset; cancelling one doesn't affect the other.
 """
 
 struct MultiConsumerEventsCase: View {
@@ -66,9 +66,9 @@ struct MultiConsumerEventsCase: View {
     .onDisappear { player.stop() }
   }
 
-  /// Independent stream #1 — only lifecycle transitions.
+  /// Independent stream #1: only lifecycle transitions.
   private func consumerA() async {
-    try? player.play(url: TestMedia.bigBuckBunny)
+    try? player.play(url: TestMedia.demo)
     for await event in player.events {
       let text: String? = switch event {
       case .stateChanged(let state): "state → \(state)"
@@ -84,7 +84,7 @@ struct MultiConsumerEventsCase: View {
     }
   }
 
-  /// Independent stream #2 — only media / track events.
+  /// Independent stream #2: only media / track events.
   private func consumerB() async {
     for await event in player.events {
       let text: String? = switch event {

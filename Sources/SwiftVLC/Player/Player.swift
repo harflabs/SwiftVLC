@@ -2,10 +2,11 @@ import CLibVLC
 import Foundation
 import Observation
 
-/// The central type in SwiftVLC — an observable media player.
+/// An observable media player.
 ///
-/// `Player` wraps `libvlc_media_player_t` with `@Observable` and `@MainActor`,
-/// so SwiftUI views automatically update when state changes.
+/// `Player` wraps `libvlc_media_player_t` with `@Observable` and
+/// `@MainActor`, so SwiftUI views update in response to libVLC state
+/// without a publisher adapter.
 ///
 /// ```swift
 /// struct PlayerView: View {
@@ -21,8 +22,10 @@ import Observation
 /// }
 /// ```
 ///
-/// All observable properties (`state`, `currentTime`, `duration`, etc.) are updated
-/// automatically via an internal event consumer — no delegates, no Combine, no bridging.
+/// The observable properties (`state`, `currentTime`, `duration`,
+/// and the track lists) are fed by an internal event consumer. No
+/// delegate protocols, Combine publishers, or manual bridging are
+/// involved.
 @Observable
 @MainActor
 public final class Player {
@@ -45,11 +48,9 @@ public final class Player {
 
   /// Buffer fill, normalized to `0.0...1.0`.
   ///
-  /// Updated continuously while playback is active — including while
-  /// ``state`` is `.paused` or `.playing`. Consult this instead of
-  /// reading the old `PlayerState.buffering` associated value when you
-  /// need a progress bar; the `state` enum only carries lifecycle
-  /// information.
+  /// Updated continuously while playback is active, including while
+  /// ``state`` is `.paused` or `.playing`. Read this for a progress
+  /// bar; the `state` enum only carries lifecycle information.
   public private(set) var bufferFill: Float = 0
 
   /// The currently loaded media.
@@ -78,28 +79,26 @@ public final class Player {
         libvlc_media_player_set_position(pointer, newValue, /* fast */ false)
       }
       // libVLC doesn't reliably emit `MediaPlayerTimeChanged` after a
-      // `set_position` — especially while paused — so `currentTime`
-      // appears stuck at its pre-seek value for consumers observing the
-      // property. Update optimistically to the position-implied time
-      // whenever duration is known; the eventual timeChanged event will
-      // refine the estimate with libVLC's real post-seek frame timestamp.
+      // `set_position`, especially while paused, so `currentTime` appears
+      // stuck at its pre-seek value. Update optimistically when duration
+      // is known; the subsequent timeChanged event refines the estimate
+      // with libVLC's post-seek frame timestamp.
       if let dur = duration {
         currentTime = dur * newValue
       }
     }
   }
 
-  /// Volume level, normalized. 0.0 = silent, 1.0 = normal (100%).
-  /// Values above 1.0 amplify beyond normal volume (up to 1.25 = 125%).
+  /// Volume level, normalized. `0.0` is silent, `1.0` is 100%. Values
+  /// above `1.0` amplify, up to `1.25` (125%).
   ///
-  /// Backed by a shadow `_volume` rather than a live libVLC read: before
-  /// the audio output is initialized `libvlc_audio_get_volume` returns a
-  /// negative sentinel (observed as `-100` on libVLC 4.0), which would
-  /// surface in the UI as "-100%" even though the user is hearing audio
-  /// at the default level. The shadow starts at nominal `1.0` and is
-  /// refreshed from the native player on state transitions via
-  /// `refreshNativeStateIfNeeded()` once libVLC's audio output can be
-  /// trusted to report a real value.
+  /// Backed by a shadow `_volume` instead of a live libVLC read.
+  /// Before the audio output is initialized `libvlc_audio_get_volume`
+  /// returns a negative sentinel (`-100` on libVLC 4.0), which would
+  /// surface in the UI as `-100%` even while the user is hearing audio
+  /// at the default level. The shadow starts at `1.0` and is refreshed
+  /// from the native player on each state transition, once libVLC's
+  /// audio output can be trusted.
   public var volume: Float {
     get {
       access(keyPath: \.volume)
@@ -113,10 +112,10 @@ public final class Player {
     }
   }
 
-  /// Whether audio is muted. Backed by a shadow `_isMuted` for the same
-  /// reason as `volume` — `libvlc_audio_get_mute` returns `-1` when the
-  /// mute status is undefined, which Swift's `Int32 > 0` test would
-  /// quietly map to `false`, hiding a real mute toggle from the UI.
+  /// Whether audio is muted. Shadowed by `_isMuted` for the same
+  /// reason as `volume`: `libvlc_audio_get_mute` returns `-1` when the
+  /// mute status is undefined, which a naive `Int32 > 0` check would
+  /// silently map to `false` and hide a real mute toggle.
   public var isMuted: Bool {
     get {
       access(keyPath: \.isMuted)
@@ -130,15 +129,15 @@ public final class Player {
     }
   }
 
-  /// Playback rate, where `1.0` is normal speed, `0.5` is half, and `2.0`
-  /// is double. Any positive rate is accepted, but extreme values may
-  /// degrade audio/video sync; `0.25` to `4.0` is the practical range.
+  /// Playback rate. `1.0` is normal speed, `0.5` is half, `2.0` is
+  /// double. Any positive rate is accepted; the practical range is
+  /// `0.25` to `4.0` before audio/video sync degrades.
   ///
-  /// The setter on this binding-friendly property swallows libVLC's
-  /// "couldn't apply this rate" signal (e.g. live HLS streams reject
-  /// non-1.0 rates). If your UI needs to react to that failure, call
-  /// ``setRate(_:)`` instead — it throws ``VLCError/operationFailed(_:)``
-  /// when libVLC declines.
+  /// This setter discards libVLC's rejection signal so a slider binding
+  /// never throws. Call ``setRate(_:)`` instead when the UI needs to
+  /// react to rejection. Live HLS and RTSP streams often reject
+  /// non-`1.0` rates, and `setRate(_:)` throws
+  /// ``VLCError/operationFailed(_:)`` in that case.
   public var rate: Float {
     get {
       access(keyPath: \.rate)
@@ -151,13 +150,13 @@ public final class Player {
 
   /// Sets the playback rate, throwing if libVLC rejects the value.
   ///
-  /// Typical rejection causes:
-  /// - Live streams (HLS, RTSP) that don't support non-`1.0` playback.
-  /// - No media loaded yet — libVLC ignores the call until playback
+  /// Typical rejections:
+  /// - Live streams (HLS, RTSP) that only support `1.0` playback.
+  /// - No media loaded yet. libVLC ignores the call until playback
   ///   starts.
   /// - Format-specific decoder limitations.
   ///
-  /// - Parameter newRate: Target rate (`1.0` = normal speed).
+  /// - Parameter newRate: Target rate. `1.0` is normal speed.
   /// - Throws: ``VLCError/operationFailed(_:)`` if libVLC rejects the rate.
   public func setRate(_ newRate: Float) throws(VLCError) {
     let rc = withMutation(keyPath: \.rate) {
@@ -170,8 +169,8 @@ public final class Player {
 
   /// The currently selected audio track, or `nil` if none is selected.
   ///
-  /// Setting to `nil` deselects any active audio track (effectively silent
-  /// output until another track is chosen).
+  /// Setting to `nil` deselects the active audio track. Output stays
+  /// silent until another track is chosen.
   public var selectedAudioTrack: Track? {
     get {
       access(keyPath: \.selectedAudioTrack)
@@ -299,10 +298,10 @@ public final class Player {
   private var _volume: Float = 1.0
   private var _isMuted: Bool = false
   // Shadow of the string last passed to `Marquee.setText`. libVLC's text
-  // renderer keys its glyph-bitmap cache on the text string — a style-only
-  // write (color/opacity/fontSize) hits the cached entry and draws with
-  // the old style. To bust the cache, the `Marquee` setters briefly write
-  // a different text, then restore this cached value.
+  // renderer keys its glyph-bitmap cache on the text string, so a style-
+  // only write (color/opacity/fontSize) hits the cached entry and draws
+  // with the old style. The `Marquee` setters briefly write a different
+  // text to bust the cache, then restore this value.
   var _marqueeText: String = ""
   let instance: VLCInstance
 
@@ -324,10 +323,10 @@ public final class Player {
 
   isolated deinit {
     eventTask?.cancel()
-    // Move ALL VLC cleanup off the main actor to avoid blocking it.
-    // libvlc_event_detach waits for any in-progress C callback to
-    // finish, and libvlc_media_player_release can block waiting for
-    // internal threads — both can stall the main actor for seconds
+    // Move every VLC cleanup call off the main actor so deinit never
+    // blocks the UI thread. `libvlc_event_detach` waits for an in-flight
+    // C callback to finish, and `libvlc_media_player_release` can block
+    // on internal threads; both can stall the main actor for seconds
     // under load.
     //
     // Safety: `bridge` keeps the EventBridge (and its ContinuationStore)
@@ -347,19 +346,18 @@ public final class Player {
 
   /// Loads media into the player, replacing whatever was previously loaded.
   ///
-  /// `media` is declared `sending`, which lets callers construct a
-  /// ``Media`` on any actor or task and hand it off to this main-actor
-  /// method without copies or bridging. The ownership transfer is
-  /// enforced by the compiler — the caller cannot retain the original
-  /// reference after the call.
+  /// `media` is declared `sending`, so callers can construct a ``Media``
+  /// on any actor or task and hand it off to this main-actor method
+  /// without a copy. The compiler enforces the transfer: the caller
+  /// cannot retain the original reference after the call.
   public func load(_ media: sending Media) {
     currentMedia = media
     resetMediaDerivedState()
     libvlc_media_player_set_media(pointer, media.pointer)
-    // Intentionally no eager `refreshTracks()` here — the track list
-    // isn't populated until libVLC emits `ESAdded` events after the
-    // demuxer opens. The `.tracksChanged` / `.mediaChanged` handlers
-    // refresh from a single source of truth.
+    // No eager `refreshTracks()` here. The track list isn't populated
+    // until libVLC emits `ESAdded` events after the demuxer opens, so
+    // the `.tracksChanged` / `.mediaChanged` handlers refresh from a
+    // single source of truth.
     notifyMediaDependentObservables()
   }
 
@@ -398,18 +396,18 @@ public final class Player {
   }
 
   /// Toggles between playing and paused, or starts playback from an
-  /// idle/stopped state. No-op while the player is in a transient state
-  /// (`.opening`, `.buffering`, `.stopping`, `.error`).
+  /// idle or stopped state. No-op in transient states (`.opening`,
+  /// `.buffering`, `.stopping`, `.error`).
   ///
-  /// Dispatches based on the observed ``state`` rather than calling
+  /// Dispatches on the observed ``state`` rather than calling
   /// `libvlc_media_player_pause` (which is itself a toggle). The naked
-  /// toggle is unsafe while libVLC is mid-transition: interleaving a
-  /// pause-toggle with the audio output's opening path corrupts
+  /// toggle is unsafe mid-transition: interleaving a pause-toggle with
+  /// the audio output's opening path corrupts
   /// `stream->timing.pause_date` and trips the upstream assertion
   /// `stream->timing.pause_date == VLC_TICK_INVALID` in
-  /// `src/audio_output/dec.c:876` once the stream enters Play, killing
-  /// the process. The usual repro is a user tapping a Play/Pause button
-  /// immediately after a `.task { try? player.play(url:) }` begins.
+  /// `src/audio_output/dec.c:876`, killing the process. The usual repro
+  /// is a user tapping Play/Pause immediately after a
+  /// `.task { try? player.play(url:) }` begins.
   public func togglePlayPause() {
     switch state {
     case .playing:
@@ -419,8 +417,8 @@ public final class Player {
     case .idle, .stopped:
       try? play()
     case .opening, .buffering, .stopping, .error:
-      // Transient state — libVLC isn't ready to accept a pause-toggle
-      // safely. Ignore the input rather than corrupting its internal
+      // Transient state. libVLC isn't ready to accept a pause-toggle
+      // safely; ignore the input rather than corrupting its internal
       // audio-output state.
       break
     }
@@ -433,16 +431,16 @@ public final class Player {
 
   /// Seeks to an absolute time in the current media.
   ///
-  /// Has no effect if the media is not seekable — observe ``isSeekable``
-  /// before exposing scrub controls. The seek is asynchronous; watch
-  /// ``currentTime`` (or the ``PlayerEvent/timeChanged(_:)`` event) for
+  /// No-op when the media is not seekable; observe ``isSeekable``
+  /// before exposing scrub controls. The seek is asynchronous. Watch
+  /// ``currentTime`` or the ``PlayerEvent/timeChanged(_:)`` event for
   /// completion.
   public func seek(to time: Duration) {
     libvlc_media_player_set_time(pointer, time.milliseconds, /* fast */ false)
-    // Same reason as the `position` setter: libVLC doesn't always emit
-    // `MediaPlayerTimeChanged` after a seek (especially while paused),
-    // so the published `currentTime` would appear stuck. The
-    // subsequent timeChanged event refines this with libVLC's actual
+    // Same optimistic update as the `position` setter: libVLC doesn't
+    // always emit `MediaPlayerTimeChanged` after a seek (especially
+    // while paused), so the published `currentTime` would appear stuck.
+    // The subsequent timeChanged event refines this with libVLC's
     // post-seek frame timestamp.
     currentTime = time
   }
@@ -472,7 +470,7 @@ public final class Player {
   public func nextFrame() {
     libvlc_media_player_next_frame(pointer)
     // libVLC doesn't emit `MediaPlayerTimeChanged` after a next-frame
-    // step while paused — the decoder advances one frame but the event
+    // step while paused: the decoder advances one frame but the event
     // thread stays quiescent. Read the authoritative time directly so
     // `currentTime` reflects the step.
     let ms = libvlc_media_player_get_time(pointer)
@@ -768,10 +766,11 @@ public final class Player {
 
   /// The audio equalizer applied to this player. Set `nil` to disable.
   ///
-  /// Subsequent mutations to the assigned `Equalizer` are re-applied to
-  /// the audio output automatically via an installed change handler —
-  /// libVLC copies settings on each `libvlc_media_player_set_equalizer`
-  /// call and does not retain the reference.
+  /// Subsequent mutations on the assigned `Equalizer` are re-applied
+  /// to the audio output automatically through an installed change
+  /// handler. libVLC copies settings on each
+  /// `libvlc_media_player_set_equalizer` call and does not retain the
+  /// reference.
   public var equalizer: Equalizer? {
     get { _equalizer }
     set {
@@ -890,9 +889,9 @@ public final class Player {
   /// Sets a renderer for output (e.g. Chromecast).
   ///
   /// Pass `nil` to revert to local playback. libVLC rejects renderer
-  /// changes while media is active, so this is only valid when the
-  /// player is `.idle`, `.stopped`, or `.error` — call `stop()` first
-  /// if you need to reconfigure casting mid-session.
+  /// changes while media is active; this is only valid when the player
+  /// is `.idle`, `.stopped`, or `.error`. Call `stop()` first to
+  /// reconfigure casting mid-session.
   ///
   /// - Parameter renderer: A ``RendererItem`` discovered by ``RendererDiscoverer``, or `nil`.
   /// - Throws: `VLCError.operationFailed` if the renderer cannot be set,
@@ -1022,12 +1021,12 @@ public final class Player {
       }
       // libVLC doesn't always emit `MediaPlayerLengthChanged`,
       // `MediaPlayerSeekableChanged`, or `MediaPlayerPausableChanged`
-      // events on the player-side — for some inputs the demuxer publishes
+      // events on the player side. For some inputs the demuxer publishes
       // those via `MediaParsedChanged` on `Media` (which we don't bridge
-      // to the player) or sets the fields before the player has a chance
-      // to attach its event listener. Polling the native player on every
-      // state transition catches those cases; it's cheap (three C calls)
-      // and idempotent when the events do fire.
+      // to the player), or sets the fields before the player has a
+      // chance to attach its event listener. Polling on every state
+      // transition catches those cases. It's three C calls and is
+      // idempotent when the events do fire.
       refreshNativeStateIfNeeded()
 
     case .timeChanged(let time):
@@ -1062,12 +1061,11 @@ public final class Player {
       withMutation(keyPath: \.isActive) {}
 
     case .bufferingProgress(let pct):
-      // Fill level is always useful to surface — update it regardless
-      // of state so a `.paused` player mid-preload still shows progress.
+      // Fill level is useful in every state, so update regardless. A
+      // `.paused` player mid-preload still needs to show progress.
       bufferFill = pct
-      // Lifecycle transition: only enter `.buffering` from a pre-play
-      // state. Once libVLC is `.playing`/`.paused`/etc., the state
-      // machine is driven by `.stateChanged` events — don't fight it.
+      // Only enter `.buffering` from a pre-play state. Once libVLC is
+      // `.playing` or `.paused`, `.stateChanged` drives the lifecycle.
       switch state {
       case .idle, .opening, .buffering:
         if state != .buffering {
@@ -1095,8 +1093,8 @@ public final class Player {
     case .titleSelectionChanged:
       withMutation(keyPath: \.currentTitle) {}
 
-    // Events without a matching observable property are exposed only
-    // via the raw `events` stream — consumers that care subscribe there.
+    // Events without a matching observable property are only exposed
+    // on the raw `events` stream; consumers that care subscribe there.
     case .audioDeviceChanged:
       withMutation(keyPath: \.currentAudioDevice) {}
 

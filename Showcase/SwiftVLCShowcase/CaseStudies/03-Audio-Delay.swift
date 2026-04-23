@@ -38,7 +38,7 @@ struct AudioDelayCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Audio delay")
-    .task { try? player.play(url: TestMedia.bigBuckBunny) }
+    .task { try? player.play(url: TestMedia.demo) }
     .onChange(of: delayMs) {
       player.audioDelay = .milliseconds(Int(delayMs))
     }

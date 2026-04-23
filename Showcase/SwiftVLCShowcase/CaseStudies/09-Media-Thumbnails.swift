@@ -61,7 +61,7 @@ struct ThumbnailsCase: View {
     .showcaseFormStyle()
     .navigationTitle("Thumbnails")
     .task {
-      media = try? Media(url: TestMedia.bigBuckBunny)
+      media = try? Media(url: TestMedia.demo)
     }
   }
 

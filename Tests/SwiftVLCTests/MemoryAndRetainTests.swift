@@ -9,9 +9,9 @@ import Testing
 /// Complements `LifecycleStressTests`, which exercises rapid
 /// create/destroy without leaks being observable. Here we pin a *weak*
 /// reference to each type, drop the strong reference, and assert the
-/// weak reference goes to nil — the canonical "did Swift deinit run"
-/// test. If a retain cycle, a stray strong capture in an event
-/// callback, or a continuation holds onto the instance, the weak
+/// weak reference goes to nil. That's the canonical "did Swift deinit
+/// run" test: if a retain cycle, a stray strong capture in an event
+/// callback, or a continuation is holding the instance, the weak
 /// reference stays valid and the test fails.
 ///
 /// Offloaded C-level cleanup (via `DispatchQueue.global(qos: .utility)`)
@@ -32,7 +32,7 @@ extension Integration {
 
     /// Baseline: drop a player, yield the scheduler, confirm the weak
     /// reference clears. Regression guard for the event consumer `Task`
-    /// strong-capturing `self` (it must capture weakly — see
+    /// strong-capturing `self` (it must capture weakly; see
     /// `Player.startEventConsumer`).
     @Test
     func `Player deallocates when last strong reference drops`() async {
@@ -42,11 +42,11 @@ extension Integration {
         weakPlayer = player
         _ = player.state
       }
-      // Allow the event consumer Task to observe cancellation and release
-      // its weak capture — a single yield is usually enough but we give
-      // the scheduler a few extra ticks for the observation graph.
+      // Allow the event consumer Task to observe cancellation and
+      // release its weak capture. A single yield is usually enough;
+      // the extras give the observation graph time to unwind.
       await yieldScheduler(times: 8)
-      #expect(weakPlayer == nil, "Player leaked — event consumer task or observation graph retained self")
+      #expect(weakPlayer == nil, "Player leaked: event consumer task or observation graph retained self")
     }
 
     /// The raw event stream is an independent continuation surface. Dropping
@@ -146,10 +146,10 @@ extension Integration {
       #expect(weakList == nil, "MediaList leaked")
     }
 
-    /// `MediaList.withLocked` hands out a `LockedView` scoped to the closure.
-    /// The view is `~Escapable` so it cannot outlive the scope — but we
-    /// also want to confirm the lock is released and the list deallocates
-    /// normally afterwards.
+    /// `MediaList.withLocked` hands out a `LockedView` scoped to the
+    /// closure. The view is `~Escapable` so it cannot outlive the
+    /// scope, but we still want to confirm the lock is released and
+    /// the list deallocates normally afterwards.
     @Test
     func `MediaList deallocates after withLocked scope`() throws {
       weak var weakList: MediaList?
@@ -177,8 +177,8 @@ extension Integration {
     }
 
     /// `MediaListPlayer` holds its `Player` via a strong `_mediaPlayer`
-    /// reference. Dropping the list player must release the player too —
-    /// otherwise a MediaListPlayer ↔ Player retain cycle would leak both.
+    /// reference. Dropping the list player must release the player too,
+    /// otherwise a MediaListPlayer / Player retain cycle leaks both.
     @Test
     func `MediaListPlayer does not retain its Player cyclically`() async {
       weak var weakListPlayer: MediaListPlayer?
@@ -300,8 +300,8 @@ extension Integration {
 
     // MARK: - VLCInstance
 
-    /// A bespoke `VLCInstance` should deinit when dropped — verifies our
-    /// `LogBroadcaster.invalidate()` tear-down doesn't leave a strong
+    /// A bespoke `VLCInstance` should deinit when dropped. Guards the
+    /// `LogBroadcaster.invalidate()` tear-down from leaving a strong
     /// reference through the retained callback box.
     @Test
     func `Custom VLCInstance deallocates when dropped`() {
@@ -421,7 +421,7 @@ extension Integration {
 /// backing array on every `aliveCount()` call so the storage doesn't
 /// grow unbounded in long-running tests.
 ///
-/// Used only from the main actor — no `Sendable` conformance needed.
+/// Used only from the main actor; no `Sendable` conformance needed.
 @MainActor
 private final class WeakProbes<T: AnyObject> {
   private struct Probe {

@@ -61,7 +61,7 @@ struct PiPCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Picture in Picture")
-    .task { try? player.play(url: TestMedia.bigBuckBunny) }
+    .task { try? player.play(url: TestMedia.demo) }
     .onDisappear { player.stop() }
   }
 

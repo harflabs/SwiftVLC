@@ -45,14 +45,14 @@ struct ABLoopCase: View {
         }
         // SwiftUI Form rows with multiple buttons route taps through the
         // cell's tap area unless each button opts out with an explicit
-        // style. `.borderless` makes each button its own hit target —
-        // required so XCUITest can fire them individually.
+        // style. `.borderless` makes each button its own hit target, so
+        // XCUITest can fire them individually.
         .buttonStyle(.borderless)
       }
     }
     .showcaseFormStyle()
     .navigationTitle("A-B loop")
-    .task { try? player.play(url: TestMedia.bigBuckBunny) }
+    .task { try? player.play(url: TestMedia.demo) }
     .onDisappear { player.stop() }
   }
 

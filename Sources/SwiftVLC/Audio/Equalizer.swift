@@ -3,9 +3,9 @@ import Observation
 
 /// A 10-band audio equalizer with preamp and preset support.
 ///
-/// `Equalizer` is `@Observable` and `@MainActor` — SwiftUI views that read
-/// ``preamp`` or ``bands`` update automatically, and the player it is
-/// attached to re-applies its audio output on every change.
+/// `Equalizer` is `@Observable` and `@MainActor`. SwiftUI views that
+/// read ``preamp`` or ``bands`` update automatically, and the player
+/// it is attached to re-applies its audio output on every change.
 ///
 /// ```swift
 /// let eq = Equalizer()

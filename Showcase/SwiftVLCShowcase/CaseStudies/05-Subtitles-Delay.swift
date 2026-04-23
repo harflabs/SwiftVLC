@@ -36,7 +36,7 @@ struct SubtitlesDelayCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Subtitle delay")
-    .task { try? player.play(url: TestMedia.tearsOfSteel) }
+    .task { try? player.play(url: TestMedia.demo) }
     .onChange(of: delayMs) {
       player.subtitleDelay = .milliseconds(Int(delayMs))
     }

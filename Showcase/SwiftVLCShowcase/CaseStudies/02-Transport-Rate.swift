@@ -39,7 +39,7 @@ struct RateCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Playback rate")
-    .task { try? player.play(url: TestMedia.bigBuckBunny) }
+    .task { try? player.play(url: TestMedia.demo) }
     .onDisappear { player.stop() }
   }
 }

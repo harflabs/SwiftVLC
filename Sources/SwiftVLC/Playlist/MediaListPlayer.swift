@@ -35,8 +35,8 @@ public final class MediaListPlayer {
   }
 
   isolated deinit {
-    // Release off the main actor — stop_async and release can block
-    // waiting for VLC internal threads, stalling all async work.
+    // Release off the main actor. `stop_async` and `release` can block
+    // waiting for VLC's internal threads, stalling all async work.
     nonisolated(unsafe) let p = pointer
     DispatchQueue.global(qos: .utility).async {
       libvlc_media_list_player_stop_async(p)

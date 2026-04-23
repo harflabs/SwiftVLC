@@ -4,15 +4,14 @@ import SwiftVLC
 private let readMe = """
 Pre-generates a grid of 12 `media.thumbnail(at:)` tiles across the video's \
 duration, then snaps the nearest tile into a bubble above the slider thumb on \
-scrub. The source is downloaded once into the app's caches directory so every \
-thumbnail decode is CPU-bound (~200 ms) instead of network-bound.
+scrub. Decoding is CPU-bound (~200 ms per precise frame) on local files, which \
+is why the bundled demo reel is the source here.
 """
 
 private let tileCount = 12
 
 struct ThumbnailScrubCase: View {
   @State private var player = Player()
-  @State private var cache = RemoteMediaCache()
   @State private var previewPosition: Double = 0
   @State private var tiles: [Tile] = []
   @State private var isScrubbing = false
@@ -78,31 +77,19 @@ struct ThumbnailScrubCase: View {
 
   // MARK: - State derivations
 
-  /// A single row that reflects the pipeline: caching the source, then
-  /// decoding tiles. Avoids a second "Source" row that would only
-  /// matter during the brief download window.
   private var tilesStatus: String {
-    switch cache.state {
-    case .downloading(let received, let total):
-      let mb = { (b: Int64) in String(format: "%.0f MB", Double(b) / 1_048_576) }
-      return total.map { "Downloading \(mb(received)) / \(mb($0))" } ?? "Downloading \(mb(received))"
-    case .failed(let reason):
-      return "Failed: \(reason)"
-    default:
-      return "\(tiles.count) / \(tileCount)"
-    }
+    "\(tiles.count) / \(tileCount)"
   }
 
   // MARK: - Loading pipeline
 
-  /// 1. Materialize the source to a local `file://` URL (download once).
-  /// 2. Start playback from the local file.
-  /// 3. Generate the tile grid against the same local file.
+  /// 1. Start playback from the bundled demo file.
+  /// 2. Generate the tile grid against the same file.
   private func prepare() async {
-    guard let url = try? await cache.materialize(TestMedia.bigBuckBunny) else { return }
+    let url = TestMedia.demo
     try? player.play(url: url)
 
-    // Tile offsets are relative to duration — wait for it.
+    // Tile offsets are relative to duration; wait for it.
     while player.duration == nil, !Task.isCancelled {
       try? await Task.sleep(for: .milliseconds(100))
     }

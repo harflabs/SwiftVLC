@@ -2,8 +2,8 @@ import SwiftUI
 import SwiftVLC
 
 private let readMe = """
-`PlayerRole` hints the system about what the audio is for — `.music`, \
-`.video`, `.communication`, `.game`, etc. The role influences AirPods \
+`PlayerRole` hints the system about what the audio is for: `.music`, \
+`.video`, `.communication`, `.game`, and so on. The role influences AirPods \
 switching, Do Not Disturb treatment, and ducking priority. Corking is the \
 system-driven side: `.corked` fires when something else (a phone call, Siri, \
 another app's audio-focus request) takes priority, and `.uncorked` when it \
@@ -79,7 +79,7 @@ struct RoleAndCorkCase: View {
         #if os(iOS)
         Text("To trigger corking: start a phone call, open Siri, or play audio in another app. libVLC will report `.corked` automatically.")
         #else
-        Text("Corking fires when another process takes audio focus — e.g. quickly raise / lower the Mac's volume with OSD, or play audio in another app with exclusive focus.")
+        Text("Corking fires when another process takes audio focus. Try quickly raising or lowering the Mac's volume via OSD, or play audio in another app with exclusive focus.")
         #endif
       }
     }
@@ -91,7 +91,7 @@ struct RoleAndCorkCase: View {
 
   private func task() async {
     player.role = selectedRole
-    try? player.play(url: TestMedia.bigBuckBunny)
+    try? player.play(url: TestMedia.demo)
     for await event in player.events {
       switch event {
       case .corked:

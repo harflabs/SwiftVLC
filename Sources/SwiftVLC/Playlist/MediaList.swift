@@ -87,7 +87,8 @@ public final class MediaList: Sendable {
 
   /// Accesses a media item at the given index within a locked scope.
   ///
-  /// The returned `Media` is retained — safe to use after this call returns.
+  /// The returned `Media` is retained, and is safe to use after this
+  /// call returns.
   /// - Parameter index: Zero-based index.
   /// - Returns: The media at that index, or `nil` if out of bounds.
   public func media(at index: Int) -> Media? {
@@ -103,10 +104,10 @@ public final class MediaList: Sendable {
 
   /// Provides safe, scoped access to the media list while holding its lock.
   ///
-  /// The `LockedView` is `~Copyable` and `~Escapable` — it cannot be stored,
-  /// duplicated, returned, or escaped to a `Task`. The compiler enforces this
-  /// at build time, guaranteeing the lock is held for exactly the duration
-  /// of `body` and no longer.
+  /// The `LockedView` is `~Copyable` and `~Escapable`. It cannot be
+  /// stored, duplicated, returned, or escaped to a `Task`. The compiler
+  /// enforces this at build time, so the lock is held for exactly the
+  /// duration of `body` and no longer.
   ///
   /// ```swift
   /// let total = list.withLocked { view in

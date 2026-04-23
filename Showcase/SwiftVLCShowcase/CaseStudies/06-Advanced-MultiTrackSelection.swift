@@ -5,8 +5,8 @@ private let readMe = """
 Real-world streams often expose multiple audio languages, subtitle tracks, and \
 (for DVB / MPEG-TS) separate programs. `audioTracks`, `subtitleTracks`, and \
 `programs` publish each surface; binding their `selected*` siblings to `Picker`s \
-is the one-liner picker path. Track lists repopulate on `.tracksChanged` — the \
-`@Observable` graph handles the UI refresh.
+is the one-liner picker path. Track lists repopulate on `.tracksChanged`, and \
+the `@Observable` graph handles the UI refresh.
 """
 
 struct MultiTrackSelectionCase: View {
@@ -80,7 +80,7 @@ struct MultiTrackSelectionCase: View {
 
       Section("Programs") {
         if player.programs.isEmpty {
-          Text("No program metadata — stream is not MPEG-TS or DVB.")
+          Text("No program metadata. Stream is not MPEG-TS or DVB.")
             .foregroundStyle(.secondary)
             .accessibilityIdentifier(AccessibilityID.MultiTrackSelection.programsEmptyLabel)
         } else {
@@ -102,7 +102,7 @@ struct MultiTrackSelectionCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Multi-track selection")
-    .task { try? player.play(url: TestMedia.tearsOfSteel) }
+    .task { try? player.play(url: TestMedia.demo) }
     .onDisappear { player.stop() }
   }
 
