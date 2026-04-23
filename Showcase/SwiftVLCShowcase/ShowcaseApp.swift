@@ -16,6 +16,7 @@ struct ShowcaseApp: App {
   var body: some Scene {
     WindowGroup {
       RootView()
+        .tint(.orange)
     }
   }
 }
