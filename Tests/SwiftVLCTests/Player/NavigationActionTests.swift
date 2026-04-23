@@ -2,45 +2,46 @@
 import CLibVLC
 import Testing
 
-@Suite(.tags(.logic), .timeLimit(.minutes(1)))
-struct NavigationActionTests {
-  @Test(
-    arguments: [
-      (NavigationAction.activate, "activate"),
-      (.up, "up"),
-      (.down, "down"),
-      (.left, "left"),
-      (.right, "right"),
-      (.popup, "popup")
-    ] as [(NavigationAction, String)]
-  )
-  func descriptions(action: NavigationAction, expected: String) {
-    #expect(action.description == expected)
-  }
+extension Logic {
+  struct NavigationActionTests {
+    @Test(
+      arguments: [
+        (NavigationAction.activate, "activate"),
+        (.up, "up"),
+        (.down, "down"),
+        (.left, "left"),
+        (.right, "right"),
+        (.popup, "popup")
+      ] as [(NavigationAction, String)]
+    )
+    func descriptions(action: NavigationAction, expected: String) {
+      #expect(action.description == expected)
+    }
 
-  @Test(
-    arguments: [
-      (NavigationAction.activate, UInt32(libvlc_navigate_activate.rawValue)),
-      (.up, UInt32(libvlc_navigate_up.rawValue)),
-      (.down, UInt32(libvlc_navigate_down.rawValue)),
-      (.left, UInt32(libvlc_navigate_left.rawValue)),
-      (.right, UInt32(libvlc_navigate_right.rawValue)),
-      (.popup, UInt32(libvlc_navigate_popup.rawValue)),
-    ] as [(NavigationAction, UInt32)]
-  )
-  func `C values match C constants`(action: NavigationAction, expected: UInt32) {
-    #expect(action.cValue == expected)
-  }
+    @Test(
+      arguments: [
+        (NavigationAction.activate, UInt32(libvlc_navigate_activate.rawValue)),
+        (.up, UInt32(libvlc_navigate_up.rawValue)),
+        (.down, UInt32(libvlc_navigate_down.rawValue)),
+        (.left, UInt32(libvlc_navigate_left.rawValue)),
+        (.right, UInt32(libvlc_navigate_right.rawValue)),
+        (.popup, UInt32(libvlc_navigate_popup.rawValue)),
+      ] as [(NavigationAction, UInt32)]
+    )
+    func `C values match C constants`(action: NavigationAction, expected: UInt32) {
+      #expect(action.cValue == expected)
+    }
 
-  @Test
-  func hashable() {
-    let set: Set<NavigationAction> = [.activate, .up, .down, .left, .right, .popup, .activate]
-    #expect(set.count == 6)
-  }
+    @Test
+    func hashable() {
+      let set: Set<NavigationAction> = [.activate, .up, .down, .left, .right, .popup, .activate]
+      #expect(set.count == 6)
+    }
 
-  @Test
-  func `Exhaustive cases`() {
-    let all: [NavigationAction] = [.activate, .up, .down, .left, .right, .popup]
-    #expect(all.count == 6)
+    @Test
+    func `Exhaustive cases`() {
+      let all: [NavigationAction] = [.activate, .up, .down, .left, .right, .popup]
+      #expect(all.count == 6)
+    }
   }
 }
