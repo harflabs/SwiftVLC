@@ -297,12 +297,23 @@ public final class Player {
   private var _equalizer: Equalizer?
   private var _volume: Float = 1.0
   private var _isMuted: Bool = false
-  // Shadow of the string last passed to `Marquee.setText`. libVLC's text
-  // renderer keys its glyph-bitmap cache on the text string, so a style-
-  // only write (color/opacity/fontSize) hits the cached entry and draws
-  // with the old style. The `Marquee` setters briefly write a different
-  // text to bust the cache, then restore this value.
+  /// Shadow of the string last passed to `Marquee.setText`. libVLC's text
+  /// renderer keys its glyph-bitmap cache on the text string, so a style-
+  /// only write (color/opacity/fontSize) hits the cached entry and draws
+  /// with the old style. The `Marquee` setters briefly write a different
+  /// text to bust the cache, then restore this value.
   var _marqueeText: String = ""
+  /// The platform view currently receiving video frames. Held strongly
+  /// because libVLC stores the view as an unretained raw pointer in its
+  /// `drawable-nsobject` variable and reads it asynchronously from the
+  /// decode/vout thread. A view owned only by UIKit/AppKit can be
+  /// released before libVLC notices, producing a dangling read and a
+  /// segmentation fault — see VLCKit's `_drawable` ivar for the
+  /// historical precedent. Cleared to nil in `deinit` *after* the libVLC
+  /// pointer has been reset, and its lifetime is explicitly extended
+  /// across the offloaded release so `libvlc_media_player_release` can
+  /// tear down the vout before ARC releases the view.
+  var drawable: AnyObject?
   let instance: VLCInstance
 
   // MARK: - Lifecycle
@@ -323,6 +334,13 @@ public final class Player {
 
   isolated deinit {
     eventTask?.cancel()
+    // Tell libVLC to forget the drawable *before* release so the
+    // vout thread observes a nil pointer rather than dereferencing a
+    // view that is about to be released when `self`'s storage is torn
+    // down. The view itself is captured into the offloaded closure
+    // below so it outlives the libVLC teardown.
+    libvlc_media_player_set_nsobject(pointer, nil)
+
     // Move every VLC cleanup call off the main actor so deinit never
     // blocks the UI thread. `libvlc_event_detach` waits for an in-flight
     // C callback to finish, and `libvlc_media_player_release` can block
@@ -330,16 +348,51 @@ public final class Player {
     // under load.
     //
     // Safety: `bridge` keeps the EventBridge (and its ContinuationStore)
-    // alive until cleanup completes. The C player pointer is a plain
-    // value. invalidate() MUST run before release() so the event
-    // manager is still valid when detaching callbacks.
+    // alive until cleanup completes. `drawable` keeps the platform view
+    // alive across `libvlc_media_player_release`, which tears down the
+    // vout; if the view were released first, any in-flight vout-thread
+    // read of `drawable-nsobject` would be use-after-free. The C player
+    // pointer is a plain value. invalidate() MUST run before release()
+    // so the event manager is still valid when detaching callbacks.
     let bridge = eventBridge
+    // `AnyObject?` is not `Sendable` under Swift 6, but the capture is
+    // write-once-read-never — the closure only holds the view alive,
+    // it never reads or mutates it. `nonisolated(unsafe)` is the
+    // narrow, explicit opt-out that matches that contract and avoids a
+    // Mutex wrapper or an `@unchecked Sendable` box for a value we
+    // never actually touch across threads.
+    nonisolated(unsafe) let drawable = drawable
     nonisolated(unsafe) let p = pointer
     DispatchQueue.global(qos: .utility).async {
       bridge.invalidate()
       libvlc_media_player_stop_async(p)
       libvlc_media_player_release(p)
+      _ = drawable
     }
+  }
+
+  // MARK: - Video Drawable
+
+  /// Attaches (or detaches, when `nil`) the platform-native view that
+  /// libVLC renders video into. `Player` holds the view strongly for
+  /// the duration of the attachment so libVLC's raw `drawable-nsobject`
+  /// pointer stays valid against asynchronous reads from the decode
+  /// thread. Callers should normally use ``VideoView`` in SwiftUI; this
+  /// is the lower-level seam it builds on.
+  func setDrawable(_ newDrawable: AnyObject?) {
+    // Bind the outgoing reference to a local so it outlives the libVLC
+    // call. After the ivar is reassigned, ARC would otherwise release
+    // the previous view immediately; the vout thread could still be
+    // mid-deref of the old `drawable-nsobject` pointer. `previous`
+    // keeps the old view alive until this function returns, by which
+    // point libVLC has atomically swapped the variable.
+    let previous = drawable
+    drawable = newDrawable
+    libvlc_media_player_set_nsobject(
+      pointer,
+      newDrawable.map { Unmanaged.passUnretained($0).toOpaque() }
+    )
+    _ = previous
   }
 
   // MARK: - Media Loading

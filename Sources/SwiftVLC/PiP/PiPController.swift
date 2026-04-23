@@ -40,7 +40,7 @@ public final class PiPController: NSObject {
   }
 
   @ObservationIgnored
-  private let player: Player
+  fileprivate let player: Player
   @ObservationIgnored
   private let playbackDriver: PlaybackDriver
   @ObservationIgnored
@@ -49,6 +49,18 @@ public final class PiPController: NSObject {
   private let renderer: PixelBufferRenderer
   @ObservationIgnored
   private let displayLayer: AVSampleBufferDisplayLayer
+  /// Holds the playback-delegate proxy for the lifetime of the
+  /// controller. The `AVPictureInPictureController.ContentSource` also
+  /// retains this proxy (despite the header documenting it as weak);
+  /// storing it here makes ownership explicit and independent of AVKit's
+  /// internal retention, which has changed across OS versions.
+  ///
+  /// `nonisolated` because the proxy is accessed from the
+  /// AVKit-initiated delegate callbacks that may run off the main
+  /// actor. Assigned once in `init`; the stored reference is
+  /// effectively immutable afterwards.
+  @ObservationIgnored
+  private nonisolated let playbackDelegateProxy: PiPPlaybackDelegateProxy
   @ObservationIgnored
   private var pipController: AVPictureInPictureController?
   @ObservationIgnored
@@ -69,7 +81,7 @@ public final class PiPController: NSObject {
   /// transitions. PiP queries state immediately after calling
   /// `setPlaying` and would otherwise see stale values.
   @ObservationIgnored
-  private var pipPlaybackActive: Bool = false
+  fileprivate var pipPlaybackActive: Bool = false
 
   /// Debounced pause task. AVKit can transiently report "paused" during
   /// skip and PiP transitions; issuing a real libVLC pause for those
@@ -123,9 +135,11 @@ public final class PiPController: NSObject {
     pauseDebounce = .milliseconds(250)
     displayLayer = AVSampleBufferDisplayLayer()
     renderer = PixelBufferRenderer(displayLayer: displayLayer)
+    playbackDelegateProxy = PiPPlaybackDelegateProxy()
 
     super.init()
 
+    playbackDelegateProxy.owner = self
     displayLayer.videoGravity = .resizeAspect
     displayLayer.backgroundColor = CGColor(red: 0, green: 0, blue: 0, alpha: 1)
 
@@ -146,9 +160,11 @@ public final class PiPController: NSObject {
     self.pauseDebounce = pauseDebounce
     displayLayer = AVSampleBufferDisplayLayer()
     renderer = PixelBufferRenderer(displayLayer: displayLayer)
+    playbackDelegateProxy = PiPPlaybackDelegateProxy()
 
     super.init()
 
+    playbackDelegateProxy.owner = self
     displayLayer.videoGravity = .resizeAspect
     displayLayer.backgroundColor = CGColor(red: 0, green: 0, blue: 0, alpha: 1)
 
@@ -245,9 +261,21 @@ public final class PiPController: NSObject {
   private func setupPiPController() {
     guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
 
+    // `AVPictureInPictureController.ContentSource` declares its
+    // `sampleBufferPlaybackDelegate` property as `weak` in the AVKit
+    // header, but at runtime it retains the delegate strongly. Passing
+    // `self` here creates an undocumented cycle:
+    // `PiPController → pipController → contentSource → playbackDelegate
+    // (self)`, which prevents deinit and pins the player through its
+    // `let player: Player` reference. The controller also retains
+    // `contentSource.sampleBufferDisplayLayer` strongly, so the
+    // pixel-buffer pool and its pending `CMSampleBuffer`s stay alive
+    // with the cycle. A trivial proxy with a weak back-reference breaks
+    // the cycle while keeping delegate semantics identical.
+    let proxy = playbackDelegateProxy
     let contentSource = AVPictureInPictureController.ContentSource(
       sampleBufferDisplayLayer: displayLayer,
-      playbackDelegate: self
+      playbackDelegate: proxy
     )
     let controller = AVPictureInPictureController(contentSource: contentSource)
     controller.delegate = self
@@ -300,16 +328,21 @@ public final class PiPController: NSObject {
     cancelDeferredPause()
 
     let generation = deferredPauseGeneration
+    let debounce = pauseDebounce
     deferredPauseTask = Task { @MainActor [weak self] in
-      guard let self else { return }
-
       while !Task.isCancelled {
         do {
-          try await Task.sleep(for: pauseDebounce)
+          try await Task.sleep(for: debounce)
         } catch {
           return
         }
 
+        // `guard let self` is placed *after* the suspension so the
+        // strong binding is scoped to this iteration body only. The
+        // prior shape pulled the guard above the while loop, which
+        // extends the binding across every `await`, pinning `self`
+        // for the full debounce window and delaying deinit.
+        guard let self else { return }
         guard !Task.isCancelled, deferredPauseGeneration == generation, !pipPlaybackActive else { return }
 
         switch player.state {
@@ -337,30 +370,37 @@ public final class PiPController: NSObject {
     playbackDriver.resume()
   }
 
-  /// AVKit can invoke PiP delegate callbacks from non-main threads.
-  /// Bridge them synchronously so delegate responses stay immediate
-  /// without relying on `MainActor.assumeIsolated` off the main thread.
-  private nonisolated func withMainActorSync<T: Sendable>(
-    _ body: @MainActor @Sendable () -> T
-  ) -> T {
-    if Thread.isMainThread {
-      return MainActor.assumeIsolated(body)
-    }
-    return DispatchQueue.main.sync {
-      MainActor.assumeIsolated(body)
-    }
-  }
-
   // MARK: - State Observation
 
-  /// Observes player state, currentTime, duration, and rate to keep
-  /// the controlTimebase and PiP UI in sync.
+  /// Drives the control timebase and PiP UI from player events.
+  ///
+  /// The previous implementation wrapped each iteration in
+  /// `withCheckedContinuation { withObservationTracking { … } }`, with a
+  /// `guard let self else { return }` hoisted above the `await`. Swift
+  /// scopes guard-let bindings to the enclosing block, so the strong
+  /// `self` binding lived across the suspension and was captured into
+  /// the task's suspended frame. With external strong references gone,
+  /// the suspended frame became the last holder, and nothing could wake
+  /// the continuation — the observation's `onChange` was itself behind
+  /// the continuation the controller was waiting on. The PiPController
+  /// pinned itself until the process exited.
+  ///
+  /// The shape below matches `Player.startEventConsumer`: subscribe to
+  /// `player.events` (the same broadcaster that drives `Player`'s own
+  /// `@Observable` state), pull events via `for await`, and bind `self`
+  /// strongly *inside* the loop body where the binding lifetime is a
+  /// single iteration. The implicit suspension between events runs with
+  /// only a weak reference in scope, so the task never prevents
+  /// deinit — when the controller is dropped, the bridge finishes the
+  /// stream (via `Player.deinit`) or the task sees cancellation, and
+  /// the loop exits.
   private func startStateObserver() {
+    let events = player.events
     stateObserverTask = Task { @MainActor [weak self] in
       var wasActive = false
       var lastDurationMs: Int64?
       var lastRate: Float = 1.0
-      while !Task.isCancelled {
+      for await _ in events {
         guard let self else { return }
 
         let active = player.isActive
@@ -390,7 +430,11 @@ public final class PiPController: NSObject {
         // Rate changed: retrack the timebase so PiP's scrubber
         // advances at the real playback speed. Without this the
         // scrubber stays at 1.0× even when the player is running at
-        // 2.0× or 0.5×, which looks like desync.
+        // 2.0× or 0.5×, which looks like desync. `player.rate` has
+        // no dedicated libVLC event, so this comparison picks the
+        // change up on the next incoming event (time-changed fires
+        // frequently during active playback, which is when the
+        // timebase rate matters).
         if rate != lastRate {
           lastRate = rate
           if pipPlaybackActive, let tb = controlTimebase {
@@ -418,22 +462,11 @@ public final class PiPController: NSObject {
             }
           }
         }
-
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-          withObservationTracking {
-            _ = self.player.state
-            _ = self.player.currentTime
-            _ = self.player.duration
-            _ = self.player.rate
-          } onChange: {
-            cont.resume()
-          }
-        }
       }
     }
   }
 
-  private func handleSetPlaying(_ playing: Bool) {
+  fileprivate func handleSetPlaying(_ playing: Bool) {
     cancelDeferredPause()
 
     // Set immediately so isPlaybackPaused returns the correct value
@@ -450,7 +483,7 @@ public final class PiPController: NSObject {
     pipController?.invalidatePlaybackState()
   }
 
-  private func handleSkip(
+  fileprivate func handleSkip(
     by skipInterval: CMTime,
     completion completionHandler: @escaping @Sendable () -> Void
   ) {
@@ -511,7 +544,26 @@ public final class PiPController: NSObject {
   }
 
   nonisolated func _isPlaybackPausedForTesting(_ controller: AVPictureInPictureController) -> Bool {
-    pictureInPictureControllerIsPlaybackPaused(controller)
+    playbackDelegateProxy.pictureInPictureControllerIsPlaybackPaused(controller)
+  }
+
+  nonisolated func _timeRangeForPlaybackForTesting(_ controller: AVPictureInPictureController) -> CMTimeRange {
+    playbackDelegateProxy.pictureInPictureControllerTimeRangeForPlayback(controller)
+  }
+
+  nonisolated func _didTransitionToRenderSizeForTesting(
+    _ controller: AVPictureInPictureController,
+    size: CMVideoDimensions
+  ) {
+    playbackDelegateProxy.pictureInPictureController(controller, didTransitionToRenderSize: size)
+  }
+
+  /// Hands back the internal playback-delegate proxy so tests that need
+  /// to build an `AVPictureInPictureController.ContentSource` can pass
+  /// the proxy directly (the public type no longer conforms to
+  /// `AVPictureInPictureSampleBufferPlaybackDelegate`).
+  nonisolated var _playbackDelegateForTesting: AVPictureInPictureSampleBufferPlaybackDelegate {
+    playbackDelegateProxy
   }
 
   func _setPlayingForTesting(_ playing: Bool) {
@@ -531,7 +583,7 @@ extension PiPController: AVPictureInPictureControllerDelegate {
   public nonisolated func pictureInPictureControllerDidStartPictureInPicture(
     _: AVPictureInPictureController
   ) {
-    withMainActorSync {
+    pipMainActorSync {
       updatePiPActive(true)
     }
   }
@@ -541,7 +593,7 @@ extension PiPController: AVPictureInPictureControllerDelegate {
   public nonisolated func pictureInPictureControllerDidStopPictureInPicture(
     _: AVPictureInPictureController
   ) {
-    withMainActorSync {
+    pipMainActorSync {
       updatePiPActive(false)
     }
   }
@@ -553,90 +605,112 @@ extension PiPController: AVPictureInPictureControllerDelegate {
     _: AVPictureInPictureController,
     failedToStartPictureInPictureWithError _: Error
   ) {
-    withMainActorSync {
+    pipMainActorSync {
       updatePiPActive(false)
     }
   }
 }
 
-// MARK: - AVPictureInPictureSampleBufferPlaybackDelegate
+// MARK: - Playback delegate proxy
 
-extension PiPController: AVPictureInPictureSampleBufferPlaybackDelegate {
-  // NOTE: PiP may invoke these callbacks off the main thread.
-  // They still need synchronous answers, so SwiftVLC bridges them
-  // onto the main actor without deferring through an async task.
+/// A sample-buffer playback delegate that forwards to a weak
+/// ``PiPController``.
+///
+/// `AVPictureInPictureController.ContentSource` retains its
+/// `playbackDelegate` strongly at runtime (the header declares it
+/// `weak`, but that only applies to the readback property — the init
+/// parameter is captured strongly). Conforming ``PiPController``
+/// directly would form the cycle `PiPController → pipController →
+/// contentSource → playbackDelegate (self)`. This proxy breaks the
+/// cycle: the controller holds the proxy strongly, the proxy holds the
+/// controller weakly, and AVKit's retention of the proxy is harmless.
+///
+/// The forwarders run on whatever thread AVKit invokes them on. Each
+/// one hops to the main actor before reading or mutating the owner,
+/// matching the previous in-class implementation.
+private final class PiPPlaybackDelegateProxy: NSObject, AVPictureInPictureSampleBufferPlaybackDelegate, @unchecked Sendable {
+  /// `@unchecked Sendable` is the narrow concession that lets AVKit
+  /// hand the proxy between threads. The owner field is the only state,
+  /// it's `weak` (ARC-atomic in Swift), and every read happens inside
+  /// a `pipMainActorSync` hop to the main actor. Concurrent AVKit
+  /// callbacks funnel through that bounce, so owner access is
+  /// effectively serialized on the main actor even though the proxy
+  /// itself is nominally nonisolated.
+  weak var owner: PiPController?
 
-  /// `AVPictureInPictureSampleBufferPlaybackDelegate` hook. Translates
-  /// PiP play/pause presses into ``Player`` state changes, with the
-  /// internal `pipPlaybackActive` flag kept in sync so subsequent
-  /// delegate queries return the right value before libVLC's async
-  /// state transition completes.
-  public nonisolated func pictureInPictureController(
+  func pictureInPictureController(
     _: AVPictureInPictureController,
     setPlaying playing: Bool
   ) {
-    withMainActorSync {
-      handleSetPlaying(playing)
+    pipMainActorSync { [weak self] in
+      self?.owner?.handleSetPlaying(playing)
     }
   }
 
-  /// `AVPictureInPictureSampleBufferPlaybackDelegate` hook. Returns the
-  /// media's time range so the PiP scrubber can render. When the
-  /// duration isn't known yet, reports a 24-hour sentinel so the
-  /// scrubber doesn't collapse to 100%; the observer invalidates the
-  /// state once the real duration arrives.
-  public nonisolated func pictureInPictureControllerTimeRangeForPlayback(
+  func pictureInPictureControllerTimeRangeForPlayback(
     _: AVPictureInPictureController
   ) -> CMTimeRange {
-    let duration: Duration? = withMainActorSync { player.duration }
+    let duration: Duration? = pipMainActorSync { [weak self] in
+      self?.owner?.player.duration
+    }
 
     let durationSeconds = duration.map {
       Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18
     } ?? 0
 
-    // When duration is unknown (nil → 0), use a large sentinel so the
-    // scrubber doesn't show 100% before the real duration is known.
-    // Once known, the observer invalidates and PiP re-queries.
     let cmDuration = if durationSeconds > 0 {
       CMTime(seconds: durationSeconds, preferredTimescale: 1000)
     } else {
+      // Duration unknown: PiP needs a non-zero range so the scrubber
+      // renders while libVLC parses the media. Once duration arrives,
+      // the state observer invalidates and AVKit re-queries.
       CMTime(seconds: 86400, preferredTimescale: 1000)
     }
-
     return CMTimeRange(start: .zero, duration: cmDuration)
   }
 
-  /// `AVPictureInPictureSampleBufferPlaybackDelegate` hook. Returns the
-  /// paused state as PiP sees it. Reads from the internal flag so the
-  /// answer is consistent right after a play/pause command, before
-  /// libVLC's asynchronous state transition settles.
-  public nonisolated func pictureInPictureControllerIsPlaybackPaused(
+  func pictureInPictureControllerIsPlaybackPaused(
     _: AVPictureInPictureController
   ) -> Bool {
-    withMainActorSync { !pipPlaybackActive }
+    pipMainActorSync { [weak self] in
+      // Default to paused when the owner is gone so AVKit renders a
+      // stable UI while teardown drains.
+      !(self?.owner?.pipPlaybackActive ?? false)
+    }
   }
 
-  /// `AVPictureInPictureSampleBufferPlaybackDelegate` hook. Routes PiP
-  /// skip buttons into a clamped absolute seek and updates the control
-  /// timebase so the PiP UI reflects the new position before libVLC's
-  /// own time change arrives.
-  public nonisolated func pictureInPictureController(
+  func pictureInPictureController(
     _: AVPictureInPictureController,
     skipByInterval skipInterval: CMTime,
     completion completionHandler: @escaping @Sendable () -> Void
   ) {
-    withMainActorSync {
-      handleSkip(by: skipInterval, completion: completionHandler)
+    pipMainActorSync { [weak self] in
+      guard let owner = self?.owner else {
+        completionHandler()
+        return
+      }
+      owner.handleSkip(by: skipInterval, completion: completionHandler)
     }
   }
 
-  /// `AVPictureInPictureSampleBufferPlaybackDelegate` hook. The PiP
-  /// window resizes automatically from the sample-buffer layer; we
-  /// don't need to react.
-  public nonisolated func pictureInPictureController(
+  func pictureInPictureController(
     _: AVPictureInPictureController,
     didTransitionToRenderSize _: CMVideoDimensions
   ) {}
+}
+
+/// AVKit may invoke the proxy's callbacks from non-main threads but
+/// expects synchronous answers. Bounce onto the main actor without
+/// routing through an async task so the answer is immediate.
+private func pipMainActorSync<T: Sendable>(
+  _ body: @MainActor @Sendable () -> T
+) -> T {
+  if Thread.isMainThread {
+    return MainActor.assumeIsolated(body)
+  }
+  return DispatchQueue.main.sync {
+    MainActor.assumeIsolated(body)
+  }
 }
 
 #endif

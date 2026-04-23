@@ -27,14 +27,14 @@ extension Integration {
 
     @Test
     func `Init with player does not crash`() {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.lifecycleShared)
       let controller = PiPController(player: player)
       _ = controller
     }
 
     @Test
     func `isPossible reflects PiP support of the environment`() {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.lifecycleShared)
       let controller = PiPController(player: player)
       // On macOS desktop, PiP may be supported; on headless CI it won't be.
       // Just verify accessing the property doesn't crash and returns a Bool.
@@ -44,14 +44,14 @@ extension Integration {
 
     @Test
     func `isActive returns false initially`() {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.lifecycleShared)
       let controller = PiPController(player: player)
       #expect(controller.isActive == false)
     }
 
     @Test
     func `layer returns a valid AVSampleBufferDisplayLayer`() {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.lifecycleShared)
       let controller = PiPController(player: player)
       let layer = controller.layer
       #expect(layer.videoGravity == .resizeAspect)
@@ -59,28 +59,28 @@ extension Integration {
 
     @Test
     func `start does not crash without PiP support`() {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.lifecycleShared)
       let controller = PiPController(player: player)
       controller.start()
     }
 
     @Test
     func `stop does not crash without PiP support`() {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.lifecycleShared)
       let controller = PiPController(player: player)
       controller.stop()
     }
 
     @Test
     func `toggle does not crash without PiP support`() {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.lifecycleShared)
       let controller = PiPController(player: player)
       controller.toggle()
     }
 
     @Test
     func `Creating PiPController attaches vmem callbacks`() {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.lifecycleShared)
       let controller = PiPController(player: player)
       // If vmem callbacks were attached incorrectly, subsequent player
       // operations would crash. Verify the player is still usable.
@@ -92,7 +92,7 @@ extension Integration {
 
     @Test
     func `PiPController deinit cleans up without crash`() {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.lifecycleShared)
       do {
         let controller = PiPController(player: player)
         _ = controller.layer
@@ -105,8 +105,8 @@ extension Integration {
 
     @Test
     func `Multiple PiPControllers for different players`() {
-      let player1 = Player(instance: TestInstance.shared)
-      let player2 = Player(instance: TestInstance.shared)
+      let player1 = Player(instance: TestInstance.lifecycleShared)
+      let player2 = Player(instance: TestInstance.lifecycleShared)
       let controller1 = PiPController(player: player1)
       let controller2 = PiPController(player: player2)
       // Each controller should have its own independent layer
@@ -120,7 +120,7 @@ extension Integration {
 
     @Test
     func `isActive invalidates observation`() {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.lifecycleShared)
       let controller = PiPController(player: player)
       let fired = Mutex(false)
 
@@ -138,7 +138,7 @@ extension Integration {
 
     @Test
     func `isPossible invalidates observation`() {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.lifecycleShared)
       let controller = PiPController(player: player)
       let fired = Mutex(false)
       let nextValue = !controller.isPossible
@@ -159,11 +159,11 @@ extension Integration {
     func `delegate state queries are safe off the main thread`() async {
       guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
 
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.lifecycleShared)
       let controller = PiPController(player: player)
       let contentSource = AVPictureInPictureController.ContentSource(
         sampleBufferDisplayLayer: controller.layer,
-        playbackDelegate: controller
+        playbackDelegate: controller._playbackDelegateForTesting
       )
       let pip = AVPictureInPictureController(contentSource: contentSource)
 
@@ -190,7 +190,7 @@ extension Integration {
 
     @Test
     func `transient PiP pause then play does not send native pause or resume`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.lifecycleShared)
       try player.play(url: TestMedia.twosecURL)
       guard try await poll(until: { player.state == .playing }) else {
         player.stop()
@@ -215,7 +215,7 @@ extension Integration {
 
     @Test
     func `PiP skip cancels pending pause and suppresses redundant resume`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.lifecycleShared)
       try player.play(url: TestMedia.twosecURL)
       guard try await poll(until: { player.state == .playing }) else {
         player.stop()

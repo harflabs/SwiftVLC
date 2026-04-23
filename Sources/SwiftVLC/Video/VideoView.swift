@@ -44,6 +44,14 @@ public struct VideoView: UIViewRepresentable {
 ///
 /// libVLC's `set_nsobject` creates its own rendering subview and adds it
 /// to the drawable view. We handle sublayer frame updates automatically.
+///
+/// Drawable ownership lives on ``Player`` via ``Player/setDrawable(_:)``;
+/// this surface only reports to the player when it is attached or
+/// detached. Routing the libVLC call through the player guarantees the
+/// view is strongly retained for the lifetime of the attachment, which
+/// keeps libVLC's asynchronous decode-thread reads of the drawable
+/// pointer safe even if UIKit releases the view before `dismantleUIView`
+/// runs.
 @MainActor
 final class VideoSurface: UIView {
   private weak var attachedPlayer: Player?
@@ -51,27 +59,24 @@ final class VideoSurface: UIView {
 
   func attach(to player: Player) {
     guard attachedPlayer !== player else { return }
-    if let attachedPlayer {
-      libvlc_media_player_set_nsobject(attachedPlayer.pointer, nil)
-    }
+    attachedPlayer?.setDrawable(nil)
     attachedPlayer = player
-    let viewPtr = Unmanaged.passUnretained(self).toOpaque()
-    libvlc_media_player_set_nsobject(player.pointer, viewPtr)
+    player.setDrawable(self)
   }
 
   func detach() {
     guard let player = attachedPlayer else { return }
-    libvlc_media_player_set_nsobject(player.pointer, nil)
+    player.setDrawable(nil)
     attachedPlayer = nil
   }
 
   override func layoutSubviews() {
     super.layoutSubviews()
 
-    // First valid layout: trigger attach if still pending.
+    // First valid layout: re-assert the drawable so libVLC can attach
+    // its rendering subview once we have non-zero bounds.
     if let player = attachedPlayer, lastBounds == .zero, bounds.width > 0 {
-      let viewPtr = Unmanaged.passUnretained(self).toOpaque()
-      libvlc_media_player_set_nsobject(player.pointer, viewPtr)
+      player.setDrawable(self)
     }
 
     // Keep VLC's rendering sublayer sized to our bounds
@@ -121,6 +126,10 @@ public struct VideoView: NSViewRepresentable {
   }
 }
 
+/// AppKit counterpart to the UIKit `VideoSurface`. Same ownership
+/// model: the surface delegates drawable attachment to
+/// ``Player/setDrawable(_:)``, which retains the view for the duration
+/// of the attachment so libVLC's decode-thread reads never outlive it.
 @MainActor
 final class VideoSurface: NSView {
   private weak var attachedPlayer: Player?
@@ -128,17 +137,14 @@ final class VideoSurface: NSView {
 
   func attach(to player: Player) {
     guard attachedPlayer !== player else { return }
-    if let attachedPlayer {
-      libvlc_media_player_set_nsobject(attachedPlayer.pointer, nil)
-    }
+    attachedPlayer?.setDrawable(nil)
     attachedPlayer = player
-    let viewPtr = Unmanaged.passUnretained(self).toOpaque()
-    libvlc_media_player_set_nsobject(player.pointer, viewPtr)
+    player.setDrawable(self)
   }
 
   func detach() {
     guard let player = attachedPlayer else { return }
-    libvlc_media_player_set_nsobject(player.pointer, nil)
+    player.setDrawable(nil)
     attachedPlayer = nil
   }
 

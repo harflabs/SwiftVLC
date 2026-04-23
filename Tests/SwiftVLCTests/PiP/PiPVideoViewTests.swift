@@ -22,13 +22,13 @@ extension Integration {
   @MainActor struct PiPVideoViewTests {
     @Test
     func `Init without binding does not crash`() {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.lifecycleShared)
       _ = PiPVideoView(player)
     }
 
     @Test
     func `Init with controller binding does not crash`() {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.lifecycleShared)
       let storage = Box<PiPController?>(nil)
       let binding = Binding<PiPController?>(
         get: { storage.value },
@@ -39,7 +39,7 @@ extension Integration {
 
     @Test
     func `makeCoordinator returns a usable Coordinator`() {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.lifecycleShared)
       let view = PiPVideoView(player)
 
       let coordinator = view.makeCoordinator()
@@ -53,7 +53,7 @@ extension Integration {
     /// controller to stop, no layer to remove.
     @Test
     func `dismantle on empty coordinator is a no-op`() {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.lifecycleShared)
       let view = PiPVideoView(player)
       let coordinator = view.makeCoordinator()
 
@@ -70,7 +70,7 @@ extension Integration {
     /// all coordinator references.
     @Test
     func `dismantle with attached controller clears state`() {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.lifecycleShared)
       let view = PiPVideoView(player)
       let coordinator = view.makeCoordinator()
 
