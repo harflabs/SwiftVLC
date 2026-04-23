@@ -156,14 +156,14 @@ cd SwiftVLC
 swift test
 ```
 
-`setup-dev.sh` downloads `libvlc.xcframework.zip` from the latest release into `Vendor/`. `Package.swift` on every branch points at that local path, so no manifest edits are needed before building.
+`main` tracks the latest released `url + checksum` form of the libVLC binary target, and the Showcase app tracks that same Swift package release. `setup-dev.sh` downloads `libvlc.xcframework.zip` into `Vendor/` and flips your checkout back to repo-local sources so package development and the Showcase app both build against what is on disk.
 
 | `setup-dev.sh` flag | Effect |
 |---|---|
 | *(none)* | Download the latest release if `Vendor/` is empty; otherwise keep existing. |
 | `vX.Y.Z` *(positional)* | Pin to a specific release tag. |
 | `--force` | Re-download even if `Vendor/` already exists. |
-| `--skip-download` | Only flip `Package.swift` to local path. Expects `Vendor/` to already exist, which is useful after running `build-libvlc.sh`. |
+| `--skip-download` | Only flip local references (`Package.swift` and the Showcase app). Expects `Vendor/` to already exist, which is useful after running `build-libvlc.sh`. |
 
 ## Building libVLC from Source
 
@@ -203,7 +203,7 @@ VLC master doesn't build cleanly against current Xcode and Homebrew libtool. The
 
 ## Releasing
 
-Releases use a **tag-only** model: the commit that pins `Package.swift` to the remote xcframework URL exists only under the tag, never on a branch. Every branch stays ready for `setup-dev.sh && swift build`.
+Releases advance `main`: `release.sh` rewrites `Package.swift` to the new remote xcframework URL + checksum, pins the Showcase app to that exact SwiftVLC version, tags that commit, uploads the zip as a GitHub Release asset, and then pushes `main` to that same commit. `setup-dev.sh` is what flips a working checkout back to local sources for day-to-day development.
 
 ```bash
 ./scripts/build-libvlc.sh --all          # produces Vendor/libvlc.xcframework
@@ -216,13 +216,13 @@ What `release.sh` does:
 1. Verifies all six platform slices are present in the xcframework.
 2. Copies it to a temp dir, strips debug symbols, zips with `ditto`.
 3. Computes SHA-256 via `swift package compute-checksum`.
-4. Creates a detached commit with `Package.swift` rewritten to the remote URL and checksum.
-5. Tags that commit as `vX.Y.Z`.
-6. Resets the branch back to its previous HEAD; the commit survives only as the tag.
-7. Pushes the tag (never the branch).
-8. Uploads the zip to a new GitHub Release.
+4. Rewrites `Package.swift` to the remote URL and checksum, and pins the Showcase app to `SwiftVLC` exact version `X.Y.Z`.
+5. Commits that change and tags it as `vX.Y.Z`.
+6. Pushes the tag first so GitHub can attach the release asset to that exact commit.
+7. Uploads the zip to a new GitHub Release.
+8. Pushes `main` to the same commit, so `main` always references the latest published xcframework and Showcase package version.
 
-Preflight refuses non-`main` branches (`--allow-dirty-branch` to override), pre-existing local tags, and unauthenticated `gh`. If any later step fails, the EXIT trap resets the branch to its pre-release HEAD so nothing is left dangling.
+Preflight refuses non-`main` branches (`--allow-dirty-branch` to override), uncommitted changes in `Package.swift` or the Showcase project, pre-existing local or remote tags, and unauthenticated `gh`. If the tag push succeeds but a later step fails, `origin/main` is still untouched; finish the GitHub Release (or delete the tag) before retrying.
 
 ## Architecture
 

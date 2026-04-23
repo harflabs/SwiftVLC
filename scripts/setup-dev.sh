@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
 #
 # setup-dev.sh — Install the libvlc xcframework locally and point
-# Package.swift at it, so `swift build` / `swift test` work on a fresh clone.
+# Package.swift plus the Showcase app at repo-local sources, so `swift build`
+# / `swift test` and local Showcase development work on a fresh clone.
 #
 # Usage:
 #   ./scripts/setup-dev.sh                  # install latest release (or keep existing)
 #   ./scripts/setup-dev.sh v0.3.0           # pin to a specific release tag
 #   ./scripts/setup-dev.sh --force          # always re-download, even if Vendor/ exists
-#   ./scripts/setup-dev.sh --skip-download  # only flip Package.swift to local path
+#   ./scripts/setup-dev.sh --skip-download  # only flip local references
 #                                             (useful after ./scripts/build-libvlc.sh)
 #
 set -euo pipefail
 
 REPO="harflabs/SwiftVLC"
 XCFW_DIR="Vendor/libvlc.xcframework"
+SHOWCASE_PROJECT="Showcase/SwiftVLCShowcase.xcodeproj/project.pbxproj"
 ZIP_NAME="libvlc.xcframework.zip"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -73,6 +75,66 @@ if result == text:
     sys.exit(0)
 
 fd, tmp = tempfile.mkstemp(dir=".", prefix=".Package.swift.", suffix=".tmp")
+try:
+    with os.fdopen(fd, "w") as f:
+        f.write(result)
+    os.replace(tmp, path)
+except Exception:
+    if os.path.exists(tmp):
+        os.unlink(tmp)
+    raise
+PYEOF
+}
+
+switch_showcase_to_local_package() {
+  python3 - <<'PYEOF'
+import os
+import re
+import sys
+import tempfile
+
+path = "Showcase/SwiftVLCShowcase.xcodeproj/project.pbxproj"
+
+with open(path, "r") as f:
+    text = f.read()
+
+local_block = """/* Begin XCLocalSwiftPackageReference section */
+\t\tBA000001 /* XCLocalSwiftPackageReference \"..\" */ = {
+\t\t\tisa = XCLocalSwiftPackageReference;
+\t\t\trelativePath = ..;
+\t\t};
+/* End XCLocalSwiftPackageReference section */"""
+
+remote_pattern = re.compile(
+    r'/\* Begin XCRemoteSwiftPackageReference section \*/\n'
+    r'\t\tBA000001 /\* XCRemoteSwiftPackageReference "SwiftVLC" \*/ = \{\n'
+    r'\t\t\tisa = XCRemoteSwiftPackageReference;\n'
+    r'\t\t\trepositoryURL = "https://github.com/harflabs/SwiftVLC";\n'
+    r'\t\t\trequirement = \{\n'
+    r'\t\t\t\tkind = (?:upToNextMajorVersion|exactVersion);\n'
+    r'\t\t\t\t(?:minimumVersion|version) = [0-9.]+;\n'
+    r'\t\t\t\};\n'
+    r'\t\t\};\n'
+    r'/\* End XCRemoteSwiftPackageReference section \*/'
+)
+
+if local_block in text:
+    result = text
+else:
+    result, n = remote_pattern.subn(local_block, text, count=1)
+    if n == 0:
+        print("ERROR: Showcase package reference block not found", file=sys.stderr)
+        sys.exit(1)
+
+result = result.replace(
+    'BA000001 /* XCRemoteSwiftPackageReference "SwiftVLC" */',
+    'BA000001 /* XCLocalSwiftPackageReference ".." */',
+)
+
+if result == text:
+    sys.exit(0)
+
+fd, tmp = tempfile.mkstemp(dir=".", prefix=".SwiftVLCShowcase.", suffix=".tmp")
 try:
     with os.fdopen(fd, "w") as f:
         f.write(result)
@@ -144,6 +206,10 @@ fi
 echo "Pointing Package.swift at $XCFW_DIR..."
 switch_package_to_local_path
 echo "  Package.swift now uses local path."
+
+echo "Pointing Showcase app at the local Swift package checkout..."
+switch_showcase_to_local_package
+echo "  Showcase now uses the repo-local package."
 
 echo ""
 echo "Done. Try:"

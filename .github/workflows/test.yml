@@ -59,11 +59,11 @@ jobs:
         timeout-minutes: 1
         run: xcrun --toolchain "$TOOLCHAINS" swift --version
 
-      # Branches use the local-path form of binaryTarget. On CI we want to
-      # test against the last published xcframework (what SPM consumers get),
-      # so rewrite Package.swift's binaryTarget to the url+checksum form
-      # from the latest release. Only the binaryTarget line changes —
-      # branch edits elsewhere in Package.swift are preserved.
+      # CI should always test against the last published xcframework (what
+      # SPM consumers get), regardless of whether the checkout currently
+      # points at Vendor/ for local dev or already carries a release URL.
+      # Only the libvlc binaryTarget is rewritten; other Package.swift
+      # edits are preserved.
       - name: Point Package.swift at last released xcframework
         id: xcf
         timeout-minutes: 1

@@ -5,7 +5,7 @@
 # Prerequisites:
 #   - ./scripts/build-libvlc.sh --all  (produces Vendor/libvlc.xcframework)
 #   - gh authed (gh auth login)
-#   - Clean working tree on main (unless --allow-dirty-branch)
+#   - Clean Package.swift + Showcase project on main (unless --allow-dirty-branch)
 #
 # Usage:
 #   ./scripts/release.sh 0.1.0
@@ -16,10 +16,11 @@ set -euo pipefail
 
 REPO="harflabs/SwiftVLC"
 XCFW_PATH="Vendor/libvlc.xcframework"
+SHOWCASE_PROJECT="Showcase/SwiftVLCShowcase.xcodeproj/project.pbxproj"
 ZIP_NAME="libvlc.xcframework.zip"
 MAX_SIZE=$((2 * 1024 * 1024 * 1024))  # 2 GB (GitHub release asset limit)
 
-# All 5 slices the xcframework must contain. If a slice is missing, the
+# All 6 slices the xcframework must contain. If a slice is missing, the
 # release would ship a partial artifact that fails on one of iOS/tvOS/macOS/Catalyst.
 EXPECTED_SLICES=(
   "ios-arm64"
@@ -66,6 +67,116 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT_DIR"
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+switch_package_to_release_url() {
+  RELEASE_URL="$RELEASE_URL" CHECKSUM="$CHECKSUM" python3 - <<'PYEOF'
+import os
+import re
+import sys
+import tempfile
+
+url = os.environ["RELEASE_URL"]
+checksum = os.environ["CHECKSUM"]
+path = "Package.swift"
+
+with open(path, "r") as f:
+    text = f.read()
+
+pattern = r'\.binaryTarget\(\s*name:\s*"libvlc"[^)]*\)'
+replacement = (
+    '.binaryTarget(\n'
+    '      name: "libvlc",\n'
+    f'      url: "{url}",\n'
+    f'      checksum: "{checksum}"\n'
+    '    )'
+)
+result, n = re.subn(pattern, replacement, text, count=1, flags=re.DOTALL)
+if n == 0:
+    print("ERROR: binaryTarget pattern not found in Package.swift", file=sys.stderr)
+    sys.exit(1)
+
+fd, tmp = tempfile.mkstemp(dir=".", prefix=".Package.swift.", suffix=".tmp")
+try:
+    with os.fdopen(fd, "w") as f:
+        f.write(result)
+    os.replace(tmp, path)
+except Exception:
+    if os.path.exists(tmp):
+        os.unlink(tmp)
+    raise
+PYEOF
+}
+
+switch_showcase_to_release_version() {
+  RELEASE_VERSION="$VERSION" python3 - <<'PYEOF'
+import os
+import re
+import sys
+import tempfile
+
+version = os.environ["RELEASE_VERSION"]
+path = "Showcase/SwiftVLCShowcase.xcodeproj/project.pbxproj"
+
+with open(path, "r") as f:
+    text = f.read()
+
+local_block = """/* Begin XCLocalSwiftPackageReference section */
+\t\tBA000001 /* XCLocalSwiftPackageReference \"..\" */ = {
+\t\t\tisa = XCLocalSwiftPackageReference;
+\t\t\trelativePath = ..;
+\t\t};
+/* End XCLocalSwiftPackageReference section */"""
+
+remote_block = f"""/* Begin XCRemoteSwiftPackageReference section */
+\t\tBA000001 /* XCRemoteSwiftPackageReference \"SwiftVLC\" */ = {{
+\t\t\tisa = XCRemoteSwiftPackageReference;
+\t\t\trepositoryURL = \"https://github.com/harflabs/SwiftVLC\";
+\t\t\trequirement = {{
+\t\t\t\tkind = exactVersion;
+\t\t\t\tversion = {version};
+\t\t\t}};
+\t\t}};
+/* End XCRemoteSwiftPackageReference section */"""
+
+remote_pattern = re.compile(
+    r'/\* Begin XCRemoteSwiftPackageReference section \*/\n'
+    r'\t\tBA000001 /\* XCRemoteSwiftPackageReference "SwiftVLC" \*/ = \{\n'
+    r'\t\t\tisa = XCRemoteSwiftPackageReference;\n'
+    r'\t\t\trepositoryURL = "https://github.com/harflabs/SwiftVLC";\n'
+    r'\t\t\trequirement = \{\n'
+    r'\t\t\t\tkind = (?:upToNextMajorVersion|exactVersion);\n'
+    r'\t\t\t\t(?:minimumVersion|version) = [0-9.]+;\n'
+    r'\t\t\t\};\n'
+    r'\t\t\};\n'
+    r'/\* End XCRemoteSwiftPackageReference section \*/'
+)
+
+if local_block in text:
+    result = text.replace(local_block, remote_block, 1)
+else:
+    result, n = remote_pattern.subn(remote_block, text, count=1)
+    if n == 0:
+        print("ERROR: Showcase package reference block not found", file=sys.stderr)
+        sys.exit(1)
+
+result = result.replace(
+    'BA000001 /* XCLocalSwiftPackageReference ".." */',
+    'BA000001 /* XCRemoteSwiftPackageReference "SwiftVLC" */',
+)
+
+fd, tmp = tempfile.mkstemp(dir=".", prefix=".SwiftVLCShowcase.", suffix=".tmp")
+try:
+    with os.fdopen(fd, "w") as f:
+        f.write(result)
+    os.replace(tmp, path)
+except Exception:
+    if os.path.exists(tmp):
+        os.unlink(tmp)
+    raise
+PYEOF
+}
+
 # ── Preflight ─────────────────────────────────────────────────────────────────
 
 if [[ ! -d "$XCFW_PATH" ]]; then
@@ -98,8 +209,9 @@ if [[ "$DRY_RUN" == false ]]; then
     exit 1
   fi
 
-  if [[ -n "$(git status --porcelain Package.swift)" ]]; then
-    echo "Error: Package.swift has uncommitted changes. Commit or stash first." >&2
+  if [[ -n "$(git status --porcelain -- Package.swift "$SHOWCASE_PROJECT")" ]]; then
+    echo "Error: Package.swift or $SHOWCASE_PROJECT has uncommitted changes." >&2
+    echo "  Commit or stash them first." >&2
     exit 1
   fi
 
@@ -117,28 +229,25 @@ if [[ "$DRY_RUN" == false ]]; then
     echo "    git tag -d $TAG && git push origin :refs/tags/$TAG" >&2
     exit 1
   fi
-fi
 
-ORIGINAL_HEAD=""
-RELEASE_COMPLETE=false
-
-# Cleanup on error or interrupt: if we made a temp commit but didn't finish the
-# release, reset the branch back so the user's working state is undamaged. The
-# local tag (if created) is left alone — user can decide whether to retry or
-# delete it.
-cleanup_on_exit() {
-  if [[ "$RELEASE_COMPLETE" == true ]]; then return; fi
-  if [[ -n "$ORIGINAL_HEAD" ]] && [[ "$(git rev-parse HEAD 2>/dev/null)" != "$ORIGINAL_HEAD" ]]; then
-    echo ""
-    echo "Release aborted. Restoring branch to $ORIGINAL_HEAD..." >&2
-    git reset --hard "$ORIGINAL_HEAD" >/dev/null 2>&1 || true
+  if git ls-remote --exit-code --tags origin "refs/tags/$TAG" &>/dev/null; then
+    echo "Error: tag '$TAG' already exists on origin." >&2
+    echo "  Finish that release or delete the remote tag before retrying:" >&2
+    echo "    git push origin :refs/tags/$TAG" >&2
+    exit 1
   fi
-}
+
+  if gh release view "$TAG" --repo "$REPO" &>/dev/null; then
+    echo "Error: GitHub Release '$TAG' already exists." >&2
+    echo "  Delete it first or pick a new version." >&2
+    exit 1
+  fi
+fi
 
 # ── Strip ─────────────────────────────────────────────────────────────────────
 
 WORK_DIR=$(mktemp -d)
-trap 'rm -rf "$WORK_DIR"; cleanup_on_exit' EXIT
+trap 'rm -rf "$WORK_DIR"' EXIT
 
 echo "Copying xcframework to temp dir..."
 cp -R "$XCFW_PATH" "$WORK_DIR/libvlc.xcframework"
@@ -192,89 +301,57 @@ if [[ "$DRY_RUN" == true ]]; then
   echo "    url: \"$RELEASE_URL\","
   echo "    checksum: \"$CHECKSUM\""
   echo "  )"
+  echo ""
+  echo "Showcase package requirement:"
+  echo "  kind = exactVersion"
+  echo "  version = $VERSION"
   exit 0
 fi
 
-# ── Tag-only release: detached commit, nothing lands on main ────────────────
+# ── Release commit on main ───────────────────────────────────────────────────
 #
-# main (and every branch) stays on the local-path binaryTarget form so that
-# `git clone && ./scripts/setup-dev.sh && swift build` just works. The tag
-# itself points at a one-off commit where Package.swift has been rewritten
-# to the remote url+checksum form — that's the commit SPM sees when a
-# consumer pins by version.
+# main should always resolve the most recently published xcframework, and the
+# Showcase app should always resolve the matching Swift package release. Local
+# development can flip both back to repo-local sources via `setup-dev.sh`.
 #
 # Mechanics:
-#   1. Record the current HEAD.
-#   2. Rewrite Package.swift to url+checksum, commit.
-#   3. Tag that commit.
-#   4. `git reset --hard` the branch back to step 1's HEAD — wipes the
-#      commit from branch history, but the tag keeps it alive.
-#   5. Push the tag only (never `git push origin HEAD`).
+#   1. Rewrite Package.swift and the Showcase app, commit, and tag.
+#   2. Push the tag first so GitHub can attach the release asset to the exact
+#      commit without advancing origin/main yet.
+#   3. Create the GitHub Release and upload the zip.
+#   4. Fast-forward origin/main to the same commit, so main always points at
+#      the latest published binary and Showcase package version.
 #
-# If any step fails, the EXIT trap resets the branch so you're never left
-# with a dangling dev-only commit on main.
-
-ORIGINAL_HEAD=$(git rev-parse HEAD)
+# If the tag push succeeds but later steps fail, origin/main is still untouched.
+# Finish the GitHub Release (or delete the tag) and then retry the main push.
 
 echo ""
-echo "Creating temp release commit (will not be pushed to $CURRENT_BRANCH)..."
+echo "Creating release commit on $CURRENT_BRANCH..."
 
-# Atomic write: tempfile + os.replace, so an interrupted rewrite can't corrupt
-# the manifest.
-RELEASE_URL="$RELEASE_URL" CHECKSUM="$CHECKSUM" python3 - <<'PYEOF'
-import os
-import re
-import sys
-import tempfile
+echo "Pointing Package.swift at $RELEASE_URL..."
+switch_package_to_release_url
 
-url = os.environ["RELEASE_URL"]
-checksum = os.environ["CHECKSUM"]
-path = "Package.swift"
-
-with open(path, "r") as f:
-    text = f.read()
-
-pattern = r'\.binaryTarget\(\s*name:\s*"libvlc"[^)]*\)'
-replacement = (
-    '.binaryTarget(\n'
-    '      name: "libvlc",\n'
-    f'      url: "{url}",\n'
-    f'      checksum: "{checksum}"\n'
-    '    )'
-)
-result, n = re.subn(pattern, replacement, text, count=1, flags=re.DOTALL)
-if n == 0:
-    print("ERROR: binaryTarget pattern not found in Package.swift", file=sys.stderr)
-    sys.exit(1)
-
-fd, tmp = tempfile.mkstemp(dir=".", prefix=".Package.swift.", suffix=".tmp")
-try:
-    with os.fdopen(fd, "w") as f:
-        f.write(result)
-    os.replace(tmp, path)
-except Exception:
-    if os.path.exists(tmp):
-        os.unlink(tmp)
-    raise
-PYEOF
+echo "Pointing Showcase app at SwiftVLC $TAG..."
+switch_showcase_to_release_version
 
 # Sanity-check: a corrupted regex result would wipe the rest of Package.swift.
 if ! grep -q 'name: "CLibVLC"' Package.swift; then
   echo "Error: Package.swift corrupted — CLibVLC target missing." >&2
-  # cleanup_on_exit will restore via git reset on EXIT
   exit 1
 fi
 
-git add Package.swift
-git commit --quiet -m "Release $TAG (detached — not on $CURRENT_BRANCH)"
+if ! grep -q 'kind = exactVersion;' "$SHOWCASE_PROJECT"; then
+  echo "Error: Showcase project was not pinned to an exact SwiftVLC version." >&2
+  exit 1
+fi
+
+git add Package.swift "$SHOWCASE_PROJECT"
+git commit --quiet -m "Release $TAG"
 TAG_COMMIT=$(git rev-parse HEAD)
 git tag "$TAG" "$TAG_COMMIT"
 
-# Restore the branch — the tag now holds the only reference to the commit above.
-git reset --hard "$ORIGINAL_HEAD" >/dev/null
-
 echo "  Tag $TAG → $TAG_COMMIT (Package.swift pinned to $RELEASE_URL)"
-echo "  Branch $CURRENT_BRANCH restored to $ORIGINAL_HEAD"
+echo "  Showcase app → exactVersion $VERSION"
 
 echo "Pushing tag..."
 git push origin "$TAG"
@@ -297,6 +374,11 @@ Pre-built static xcframework for libVLC 4.0.
 SPM resolves this automatically — just add the package dependency.
 EOF
 )"
+
+echo "Pushing $CURRENT_BRANCH to origin/main..."
+git push origin HEAD:main
+
+echo "  origin/main → $TAG_COMMIT"
 
 echo ""
 echo "Release $TAG published: https://github.com/$REPO/releases/tag/$TAG"
