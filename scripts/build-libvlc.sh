@@ -384,32 +384,13 @@ content = content.replace(
     '    local vlc_cppflags'
 )
 
-# 6. Add --target to CPPFLAGS in set_host_envvars() so packages that
-#    override CFLAGS (like gsm) still get the macabi target via CPPFLAGS
-content = content.replace(
-    '    export CPPFLAGS="-arch $VLC_HOST_ARCH -isysroot $VLC_APPLE_SDK_PATH"\n'
-    '\n'
-    '    export CFLAGS="$clike_flags"',
-    '    export CPPFLAGS="-arch $VLC_HOST_ARCH -isysroot $VLC_APPLE_SDK_PATH"\n'
-    '    if [ "${VLC_BUILD_CATALYST:-0}" -gt "0" ]; then\n'
-    '        CPPFLAGS="$VLC_DEPLOYMENT_TARGET_CFLAG $CPPFLAGS"\n'
-    '    fi\n'
-    '\n'
-    '    export CFLAGS="$clike_flags"'
-)
+# NOTE: The previous patches #6 and #7 used to conditionally add
+# VLC_DEPLOYMENT_TARGET_CFLAG to CPPFLAGS for Catalyst only. That fix is now
+# unconditional (all platforms) via patch_vlc_cppflags_version_min below,
+# since contrib CFLAGS overrides (notably gsm) leak the host SDK's default
+# minos into every simulator/device build, not just Catalyst.
 
-# 7. Add --target to vlc_cppflags in write_config_mak() for contribs
-content = content.replace(
-    '    local vlc_cppflags="-arch $VLC_HOST_ARCH -isysroot $VLC_APPLE_SDK_PATH"\n'
-    '    local vlc_cflags="$clike_flags"',
-    '    local vlc_cppflags="-arch $VLC_HOST_ARCH -isysroot $VLC_APPLE_SDK_PATH"\n'
-    '    if [ "${VLC_BUILD_CATALYST:-0}" -gt "0" ]; then\n'
-    '        vlc_cppflags="$VLC_DEPLOYMENT_TARGET_CFLAG $vlc_cppflags"\n'
-    '    fi\n'
-    '    local vlc_cflags="$clike_flags"'
-)
-
-# 8. Add Catalyst-specific VLC configure options (disable GLES2/EGL
+# 6. Add Catalyst-specific VLC configure options (disable GLES2/EGL
 #    since OpenGLES is not available on Mac Catalyst)
 content = content.replace(
     'if [ "$VLC_DISABLE_DEBUG" -gt "0" ]; then\n'
@@ -422,7 +403,7 @@ content = content.replace(
     '    VLC_CONFIG_OPTIONS+=( "--disable-debug" )'
 )
 
-# 8b. Add Catalyst-specific module removal list. Modules wrapped in
+# 6b. Add Catalyst-specific module removal list. Modules wrapped in
 #     #if !TARGET_OS_MACCATALYST compile to empty .a files that would
 #     crash the static module list generator.
 content = content.replace(
@@ -438,7 +419,7 @@ content = content.replace(
     'fi'
 )
 
-# 9. Patch gl_common.h to treat Catalyst like macOS for OpenGL includes.
+# 7. Patch gl_common.h to treat Catalyst like macOS for OpenGL includes.
 #    On Catalyst, TARGET_OS_IPHONE=1 but OpenGLES headers are unavailable.
 #    Using macOS OpenGL headers allows GL modules to compile (they may not
 #    initialize at runtime, but VLC falls back to other video outputs).
@@ -462,7 +443,7 @@ except Exception as e:
 with open(build_sh_path, 'w') as f:
     f.write(content)
 
-# 10. Patch interop_cvpx.m: On Catalyst, TARGET_OS_IPHONE=1 but OpenGLES
+# 8. Patch interop_cvpx.m: On Catalyst, TARGET_OS_IPHONE=1 but OpenGLES
 #     is unavailable. Replace ALL #if TARGET_OS_IPHONE guards so Catalyst
 #     takes the macOS (CGL/IOSurface) code path instead of the EAGL path.
 modules_dir = build_sh_path.replace('extras/package/apple/build.sh', 'modules/')
@@ -480,7 +461,7 @@ try:
 except Exception as e:
     print(f'Warning: Could not patch interop_cvpx.m: {e}')
 
-# 11. Patch VLCCVOpenGLProvider.m: both CVOpenGLES (iOS) and CVOpenGL (macOS)
+# 9. Patch VLCCVOpenGLProvider.m: both CVOpenGLES (iOS) and CVOpenGL (macOS)
 #     texture cache APIs are API_UNAVAILABLE(macCatalyst). Disable the entire
 #     module on Catalyst — VLC will use other video output paths (Metal/CALayer).
 cvgl_path = modules_dir + 'video_output/apple/VLCCVOpenGLProvider.m'
@@ -494,7 +475,7 @@ try:
 except Exception as e:
     print(f'Warning: Could not patch VLCCVOpenGLProvider.m: {e}')
 
-# 12. Patch VLCOpenGLES2VideoView.m: entire file is EAGL/OpenGLES iOS view.
+# 10. Patch VLCOpenGLES2VideoView.m: entire file is EAGL/OpenGLES iOS view.
 #     Wrap everything in #if !TARGET_OS_MACCATALYST so it compiles to empty .o
 eagl_path = modules_dir + 'video_output/apple/VLCOpenGLES2VideoView.m'
 try:
@@ -507,7 +488,7 @@ try:
 except Exception as e:
     print(f'Warning: Could not patch VLCOpenGLES2VideoView.m: {e}')
 
-# 13. Patch ci_filters.m: uses #if !TARGET_OS_IPHONE for CGL vs EAGL.
+# 11. Patch ci_filters.m: uses #if !TARGET_OS_IPHONE for CGL vs EAGL.
 #     On Catalyst, we want the CGL (macOS) path since OpenGLES is unavailable.
 ci_path = modules_dir + 'video_filter/ci_filters.m'
 try:
@@ -531,7 +512,7 @@ try:
 except Exception as e:
     print(f'Warning: Could not patch ci_filters.m: {e}')
 
-# 14. Patch decoder.c (videotoolbox): kCVPixelBufferOpenGLESCompatibilityKey
+# 12. Patch decoder.c (videotoolbox): kCVPixelBufferOpenGLESCompatibilityKey
 #     is API_UNAVAILABLE(macCatalyst). Add !TARGET_OS_MACCATALYST guard.
 decoder_path = modules_dir + 'codec/videotoolbox/decoder.c'
 try:
@@ -551,7 +532,7 @@ try:
 except Exception as e:
     print(f'Warning: Could not patch decoder.c: {e}')
 
-# 15. Patch VLCSampleBufferDisplay.m: same kCVPixelBufferOpenGLESCompatibilityKey
+# 13. Patch VLCSampleBufferDisplay.m: same kCVPixelBufferOpenGLESCompatibilityKey
 #     issue, but uses matched arrays (keys[] and values[]) that must stay in sync.
 sbd_path = modules_dir + 'video_output/apple/VLCSampleBufferDisplay.m'
 try:
@@ -689,6 +670,72 @@ PYEOF
 }
 
 patch_vlc_ldflags
+
+# Propagate VLC_DEPLOYMENT_TARGET_CFLAG through CPPFLAGS so contribs that
+# override CFLAGS (notably `gsm` — see contrib/src/gsm/rules.mak, which sets
+# its own CFLAGS via the `Makefile` overrides shipped with the gsm source)
+# still receive the platform version-min flag. Without this, those contribs
+# compile with the host SDK's default minos, producing LC_BUILD_VERSION
+# entries like `minos 26.4` inside a library meant for deployment target
+# 18.0 — the linker then warns "built for newer 'X' version than being linked".
+#
+# autotools and most contrib Makefiles pass CPPFLAGS to the compiler alongside
+# CFLAGS, so adding the flag here survives a CFLAGS-override in a contrib.
+patch_vlc_cppflags_version_min() {
+    local BUILD_SH="${VLC_SRC}/extras/package/apple/build.sh"
+
+    # Use a fixed-string (-F) check tied to this patch's exact output, so an
+    # older Catalyst-only variant (which wrote `CPPFLAGS="$VLC_DEPLOYMENT_TARGET_CFLAG $CPPFLAGS"`
+    # inside an `if` block) doesn't false-positive and skip the unconditional
+    # fix that device + simulator + macOS slices need.
+    if grep -qF 'export CPPFLAGS="$VLC_DEPLOYMENT_TARGET_CFLAG -arch' "$BUILD_SH"; then
+        info "VLC build.sh CPPFLAGS already patched for version-min"
+        return 0
+    fi
+
+    info "Patching VLC build.sh to add version-min to CPPFLAGS..."
+
+    python3 - "$BUILD_SH" << 'PYEOF'
+import sys
+
+build_sh_path = sys.argv[1]
+
+with open(build_sh_path, 'r') as f:
+    content = f.read()
+
+# set_host_envvars(): CPPFLAGS used by contribs that inherit the exported env.
+before = (
+    '    export CPPFLAGS="-arch $VLC_HOST_ARCH -isysroot $VLC_APPLE_SDK_PATH"\n'
+)
+after = (
+    '    export CPPFLAGS="$VLC_DEPLOYMENT_TARGET_CFLAG -arch $VLC_HOST_ARCH -isysroot $VLC_APPLE_SDK_PATH"\n'
+)
+if before not in content:
+    raise SystemExit('set_host_envvars CPPFLAGS line not found — VLC build.sh shape changed')
+content = content.replace(before, after, 1)
+
+# write_config_mak(): vlc_cppflags written into config.mak for contribs that
+# consume the mak file directly instead of the exported env.
+before = (
+    '    local vlc_cppflags="-arch $VLC_HOST_ARCH -isysroot $VLC_APPLE_SDK_PATH"\n'
+)
+after = (
+    '    local vlc_cppflags="$VLC_DEPLOYMENT_TARGET_CFLAG -arch $VLC_HOST_ARCH -isysroot $VLC_APPLE_SDK_PATH"\n'
+)
+if before not in content:
+    raise SystemExit('write_config_mak vlc_cppflags line not found — VLC build.sh shape changed')
+content = content.replace(before, after, 1)
+
+with open(build_sh_path, 'w') as f:
+    f.write(content)
+
+print('CPPFLAGS version-min patched successfully')
+PYEOF
+
+    info "VLC build.sh CPPFLAGS patched"
+}
+
+patch_vlc_cppflags_version_min
 
 patch_vlc_deployment_targets() {
     local BUILD_CONF="${VLC_SRC}/extras/package/apple/build.conf"
@@ -1055,6 +1102,68 @@ find "${OUTPUT_DIR}/libvlc.xcframework" -name "CLibVLC.h" -delete
 info "Created: ${OUTPUT_DIR}/libvlc.xcframework"
 
 # --- Step 5: Verify ---
+#
+# Fail the build if any object file in the xcframework has an LC_BUILD_VERSION
+# with `minos` exceeding the slice's expected deployment target. A contrib
+# that slips the host-SDK default into its objects (see the gsm/CPPFLAGS
+# fix above) would otherwise ship silently and trip the Apple linker with
+# "built for newer 'X' version (Y) than being linked (Z)" warnings in every
+# consumer project. Running this check at build time catches regressions
+# here instead of in user feedback.
+verify_deployment_targets() {
+    info "Verifying deployment-target minimums in xcframework..."
+
+    # slice_dir:expected_min_version — keep in sync with the SWIFTVLC_MIN_*
+    # values above and the xcframework slice naming xcodebuild emits.
+    local slices=(
+        "ios-arm64:${SWIFTVLC_MIN_IOS}"
+        "ios-arm64_x86_64-simulator:${SWIFTVLC_MIN_IOS}"
+        "tvos-arm64:${SWIFTVLC_MIN_TVOS}"
+        "tvos-arm64_x86_64-simulator:${SWIFTVLC_MIN_TVOS}"
+        "macos-arm64_x86_64:${SWIFTVLC_MIN_MACOS}"
+        "ios-arm64_x86_64-maccatalyst:${SWIFTVLC_MIN_CATALYST}"
+    )
+
+    local had_failure=0
+    local slice_spec slice expected lib max_minos highest
+    for slice_spec in "${slices[@]}"; do
+        slice="${slice_spec%%:*}"
+        expected="${slice_spec#*:}"
+        lib="${OUTPUT_DIR}/libvlc.xcframework/${slice}/libvlc.a"
+        [ -f "$lib" ] || continue
+
+        # The highest LC_BUILD_VERSION minos across all objects in the archive.
+        # LC_VERSION_MIN_IPHONEOS (legacy) is not inspected: ld prefers
+        # LC_BUILD_VERSION when present and that's what produces the warning.
+        max_minos=$(otool -l "$lib" 2>/dev/null \
+            | awk '/^[[:space:]]*cmd LC_BUILD_VERSION/{flag=1; next} flag && /^[[:space:]]*minos /{print $2; flag=0}' \
+            | sort -V | tail -1)
+
+        if [ -z "$max_minos" ]; then
+            warn "  ${slice}: no LC_BUILD_VERSION found (skipping)"
+            continue
+        fi
+
+        # Pick the higher of (max_minos, expected); if it's max_minos, fail.
+        highest=$(printf '%s\n%s\n' "$max_minos" "$expected" | sort -V | tail -1)
+        if [ "$highest" = "$expected" ]; then
+            info "  ${slice}: minos=${max_minos} <= deployment=${expected}"
+        else
+            warn "  ${slice}: minos=${max_minos} > deployment=${expected}"
+            warn "    A contrib compiled with the host-SDK default instead of"
+            warn "    SWIFTVLC_MIN_* — consumers will see ld warnings like"
+            warn "    'built for newer X-version than being linked'."
+            had_failure=1
+        fi
+    done
+
+    if [ "$had_failure" -eq 1 ]; then
+        error "Deployment-target verification failed (see warnings above)."
+    fi
+}
+
+verify_deployment_targets
+
 echo ""
 info "Build complete!"
 echo "  XCFramework: ${OUTPUT_DIR}/libvlc.xcframework"
