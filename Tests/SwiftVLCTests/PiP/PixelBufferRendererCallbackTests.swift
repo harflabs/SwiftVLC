@@ -172,14 +172,13 @@ extension Integration {
       let handle = withUnsafeMutablePointer(to: &plane) { planePtr in
         pixelBufferLockCallback(opaque: retained.toOpaque(), planes: planePtr)
       }
-      let pictureHandle = try? #require(handle)
       #expect(plane != nil)
 
       // Unlock must succeed regardless of opaque (it doesn't dereference it).
-      pixelBufferUnlockCallback(opaque: retained.toOpaque(), picture: pictureHandle, planes: nil)
+      pixelBufferUnlockCallback(opaque: retained.toOpaque(), picture: handle, planes: nil)
 
       // Balance the retain `pixelBufferLockCallback` performed internally.
-      if let h = pictureHandle {
+      if let h = handle {
         Unmanaged<AnyObject>.fromOpaque(h).release()
       }
 
