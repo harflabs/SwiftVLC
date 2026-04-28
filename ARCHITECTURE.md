@@ -651,7 +651,7 @@ That keeps the repository's default package state aligned with what downstream S
 .binaryTarget(name: "libvlc", path: "Vendor/libvlc.xcframework")
 ```
 
-The Showcase app follows the same split: published states pin `SwiftVLC` by exact release version, while `setup-dev.sh` rewrites the Xcode project to use the repo-local package checkout.
+The Showcase apps follow the same split: published states pin `SwiftVLC` by exact release version, while `setup-dev.sh` rewrites the Xcode project to use the repo-local package checkout.
 
 | Context | What `binaryTarget` looks like | Where the xcframework comes from |
 |---|---|---|
@@ -715,9 +715,15 @@ SwiftVLC/
 │   ├── Support/                    # TestMedia fixtures, Tag definitions
 │   └── Fixtures/                   # Bundled media files (~50 KB)
 │
-├── Showcase/                       # Full-featured demo app
-│   ├── Shared/                     # Reusable: SeekBar, TransportControls, StatusBar
-│   └── Demos/                      # PolishedPlayer, AudioPlayer, Playlist, PiP, DebugConsole
+├── Showcase/                       # Platform showcase apps
+│   ├── Shared/                     # Launch-arg and accessibility contracts shared with UI tests
+│   ├── iOS/                        # Full-featured iOS target/scheme, also enabled for Mac Catalyst
+│   ├── macOS/                      # Empty native macOS target/scheme
+│   ├── tvOS/                       # Empty tvOS target/scheme
+│   └── UITests/
+│       ├── iOS/                    # Existing UI tests for the iOS/Catalyst showcase
+│       ├── macOS/                  # Empty native macOS UI-test target shell
+│       └── tvOS/                   # Empty tvOS UI-test target shell
 │
 ├── Vendor/                         # libvlc.xcframework (multi-GB unstripped; release zip a few hundred MB)
 │

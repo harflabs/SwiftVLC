@@ -183,7 +183,7 @@ extension Integration {
     // fails, and the process aborts before any test assertion can
     // run. The test passes locally against a real macOS GPU and is
     // kept around for manual runs; a proper equivalent for CI belongs
-    // in the `SwiftVLCShowcaseUITests` target, which hosts the real
+    // in the `iOSUITests` target, which hosts the real
     // Showcase app with a real `NSApplication`.
     #if canImport(AppKit)
     @Test(.disabled("CI runners lack AppleM2ScalerParavirtDriver; run locally or via UI-test target"))
