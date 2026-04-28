@@ -4,7 +4,9 @@ import SwiftUI
 struct MacOSShowcaseApp: App {
   var body: some Scene {
     WindowGroup {
-      EmptyView()
+      MacShowcaseRootView()
+        .frame(minWidth: 980, minHeight: 660)
     }
+    .windowResizability(.contentMinSize)
   }
 }

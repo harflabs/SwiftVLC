@@ -73,6 +73,8 @@ extension UITestRoute {
   @ViewBuilder
   var view: some View {
     switch self {
+    case .videoPlayer: VideoPlayerApp()
+    case .musicPlayer: MusicPlayerApp()
     case .simplePlayback: SimplePlaybackCase()
     case .playerState: PlayerStateCase()
     case .seeking: SeekingCase()

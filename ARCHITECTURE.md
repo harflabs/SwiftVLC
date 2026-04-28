@@ -716,9 +716,9 @@ SwiftVLC/
 │   └── Fixtures/                   # Bundled media files (~50 KB)
 │
 ├── Showcase/                       # Platform showcase apps
-│   ├── Shared/                     # Launch-arg and accessibility contracts shared with UI tests
+│   ├── Shared/                     # Launch-arg/accessibility contracts, app icon, and shared showcase resources
 │   ├── iOS/                        # Full-featured iOS target/scheme, also enabled for Mac Catalyst
-│   ├── macOS/                      # Empty native macOS target/scheme
+│   ├── macOS/                      # Native macOS target/scheme with Mac-tailored showcases
 │   ├── tvOS/                       # Empty tvOS target/scheme
 │   └── UITests/
 │       ├── iOS/                    # Existing UI tests for the iOS/Catalyst showcase

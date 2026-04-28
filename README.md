@@ -132,7 +132,7 @@ Full API reference is hosted on Swift Package Index:
 The `Showcase/` directory contains separate folders, targets, and schemes for each showcase lane:
 
 - **iOS.** The existing full-featured app target, also enabled for Mac Catalyst.
-- **macOS.** Empty native macOS app shell.
+- **macOS.** Native macOS app target with the same showcase coverage, adapted into sidebar-driven Mac UI.
 - **tvOS.** Empty tvOS app shell.
 
 Showcase UI tests are split the same way under `Showcase/UITests/`: the existing coverage lives in the `iOSUITests` target, while `macOSUITests` and `tvOSUITests` are empty target shells.

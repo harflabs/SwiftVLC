@@ -1,10 +1,10 @@
 import Foundation
 
 enum TestMedia {
-  /// Bundled multi-track demo reel. The rendered MKV is committed in-tree:
-  /// 60 seconds, three video variants (1080p / 720p / 480p), three audio
-  /// tracks, three subtitle tracks (one RTL), six named chapters, rich global
-  /// metadata, and an attached cover image.
+  /// Bundled multi-track demo reel shared by the showcase targets: 60 seconds,
+  /// three video variants (1080p / 720p / 480p), three audio tracks, three
+  /// subtitle tracks (one RTL), six named chapters, rich global metadata, and
+  /// an attached cover image.
   static var demo: URL {
     fixtureOverrideOr(bundled: "demo", withExtension: "mkv")
   }
