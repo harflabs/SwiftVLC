@@ -148,7 +148,7 @@ class ShowcaseIOSTestCase: XCTestCase {
 
   /// The happy-path fixture: a 10s h264 + aac mp4. Short enough to keep
   /// tests fast, long enough for pause-then-verify-stalled deep tests.
-  /// Generated once via ffmpeg; see `Fixtures/` for the regeneration recipe.
+  /// Generated once via ffmpeg and committed under `Fixtures/`.
   private static func fixtureURL() -> URL {
     resource(named: "test", extension: "mp4")
   }

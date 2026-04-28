@@ -27,6 +27,9 @@ struct VideoPlayerView: View {
     .statusBarHidden(true)
     .persistentSystemOverlays(.hidden)
     .onTapGesture { visibility.screenTapped(isPlaying: player.isPlaying) }
+    .task(id: visibility.autoHideID) {
+      await visibility.autoHideTask()
+    }
     .task { try? player.play(url: url) }
     .onDisappear { viewDisappeared() }
     .onChange(of: player.isPlaying) { _, playing in
@@ -35,50 +38,36 @@ struct VideoPlayerView: View {
   }
 
   private func viewDisappeared() {
-    visibility.tearDown()
+    visibility.viewDisappeared()
     player.stop()
   }
 }
 
-/// Auto-hides the player controls after 4 seconds of idle playback,
-/// re-arming the timer on each user tap. Lives outside the view so the
-/// state machine (visibility flag + pending hide task + interactions
-/// with `isPlaying`) is testable in isolation.
 @Observable
 @MainActor
 private final class ControlsVisibilityModel {
   private(set) var isVisible = true
-
-  @ObservationIgnored
-  private var hideTask: Task<Void, Never>?
+  private(set) var autoHideID: UUID?
 
   func screenTapped(isPlaying: Bool) {
-    hideTask?.cancel()
     withAnimation { isVisible.toggle() }
-    if isVisible, isPlaying {
-      scheduleHide()
-    }
+    autoHideID = isVisible && isPlaying ? UUID() : nil
   }
 
   func playerIsPlayingChanged(to playing: Bool) {
-    if playing, isVisible {
-      scheduleHide()
-    } else if !playing {
-      hideTask?.cancel()
-    }
+    autoHideID = playing && isVisible ? UUID() : nil
   }
 
-  func tearDown() {
-    hideTask?.cancel()
+  func viewDisappeared() {
+    autoHideID = nil
   }
 
-  private func scheduleHide() {
-    hideTask?.cancel()
-    hideTask = Task {
-      try? await Task.sleep(for: .seconds(4))
-      if !Task.isCancelled {
-        withAnimation { isVisible = false }
-      }
+  func autoHideTask() async {
+    guard autoHideID != nil else { return }
+    try? await Task.sleep(for: .seconds(4))
+    if !Task.isCancelled {
+      withAnimation { isVisible = false }
+      autoHideID = nil
     }
   }
 }

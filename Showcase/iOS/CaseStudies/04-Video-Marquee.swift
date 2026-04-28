@@ -121,10 +121,6 @@ struct MarqueeCase: View {
 
   private func task() {
     try? player.play(url: TestMedia.demo)
-    // Push every property into libVLC *before* the Enable flag flips.
-    // Otherwise the overlay filter activates with NULL text or a zero-
-    // size font and draws nothing. `onChange` can't do this: it doesn't
-    // fire for initial values.
     player.withMarquee { m in
       m.setText(text)
       m.fontSize = Int(fontSize)
@@ -139,16 +135,20 @@ struct MarqueeCase: View {
   }
 
   private var repositionDrag: some Gesture {
-    // Stress-tests the borrow path: every touch-move fires `player.withMarquee`,
-    // which re-constructs the `~Copyable` `~Escapable` view on each call.
     DragGesture(minimumDistance: 1)
-      .onChanged { g in
-        let origin = dragOrigin ?? CGPoint(x: x, y: y)
-        if dragOrigin == nil { dragOrigin = origin }
-        x = (origin.x + g.translation.width).clamped(to: -400...400)
-        y = (origin.y + g.translation.height).clamped(to: -400...400)
-      }
-      .onEnded { _ in dragOrigin = nil }
+      .onChanged { dragChanged($0) }
+      .onEnded { _ in dragEnded() }
+  }
+
+  private func dragChanged(_ value: DragGesture.Value) {
+    let origin = dragOrigin ?? CGPoint(x: x, y: y)
+    if dragOrigin == nil { dragOrigin = origin }
+    x = (origin.x + value.translation.width).clamped(to: -400...400)
+    y = (origin.y + value.translation.height).clamped(to: -400...400)
+  }
+
+  private func dragEnded() {
+    dragOrigin = nil
   }
 
   private func sliderRow(

@@ -1,9 +1,7 @@
 import XCTest
 
-/// Thumbnails previously flagged as "not working" — this suite covers
-/// the full flow: Generate taps, thumbnail appearance, offset changes,
-/// and rapid regeneration (a common user pattern for scrubber preview
-/// scrubbing).
+/// Covers the full thumbnail flow: Generate taps, thumbnail appearance,
+/// offset changes, and rapid regeneration.
 final class ThumbnailsUITests: ShowcaseIOSTestCase {
   // Inherits `@MainActor` from `ShowcaseIOSTestCase`.
 
@@ -21,10 +19,6 @@ final class ThumbnailsUITests: ShowcaseIOSTestCase {
 
   private var offsetSlider: XCUIElement {
     app.sliders[AccessibilityID.Thumbnails.offsetSlider]
-  }
-
-  private var offsetLabel: XCUIElement {
-    app.staticTexts[AccessibilityID.Thumbnails.offsetLabel]
   }
 
   // MARK: - Smoke
@@ -46,8 +40,7 @@ final class ThumbnailsUITests: ShowcaseIOSTestCase {
 
   /// Tap Generate once and wait for the thumbnail image to materialize.
   /// This is the core contract: call `media.thumbnail(at:)` → receive
-  /// PNG → render. The previous "not working" report lives or dies
-  /// here.
+  /// PNG → render.
   func test_deep_generateProducesThumbnail() {
     launch(route: .thumbnails)
 

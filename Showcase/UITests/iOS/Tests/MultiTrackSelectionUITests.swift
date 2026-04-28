@@ -3,10 +3,9 @@ import XCTest
 /// The showcase advertises `audioTracks` / `subtitleTracks` / `programs`
 /// and `@Bindable`-driven selection. Under `fixtureURL` the media is a
 /// single-audio-stream MP4 (no subtitles, no programs), so this suite
-/// asserts the predictable shape: audio tracks populate, subtitle /
-/// program sections fall back to the empty placeholder, nothing
-/// crashes. A richer fixture (MKV w/ multi-audio + subs) would unlock
-/// selection assertions — tracked in the comment-only TODO below.
+/// asserts the predictable shape: audio tracks populate, subtitles fall
+/// back to the empty placeholder, video variants resolve, and nothing
+/// crashes.
 final class MultiTrackSelectionUITests: ShowcaseIOSTestCase {
   // Inherits `@MainActor` from `ShowcaseIOSTestCase`.
 
@@ -30,11 +29,6 @@ final class MultiTrackSelectionUITests: ShowcaseIOSTestCase {
 
   private var videoLoadingLabel: XCUIElement {
     app.descendants(matching: .any)[AccessibilityID.MultiTrackSelection.videoTracksLoadingLabel]
-      .firstMatch
-  }
-
-  private var programsEmptyLabel: XCUIElement {
-    app.descendants(matching: .any)[AccessibilityID.MultiTrackSelection.programsEmptyLabel]
       .firstMatch
   }
 

@@ -1,13 +1,10 @@
 import Foundation
 
 enum TestMedia {
-  /// Bundled multi-track demo reel. The generator script lives outside
-  /// the repo at `../swiftvlc-demo-media/generate.sh`; only the rendered
-  /// MKV is committed in-tree. 60 seconds, three video variants (1080p /
-  /// 720p / 480p), three audio tracks, three subtitle tracks (one RTL),
-  /// six named chapters, rich global metadata, and an attached cover
-  /// image — the offline fixture every case study reaches for unless it
-  /// specifically needs a remote stream.
+  /// Bundled multi-track demo reel. The rendered MKV is committed in-tree:
+  /// 60 seconds, three video variants (1080p / 720p / 480p), three audio
+  /// tracks, three subtitle tracks (one RTL), six named chapters, rich global
+  /// metadata, and an attached cover image.
   static var demo: URL {
     fixtureOverrideOr(bundled: "demo", withExtension: "mkv")
   }

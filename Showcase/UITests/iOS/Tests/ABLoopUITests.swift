@@ -1,10 +1,8 @@
 import XCTest
 
-/// A-B loop was previously flagged as "not working" — this suite is both
-/// regression guard and bug surface. Covers: state transitions
-/// (off → A set → active → off), the loop actually looping (currentTime
-/// should stay inside [A, B] across the B crossing), and stress (rapid
-/// mark/reset, tiny loops, present/dismiss).
+/// Covers A-B loop state transitions (off → A set → active → off), the
+/// loop actually looping (currentTime should stay inside [A, B] across the
+/// B crossing), and stress (rapid mark/reset, tiny loops, present/dismiss).
 final class ABLoopUITests: ShowcaseIOSTestCase {
   // Inherits `@MainActor` from `ShowcaseIOSTestCase`.
 

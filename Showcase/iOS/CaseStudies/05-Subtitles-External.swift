@@ -54,10 +54,14 @@ struct SubtitlesExternalCase: View {
       isPresented: $isPickingFile,
       allowedContentTypes: [.plainText, .data]
     ) { result in
-      if case .success(let url) = result {
-        try? player.addExternalTrack(from: url, type: .subtitle, select: true)
-        loaded = url
-      }
+      fileImporterCompleted(result)
+    }
+  }
+
+  private func fileImporterCompleted(_ result: Result<URL, any Error>) {
+    if case .success(let url) = result {
+      try? player.addExternalTrack(from: url, type: .subtitle, select: true)
+      loaded = url
     }
   }
 }

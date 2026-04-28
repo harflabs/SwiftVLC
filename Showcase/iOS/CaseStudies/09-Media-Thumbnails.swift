@@ -51,7 +51,7 @@ struct ThumbnailsCase: View {
 
       Section {
         Button("Generate", systemImage: "sparkles") {
-          Task { await refresh() }
+          Task { await generateButtonTapped() }
         }
         .accessibilityIdentifier(AccessibilityID.Thumbnails.generateButton)
         .frame(maxWidth: .infinity)
@@ -67,7 +67,7 @@ struct ThumbnailsCase: View {
     media = try? Media(url: TestMedia.demo)
   }
 
-  private func refresh() async {
+  private func generateButtonTapped() async {
     guard let media else { return }
     isGenerating = true
     defer { isGenerating = false }
