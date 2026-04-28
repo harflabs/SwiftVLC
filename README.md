@@ -91,6 +91,13 @@ struct PlayerView: View {
 }
 ```
 
+`Player.play(url:)` expects a direct media stream or file URL. It does
+not auto-resolve `.pls` or classic `.m3u` playlist containers; use
+`MediaListPlayer` or fetch and parse the playlist to its inner stream
+URL before passing it to `Player`. HLS `.m3u8` URLs are supported here
+because they are streaming manifests rather than playlists of separate
+media URLs.
+
 ### Common Operations
 
 ```swift

@@ -51,6 +51,13 @@ struct PlayerView: View {
 state through `@Observable`, which is enough for SwiftUI to redraw as
 playback progresses.
 
+``Player/play(url:)`` expects a direct media stream or file URL. It
+does not auto-resolve `.pls` or classic `.m3u` playlist containers; use
+``MediaListPlayer`` or resolve the playlist to its inner stream URL
+before handing it to ``Player``. HLS `.m3u8` URLs are supported here
+because they are streaming manifests rather than playlists of separate
+media URLs.
+
 ## Drive the UI from state
 
 Most controls read a handful of observable properties directly:
