@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		B1000001 /* SwiftVLC in Frameworks */ = {isa = PBXBuildFile; productRef = B8000001 /* SwiftVLC */; };
 		B1000002 /* SwiftVLC in Frameworks */ = {isa = PBXBuildFile; productRef = B8000001 /* SwiftVLC */; };
+		B1000003 /* SwiftVLC in Frameworks */ = {isa = PBXBuildFile; productRef = B8000001 /* SwiftVLC */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -85,6 +86,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B1000003 /* SwiftVLC in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -212,9 +214,11 @@
 			);
 			fileSystemSynchronizedGroups = (
 				B4000005 /* tvOS */,
+				B4000010 /* Shared */,
 			);
 			name = tvOS;
 			packageProductDependencies = (
+				B8000001 /* SwiftVLC */,
 			);
 			productName = tvOS;
 			productReference = B2000009 /* tvOS.app */;

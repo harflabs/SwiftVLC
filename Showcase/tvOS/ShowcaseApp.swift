@@ -4,7 +4,7 @@ import SwiftUI
 struct TVOSShowcaseApp: App {
   var body: some Scene {
     WindowGroup {
-      EmptyView()
+      TVShowcaseRootView()
     }
   }
 }
