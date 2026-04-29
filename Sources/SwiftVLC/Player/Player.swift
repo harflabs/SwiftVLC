@@ -297,6 +297,18 @@ public final class Player {
   private var _equalizer: Equalizer?
   private var _volume: Float = 1.0
   private var _isMuted: Bool = false
+  private enum PauseTransition {
+    case pausing
+    case resuming
+  }
+
+  private enum DeferredPauseCommand {
+    case pause
+    case resume
+  }
+
+  private var pauseTransition: PauseTransition?
+  private var deferredPauseCommand: DeferredPauseCommand?
   /// Shadow of the string last passed to `Marquee.setText`. libVLC's text
   /// renderer keys its glyph-bitmap cache on the text string, so a style-
   /// only write (color/opacity/fontSize) hits the cached entry and draws
@@ -444,12 +456,37 @@ public final class Player {
   }
 
   /// Pauses playback.
+  ///
+  /// No-op until libVLC has reached a stable, pausable `.playing`
+  /// state. With real audio output, the first audio timestamp must also
+  /// have advanced beyond zero; pausing before that point can leave
+  /// libVLC's aout stream with stale pause timing.
   public func pause() {
+    guard pauseTransition == nil else {
+      deferredPauseCommand = .pause
+      return
+    }
+    guard
+      state == .playing,
+      isPausable,
+      canIssueNativePause
+    else { return }
+
+    pauseTransition = .pausing
+    deferredPauseCommand = nil
     libvlc_media_player_set_pause(pointer, 1)
   }
 
   /// Resumes playback from pause.
   public func resume() {
+    guard pauseTransition == nil else {
+      deferredPauseCommand = .resume
+      return
+    }
+    guard nativePlaybackState == .paused else { return }
+
+    pauseTransition = .resuming
+    deferredPauseCommand = nil
     libvlc_media_player_set_pause(pointer, 0)
   }
 
@@ -484,6 +521,11 @@ public final class Player {
 
   /// Stops playback asynchronously.
   public func stop() {
+    if pauseTransition == .pausing || nativePlaybackState == .paused {
+      libvlc_media_player_set_pause(pointer, 0)
+    }
+    pauseTransition = nil
+    deferredPauseCommand = nil
     libvlc_media_player_stop_async(pointer)
   }
 
@@ -1049,6 +1091,23 @@ public final class Player {
 
   // MARK: - Event Consumer
 
+  private var nativePlaybackState: PlayerState {
+    PlayerState(from: libvlc_media_player_get_state(pointer))
+  }
+
+  private var canIssueNativePause: Bool {
+    if libvlc_media_player_get_time(pointer) > 0 {
+      return true
+    }
+    // With a real audio output, libVLC can report `.playing` and
+    // pausable before the first audio timestamp has cleared zero. Pausing
+    // in that window leaves the aout stream with a stale pause date and
+    // the next audio block trips libVLC's debug assertion. When audio is
+    // disabled or not initialized, libVLC reports a negative volume
+    // sentinel and no aout stream participates in that assertion.
+    return libvlc_audio_get_volume(pointer) < 0
+  }
+
   /// Consumes the event stream and mirrors each event onto the
   /// `@Observable` properties that SwiftUI binds to.
   private func startEventConsumer() {
@@ -1070,6 +1129,7 @@ public final class Player {
     switch event {
     case .stateChanged(let newState):
       state = newState
+      updatePauseTransition(for: newState)
       withMutation(keyPath: \.isPlaying) {}
       withMutation(keyPath: \.isActive) {}
       if case .stopped = newState {
@@ -1118,6 +1178,7 @@ public final class Player {
 
     case .encounteredError:
       state = .error
+      pauseTransition = nil
       withMutation(keyPath: \.isPlaying) {}
       withMutation(keyPath: \.isActive) {}
 
@@ -1171,7 +1232,35 @@ public final class Player {
     }
   }
 
+  private func updatePauseTransition(for newState: PlayerState) {
+    switch (pauseTransition, newState) {
+    case (.pausing, .paused), (.resuming, .playing):
+      pauseTransition = nil
+      performDeferredPauseCommandIfNeeded()
+    case (_, .idle), (_, .stopped), (_, .stopping), (_, .error):
+      pauseTransition = nil
+      deferredPauseCommand = nil
+    default:
+      break
+    }
+  }
+
+  private func performDeferredPauseCommandIfNeeded() {
+    guard pauseTransition == nil, let command = deferredPauseCommand else {
+      return
+    }
+    deferredPauseCommand = nil
+    switch command {
+    case .pause:
+      pause()
+    case .resume:
+      resume()
+    }
+  }
+
   private func resetMediaDerivedState() {
+    pauseTransition = nil
+    deferredPauseCommand = nil
     currentTime = .zero
     duration = nil
     isSeekable = false
