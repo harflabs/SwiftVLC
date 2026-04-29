@@ -62,7 +62,9 @@ Every async API that waits on libVLC honors task cancellation:
 - ``Media/parse(timeout:instance:)``: canceling the enclosing task
   stops the parse.
 - ``Media/thumbnail(at:width:height:crop:timeout:instance:)``:
-  canceling destroys the in-flight thumbnail request.
+  canceling before libVLC accepts the request returns immediately. Once
+  accepted, SwiftVLC waits for the terminal thumbnail event so callback
+  and request teardown are complete before the task returns.
 - Streams finish when their owning type (`Player`, `VLCInstance`, or
   a discoverer) is released.
 
