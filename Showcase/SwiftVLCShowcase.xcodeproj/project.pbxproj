@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		B1000001 /* SwiftVLC in Frameworks */ = {isa = PBXBuildFile; productRef = B8000001 /* SwiftVLC */; };
+		B1000002 /* SwiftVLC in Frameworks */ = {isa = PBXBuildFile; productRef = B8000001 /* SwiftVLC */; };
+		B1000003 /* SwiftVLC in Frameworks */ = {isa = PBXBuildFile; productRef = B8000001 /* SwiftVLC */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -16,13 +18,31 @@
 			containerPortal = B9000001 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = B5000001;
-			remoteInfo = SwiftVLCShowcase;
+			remoteInfo = iOS;
+		};
+		BB000003 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B9000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B5000002;
+			remoteInfo = macOS;
+		};
+		BB000005 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B9000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B5000003;
+			remoteInfo = tvOS;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		B2000007 /* SwiftVLCShowcase.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SwiftVLCShowcase.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		B2000010 /* SwiftVLCShowcaseUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SwiftVLCShowcaseUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B2000007 /* iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B2000008 /* macOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = macOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B2000009 /* tvOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = tvOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B2000010 /* iOSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = iOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B2000011 /* macOSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = macOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B2000012 /* tvOSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = tvOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -31,14 +51,18 @@
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = B5000001 /* SwiftVLCShowcase */;
+			target = B5000001 /* iOS */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		B4000002 /* SwiftVLCShowcase */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (07E764A82F965C6100828E69 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = SwiftVLCShowcase; sourceTree = "<group>"; };
+		B4000002 /* iOS */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (07E764A82F965C6100828E69 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = iOS; sourceTree = "<group>"; };
+		B4000004 /* macOS */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = macOS; sourceTree = "<group>"; };
+		B4000005 /* tvOS */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = tvOS; sourceTree = "<group>"; };
 		B4000010 /* Shared */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Shared; sourceTree = "<group>"; };
-		B4000011 /* SwiftVLCShowcaseUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = SwiftVLCShowcaseUITests; sourceTree = "<group>"; };
+		B4000011 /* iOS */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = iOS; sourceTree = "<group>"; };
+		B4000013 /* macOS */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = macOS; sourceTree = "<group>"; };
+		B4000014 /* tvOS */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = tvOS; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -50,7 +74,37 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B3000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B1000002 /* SwiftVLC in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B3000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B1000003 /* SwiftVLC in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		B3000010 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B3000011 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B3000012 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -64,8 +118,10 @@
 			isa = PBXGroup;
 			children = (
 				B4000010 /* Shared */,
-				B4000002 /* SwiftVLCShowcase */,
-				B4000011 /* SwiftVLCShowcaseUITests */,
+				B4000002 /* iOS */,
+				B4000004 /* macOS */,
+				B4000005 /* tvOS */,
+				B4000012 /* UITests */,
 				B4000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -73,18 +129,32 @@
 		B4000003 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				B2000007 /* SwiftVLCShowcase.app */,
-				B2000010 /* SwiftVLCShowcaseUITests.xctest */,
+				B2000007 /* iOS.app */,
+				B2000008 /* macOS.app */,
+				B2000009 /* tvOS.app */,
+				B2000010 /* iOSUITests.xctest */,
+				B2000011 /* macOSUITests.xctest */,
+				B2000012 /* tvOSUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		B4000012 /* UITests */ = {
+			isa = PBXGroup;
+			children = (
+				B4000011 /* iOS */,
+				B4000013 /* macOS */,
+				B4000014 /* tvOS */,
+			);
+			path = UITests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		B5000001 /* SwiftVLCShowcase */ = {
+		B5000001 /* iOS */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = B7000003 /* Build configuration list for PBXNativeTarget "SwiftVLCShowcase" */;
+			buildConfigurationList = B7000003 /* Build configuration list for PBXNativeTarget "iOS" */;
 			buildPhases = (
 				B6000001 /* Sources */,
 				B3000001 /* Frameworks */,
@@ -95,20 +165,68 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				B4000002 /* SwiftVLCShowcase */,
+				B4000002 /* iOS */,
 				B4000010 /* Shared */,
 			);
-			name = SwiftVLCShowcase;
+			name = iOS;
 			packageProductDependencies = (
 				B8000001 /* SwiftVLC */,
 			);
-			productName = SwiftVLCShowcase;
-			productReference = B2000007 /* SwiftVLCShowcase.app */;
+			productName = iOS;
+			productReference = B2000007 /* iOS.app */;
 			productType = "com.apple.product-type.application";
 		};
-		B5000010 /* SwiftVLCShowcaseUITests */ = {
+		B5000002 /* macOS */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = B7000010 /* Build configuration list for PBXNativeTarget "SwiftVLCShowcaseUITests" */;
+			buildConfigurationList = B7000020 /* Build configuration list for PBXNativeTarget "macOS" */;
+			buildPhases = (
+				B6000005 /* Sources */,
+				B3000002 /* Frameworks */,
+				B6000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				B4000004 /* macOS */,
+				B4000010 /* Shared */,
+			);
+			name = macOS;
+			packageProductDependencies = (
+				B8000001 /* SwiftVLC */,
+			);
+			productName = macOS;
+			productReference = B2000008 /* macOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		B5000003 /* tvOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B7000021 /* Build configuration list for PBXNativeTarget "tvOS" */;
+			buildPhases = (
+				B6000006 /* Sources */,
+				B3000003 /* Frameworks */,
+				B6000004 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				B4000005 /* tvOS */,
+				B4000010 /* Shared */,
+			);
+			name = tvOS;
+			packageProductDependencies = (
+				B8000001 /* SwiftVLC */,
+			);
+			productName = tvOS;
+			productReference = B2000009 /* tvOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		B5000010 /* iOSUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B7000010 /* Build configuration list for PBXNativeTarget "iOSUITests" */;
 			buildPhases = (
 				B6000010 /* Sources */,
 				B3000010 /* Frameworks */,
@@ -121,13 +239,59 @@
 			);
 			fileSystemSynchronizedGroups = (
 				B4000010 /* Shared */,
-				B4000011 /* SwiftVLCShowcaseUITests */,
+				B4000011 /* iOS */,
 			);
-			name = SwiftVLCShowcaseUITests;
+			name = iOSUITests;
 			packageProductDependencies = (
 			);
-			productName = SwiftVLCShowcaseUITests;
-			productReference = B2000010 /* SwiftVLCShowcaseUITests.xctest */;
+			productName = iOSUITests;
+			productReference = B2000010 /* iOSUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		B5000011 /* macOSUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B7000034 /* Build configuration list for PBXNativeTarget "macOSUITests" */;
+			buildPhases = (
+				B6000014 /* Sources */,
+				B3000011 /* Frameworks */,
+				B6000012 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BB000004 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				B4000013 /* macOS */,
+			);
+			name = macOSUITests;
+			packageProductDependencies = (
+			);
+			productName = macOSUITests;
+			productReference = B2000011 /* macOSUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		B5000012 /* tvOSUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B7000035 /* Build configuration list for PBXNativeTarget "tvOSUITests" */;
+			buildPhases = (
+				B6000015 /* Sources */,
+				B3000012 /* Frameworks */,
+				B6000013 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BB000006 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				B4000014 /* tvOS */,
+			);
+			name = tvOSUITests;
+			packageProductDependencies = (
+			);
+			productName = tvOSUITests;
+			productReference = B2000012 /* tvOSUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
@@ -142,6 +306,12 @@
 				TargetAttributes = {
 					B5000010 = {
 						TestTargetID = B5000001;
+					};
+					B5000011 = {
+						TestTargetID = B5000002;
+					};
+					B5000012 = {
+						TestTargetID = B5000003;
 					};
 				};
 			};
@@ -162,8 +332,12 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				B5000001 /* SwiftVLCShowcase */,
-				B5000010 /* SwiftVLCShowcaseUITests */,
+				B5000001 /* iOS */,
+				B5000002 /* macOS */,
+				B5000003 /* tvOS */,
+				B5000010 /* iOSUITests */,
+				B5000011 /* macOSUITests */,
+				B5000012 /* tvOSUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -176,7 +350,35 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B6000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B6000004 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		B6000011 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B6000012 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B6000013 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -193,7 +395,35 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B6000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B6000006 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		B6000010 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B6000014 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B6000015 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -205,8 +435,18 @@
 /* Begin PBXTargetDependency section */
 		BB000002 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = B5000001 /* SwiftVLCShowcase */;
+			target = B5000001 /* iOS */;
 			targetProxy = BB000001 /* PBXContainerItemProxy */;
+		};
+		BB000004 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B5000002 /* macOS */;
+			targetProxy = BB000003 /* PBXContainerItemProxy */;
+		};
+		BB000006 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B5000003 /* tvOS */;
+			targetProxy = BB000005 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -324,19 +564,22 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = SwiftVLCShowcase/Info.plist;
+				INFOPLIST_FILE = iOS/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIBackgroundModes = audio;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.showcase;
+				PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.showcase.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				TARGETED_DEVICE_FAMILY = "1,2,3";
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
@@ -350,19 +593,22 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = SwiftVLCShowcase/Info.plist;
+				INFOPLIST_FILE = iOS/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIBackgroundModes = audio;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.showcase;
+				PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.showcase.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				TARGETED_DEVICE_FAMILY = "1,2,3";
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -375,7 +621,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.showcase.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.showcase.ios.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -383,7 +629,7 @@
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = SwiftVLCShowcase;
+				TEST_TARGET_NAME = iOS;
 			};
 			name = Debug;
 		};
@@ -396,7 +642,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.showcase.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.showcase.ios.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -404,7 +650,171 @@
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = SwiftVLCShowcase;
+				TEST_TARGET_NAME = iOS;
+			};
+			name = Release;
+		};
+		B7000022 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.showcase.macos;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Debug;
+		};
+		B7000023 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.showcase.macos;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Release;
+		};
+		B7000024 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.showcase.tvos;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = appletvos;
+				SUPPORTED_PLATFORMS = "appletvos appletvsimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = 3;
+				TVOS_DEPLOYMENT_TARGET = 18.0;
+			};
+			name = Debug;
+		};
+		B7000025 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.showcase.tvos;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = appletvos;
+				SUPPORTED_PLATFORMS = "appletvos appletvsimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = 3;
+				TVOS_DEPLOYMENT_TARGET = 18.0;
+			};
+			name = Release;
+		};
+		B7000030 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.showcase.macos.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = macOS;
+			};
+			name = Debug;
+		};
+		B7000031 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.showcase.macos.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = macOS;
+			};
+			name = Release;
+		};
+		B7000032 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.showcase.tvos.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = appletvos;
+				SUPPORTED_PLATFORMS = "appletvos appletvsimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 3;
+				TEST_TARGET_NAME = tvOS;
+				TVOS_DEPLOYMENT_TARGET = 18.0;
+			};
+			name = Debug;
+		};
+		B7000033 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.showcase.tvos.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = appletvos;
+				SUPPORTED_PLATFORMS = "appletvos appletvsimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 3;
+				TEST_TARGET_NAME = tvOS;
+				TVOS_DEPLOYMENT_TARGET = 18.0;
 			};
 			name = Release;
 		};
@@ -420,7 +830,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		B7000003 /* Build configuration list for PBXNativeTarget "SwiftVLCShowcase" */ = {
+		B7000003 /* Build configuration list for PBXNativeTarget "iOS" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				B7000006 /* Debug */,
@@ -429,11 +839,47 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		B7000010 /* Build configuration list for PBXNativeTarget "SwiftVLCShowcaseUITests" */ = {
+		B7000010 /* Build configuration list for PBXNativeTarget "iOSUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				B7000011 /* Debug */,
 				B7000012 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B7000020 /* Build configuration list for PBXNativeTarget "macOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B7000022 /* Debug */,
+				B7000023 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B7000021 /* Build configuration list for PBXNativeTarget "tvOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B7000024 /* Debug */,
+				B7000025 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B7000034 /* Build configuration list for PBXNativeTarget "macOSUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B7000030 /* Debug */,
+				B7000031 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B7000035 /* Build configuration list for PBXNativeTarget "tvOSUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B7000032 /* Debug */,
+				B7000033 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -127,14 +127,15 @@ for await event in player.events {
 Full API reference is hosted on Swift Package Index:
 **[swiftpackageindex.com/harflabs/swiftvlc/documentation](https://swiftpackageindex.com/harflabs/swiftvlc/documentation)**
 
-## Showcase App
+## Showcase Apps
 
-The `Showcase/` directory contains a full-featured demo app for each supported platform:
+The `Showcase/` directory contains separate folders, targets, and schemes for each showcase lane:
 
-- **iOS.** Tap-to-show controls, swipe gestures, equalizer, and PiP.
-- **macOS.** Hover controls, keyboard shortcuts, and a floating settings panel.
-- **tvOS.** A 10-foot UI with Siri Remote navigation and swipe-to-scrub.
-- **Mac Catalyst.** The iOS player running natively on Mac.
+- **iOS.** The existing full-featured app target, also enabled for Mac Catalyst.
+- **macOS.** Native macOS app target with the same showcase coverage, adapted into sidebar-driven Mac UI.
+- **tvOS.** Native tvOS showcase app target with TV-focused focus navigation and Siri Remote controls.
+
+Showcase UI tests are split the same way under `Showcase/UITests/`: the existing coverage lives in the `iOSUITests` target, while `macOSUITests` and `tvOSUITests` are empty target shells.
 
 ## Testing
 
