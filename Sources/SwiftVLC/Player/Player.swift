@@ -423,7 +423,12 @@ public final class Player {
     try play()
   }
 
-  /// Creates media from a URL and starts playback.
+  /// Creates media from a direct media URL and starts playback.
+  ///
+  /// This does not expand playlist container URLs such as `.pls` or
+  /// classic `.m3u`; use ``MediaListPlayer`` or resolve those files to
+  /// an inner stream URL first. HLS `.m3u8` URLs are valid here because
+  /// they are streaming manifests.
   /// - Throws: `VLCError.mediaCreationFailed` or `VLCError.playbackFailed`.
   public func play(url: URL) throws(VLCError) {
     try play(Media(url: url))

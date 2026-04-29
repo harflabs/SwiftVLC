@@ -12,6 +12,13 @@ try list.append(Media(url: url2))
 try list.insert(Media(url: url3), at: 1)
 ```
 
+If the source URL is itself a playlist container, such as `.pls` or
+classic `.m3u`, add that ``Media`` to a ``MediaList`` and play it with
+``MediaListPlayer`` so libVLC can expand the playlist entries. Do not
+pass those playlist container URLs directly to ``Player/play(url:)``.
+HLS `.m3u8` URLs are the exception: they are streaming manifests and
+can be played directly by ``Player``.
+
 ``MediaList`` is `Sendable` and thread-safe. Every mutation acquires
 the underlying libVLC lock automatically.
 
