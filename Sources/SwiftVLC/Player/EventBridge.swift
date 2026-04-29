@@ -11,6 +11,7 @@ final class EventBridge: Sendable {
   private nonisolated(unsafe) let eventManager: OpaquePointer
   private let store: ContinuationStore
   private nonisolated(unsafe) let storeOpaque: UnsafeMutableRawPointer
+  private let attachedEventTypes: [Int32]
   private let invalidated = Mutex(false)
 
   init(eventManager: OpaquePointer) {
@@ -21,9 +22,13 @@ final class EventBridge: Sendable {
     let opaque = Unmanaged.passRetained(store).toOpaque()
     storeOpaque = opaque
 
+    var attachedEventTypes: [Int32] = []
     for eventType in Self.playerEventTypes {
-      libvlc_event_attach(eventManager, eventType, playerEventCallback, opaque)
+      if libvlc_event_attach(eventManager, eventType, playerEventCallback, opaque) == 0 {
+        attachedEventTypes.append(eventType)
+      }
     }
+    self.attachedEventTypes = attachedEventTypes
   }
 
   deinit {
@@ -42,7 +47,7 @@ final class EventBridge: Sendable {
     }
     guard shouldCleanUp else { return }
 
-    for eventType in Self.playerEventTypes {
+    for eventType in attachedEventTypes {
       libvlc_event_detach(eventManager, eventType, playerEventCallback, storeOpaque)
     }
     store.finishAll()

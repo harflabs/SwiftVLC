@@ -1114,8 +1114,9 @@ public final class Player {
     // Capture eventBridge strongly and self weakly to avoid the retain
     // cycle Player → eventTask → Player.
     let bridge = eventBridge
+    let stream = bridge.makeStream()
     eventTask = Task { [weak self] in
-      for await event in bridge.makeStream() {
+      for await event in stream {
         guard !Task.isCancelled else { return }
         self?.handleEvent(event)
         // Yield after each event so other main-actor work (UI updates,
@@ -1352,7 +1353,6 @@ public final class Player {
       currentMedia = nil
       return
     }
-    libvlc_media_retain(media)
     currentMedia = Media(retaining: media)
   }
 

@@ -12,7 +12,7 @@ extension Integration {
     @Test(.tags(.mainActor, .async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     @MainActor
     func `Available during playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       let media = try Media(url: TestMedia.testMP4URL)
       try player.play(media)
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
@@ -23,7 +23,7 @@ extension Integration {
     @Test(.tags(.mainActor, .async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     @MainActor
     func `Fields are reasonable`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       let media = try Media(url: TestMedia.twosecURL)
       try player.play(media)
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
@@ -48,7 +48,7 @@ extension Integration {
     @Test(.tags(.mainActor, .async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     @MainActor
     func `Statistics accessible during playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       let media = try Media(url: TestMedia.twosecURL)
       try player.play(media)
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")

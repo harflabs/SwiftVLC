@@ -109,8 +109,9 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Play at valid index`() async throws {
-      let listPlayer = MediaListPlayer(instance: TestInstance.shared)
-      let player = Player(instance: TestInstance.shared)
+      let instance = TestInstance.makePlayback()
+      let listPlayer = MediaListPlayer(instance: instance)
+      let player = Player(instance: instance)
       listPlayer.mediaPlayer = player
       let list = MediaList()
       try list.append(Media(url: TestMedia.testMP4URL))
@@ -153,8 +154,9 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Play and stop lifecycle`() async throws {
-      let listPlayer = MediaListPlayer(instance: TestInstance.shared)
-      let player = Player(instance: TestInstance.shared)
+      let instance = TestInstance.makePlayback()
+      let listPlayer = MediaListPlayer(instance: instance)
+      let player = Player(instance: instance)
       listPlayer.mediaPlayer = player
       let list = MediaList()
       try list.append(Media(url: TestMedia.twosecURL))
@@ -167,8 +169,9 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Pause and resume lifecycle`() async throws {
-      let listPlayer = MediaListPlayer(instance: TestInstance.shared)
-      let player = Player(instance: TestInstance.shared)
+      let instance = TestInstance.makePlayback()
+      let listPlayer = MediaListPlayer(instance: instance)
+      let player = Player(instance: instance)
       listPlayer.mediaPlayer = player
       let list = MediaList()
       try list.append(Media(url: TestMedia.twosecURL))
@@ -184,8 +187,9 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `State during playback`() async throws {
-      let listPlayer = MediaListPlayer(instance: TestInstance.shared)
-      let player = Player(instance: TestInstance.shared)
+      let instance = TestInstance.makePlayback()
+      let listPlayer = MediaListPlayer(instance: instance)
+      let player = Player(instance: instance)
       listPlayer.mediaPlayer = player
       let list = MediaList()
       try list.append(Media(url: TestMedia.twosecURL))
@@ -226,8 +230,9 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Clearing media list removes stale native playback state`() async throws {
-      let listPlayer = MediaListPlayer(instance: TestInstance.shared)
-      let player = Player(instance: TestInstance.shared)
+      let instance = TestInstance.makePlayback()
+      let listPlayer = MediaListPlayer(instance: instance)
+      let player = Player(instance: instance)
       listPlayer.mediaPlayer = player
 
       let list = MediaList()
