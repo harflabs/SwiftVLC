@@ -8,15 +8,15 @@ to each.
 ## What they are
 
 **VLCKit** is VideoLAN's own wrapper around libVLC. It is written
-primarily in Objective-C and distributed for macOS, iOS, and tvOS,
-with the 4.0 line adding visionOS and watchOS. It has been the
-canonical answer for embedding VLC on Apple platforms for over a
-decade, and ships as three CocoaPods (`VLCKit`, `MobileVLCKit`,
-`TVVLCKit`) or as pre-built frameworks via Carthage.
+primarily in Objective-C and distributed for macOS, iOS, and tvOS. Its
+in-progress 4.0 line expands the platform surface to visionOS and
+watchOS. It has been the canonical answer for embedding VLC on Apple
+platforms for over a decade, and ships as three CocoaPods (`VLCKit`,
+`MobileVLCKit`, `TVVLCKit`) or as pre-built frameworks via Carthage.
 
 **SwiftVLC** is a Swift 6 binding to libVLC's C API, with no
 Objective-C layer in between. It targets only modern Apple platforms
-(iOS 18+, macOS 15+, tvOS 18+, macCatalyst 18+) and ships exclusively
+(iOS 18+, macOS 15+, tvOS 18+, visionOS 2+, macCatalyst 18+) and ships exclusively
 through Swift Package Manager.
 
 ## libVLC generation
@@ -125,12 +125,12 @@ sample-buffer pipeline for Picture-in-Picture. See
 
 | | VLCKit 3.x | VLCKit 4.0 (alpha) | SwiftVLC |
 |---|---|---|---|
-| iOS | 8.4+ | iOS (target not finalized) | 18+ |
-| macOS | 10.9+ | — | 15+ |
-| tvOS | 10.2+ | — | 18+ |
-| visionOS | — | Added | — |
-| watchOS | — | Added | — |
-| macCatalyst | — | — | 18+ |
+| iOS | 8.4+ | Supported in alpha | 18+ |
+| macOS | 10.9+ | Supported in alpha | 15+ |
+| tvOS | 10.2+ | Supported in alpha | 18+ |
+| visionOS | Not supported | Supported in alpha | 2+ |
+| watchOS | Not supported | Supported in alpha | Not supported |
+| macCatalyst | Not supported | Not supported | 18+ |
 
 ## License
 
@@ -157,7 +157,7 @@ requirements.
 
 **Pick SwiftVLC if:**
 
-- Your project targets iOS 18+ / macOS 15+ / tvOS 18+.
+- Your project targets iOS 18+ / macOS 15+ / tvOS 18+ / visionOS 2+.
 - You want `@Observable`, `AsyncStream`, typed throws, and strict
   concurrency without writing bridging code.
 - You're building on SwiftUI and want `VideoView(player)` to be the

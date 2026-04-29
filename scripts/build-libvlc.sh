@@ -10,7 +10,7 @@
 #
 # Usage:
 #   ./build-libvlc.sh              # Build for iOS device + simulator
-#   ./build-libvlc.sh --all        # Build for iOS, tvOS, macOS, Catalyst
+#   ./build-libvlc.sh --all        # Build for iOS, tvOS, visionOS, macOS, Catalyst
 #   ./build-libvlc.sh --ios-only   # iOS device + simulator only
 #   ./build-libvlc.sh --macos-only # macOS only (fastest for dev)
 #   ./build-libvlc.sh --catalyst   # Add Mac Catalyst (arm64 + x86_64)
@@ -37,12 +37,14 @@ PATCHES_DIR=""
 
 BUILD_IOS=yes
 BUILD_TVOS=no
+BUILD_VISIONOS=no
 BUILD_MACOS=no
 BUILD_CATALYST=no
 
 # Keep these deployment targets in sync with Package.swift.
 SWIFTVLC_MIN_IOS="18.0"
 SWIFTVLC_MIN_TVOS="18.0"
+SWIFTVLC_MIN_VISIONOS="2.0"
 SWIFTVLC_MIN_MACOS="15.0"
 SWIFTVLC_MIN_CATALYST="18.0"
 
@@ -173,16 +175,22 @@ for arg in "$@"; do
         --all)
             BUILD_IOS=yes
             BUILD_TVOS=yes
+            BUILD_VISIONOS=yes
             BUILD_MACOS=yes
             BUILD_CATALYST=yes
             ;;
         --ios-only)
             BUILD_IOS=yes
             BUILD_TVOS=no
+            BUILD_VISIONOS=no
             BUILD_MACOS=no
+            BUILD_CATALYST=no
             ;;
         --tvos)
             BUILD_TVOS=yes
+            ;;
+        --visionos)
+            BUILD_VISIONOS=yes
             ;;
         --macos)
             BUILD_MACOS=yes
@@ -190,12 +198,23 @@ for arg in "$@"; do
         --macos-only)
             BUILD_IOS=no
             BUILD_TVOS=no
+            BUILD_VISIONOS=no
             BUILD_MACOS=yes
+            BUILD_CATALYST=no
             ;;
         --tvos-only)
             BUILD_IOS=no
             BUILD_TVOS=yes
+            BUILD_VISIONOS=no
             BUILD_MACOS=no
+            BUILD_CATALYST=no
+            ;;
+        --visionos-only)
+            BUILD_IOS=no
+            BUILD_TVOS=no
+            BUILD_VISIONOS=yes
+            BUILD_MACOS=no
+            BUILD_CATALYST=no
             ;;
         --catalyst)
             BUILD_CATALYST=yes
@@ -203,6 +222,7 @@ for arg in "$@"; do
         --catalyst-only)
             BUILD_IOS=no
             BUILD_TVOS=no
+            BUILD_VISIONOS=no
             BUILD_MACOS=no
             BUILD_CATALYST=yes
             ;;
@@ -236,12 +256,14 @@ for arg in "$@"; do
 Usage: $0 [OPTIONS]
 
 Platform selection:
-  --all              Build for iOS, tvOS, macOS, and Mac Catalyst
+  --all              Build for iOS, tvOS, visionOS, macOS, and Mac Catalyst
   --ios-only         iOS device + simulator only (default)
   --macos-only       macOS only (fastest for development)
   --tvos-only        tvOS device + simulator only
+  --visionos-only    visionOS device + simulator only
   --catalyst-only    Mac Catalyst only
   --tvos             Add tvOS to the build
+  --visionos         Add visionOS to the build
   --macos            Add macOS to the build
   --catalyst         Add Mac Catalyst to the build
 
@@ -737,6 +759,64 @@ PYEOF
 
 patch_vlc_cppflags_version_min
 
+patch_vlc_xros_deployment_target() {
+    local BUILD_SH="${VLC_SRC}/extras/package/apple/build.sh"
+
+    if grep -q 'SWIFTVLC_XROS_TARGET_TRIPLE' "$BUILD_SH"; then
+        info "VLC build.sh already patched for visionOS deployment target"
+        return 0
+    fi
+
+    info "Patching VLC build.sh to set visionOS deployment targets..."
+
+    python3 - "$BUILD_SH" << 'PYEOF'
+import sys
+
+build_sh_path = sys.argv[1]
+
+with open(build_sh_path, 'r') as f:
+    content = f.read()
+
+needle = (
+    '# Validate architecture argument\n'
+    'validate_architecture "$VLC_HOST_ARCH"\n'
+    '\n'
+    '# Set triplet (needs to be called after validating the arch)\n'
+)
+replacement = (
+    '# Validate architecture argument\n'
+    'validate_architecture "$VLC_HOST_ARCH"\n'
+    '\n'
+    '# SWIFTVLC_XROS_TARGET_TRIPLE: the pinned VLC build script leaves xrOS\n'
+    '# min-version flags empty, which makes clang stamp objects with the SDK\n'
+    '# version. Use a target triple so visionOS objects keep SwiftVLC's minimum.\n'
+    'if [ "$VLC_HOST_OS" = "xros" ]; then\n'
+    '    xros_simulator_suffix=""\n'
+    '    if [ -n "$VLC_HOST_PLATFORM_SIMULATOR" ]; then\n'
+    '        xros_simulator_suffix="-simulator"\n'
+    '    fi\n'
+    '    VLC_DEPLOYMENT_TARGET_CFLAG="--target=${VLC_HOST_ARCH}-apple-xros${VLC_DEPLOYMENT_TARGET}${xros_simulator_suffix}"\n'
+    '    VLC_DEPLOYMENT_TARGET_LDFLAG="${VLC_DEPLOYMENT_TARGET_CFLAG}"\n'
+    'fi\n'
+    '\n'
+    '# Set triplet (needs to be called after validating the arch)\n'
+)
+if needle not in content:
+    raise SystemExit('architecture validation block not found — VLC build.sh shape changed')
+
+content = content.replace(needle, replacement, 1)
+
+with open(build_sh_path, 'w') as f:
+    f.write(content)
+
+print('visionOS deployment target patch applied successfully')
+PYEOF
+
+    info "VLC build.sh visionOS deployment target patched"
+}
+
+patch_vlc_xros_deployment_target
+
 patch_vlc_deployment_targets() {
     local BUILD_CONF="${VLC_SRC}/extras/package/apple/build.conf"
 
@@ -746,11 +826,12 @@ patch_vlc_deployment_targets() {
         "$SWIFTVLC_MIN_MACOS" \
         "$SWIFTVLC_MIN_IOS" \
         "$SWIFTVLC_MIN_TVOS" \
-        "$SWIFTVLC_MIN_CATALYST" << 'PYEOF'
+        "$SWIFTVLC_MIN_CATALYST" \
+        "$SWIFTVLC_MIN_VISIONOS" << 'PYEOF'
 import re
 import sys
 
-build_conf_path, macos, ios, tvos, catalyst = sys.argv[1:]
+build_conf_path, macos, ios, tvos, catalyst, visionos = sys.argv[1:]
 
 with open(build_conf_path, 'r') as f:
     content = f.read()
@@ -761,6 +842,7 @@ replacements = {
     r'^export VLC_DEPLOYMENT_TARGET_IOS_SIMULATOR=.*$': f'export VLC_DEPLOYMENT_TARGET_IOS_SIMULATOR="{ios}"',
     r'^export VLC_DEPLOYMENT_TARGET_TVOS=.*$': f'export VLC_DEPLOYMENT_TARGET_TVOS="{tvos}"',
     r'^export VLC_DEPLOYMENT_TARGET_TVOS_SIMULATOR=.*$': f'export VLC_DEPLOYMENT_TARGET_TVOS_SIMULATOR="{tvos}"',
+    r'^export VLC_DEPLOYMENT_TARGET_XROS=.*$': f'export VLC_DEPLOYMENT_TARGET_XROS="{visionos}"',
 }
 
 for pattern, replacement in replacements.items():
@@ -873,6 +955,8 @@ PYEOF
            "${VLC_SRC}"/build-iphonesimulator-* \
            "${VLC_SRC}"/build-appletvos-* \
            "${VLC_SRC}"/build-appletvsimulator-* \
+           "${VLC_SRC}"/build-xros-* \
+           "${VLC_SRC}"/build-xrsimulator-* \
            "${VLC_SRC}"/build-macosx-* \
            "${VLC_SRC}"/build-maccatalyst-*
 
@@ -1044,6 +1128,25 @@ if [ "$BUILD_TVOS" = "yes" ]; then
     XCFRAMEWORK_ARGS+=(-library "${BUILD_DIR}/libs/tvos-simulator/libvlc.a" -headers "${REPO_ROOT}/Sources/CLibVLC/include")
 fi
 
+if [ "$BUILD_VISIONOS" = "yes" ]; then
+    compile_libvlc aarch64 xros
+    compile_libvlc aarch64 xrsimulator
+    compile_libvlc x86_64 xrsimulator
+
+    mkdir -p "${BUILD_DIR}/libs/visionos-simulator"
+    lipo \
+        "${VLC_SRC}/build-xrsimulator-arm64/static-lib/libvlc-full-static.a" \
+        "${VLC_SRC}/build-xrsimulator-x86_64/static-lib/libvlc-full-static.a" \
+        -create -output "${BUILD_DIR}/libs/visionos-simulator/libvlc.a"
+
+    mkdir -p "${BUILD_DIR}/libs/visionos-device"
+    cp "${VLC_SRC}/build-xros-arm64/static-lib/libvlc-full-static.a" \
+       "${BUILD_DIR}/libs/visionos-device/libvlc.a"
+
+    XCFRAMEWORK_ARGS+=(-library "${BUILD_DIR}/libs/visionos-device/libvlc.a" -headers "${REPO_ROOT}/Sources/CLibVLC/include")
+    XCFRAMEWORK_ARGS+=(-library "${BUILD_DIR}/libs/visionos-simulator/libvlc.a" -headers "${REPO_ROOT}/Sources/CLibVLC/include")
+fi
+
 if [ "$BUILD_MACOS" = "yes" ]; then
     compile_libvlc aarch64 macosx
     compile_libvlc x86_64 macosx
@@ -1075,7 +1178,7 @@ fi
 
 # --- Step 4: Create XCFramework ---
 if [ ${#XCFRAMEWORK_ARGS[@]} -eq 0 ]; then
-    error "No platforms were built. Use --macos, --ios-only, --tvos-only, --catalyst-only, --tvos, --macos, --catalyst, or --all"
+    error "No platforms were built. Use --macos, --ios-only, --tvos-only, --visionos-only, --catalyst-only, --tvos, --visionos, --macos, --catalyst, or --all"
 fi
 
 info "Creating libvlc.xcframework..."
@@ -1120,6 +1223,8 @@ verify_deployment_targets() {
         "ios-arm64_x86_64-simulator:${SWIFTVLC_MIN_IOS}"
         "tvos-arm64:${SWIFTVLC_MIN_TVOS}"
         "tvos-arm64_x86_64-simulator:${SWIFTVLC_MIN_TVOS}"
+        "xros-arm64:${SWIFTVLC_MIN_VISIONOS}"
+        "xros-arm64_x86_64-simulator:${SWIFTVLC_MIN_VISIONOS}"
         "macos-arm64_x86_64:${SWIFTVLC_MIN_MACOS}"
         "ios-arm64_x86_64-maccatalyst:${SWIFTVLC_MIN_CATALYST}"
     )

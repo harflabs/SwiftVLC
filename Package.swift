@@ -4,7 +4,7 @@ import PackageDescription
 
 let package = Package(
   name: "SwiftVLC",
-  platforms: [.iOS(.v18), .macOS(.v15), .tvOS(.v18), .macCatalyst(.v18)],
+  platforms: [.iOS(.v18), .macOS(.v15), .tvOS(.v18), .visionOS(.v2), .macCatalyst(.v18)],
   products: [
     .library(name: "SwiftVLC", targets: ["SwiftVLC"])
   ],
@@ -16,11 +16,7 @@ let package = Package(
     .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.3.3")
   ],
   targets: [
-    .binaryTarget(
-      name: "libvlc",
-      url: "https://github.com/harflabs/SwiftVLC/releases/download/v0.7.1/libvlc.xcframework.zip",
-      checksum: "36fcad9c496c76aa481f3ab9c46e58a4252a9a13c5d736b8cca20846be60d66d"
-    ),
+    .binaryTarget(name: "libvlc", path: "Vendor/libvlc.xcframework"),
     .target(
       name: "CLibVLC",
       dependencies: ["libvlc"],
@@ -43,7 +39,7 @@ let package = Package(
         .linkedFramework("IOKit", .when(platforms: [.macOS])),
         .linkedFramework("IOSurface"),
         .linkedFramework("OpenGL", .when(platforms: [.macOS])),
-        .linkedFramework("OpenGLES", .when(platforms: [.iOS, .tvOS])),
+        .linkedFramework("OpenGLES", .when(platforms: [.iOS, .tvOS, .visionOS])),
         .linkedFramework("QuartzCore"),
         .linkedFramework("Security"),
         .linkedFramework("SystemConfiguration"),

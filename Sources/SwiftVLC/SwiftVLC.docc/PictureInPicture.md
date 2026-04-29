@@ -27,7 +27,7 @@ struct PlayerScreen: View {
 
 The `controller` binding is populated during view construction and
 stays in sync with the view's lifetime. It's `nil` on platforms that
-don't support sample-buffer PiP (e.g. tvOS).
+don't support sample-buffer PiP (e.g. tvOS and visionOS).
 
 ## Audio session (iOS only)
 
@@ -76,9 +76,10 @@ parent view to the aspect ratio you want.
 ## Platform availability
 
 Picture-in-Picture is available on iOS and macOS. tvOS has no PiP API
-(its system player UI handles background playback instead), so
-``PiPController`` and ``PiPVideoView`` are not compiled on that
-platform.
+(its system player UI handles background playback instead), and
+SwiftVLC does not compile the sample-buffer PiP wrapper on visionOS.
+``PiPController`` and ``PiPVideoView`` are not compiled on those
+platforms.
 
 ## Topics
 

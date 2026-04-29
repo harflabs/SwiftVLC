@@ -58,7 +58,7 @@ flowchart TB
     end
 
     subgraph XCF["libvlc.xcframework"]
-        Binary["Pre-built libVLC 4.0<br/>iOS · macOS · tvOS · Catalyst<br/>21 system frameworks · 7 system libraries"]
+        Binary["Pre-built libVLC 4.0<br/>iOS · macOS · tvOS · visionOS · Catalyst<br/>21 system frameworks · 7 system libraries"]
     end
 
     App --> SwiftVLC
@@ -89,7 +89,7 @@ flowchart TB
 | **PiP** | vmem → `CVPixelBuffer` → `AVSampleBufferDisplayLayer` | Full pixel control for PiP API |
 | **Thread Safety** | `Mutex<T>`, `Sendable`, `nonisolated(unsafe)` | Compile-time data race prevention |
 | **Testing** | Swift Testing framework | Modern `@Test`, `#expect`, tags, traits |
-| **Platforms** | iOS 18+, macOS 15+, tvOS 18+, Mac Catalyst | Unified SwiftUI minimum |
+| **Platforms** | iOS 18+, macOS 15+, tvOS 18+, visionOS 2+, Mac Catalyst | Unified SwiftUI minimum |
 
 ---
 
@@ -290,7 +290,7 @@ libVLC needs for decoding, rendering, and platform services:
 
 **Libraries:** libbz2, libc++, libiconv, libresolv, libsqlite3, libxml2, libz
 
-\*Platform-conditional: AudioUnit/IOKit/OpenGL are macOS-only; OpenGLES is iOS/tvOS-only.
+\*Platform-conditional: AudioUnit/IOKit/OpenGL are macOS-only; OpenGLES is iOS/tvOS/visionOS-only.
 
 ---
 
@@ -627,7 +627,7 @@ func playAndWaitForState() async throws {
 | Script | Purpose |
 |---|---|
 | `scripts/setup-dev.sh` | First step for local repo work. Downloads the last-released xcframework into `Vendor/`, flips `Package.swift` to the local-path form, and points the Showcase app at the repo-local Swift package. Flags: `--force` (re-download), `--skip-download` (only flip local references). |
-| `scripts/build-libvlc.sh` | Compiles libVLC from VideoLAN source (pinned via `VLC_HASH`) into `Vendor/libvlc.xcframework`. Applies 5 in-tree patches needed for current Xcode (26) and Homebrew libtool (2.5) — see README. |
+| `scripts/build-libvlc.sh` | Compiles libVLC from VideoLAN source (pinned via `VLC_HASH`) into `Vendor/libvlc.xcframework`. Applies the local VLC source patches described in README. |
 | `scripts/fix-duplicate-symbols.sh` | Localizes `_json_parse_error` and `_json_read` in the chromecast plugin, which two VLC plugins each emit. Called automatically by `build-libvlc.sh` and `setup-dev.sh`. |
 | `scripts/release.sh` | Cuts a versioned release, uploads the xcframework asset, pins the Showcase app to that exact Swift package version, and advances `main`. |
 | `scripts/ci-use-released-xcframework.sh` | CI-only. Rewrites the current `Package.swift` `binaryTarget` to the url+checksum of the latest release tag. Run at CI job start so tests resolve against the same binary a downstream consumer would. |
@@ -720,6 +720,7 @@ SwiftVLC/
 │   ├── iOS/                        # Full-featured iOS target/scheme, also enabled for Mac Catalyst
 │   ├── macOS/                      # Native macOS target/scheme with Mac-tailored showcases
 │   ├── tvOS/                       # Native tvOS target/scheme with TV-tailored showcases
+│   ├── visionOS/                   # Native visionOS target/scheme with focused playback coverage
 │   └── UITests/
 │       ├── iOS/                    # Existing UI tests for the iOS/Catalyst showcase
 │       ├── macOS/                  # Empty native macOS UI-test target shell

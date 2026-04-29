@@ -27,7 +27,7 @@ targets: [
 ```
 
 SwiftVLC requires Swift 6.3 and supports iOS 18, macOS 15, tvOS 18,
-and macCatalyst 18.
+visionOS 2, and macCatalyst 18.
 
 ## Play a URL
 
