@@ -59,9 +59,14 @@ struct SubtitlesExternalCase: View {
   }
 
   private func fileImporterCompleted(_ result: Result<URL, any Error>) {
-    if case .success(let url) = result {
-      try? player.addExternalTrack(from: url, type: .subtitle, select: true)
-      loaded = url
+    guard case .success(let url) = result else { return }
+    let isAccessible = url.startAccessingSecurityScopedResource()
+    defer {
+      if isAccessible {
+        url.stopAccessingSecurityScopedResource()
+      }
     }
+    try? player.addExternalTrack(from: url, type: .subtitle, select: true)
+    loaded = url
   }
 }

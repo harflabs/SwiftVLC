@@ -43,6 +43,6 @@ struct MacStreamingHLSCase: View {
 
   private func bitrateLabel(_ bitrate: Float?) -> String {
     guard let bitrate else { return "--" }
-    return String(format: "%.2f Mbps", bitrate * 8)
+    return String(format: "%.2f Mbps", bitrate / 1000)
   }
 }

@@ -133,7 +133,7 @@ The `Showcase/` directory contains separate folders, targets, and schemes for ea
 
 - **iOS.** The existing full-featured app target, also enabled for Mac Catalyst.
 - **macOS.** Native macOS app target with the same showcase coverage, adapted into sidebar-driven Mac UI.
-- **tvOS.** Empty tvOS app shell.
+- **tvOS.** Native tvOS showcase app target with TV-focused focus navigation and Siri Remote controls.
 
 Showcase UI tests are split the same way under `Showcase/UITests/`: the existing coverage lives in the `iOSUITests` target, while `macOSUITests` and `tvOSUITests` are empty target shells.
 

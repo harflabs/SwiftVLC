@@ -719,7 +719,7 @@ SwiftVLC/
 │   ├── Shared/                     # Launch-arg/accessibility contracts, app icon, and shared showcase resources
 │   ├── iOS/                        # Full-featured iOS target/scheme, also enabled for Mac Catalyst
 │   ├── macOS/                      # Native macOS target/scheme with Mac-tailored showcases
-│   ├── tvOS/                       # Empty tvOS target/scheme
+│   ├── tvOS/                       # Native tvOS target/scheme with TV-tailored showcases
 │   └── UITests/
 │       ├── iOS/                    # Existing UI tests for the iOS/Catalyst showcase
 │       ├── macOS/                  # Empty native macOS UI-test target shell
