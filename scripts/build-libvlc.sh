@@ -642,12 +642,69 @@ if [ -n "${PATCHES_DIR}" ] && [ -d "${PATCHES_DIR}" ]; then
     cd "${BUILD_DIR}"
 fi
 
-# --- Step 1c: Patch VLC for Mac Catalyst support ---
+# --- Step 1c: Patch VLC snapshot conversion owner ---
+# VLC's snapshot path can convert a hardware/opaque picture to RGBA in order
+# to blend a rendered subpicture into the saved PNG. At the pinned libVLC
+# revision, that conversion filter chain is created with a video owner whose
+# buffer allocator is NULL, but filter_chain_NewVideo() asserts that a parent
+# video owner must provide one. This trips when snapshots are taken while SPU
+# overlays/subtitles are active. Give the snapshot-only conversion chain a
+# plain software picture allocator so the assertion and the conversion both
+# have a valid output buffer.
+patch_vlc_snapshot_filter_owner() {
+    local VIDEO_OUTPUT_C="${VLC_SRC}/src/video_output/video_output.c"
+
+    if grep -q 'VoutSnapshotFilterNewPicture' "$VIDEO_OUTPUT_C"; then
+        info "VLC snapshot filter owner already patched"
+        return 0
+    fi
+
+    info "Patching VLC snapshot filter owner buffer allocator..."
+
+    python3 - "$VIDEO_OUTPUT_C" << 'PYEOF'
+import sys
+
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+
+needle = '''static const struct filter_video_callbacks vout_video_cbs = {
+    NULL, VoutHoldDecoderDevice,
+};
+'''
+
+replacement = '''static picture_t *VoutSnapshotFilterNewPicture(filter_t *filter)
+{
+    return picture_NewFromFormat(&filter->fmt_out.video);
+}
+
+static const struct filter_video_callbacks vout_video_cbs = {
+    VoutSnapshotFilterNewPicture, VoutHoldDecoderDevice,
+};
+'''
+
+if needle not in content:
+    raise SystemExit('snapshot filter callback block not found - VLC video_output.c shape changed')
+
+content = content.replace(needle, replacement, 1)
+
+with open(path, 'w') as f:
+    f.write(content)
+
+print('Snapshot filter owner patched successfully')
+PYEOF
+
+    info "VLC snapshot filter owner patched"
+}
+
+patch_vlc_snapshot_filter_owner
+
+# --- Step 1d: Patch VLC for Mac Catalyst support ---
 if [ "$BUILD_CATALYST" = "yes" ]; then
     patch_vlc_for_catalyst
 fi
 
-# --- Step 1d: Patch LDFLAGS to include -isysroot ---
+# --- Step 1e: Patch LDFLAGS to include -isysroot ---
 # On newer Xcode versions (26+), the linker requires an explicit -isysroot
 # to find system libraries (libSystem, etc.). VLC's build.sh omits this from
 # LDFLAGS, causing FFmpeg's configure (and others) to fail with:
@@ -867,7 +924,7 @@ PYEOF
 
 patch_vlc_deployment_targets
 
-# --- Step 1e: Force libtool --tag=CC for Objective-C convenience library ---
+# --- Step 1f: Force libtool --tag=CC for Objective-C convenience library ---
 # VLC's src/Makefile.am builds libvlccore_objc.la from .m files, but doesn't
 # tell libtool which tag to use. On libtool 2.5+ (current Homebrew), libtool
 # can't infer the tag from the compile command and fails with:
@@ -965,7 +1022,7 @@ PYEOF
 
 patch_vlc_objc_libtool
 
-# --- Step 1f: Disable Rust-based contribs ---
+# --- Step 1g: Disable Rust-based contribs ---
 # VLC contribs pin cargo-c 0.9.29, which transitively pulls time 0.3.31 — a
 # crate that no longer compiles on recent Rust (type inference for Box<_>).
 # The only Rust contrib we'd get on Apple is rav1e (AV1 *encoder*); we already
