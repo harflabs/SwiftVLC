@@ -1,6 +1,7 @@
 #if os(iOS) || os(macOS)
 import AVFoundation
 import CLibVLC
+import CoreImage
 import CoreMedia
 import CoreVideo
 import Synchronization
@@ -18,6 +19,11 @@ final class PixelBufferRenderer: Sendable {
     var pool: CVPixelBufferPool?
     var width: Int = 0
     var height: Int = 0
+    var renderSize: CMVideoDimensions?
+    var renderPool: CVPixelBufferPool?
+    var renderPoolWidth: Int = 0
+    var renderPoolHeight: Int = 0
+    var renderGeneration: UInt64 = 0
     /// The display layer is held inside a class box rather than as a
     /// direct `weak var` on the struct. `Mutex` stores `State` in raw
     /// managed memory and any `withLock { $0 }` read produces a struct
@@ -34,6 +40,8 @@ final class PixelBufferRenderer: Sendable {
   }
 
   let state: Mutex<State>
+  private let ciContext = CIContext(options: [.cacheIntermediates: false])
+  private let colorSpace = CGColorSpaceCreateDeviceRGB()
 
   init(displayLayer: AVSampleBufferDisplayLayer) {
     state = Mutex(State(displayLayer: displayLayer))
@@ -45,6 +53,123 @@ final class PixelBufferRenderer: Sendable {
 
   func setTimebase(_ tb: CMTimebase?) {
     state.withLock { $0.timebase = tb }
+  }
+
+  func setRenderSize(_ size: CMVideoDimensions?) {
+    state.withLock {
+      guard $0.renderSize?.width != size?.width || $0.renderSize?.height != size?.height else {
+        return
+      }
+      $0.renderSize = size
+      $0.renderPool = nil
+      $0.renderPoolWidth = 0
+      $0.renderPoolHeight = 0
+      $0.renderGeneration &+= 1
+    }
+  }
+
+  func flushDisplayLayer() {
+    let layer = state.withLock { $0.displayLayer.layer }
+    DispatchQueue.main.async { [layer] in
+      layer?.sampleBufferRenderer.flush()
+    }
+  }
+
+  func outputPixelBuffer(from source: CVPixelBuffer) -> (buffer: CVPixelBuffer, generation: UInt64)? {
+    let (target, generation) = state.withLock { ($0.renderSize, $0.renderGeneration) }
+    guard
+      let target,
+      target.width > 0,
+      target.height > 0
+    else {
+      return (source, generation)
+    }
+
+    let width = Int(target.width)
+    let height = Int(target.height)
+    if CVPixelBufferGetWidth(source) == width, CVPixelBufferGetHeight(source) == height {
+      return (source, generation)
+    }
+
+    guard let output = makeRenderPixelBuffer(width: width, height: height) else {
+      return nil
+    }
+
+    let sourceWidth = CGFloat(CVPixelBufferGetWidth(source))
+    let sourceHeight = CGFloat(CVPixelBufferGetHeight(source))
+    let targetWidth = CGFloat(width)
+    let targetHeight = CGFloat(height)
+    guard sourceWidth > 0, sourceHeight > 0 else { return (source, generation) }
+
+    let scale = min(targetWidth / sourceWidth, targetHeight / sourceHeight)
+    let fittedWidth = sourceWidth * scale
+    let fittedHeight = sourceHeight * scale
+    let offsetX = (targetWidth - fittedWidth) / 2
+    let offsetY = (targetHeight - fittedHeight) / 2
+
+    let transform = CGAffineTransform(
+      a: scale,
+      b: 0,
+      c: 0,
+      d: scale,
+      tx: offsetX,
+      ty: offsetY
+    )
+    let frame = CGRect(x: 0, y: 0, width: targetWidth, height: targetHeight)
+    let background = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 1))
+      .cropped(to: frame)
+    let image = CIImage(cvPixelBuffer: source)
+      .transformed(by: transform)
+      .composited(over: background)
+
+    ciContext.render(image, to: output, bounds: frame, colorSpace: colorSpace)
+    return (output, generation)
+  }
+
+  func canEnqueueFrame(generation: UInt64, on layer: AVSampleBufferDisplayLayer) -> Bool {
+    state.withLock {
+      $0.renderGeneration == generation && $0.displayLayer.layer === layer
+    }
+  }
+
+  private func makeRenderPixelBuffer(width: Int, height: Int) -> CVPixelBuffer? {
+    let pool = state.withLock { state -> CVPixelBufferPool? in
+      if state.renderPoolWidth == width, state.renderPoolHeight == height, let pool = state.renderPool {
+        return pool
+      }
+
+      let attrs: [String: Any] = [
+        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+        kCVPixelBufferWidthKey as String: width,
+        kCVPixelBufferHeightKey as String: height,
+        kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any],
+        kCVPixelBufferCGImageCompatibilityKey as String: true,
+        kCVPixelBufferCGBitmapContextCompatibilityKey as String: true
+      ]
+      let poolAttrs: [String: Any] = [
+        kCVPixelBufferPoolMinimumBufferCountKey as String: 3
+      ]
+
+      var newPool: CVPixelBufferPool?
+      let status = CVPixelBufferPoolCreate(
+        kCFAllocatorDefault,
+        poolAttrs as CFDictionary,
+        attrs as CFDictionary,
+        &newPool
+      )
+      guard status == kCVReturnSuccess, let newPool else { return nil }
+
+      state.renderPool = newPool
+      state.renderPoolWidth = width
+      state.renderPoolHeight = height
+      return newPool
+    }
+
+    guard let pool else { return nil }
+    var pixelBuffer: CVPixelBuffer?
+    let status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pixelBuffer)
+    guard status == kCVReturnSuccess else { return nil }
+    return pixelBuffer
   }
 }
 
@@ -177,10 +302,14 @@ func pixelBufferDisplayCallback(
   // `takeRetainedValue` balances the `passRetained` in `pixelBufferLockCallback`.
   let pb = Unmanaged<AnyObject>.fromOpaque(picture).takeRetainedValue() as! CVPixelBuffer
 
+  guard let output = renderer.outputPixelBuffer(from: pb) else { return }
+  let outputBuffer = output.buffer
+  let renderGeneration = output.generation
+
   var formatDesc: CMVideoFormatDescription?
   let fmtStatus = CMVideoFormatDescriptionCreateForImageBuffer(
     allocator: kCFAllocatorDefault,
-    imageBuffer: pb,
+    imageBuffer: outputBuffer,
     formatDescriptionOut: &formatDesc
   )
   guard fmtStatus == noErr, let desc = formatDesc else { return }
@@ -204,7 +333,7 @@ func pixelBufferDisplayCallback(
   var sampleBuffer: CMSampleBuffer?
   let sbStatus = CMSampleBufferCreateReadyWithImageBuffer(
     allocator: kCFAllocatorDefault,
-    imageBuffer: pb,
+    imageBuffer: outputBuffer,
     formatDescription: desc,
     sampleTiming: &timingInfo,
     sampleBufferOut: &sampleBuffer
@@ -213,7 +342,8 @@ func pixelBufferDisplayCallback(
 
   // CMSampleBuffer is a CF type that lacks Sendable conformance but is thread-safe for read access
   nonisolated(unsafe) let sample = sb
-  DispatchQueue.main.async { [layer] in
+  DispatchQueue.main.async { [layer, renderer] in
+    guard renderer.canEnqueueFrame(generation: renderGeneration, on: layer) else { return }
     let renderer = layer.sampleBufferRenderer
     if renderer.status == .failed {
       renderer.flush()
@@ -228,7 +358,13 @@ func pixelBufferCleanupCallback(opaque: UnsafeMutableRawPointer?) {
 
   let renderer = Unmanaged<PixelBufferRenderer>.fromOpaque(opaque).takeUnretainedValue()
 
-  renderer.state.withLock { $0.pool = nil }
+  renderer.state.withLock {
+    $0.pool = nil
+    $0.renderPool = nil
+    $0.renderPoolWidth = 0
+    $0.renderPoolHeight = 0
+    $0.renderGeneration &+= 1
+  }
 }
 
 #endif

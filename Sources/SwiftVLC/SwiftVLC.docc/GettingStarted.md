@@ -65,8 +65,8 @@ Most controls read a handful of observable properties directly:
 ```swift
 Text(player.state.description)
 ProgressView(value: player.position)
-Button(player.isPlaying ? "Pause" : "Play") {
-    player.isPlaying ? player.pause() : try? player.play()
+Button(player.isPlaybackRequestedActive ? "Pause" : "Play") {
+    player.togglePlayPause()
 }
 ```
 

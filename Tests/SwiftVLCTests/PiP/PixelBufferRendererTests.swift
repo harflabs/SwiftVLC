@@ -2,6 +2,7 @@
 @testable import SwiftVLC
 import AVFoundation
 import CoreMedia
+import CoreVideo
 import Synchronization
 import Testing
 
@@ -135,11 +136,9 @@ extension Integration {
         timebaseOut: &timebase
       )
       renderer.setTimebase(timebase)
-      // Verify it was set
       let before = renderer.state.withLock { $0.timebase }
       #expect(before != nil)
 
-      // Clear it
       renderer.setTimebase(nil)
       let after = renderer.state.withLock { $0.timebase }
       #expect(after == nil)
@@ -159,7 +158,6 @@ extension Integration {
       renderer.setDisplayLayer(nil)
       renderer.setDisplayLayer(AVSampleBufferDisplayLayer())
       renderer.setDisplayLayer(nil)
-      // If we reach here without crashing, the test passes
       let current = renderer.state.withLock { $0.displayLayer.layer }
       #expect(current == nil)
     }
@@ -180,9 +178,50 @@ extension Integration {
       }
       renderer.setTimebase(nil)
       renderer.setTimebase(nil)
-      // If we reach here without crashing, the test passes
       let current = renderer.state.withLock { $0.timebase }
       #expect(current == nil)
+    }
+
+    @Test
+    func `outputPixelBuffer scales to active render size`() throws {
+      let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+      renderer.setRenderSize(CMVideoDimensions(width: 320, height: 180))
+
+      let sourceBuffer = try makeBGRAImageBuffer(width: 1280, height: 720)
+      let output = try #require(renderer.outputPixelBuffer(from: sourceBuffer)?.buffer)
+
+      #expect(CVPixelBufferGetWidth(output) == 320)
+      #expect(CVPixelBufferGetHeight(output) == 180)
+    }
+
+    @Test
+    func `clearing render size returns original pixel buffer`() throws {
+      let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+
+      renderer.setRenderSize(CMVideoDimensions(width: 8, height: 8))
+      renderer.setRenderSize(nil)
+
+      let sourceBuffer = try makeBGRAImageBuffer(width: 16, height: 16)
+      let output = try #require(renderer.outputPixelBuffer(from: sourceBuffer)?.buffer)
+      #expect(output === sourceBuffer)
+    }
+
+    @Test
+    func `render size changes invalidate pending frames`() throws {
+      let layer = AVSampleBufferDisplayLayer()
+      let renderer = PixelBufferRenderer(displayLayer: layer)
+
+      let sourceBuffer = try makeBGRAImageBuffer(width: 16, height: 16)
+
+      renderer.setRenderSize(CMVideoDimensions(width: 8, height: 8))
+      let firstFrame = try #require(renderer.outputPixelBuffer(from: sourceBuffer))
+      #expect(renderer.canEnqueueFrame(generation: firstFrame.generation, on: layer))
+
+      renderer.setRenderSize(CMVideoDimensions(width: 10, height: 10))
+
+      #expect(!renderer.canEnqueueFrame(generation: firstFrame.generation, on: layer))
+      let secondFrame = try #require(renderer.outputPixelBuffer(from: sourceBuffer))
+      #expect(renderer.canEnqueueFrame(generation: secondFrame.generation, on: layer))
     }
 
     @Test
@@ -199,5 +238,25 @@ extension Integration {
       #expect(stored === layer)
     }
   }
+}
+
+private func makeBGRAImageBuffer(width: Int, height: Int) throws -> CVPixelBuffer {
+  var buffer: CVPixelBuffer?
+  let attrs: [String: Any] = [
+    kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+    kCVPixelBufferWidthKey as String: width,
+    kCVPixelBufferHeightKey as String: height,
+    kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any]
+  ]
+  let status = CVPixelBufferCreate(
+    kCFAllocatorDefault,
+    width,
+    height,
+    kCVPixelFormatType_32BGRA,
+    attrs as CFDictionary,
+    &buffer
+  )
+  #expect(status == kCVReturnSuccess)
+  return try #require(buffer)
 }
 #endif

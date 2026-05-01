@@ -106,6 +106,33 @@ extension Integration {
       #endif
     }
 
+    @Test
+    func `AppKit surface pins and reshapes VLC subviews to local bounds`() {
+      #if canImport(AppKit)
+      let surface = VideoSurface(frame: NSRect(x: 120, y: 80, width: 320, height: 180))
+      surface.wantsLayer = true
+      surface.layer?.masksToBounds = true
+
+      let vlcSubview = AppKitReshapeProbeView(frame: surface.frame)
+      surface.addSubview(vlcSubview)
+
+      #expect(vlcSubview.frame == surface.bounds)
+      #expect(vlcSubview.autoresizingMask.contains(.width))
+      #expect(vlcSubview.autoresizingMask.contains(.height))
+      #expect(vlcSubview.reshapeCount == 1)
+      #expect(surface.wantsDefaultClipping)
+      #expect(surface.layer?.masksToBounds == true)
+
+      surface.setFrameSize(NSSize(width: 640, height: 360))
+      surface.layoutSubtreeIfNeeded()
+
+      #expect(vlcSubview.frame == surface.bounds)
+      #expect(vlcSubview.reshapeCount >= 2)
+      #else
+      #expect(Bool(true))
+      #endif
+    }
+
     /// Layout with zero-width or zero-height bounds must be a no-op
     /// so we don't race with libVLC's own initial sizing.
     @Test
@@ -130,3 +157,15 @@ extension Integration {
     }
   }
 }
+
+#if canImport(AppKit)
+@MainActor
+private final class AppKitReshapeProbeView: NSView {
+  var reshapeCount = 0
+
+  @objc(reshape)
+  func reshapeForTesting() {
+    reshapeCount += 1
+  }
+}
+#endif

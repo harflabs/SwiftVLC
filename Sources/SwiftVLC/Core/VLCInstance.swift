@@ -10,7 +10,7 @@ import Darwin
 ///
 /// Create a custom instance with specific arguments if needed:
 /// ```swift
-/// let instance = try VLCInstance(arguments: ["--verbose=2"])
+/// let instance = try VLCInstance(arguments: VLCInstance.defaultArguments + ["--verbose=2"])
 /// ```
 public final class VLCInstance: Sendable {
   /// The default shared instance, created with ``defaultArguments``.
@@ -31,6 +31,48 @@ public final class VLCInstance: Sendable {
   ]
 
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_instance_t*
+  let arguments: [String]
+
+  var usesPiPSafeDarwinDisplay: Bool {
+    #if os(macOS)
+    guard !Self.containsOption(named: "no-video", in: arguments) else { return false }
+    let forcesLegacyDisplay = Self.containsOption(
+      named: "force-darwin-legacy-display",
+      in: arguments
+    )
+    guard let vout = Self.lastOptionValue(named: "vout", in: arguments) else {
+      return !forcesLegacyDisplay
+    }
+    return ["macosx", "vout_macosx"].contains(vout)
+    #else
+    true
+    #endif
+  }
+
+  private static func containsOption(named name: String, in arguments: [String]) -> Bool {
+    let longName = "--\(name)"
+    let assignmentPrefix = "\(longName)="
+    return arguments.contains {
+      $0 == longName || $0.hasPrefix(assignmentPrefix)
+    }
+  }
+
+  private static func lastOptionValue(named name: String, in arguments: [String]) -> String? {
+    var value: String?
+    let longName = "--\(name)"
+    let assignmentPrefix = "\(longName)="
+
+    for index in arguments.indices {
+      let argument = arguments[index]
+      if argument.hasPrefix(assignmentPrefix) {
+        value = String(argument.dropFirst(assignmentPrefix.count))
+      } else if argument == longName, arguments.indices.contains(index + 1) {
+        value = arguments[index + 1]
+      }
+    }
+
+    return value
+  }
 
   /// Multiplexes the single libVLC log callback to any number of Swift
   /// `logStream` consumers. Lazily installs/uninstalls the underlying
@@ -59,6 +101,8 @@ public final class VLCInstance: Sendable {
   ///   `"--no-snapshot-preview"`, `"--no-stats"`.
   /// - Throws: `VLCError.instanceCreationFailed` if libVLC cannot be initialized.
   public init(arguments: [String] = VLCInstance.defaultArguments) throws(VLCError) {
+    self.arguments = arguments
+
     // Convert Swift strings to C strings for libvlc_new.
     // strdup allocates; freed in defer after libvlc_new copies them.
     let cArgs = arguments.map { strdup($0) }

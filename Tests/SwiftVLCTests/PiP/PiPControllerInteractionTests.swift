@@ -18,12 +18,25 @@ extension Integration {
     final class PlaybackRecorder {
       var pauseCount = 0
       var resumeCount = 0
+      var cancelPendingPauseCount = 0
+      var shouldResume = false
+      var resumeResult = true
       var seekTargets: [Int64] = []
 
       var driver: PiPController.PlaybackDriver {
         .init(
-          pause: { self.pauseCount += 1 },
-          resume: { self.resumeCount += 1 },
+          pause: {
+            self.pauseCount += 1
+            return true
+          },
+          resume: {
+            self.resumeCount += 1
+            return self.resumeResult
+          },
+          cancelPendingPause: {
+            self.cancelPendingPauseCount += 1
+          },
+          shouldResume: { self.shouldResume },
           seek: { self.seekTargets.append($0.milliseconds) }
         )
       }
@@ -109,6 +122,49 @@ extension Integration {
       try? await Task.sleep(for: .milliseconds(20))
 
       #expect(recorder.resumeCount == 1, "resume must fire after a previously-issued pause")
+    }
+
+    @Test
+    func `setPlaying true resumes a native pause transition that is still in flight`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .playing)
+      let recorder = PlaybackRecorder()
+      recorder.shouldResume = true
+      let controller = PiPController(
+        player: player,
+        playbackDriver: recorder.driver,
+        pauseDebounce: .milliseconds(250)
+      )
+
+      controller._setPlayingForTesting(true)
+
+      #expect(recorder.resumeCount == 1)
+      #expect(controller._pendingPiPPlaybackStateForTesting() == true)
+
+      controller._handleObservedPlaybackActivityForTesting(false)
+
+      #expect(controller._pipPlaybackActiveForTesting() == true)
+      #expect(controller._pendingPiPPlaybackStateForTesting() == true)
+    }
+
+    @Test
+    func `setPlaying true falls back to native state when resume is rejected`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .paused)
+      let recorder = PlaybackRecorder()
+      recorder.shouldResume = true
+      recorder.resumeResult = false
+      let controller = PiPController(
+        player: player,
+        playbackDriver: recorder.driver,
+        pauseDebounce: .milliseconds(250)
+      )
+
+      controller._setPlayingForTesting(true)
+
+      #expect(recorder.resumeCount == 1)
+      #expect(controller._pipPlaybackActiveForTesting() == false)
+      #expect(controller._pendingPiPPlaybackStateForTesting() == nil)
     }
 
     /// While `.buffering`, the deferred pause loop keeps waiting for
@@ -197,6 +253,142 @@ extension Integration {
 
       controller._setPlayingForTesting(false)
       #expect(controller._isPlaybackPausedForTesting(pip) == true)
+    }
+
+    @Test
+    func `setPlaying updates player playback intent synchronously`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .playing)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: PlaybackRecorder().driver,
+        pauseDebounce: .milliseconds(250)
+      )
+
+      controller._setPlayingForTesting(false)
+
+      #expect(player.isPlaybackRequestedActive == false)
+      #expect(controller._pipPlaybackActiveForTesting() == false)
+
+      controller._setPlayingForTesting(true)
+
+      #expect(player.isPlaybackRequestedActive == true)
+      #expect(controller._pipPlaybackActiveForTesting() == true)
+    }
+
+    @Test
+    func `external playback controls update PiP playback state`() async {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .playing, isPausable: false)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: PlaybackRecorder().driver,
+        pauseDebounce: .milliseconds(250)
+      )
+
+      #expect(controller._pipPlaybackActiveForTesting() == true)
+
+      player.pause()
+      try? await Task.sleep(for: .milliseconds(30))
+
+      #expect(player.isPlaybackRequestedActive == false)
+      #expect(controller._pipPlaybackActiveForTesting() == false)
+
+      player.resume()
+      try? await Task.sleep(for: .milliseconds(30))
+
+      #expect(player.isPlaybackRequestedActive == true)
+      #expect(controller._pipPlaybackActiveForTesting() == true)
+    }
+
+    @Test
+    func `external pause intent does not freeze video timebase before native pause`() async {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .playing, isPausable: false)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: PlaybackRecorder().driver,
+        pauseDebounce: .milliseconds(250)
+      )
+
+      #expect(controller._controlTimebaseRateForTesting() == 1)
+
+      player.pause()
+      try? await Task.sleep(for: .milliseconds(30))
+
+      #expect(player.isPlaybackRequestedActive == false)
+      #expect(controller._pipPlaybackActiveForTesting() == false)
+      #expect(controller._controlTimebaseRateForTesting() == 1)
+    }
+
+    @Test
+    func `PiP pause intent does not freeze video timebase before native pause`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .playing)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: PlaybackRecorder().driver,
+        pauseDebounce: .milliseconds(250)
+      )
+
+      #expect(controller._controlTimebaseRateForTesting() == 1)
+
+      controller._setPlayingForTesting(false)
+
+      #expect(controller._pipPlaybackActiveForTesting() == false)
+      #expect(controller._controlTimebaseRateForTesting() == 1)
+    }
+
+    @Test
+    func `pending PiP pause is not overwritten by stale playing observation`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .playing)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: PlaybackRecorder().driver,
+        pauseDebounce: .milliseconds(250)
+      )
+
+      controller._setPlayingForTesting(false)
+      controller._handleObservedPlaybackActivityForTesting(true)
+
+      #expect(controller._pipPlaybackActiveForTesting() == false)
+      #expect(controller._pendingPiPPlaybackStateForTesting() == false)
+    }
+
+    @Test
+    func `pending PiP pause clears when native playback reaches paused`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .playing)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: PlaybackRecorder().driver,
+        pauseDebounce: .milliseconds(250)
+      )
+
+      controller._setPlayingForTesting(false)
+      player._setStateForTesting(state: .paused)
+      controller._handleObservedPlaybackActivityForTesting(false)
+
+      #expect(controller._pipPlaybackActiveForTesting() == false)
+      #expect(controller._pendingPiPPlaybackStateForTesting() == nil)
+    }
+
+    @Test
+    func `pending PiP play is not overwritten by stale paused observation`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .paused)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: PlaybackRecorder().driver,
+        pauseDebounce: .milliseconds(250)
+      )
+
+      controller._setPlayingForTesting(true)
+      controller._handleObservedPlaybackActivityForTesting(false)
+
+      #expect(controller._pipPlaybackActiveForTesting() == true)
+      #expect(controller._pendingPiPPlaybackStateForTesting() == true)
     }
 
     // MARK: - handleSkip boundary conditions
@@ -303,9 +495,9 @@ extension Integration {
 
     // MARK: - Delegate size transition hook
 
-    /// The size-transition hook is a no-op per Apple's sample-buffer PiP
-    /// pattern (the layer auto-resizes). Cover it so the method isn't
-    /// dead code.
+    /// AVKit reports PiP window-size changes through the playback delegate.
+    /// The forwarding path must remain safe even when the platform does not
+    /// need macOS's target-sized buffer rendering path.
     @Test
     func `didTransitionToRenderSize does not crash`() {
       let player = Player(instance: TestInstance.shared)
@@ -322,6 +514,28 @@ extension Integration {
         pip,
         size: CMVideoDimensions(width: 320, height: 240)
       )
+    }
+
+    @Test
+    func `didTransitionToRenderSize updates renderer target size`() {
+      let player = Player(instance: TestInstance.shared)
+      let controller = PiPController(player: player)
+      guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
+
+      let contentSource = AVPictureInPictureController.ContentSource(
+        sampleBufferDisplayLayer: controller.layer,
+        playbackDelegate: controller._playbackDelegateForTesting
+      )
+      let pip = AVPictureInPictureController(contentSource: contentSource)
+
+      controller._didTransitionToRenderSizeForTesting(
+        pip,
+        size: CMVideoDimensions(width: 512, height: 288)
+      )
+
+      let renderSize = controller._renderSizeForTesting()
+      #expect(renderSize?.width == 512)
+      #expect(renderSize?.height == 288)
     }
 
     // MARK: - AVPictureInPictureControllerDelegate

@@ -99,7 +99,10 @@ struct MacPlaybackControls: View {
         Button {
           player.togglePlayPause()
         } label: {
-          Label(player.isPlaying ? "Pause" : "Play", systemImage: player.isPlaying ? "pause.fill" : "play.fill")
+          Label(
+            player.isPlaybackRequestedActive ? "Pause" : "Play",
+            systemImage: player.isPlaybackRequestedActive ? "pause.fill" : "play.fill"
+          )
         }
         .keyboardShortcut(.space, modifiers: [])
 
@@ -142,11 +145,24 @@ struct MacMetricGrid<Content: View>: View {
 struct MacMetricRow: View {
   let title: String
   let value: String
+  var valueIdentifier: String?
 
   var body: some View {
     GridRow {
       Text(title)
         .foregroundStyle(.secondary)
+      valueText
+    }
+  }
+
+  @ViewBuilder
+  private var valueText: some View {
+    if let valueIdentifier {
+      Text(value)
+        .textSelection(.enabled)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityIdentifier(valueIdentifier)
+    } else {
       Text(value)
         .textSelection(.enabled)
         .fixedSize(horizontal: false, vertical: true)

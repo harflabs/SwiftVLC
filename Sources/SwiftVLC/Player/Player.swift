@@ -15,8 +15,8 @@ import Observation
 ///     var body: some View {
 ///         VideoView(player)
 ///         Text(player.state.description)
-///         Button(player.isPlaying ? "Pause" : "Play") {
-///             player.isPlaying ? player.pause() : try? player.play()
+///         Button(player.isPlaybackRequestedActive ? "Pause" : "Play") {
+///             player.togglePlayPause()
 ///         }
 ///     }
 /// }
@@ -33,6 +33,17 @@ public final class Player {
 
   /// Current playback state.
   public private(set) var state: PlayerState = .idle
+
+  /// Whether playback controls should currently present the media as
+  /// active.
+  ///
+  /// libVLC state changes are asynchronous: a pause request can remain
+  /// in flight while the native player still reports `.playing`, and a
+  /// resume request can remain in flight while it still reports
+  /// `.paused`. This property follows the user's latest playback intent
+  /// synchronously so transport controls, including Picture in Picture,
+  /// stay visually aligned while libVLC catches up.
+  public private(set) var isPlaybackRequestedActive: Bool = false
 
   /// Current playback time.
   public private(set) var currentTime: Duration = .zero
@@ -267,12 +278,7 @@ public final class Player {
   /// Whether playback is active (playing or buffering during playback).
   public var isActive: Bool {
     access(keyPath: \.isActive)
-    return switch state {
-    case .playing, .opening, .buffering:
-      true
-    default:
-      false
-    }
+    return state.isActive
   }
 
   /// Convenience access to current media statistics.
@@ -288,10 +294,15 @@ public final class Player {
     eventBridge.makeStream()
   }
 
+  nonisolated var playbackIntentEvents: AsyncStream<Bool> {
+    playbackIntentBridge.makeStream()
+  }
+
   // MARK: - Internal
 
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_media_player_t*
   private let eventBridge: EventBridge
+  private nonisolated let playbackIntentBridge: AsyncBroadcaster<Bool>
   private var eventTask: Task<Void, Never>?
   private var _position: Double = 0
   private var _equalizer: Equalizer?
@@ -341,11 +352,13 @@ public final class Player {
     eventBridge = EventBridge(
       eventManager: libvlc_media_player_event_manager(p)!
     )
+    playbackIntentBridge = AsyncBroadcaster()
     startEventConsumer()
   }
 
   isolated deinit {
     eventTask?.cancel()
+    playbackIntentBridge.finishAll()
     // Tell libVLC to forget the drawable *before* release so the
     // vout thread observes a nil pointer rather than dereferencing a
     // view that is about to be released when `self`'s storage is torn
@@ -450,54 +463,122 @@ public final class Player {
   /// - Throws: `VLCError.playbackFailed` if playback cannot start.
   public func play() throws(VLCError) {
     if libvlc_media_player_play(pointer) == -1 {
+      publishPlaybackIntent(false)
       let reason = libvlc_errmsg().map { String(cString: $0) } ?? "unknown"
       throw .playbackFailed(reason: reason)
     }
+    publishPlaybackIntent(true)
   }
 
   /// Pauses playback.
   ///
-  /// No-op until libVLC has reached a stable, pausable `.playing`
-  /// state. With real audio output, the first audio timestamp must also
-  /// have advanced beyond zero; pausing before that point can leave
-  /// libVLC's aout stream with stale pause timing.
+  /// If libVLC is visually playing but has not yet reached a stable,
+  /// pausable state, SwiftVLC keeps the pause request pending and issues
+  /// it once the native player reports that pausing is safe. With real
+  /// audio output, the first audio timestamp must also have advanced
+  /// beyond zero; pausing before that point can leave libVLC's aout
+  /// stream with stale pause timing.
   public func pause() {
-    guard pauseTransition == nil else {
-      deferredPauseCommand = .pause
-      return
-    }
-    guard
-      state == .playing,
-      isPausable,
-      canIssueNativePause
-    else { return }
-
-    pauseTransition = .pausing
-    deferredPauseCommand = nil
-    libvlc_media_player_set_pause(pointer, 1)
+    _ = issuePause()
   }
 
   /// Resumes playback from pause.
   public func resume() {
+    _ = issueResume()
+  }
+
+  @discardableResult
+  func issuePause() -> Bool {
+    guard pauseTransition == nil else {
+      deferredPauseCommand = .pause
+      publishPlaybackIntent(false)
+      return false
+    }
+    switch state {
+    case .playing:
+      break
+    case .opening, .buffering:
+      deferredPauseCommand = .pause
+      publishPlaybackIntent(false)
+      return false
+    case .paused:
+      publishPlaybackIntent(false)
+      return false
+    default:
+      return false
+    }
+    refreshNativeStateIfNeeded()
+    guard isPausable, canIssueNativePause else {
+      deferredPauseCommand = .pause
+      publishPlaybackIntent(false)
+      return false
+    }
+
+    pauseTransition = .pausing
+    deferredPauseCommand = nil
+    publishPlaybackIntent(false)
+    libvlc_media_player_set_pause(pointer, 1)
+    return true
+  }
+
+  @discardableResult
+  func issueResume() -> Bool {
     guard pauseTransition == nil else {
       deferredPauseCommand = .resume
-      return
+      publishPlaybackIntent(true)
+      return true
     }
-    guard nativePlaybackState == .paused else { return }
+    if deferredPauseCommand == .pause {
+      deferredPauseCommand = nil
+      publishPlaybackIntent(true)
+      return true
+    }
+    cancelPendingPause()
+    let nativeState = nativePlaybackState
+    guard nativeState == .paused else {
+      if state == .paused, nativeState.isActive {
+        publishPlaybackState(nativeState)
+        publishPlaybackIntent(true)
+        return true
+      }
+      if state.isActive {
+        publishPlaybackIntent(true)
+        return true
+      }
+      return false
+    }
 
     pauseTransition = .resuming
     deferredPauseCommand = nil
+    publishPlaybackIntent(true)
     libvlc_media_player_set_pause(pointer, 0)
+    return true
+  }
+
+  func cancelPendingPause() {
+    if deferredPauseCommand == .pause {
+      deferredPauseCommand = nil
+      publishPlaybackIntent(true)
+    }
+  }
+
+  var shouldResumeForExternalPlayRequest: Bool {
+    pauseTransition == .pausing
+      || state == .paused
+      || (!isPlaybackRequestedActive && state.isActive)
+      || nativePlaybackState == .paused
   }
 
   /// Toggles between playing and paused, or starts playback from an
-  /// idle or stopped state. No-op in transient states (`.opening`,
-  /// `.buffering`, `.stopping`, `.error`).
+  /// idle or stopped state. Pause requests during opening or buffering
+  /// are queued until libVLC reaches a stable pausable state. No-op in
+  /// terminal or invalid transient states (`.stopping`, `.error`).
   ///
-  /// Dispatches on the observed ``state`` rather than calling
-  /// `libvlc_media_player_pause` (which is itself a toggle). The naked
-  /// toggle is unsafe mid-transition: interleaving a pause-toggle with
-  /// the audio output's opening path corrupts
+  /// Dispatches through explicit pause/resume requests using the
+  /// observed ``state`` and the current playback intent, rather than
+  /// calling `libvlc_media_player_pause` (which is itself a toggle). The
+  /// naked toggle is unsafe mid-transition: interleaving a pause-toggle
+  /// with the audio output's opening path corrupts
   /// `stream->timing.pause_date` and trips the upstream assertion
   /// `stream->timing.pause_date == VLC_TICK_INVALID` in
   /// `src/audio_output/dec.c:876`, killing the process. The usual repro
@@ -505,16 +586,16 @@ public final class Player {
   /// `.task { try? player.play(url:) }` begins.
   public func togglePlayPause() {
     switch state {
-    case .playing:
-      pause()
-    case .paused:
-      resume()
     case .idle, .stopped:
       try? play()
-    case .opening, .buffering, .stopping, .error:
-      // Transient state. libVLC isn't ready to accept a pause-toggle
-      // safely; ignore the input rather than corrupting its internal
-      // audio-output state.
+    case .playing, .opening, .buffering, .paused:
+      if isPlaybackRequestedActive {
+        pause()
+      } else {
+        resume()
+      }
+    case .stopping, .error:
+      // There is no stable playback target for a pause/resume command.
       break
     }
   }
@@ -526,6 +607,7 @@ public final class Player {
     }
     pauseTransition = nil
     deferredPauseCommand = nil
+    publishPlaybackIntent(false)
     libvlc_media_player_stop_async(pointer)
   }
 
@@ -1129,10 +1211,9 @@ public final class Player {
   private func handleEvent(_ event: PlayerEvent) {
     switch event {
     case .stateChanged(let newState):
-      state = newState
+      publishPlaybackState(newState)
       updatePauseTransition(for: newState)
-      withMutation(keyPath: \.isPlaying) {}
-      withMutation(keyPath: \.isActive) {}
+      reconcilePlaybackIntent(for: newState)
       if case .stopped = newState {
         currentTime = .zero
         bufferFill = 0
@@ -1150,9 +1231,14 @@ public final class Player {
       // transition catches those cases. It's three C calls and is
       // idempotent when the events do fire.
       refreshNativeStateIfNeeded()
+      performDeferredPauseCommandIfNeeded()
 
     case .timeChanged(let time):
       currentTime = time
+      if duration == nil || !isSeekable || !isPausable {
+        refreshNativeStateIfNeeded()
+      }
+      performDeferredPauseCommandIfNeeded()
 
     case .positionChanged(let pos):
       withMutation(keyPath: \.position) {
@@ -1167,6 +1253,7 @@ public final class Player {
 
     case .pausableChanged(let pausable):
       isPausable = pausable
+      performDeferredPauseCommandIfNeeded()
 
     case .tracksChanged:
       refreshTracks()
@@ -1178,10 +1265,10 @@ public final class Player {
       notifyMediaDependentObservables()
 
     case .encounteredError:
-      state = .error
+      publishPlaybackState(.error)
       pauseTransition = nil
-      withMutation(keyPath: \.isPlaying) {}
-      withMutation(keyPath: \.isActive) {}
+      deferredPauseCommand = nil
+      reconcilePlaybackIntent(for: .error)
 
     case .bufferingProgress(let pct):
       // Fill level is useful in every state, so update regardless. A
@@ -1192,8 +1279,8 @@ public final class Player {
       switch state {
       case .idle, .opening, .buffering:
         if state != .buffering {
-          state = .buffering
-          withMutation(keyPath: \.isActive) {}
+          publishPlaybackState(.buffering)
+          reconcilePlaybackIntent(for: .buffering)
         }
       default:
         break
@@ -1233,6 +1320,37 @@ public final class Player {
     }
   }
 
+  private func publishPlaybackState(_ newState: PlayerState) {
+    state = newState
+    withMutation(keyPath: \.isPlaying) {}
+    withMutation(keyPath: \.isActive) {}
+  }
+
+  private func publishPlaybackIntent(_ active: Bool) {
+    guard isPlaybackRequestedActive != active else { return }
+    isPlaybackRequestedActive = active
+    playbackIntentBridge.broadcast(active)
+  }
+
+  func setPlaybackIntentFromExternalControl(_ active: Bool) {
+    publishPlaybackIntent(active)
+  }
+
+  private func reconcilePlaybackIntent(for state: PlayerState) {
+    switch state {
+    case .opening, .buffering, .playing:
+      guard pauseTransition != .pausing, deferredPauseCommand != .pause else { return }
+      publishPlaybackIntent(true)
+
+    case .paused:
+      guard pauseTransition != .resuming, deferredPauseCommand != .resume else { return }
+      publishPlaybackIntent(false)
+
+    case .idle, .stopped, .stopping, .error:
+      publishPlaybackIntent(false)
+    }
+  }
+
   private func updatePauseTransition(for newState: PlayerState) {
     switch (pauseTransition, newState) {
     case (.pausing, .paused), (.resuming, .playing):
@@ -1262,6 +1380,7 @@ public final class Player {
   private func resetMediaDerivedState() {
     pauseTransition = nil
     deferredPauseCommand = nil
+    publishPlaybackIntent(false)
     currentTime = .zero
     duration = nil
     isSeekable = false
@@ -1300,10 +1419,10 @@ public final class Player {
 
   /// Reads length / seekable / pausable directly from libVLC and
   /// publishes any changes to the matching observable property. Called
-  /// on every state transition as a resilient companion to
-  /// `MediaPlayerLengthChanged` / `SeekableChanged` / `PausableChanged`,
-  /// which are not guaranteed to fire on the player's event manager for
-  /// every media.
+  /// on state transitions and early time updates as a resilient companion
+  /// to `MediaPlayerLengthChanged` / `SeekableChanged` /
+  /// `PausableChanged`, which are not guaranteed to fire on the player's
+  /// event manager for every media.
   private func refreshNativeStateIfNeeded() {
     if duration == nil {
       let ms = libvlc_media_player_get_length(pointer)
@@ -1360,8 +1479,13 @@ public final class Player {
     handleEvent(event)
   }
 
+  func _hasDeferredPauseForTesting() -> Bool {
+    deferredPauseCommand == .pause
+  }
+
   func _setStateForTesting(
     state: PlayerState? = nil,
+    isPlaybackRequestedActive: Bool? = nil,
     currentTime: Duration? = nil,
     duration: Duration? = nil,
     position: Double? = nil,
@@ -1370,6 +1494,10 @@ public final class Player {
   ) {
     if let state {
       self.state = state
+      publishPlaybackIntent(state.isActive)
+    }
+    if let isPlaybackRequestedActive {
+      publishPlaybackIntent(isPlaybackRequestedActive)
     }
     if let currentTime {
       self.currentTime = currentTime

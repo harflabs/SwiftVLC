@@ -22,6 +22,54 @@ extension Integration {
     }
 
     @Test
+    func `togglePlayPause follows pending playback intent while native state catches up`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .playing, isPausable: false)
+
+      player.togglePlayPause()
+
+      #expect(player.isPlaybackRequestedActive == false)
+      #expect(player._hasDeferredPauseForTesting())
+
+      player.togglePlayPause()
+
+      #expect(player.isPlaybackRequestedActive == true)
+      #expect(!player._hasDeferredPauseForTesting())
+    }
+
+    @Test
+    func `togglePlayPause can cancel a pending resume while native state is still paused`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .paused, isPlaybackRequestedActive: true)
+
+      player.togglePlayPause()
+
+      #expect(player.isPlaybackRequestedActive == false)
+    }
+
+    @Test
+    func `togglePlayPause from early playing queues pause until VLC is pausable`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .playing, isPausable: false)
+
+      player.togglePlayPause()
+
+      #expect(player._hasDeferredPauseForTesting())
+    }
+
+    @Test
+    func `resume cancels queued early pause`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .playing, isPausable: false)
+
+      player.pause()
+      player.resume()
+
+      #expect(player.isPlaybackRequestedActive)
+      #expect(!player._hasDeferredPauseForTesting())
+    }
+
+    @Test
     func `togglePlayPause from paused calls resume`() {
       let player = Player(instance: TestInstance.shared)
       player._setStateForTesting(state: .paused)
@@ -41,17 +89,39 @@ extension Integration {
       player.togglePlayPause()
     }
 
-    /// Transient states must not issue any libVLC command — a pause
-    /// toggle during `.opening`/`.buffering` can corrupt libVLC's
-    /// `timing.pause_date` and trip an assertion in `dec.c`.
+    /// Active transient states must not issue an immediate libVLC
+    /// pause-toggle, but they should remember the user's pause intent
+    /// and apply it once playback reaches a stable pausable state.
     @Test
-    func `togglePlayPause from transient states is a no-op`() {
-      let player = Player(instance: TestInstance.shared)
-      for state in [PlayerState.opening, .buffering, .stopping, .error] {
+    func `togglePlayPause from active transient states queues pause`() {
+      for state in [PlayerState.opening, .buffering] {
+        let player = Player(instance: TestInstance.shared)
+        player._setStateForTesting(state: state)
+        player.togglePlayPause()
+        #expect(player._hasDeferredPauseForTesting(), "togglePlayPause on .\(state) must queue pause")
+      }
+    }
+
+    @Test
+    func `togglePlayPause from inactive transient states is a no-op`() {
+      for state in [PlayerState.stopping, .error] {
+        let player = Player(instance: TestInstance.shared)
         player._setStateForTesting(state: state)
         player.togglePlayPause()
         #expect(player.state == state, "togglePlayPause on .\(state) must not mutate state")
+        #expect(!player._hasDeferredPauseForTesting(), "togglePlayPause on .\(state) must not queue pause")
       }
+    }
+
+    @Test
+    func `encountered error clears playback intent`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .playing)
+
+      player._handleEventForTesting(.encounteredError)
+
+      #expect(player.state == .error)
+      #expect(player.isPlaybackRequestedActive == false)
     }
 
     // MARK: - seek(by:) clamp

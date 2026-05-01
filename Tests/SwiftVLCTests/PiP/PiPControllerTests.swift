@@ -14,12 +14,24 @@ extension Integration {
     final class PlaybackRecorder {
       var pauseCount = 0
       var resumeCount = 0
+      var cancelPendingPauseCount = 0
+      var shouldResume = false
       var seekTargets: [Int64] = []
 
       var driver: PiPController.PlaybackDriver {
         .init(
-          pause: { self.pauseCount += 1 },
-          resume: { self.resumeCount += 1 },
+          pause: {
+            self.pauseCount += 1
+            return true
+          },
+          resume: {
+            self.resumeCount += 1
+            return true
+          },
+          cancelPendingPause: {
+            self.cancelPendingPauseCount += 1
+          },
+          shouldResume: { self.shouldResume },
           seek: { self.seekTargets.append($0.milliseconds) }
         )
       }
@@ -211,6 +223,7 @@ extension Integration {
 
       #expect(recorder.pauseCount == 0)
       #expect(recorder.resumeCount == 0)
+      #expect(recorder.cancelPendingPauseCount == 1)
     }
 
     @Test
@@ -237,6 +250,7 @@ extension Integration {
 
       #expect(recorder.pauseCount == 0)
       #expect(recorder.resumeCount == 0)
+      #expect(recorder.cancelPendingPauseCount == 1)
       #expect(recorder.seekTargets.count == 1)
     }
   }

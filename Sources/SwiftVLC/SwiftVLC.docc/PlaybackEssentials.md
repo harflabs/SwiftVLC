@@ -26,6 +26,7 @@ binds to them directly, without a publisher or Combine adapter.
 | Property | Type | Meaning |
 |---|---|---|
 | ``Player/state`` | ``PlayerState`` | `.idle`, `.opening`, `.buffering`, `.playing`, `.paused`, `.stopped`, `.stopping`, `.error` |
+| ``Player/isPlaybackRequestedActive`` | `Bool` | User-facing playback intent for transport controls while libVLC state transitions settle |
 | ``Player/bufferFill`` | `Float` | Continuously-updated cache level (`0.0…1.0`), independent of `state` |
 | ``Player/currentTime`` | `Duration` | Wall-clock position, millisecond resolution |
 | ``Player/duration`` | `Duration?` | `nil` until the container reports length |
@@ -39,6 +40,10 @@ binds to them directly, without a publisher or Combine adapter.
 - ``Player/isPlaying`` is `true` when `state == .playing`.
 - ``Player/isActive`` is `true` while the player is opening, buffering,
   or playing.
+- ``Player/isPlaybackRequestedActive`` is the best signal for a
+  Play/Pause button label because it updates synchronously when a pause
+  or resume request is accepted, before the native player finishes its
+  state transition.
 
 ## Bindable state
 
@@ -120,6 +125,7 @@ See <doc:ConcurrencyModel> for the full isolation story.
 - ``Player/duration``
 - ``Player/isPlaying``
 - ``Player/isActive``
+- ``Player/isPlaybackRequestedActive``
 - ``PlayerState``
 - ``PlayerEvent``
 

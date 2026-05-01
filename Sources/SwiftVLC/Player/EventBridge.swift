@@ -157,6 +157,55 @@ private final class ContinuationStore: Sendable {
   }
 }
 
+// MARK: - Async Broadcaster
+
+/// Small multi-consumer broadcaster for player-owned state that is not
+/// emitted by libVLC. It mirrors `ContinuationStore`'s lock discipline:
+/// copy continuations while locked, then yield outside the lock.
+final class AsyncBroadcaster<Element: Sendable>: Sendable {
+  private struct State {
+    var nextID: Int = 0
+    var continuations: [Int: AsyncStream<Element>.Continuation] = [:]
+  }
+
+  private let state = Mutex(State())
+
+  func makeStream(bufferingNewest count: Int = 16) -> AsyncStream<Element> {
+    let store = self
+    let (stream, continuation) = AsyncStream<Element>.makeStream(
+      bufferingPolicy: .bufferingNewest(count)
+    )
+    let id = state.withLock { state in
+      let id = state.nextID
+      state.nextID += 1
+      state.continuations[id] = continuation
+      return id
+    }
+    continuation.onTermination = { _ in
+      store.state.withLock { _ = $0.continuations.removeValue(forKey: id) }
+    }
+    return stream
+  }
+
+  func broadcast(_ value: Element) {
+    let snapshot = state.withLock { Array($0.continuations.values) }
+    for continuation in snapshot {
+      continuation.yield(value)
+    }
+  }
+
+  func finishAll() {
+    let snapshot = state.withLock { state -> [AsyncStream<Element>.Continuation] in
+      let values = Array(state.continuations.values)
+      state.continuations.removeAll()
+      return values
+    }
+    for continuation in snapshot {
+      continuation.finish()
+    }
+  }
+}
+
 // MARK: - C Callback (free function)
 
 /// Free function invoked on libVLC's internal event thread.

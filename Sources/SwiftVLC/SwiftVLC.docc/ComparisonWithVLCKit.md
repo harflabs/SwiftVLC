@@ -109,7 +109,7 @@ and re-publishing state yourself.
 
 SwiftVLC ships ``VideoView``, ``PiPVideoView``, and a ``PiPController``
 that handle the view bridge, the drawable attachment, and the
-sample-buffer pipeline for Picture-in-Picture. See
+platform PiP pipeline. See
 <doc:DisplayingVideo> and <doc:PictureInPicture>.
 
 ## Distribution
