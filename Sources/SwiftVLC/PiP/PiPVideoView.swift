@@ -174,7 +174,6 @@ public struct PiPVideoView: NSViewRepresentable {
   public func updateNSView(_ nsView: NSView, context: Context) {
     guard let container = nsView as? MacNativePiPHostView else { return }
     if context.coordinator.player !== player {
-      context.coordinator.pipController?.stop()
       container.detach()
       container.attach(to: player)
 
@@ -188,8 +187,11 @@ public struct PiPVideoView: NSViewRepresentable {
   }
 
   public static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
-    coordinator.pipController?.stop()
-    (nsView as? MacNativePiPHostView)?.detach()
+    if let container = nsView as? MacNativePiPHostView {
+      container.detach()
+    } else {
+      coordinator.pipController?.stop()
+    }
     coordinator.pipController = nil
     if let binding = coordinator.controllerBinding {
       Task { @MainActor in binding.wrappedValue = nil }
@@ -318,7 +320,6 @@ final class MacNativePiPDrawableView: NSView {
 
   func detach() {
     guard let player = attachedPlayer else { return }
-    nativePiPBackend.stop()
     player.releaseDrawableOwnership(self)
     nativePiPBackend.detach()
     attachedPlayer = nil
@@ -527,9 +528,11 @@ private final class MacPrivatePiPPresenter {
   private var contentViewController: NSViewController?
   private var delegate: MacPrivatePiPDelegate?
   private var onActiveChanged: (@MainActor @Sendable (Bool) -> Void)?
+  private var dismissalCompletion: MacPrivatePiPDismissCompletion?
+  private var isClosing = false
 
   var isActive: Bool {
-    pictureInPictureViewController != nil
+    pictureInPictureViewController != nil && !isClosing
   }
 
   func start(
@@ -541,6 +544,7 @@ private final class MacPrivatePiPPresenter {
     onPlay: @escaping @MainActor @Sendable () -> Void,
     onPause: @escaping @MainActor @Sendable () -> Void
   ) -> Bool {
+    guard !isClosing else { return false }
     if isActive {
       updatePlaybackState(isPlaying: mediaController.isMediaPlaying())
       return true
@@ -555,11 +559,10 @@ private final class MacPrivatePiPPresenter {
 
     let delegate = MacPrivatePiPDelegate()
     delegate.shouldClose = { [weak self] in
-      self?.prepareForClose()
-      return true
+      self?.beginClose() ?? true
     }
     delegate.willClose = { [weak self] in
-      self?.prepareForClose()
+      _ = self?.beginClose()
     }
     delegate.didClose = { [weak self] in
       self?.finish()
@@ -600,9 +603,17 @@ private final class MacPrivatePiPPresenter {
       finish()
       return
     }
+    guard !isClosing else { return }
 
-    prepareForClose()
-    if let contentViewController {
+    _ = beginClose()
+    if dismissUsingPrivateAPI(pictureInPictureViewController) {
+      return
+    }
+
+    if
+      let contentViewController,
+      contentViewController.presentingViewController === pictureInPictureViewController
+    {
       pictureInPictureViewController.dismiss(contentViewController)
     } else {
       finish()
@@ -617,6 +628,13 @@ private final class MacPrivatePiPPresenter {
       requiring: MacPrivatePiPSelector.setPlaying,
       on: pictureInPictureViewController
     )
+  }
+
+  @discardableResult
+  private func beginClose() -> Bool {
+    guard pictureInPictureViewController != nil else { return true }
+    isClosing = true
+    return prepareForClose()
   }
 
   @discardableResult
@@ -638,8 +656,26 @@ private final class MacPrivatePiPPresenter {
     return didSetWindow && didSetRect
   }
 
+  private func dismissUsingPrivateAPI(_ pictureInPictureViewController: NSViewController) -> Bool {
+    guard pictureInPictureViewController.responds(to: MacPrivatePiPSelector.dismiss) else {
+      return false
+    }
+
+    let completion: MacPrivatePiPDismissCompletion = { [weak self] in
+      Task { @MainActor in
+        self?.finish()
+      }
+    }
+    dismissalCompletion = completion
+    _ = pictureInPictureViewController.perform(
+      MacPrivatePiPSelector.dismiss,
+      with: completion
+    )
+    return true
+  }
+
   private func finish() {
-    guard pictureInPictureViewController != nil else { return }
+    guard pictureInPictureViewController != nil || isClosing else { return }
 
     let hostView = hostView
     let drawableView = drawableView
@@ -652,6 +688,8 @@ private final class MacPrivatePiPPresenter {
     pictureInPictureViewController = nil
     contentViewController = nil
     delegate = nil
+    dismissalCompletion = nil
+    isClosing = false
     self.hostView = nil
     self.drawableView = nil
 
@@ -731,8 +769,11 @@ private final class MacPrivatePiPPresenter {
   }
 }
 
+private typealias MacPrivatePiPDismissCompletion = @convention(block) () -> Void
+
 private enum MacPrivatePiPSelector {
   static let present = NSSelectorFromString("presentViewControllerAsPictureInPicture:")
+  static let dismiss = NSSelectorFromString("dismissPictureInPictureWithCompletionHandler:")
   static let setDelegate = NSSelectorFromString("setDelegate:")
   static let setReplacementWindow = NSSelectorFromString("setReplacementWindow:")
   static let setReplacementRect = NSSelectorFromString("setReplacementRect:")

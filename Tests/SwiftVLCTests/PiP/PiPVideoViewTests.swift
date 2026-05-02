@@ -125,6 +125,27 @@ extension Integration {
     }
 
     @Test
+    func `macOS dismantle detaches native PiP drawable and clears controller`() {
+      let player = Player(instance: TestInstance.shared)
+      let host = MacNativePiPHostView()
+      let view = PiPVideoView(player)
+      let coordinator = view.makeCoordinator()
+      let controller = PiPController(player: player, nativeBackend: host.nativePiPBackend)
+
+      host.attach(to: player)
+      coordinator.player = player
+      coordinator.pipController = controller
+
+      PiPVideoView.dismantleNSView(host, coordinator: coordinator)
+
+      #expect(player.drawable == nil)
+      #expect(coordinator.pipController == nil)
+
+      host.detach()
+      #expect(player.drawable == nil)
+    }
+
+    @Test
     func `macOS native PiP drawable does not expose VLC AVKit PiP callbacks`() {
       let view = MacNativePiPDrawableView()
 
