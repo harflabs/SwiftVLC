@@ -815,6 +815,8 @@ public final class PiPController: NSObject {
 // MARK: - AVPictureInPictureControllerDelegate
 
 extension PiPController: AVPictureInPictureControllerDelegate {
+  /// Synchronizes playback state just before AVKit transitions into
+  /// Picture in Picture.
   public nonisolated func pictureInPictureControllerWillStartPictureInPicture(
     _: AVPictureInPictureController
   ) {
