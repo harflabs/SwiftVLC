@@ -47,7 +47,7 @@ extension Integration {
       let instance = try VLCInstance(arguments: ["--quiet"])
       for _ in 0..<20 {
         let player = Player(instance: instance)
-        let surface = VideoSurface()
+        let surface = sizedSurface()
         surface.attach(to: player)
         try player.play(url: TestMedia.twosecURL)
         // Brief yield so the vout thread has a chance to pick up the
@@ -81,7 +81,7 @@ extension Integration {
         // reference, but `player.drawable` is still holding it, so the
         // view outlives this block.
         do {
-          let surface = VideoSurface()
+          let surface = sizedSurface()
           surface.attach(to: player)
           try player.play(url: TestMedia.twosecURL)
           try await Task.sleep(for: .milliseconds(5))
@@ -110,10 +110,10 @@ extension Integration {
       let player = Player(instance: instance)
       try player.play(url: TestMedia.twosecURL)
       for _ in 0..<20 {
-        let surfaceA = VideoSurface()
+        let surfaceA = sizedSurface()
         surfaceA.attach(to: player)
         try await Task.sleep(for: .milliseconds(2))
-        let surfaceB = VideoSurface()
+        let surfaceB = sizedSurface()
         surfaceB.attach(to: player)
         // Drop both locals. `player.drawable` retains B; A was already
         // released when B was attached.
@@ -133,7 +133,7 @@ extension Integration {
       let instance = try VLCInstance(arguments: ["--quiet"])
       for _ in 0..<10 {
         let player = Player(instance: instance)
-        let surfaces = (0..<4).map { _ in VideoSurface() }
+        let surfaces = (0..<4).map { _ in sizedSurface() }
         for surface in surfaces {
           surface.attach(to: player)
         }
@@ -161,7 +161,7 @@ extension Integration {
       let player = Player(instance: instance)
       let reached = subscribeAndAwait(.playing, on: player, timeout: .seconds(3))
       do {
-        let surface = VideoSurface()
+        let surface = sizedSurface()
         surface.attach(to: player)
         try player.play(url: TestMedia.twosecURL)
         _ = await reached.value
@@ -214,5 +214,13 @@ extension Integration {
       }
     }
     #endif
+
+    private func sizedSurface() -> VideoSurface {
+      #if canImport(UIKit)
+      VideoSurface(frame: CGRect(x: 0, y: 0, width: 320, height: 180))
+      #elseif canImport(AppKit)
+      VideoSurface(frame: NSRect(x: 0, y: 0, width: 320, height: 180))
+      #endif
+    }
   }
 }

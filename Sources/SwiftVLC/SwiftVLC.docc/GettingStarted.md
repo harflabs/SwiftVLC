@@ -29,6 +29,31 @@ targets: [
 SwiftVLC requires Swift 6.3 and supports iOS 18, macOS 15, tvOS 18,
 visionOS 2, and macCatalyst 18.
 
+## Prepare libVLC at launch
+
+The first libVLC instance does one-time plugin and decoder setup. Start
+that work when your app launches so the first playback screen does not
+pay the cost while SwiftUI is pushing the view:
+
+```swift
+import SwiftUI
+import SwiftVLC
+
+@main
+struct MyApp: App {
+    init() {
+        VLCInstance.prewarmShared()
+    }
+
+    var body: some Scene {
+        WindowGroup { PlayerView() }
+    }
+}
+```
+
+If your app has an explicit loading phase, await
+``VLCInstance/prepareShared(priority:)`` before presenting playback UI.
+
 ## Play a URL
 
 ```swift
@@ -65,7 +90,7 @@ Most controls read a handful of observable properties directly:
 ```swift
 Text(player.state.description)
 ProgressView(value: player.position)
-Button(player.isPlaybackRequestedActive ? "Pause" : "Play") {
+Button(player.isPlaying ? "Pause" : "Play") {
     player.togglePlayPause()
 }
 ```

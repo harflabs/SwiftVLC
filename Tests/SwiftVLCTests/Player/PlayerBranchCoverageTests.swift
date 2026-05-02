@@ -38,6 +38,23 @@ extension Integration {
     }
 
     @Test
+    func `isPlaying follows playback intent while native state catches up`() {
+      let player = Player(instance: TestInstance.shared)
+
+      player._setStateForTesting(state: .opening, isPlaybackRequestedActive: true)
+      #expect(player.state == .opening)
+      #expect(player.isPlaying)
+
+      player._setStateForTesting(state: .paused, isPlaybackRequestedActive: true)
+      #expect(player.state == .paused)
+      #expect(player.isPlaying)
+
+      player._setStateForTesting(state: .playing, isPlaybackRequestedActive: false)
+      #expect(player.state == .playing)
+      #expect(player.isPlaying == false)
+    }
+
+    @Test
     func `togglePlayPause can cancel a pending resume while native state is still paused`() {
       let player = Player(instance: TestInstance.shared)
       player._setStateForTesting(state: .paused, isPlaybackRequestedActive: true)

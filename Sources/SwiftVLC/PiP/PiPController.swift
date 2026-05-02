@@ -69,7 +69,9 @@ public final class PiPController: NSObject {
   @ObservationIgnored
   private var pipController: AVPictureInPictureController?
   @ObservationIgnored
-  private var rendererOpaque: Unmanaged<PixelBufferRenderer>?
+  private var rendererContext: PixelBufferRendererCallbackContext?
+  @ObservationIgnored
+  private var rendererOpaque: UnsafeMutableRawPointer?
   @ObservationIgnored
   private var controlTimebase: CMTimebase?
   @ObservationIgnored
@@ -228,13 +230,26 @@ public final class PiPController: NSObject {
     #if os(macOS)
     nativeBackend?.owner = nil
     #endif
-    if let rendererOpaque {
-      libvlc_video_set_callbacks(player.pointer, nil, nil, nil, nil)
-      libvlc_video_set_format_callbacks(player.pointer, nil, nil)
-      rendererOpaque.release()
-    }
     renderer.setDisplayLayer(nil)
     renderer.setTimebase(nil)
+    if let rendererContext, let rendererOpaque {
+      let nativeState = PlayerState(from: libvlc_media_player_get_state(player.pointer))
+      let mayHaveInheritedCallbacks = switch nativeState {
+      case .idle, .stopped, .error:
+        player.isPlaybackRequestedActive
+      case .opening, .buffering, .playing, .paused, .stopping:
+        true
+      }
+      libvlc_video_set_callbacks(player.pointer, nil, nil, nil, nil)
+      libvlc_video_set_format_callbacks(player.pointer, nil, nil)
+      rendererContext.requestRetirement(
+        opaque: rendererOpaque,
+        deferIfVoutMayBeOpening: mayHaveInheritedCallbacks
+      )
+      if mayHaveInheritedCallbacks {
+        scheduleRetiredRendererContextRelease(rendererContext, opaque: rendererOpaque)
+      }
+    }
   }
 
   // MARK: - Public API
@@ -302,9 +317,11 @@ public final class PiPController: NSObject {
   }
 
   private func attachCallbacks() {
-    let opaque = Unmanaged.passRetained(renderer)
-    rendererOpaque = opaque
-    let ptr = opaque.toOpaque()
+    let context = PixelBufferRendererCallbackContext(renderer: renderer)
+    let retained = Unmanaged.passRetained(context)
+    rendererContext = context
+    let ptr = retained.toOpaque()
+    rendererOpaque = ptr
 
     // Set the opaque pointer for vmem callbacks
     libvlc_video_set_callbacks(
@@ -320,6 +337,26 @@ public final class PiPController: NSObject {
       pixelBufferFormatCallback,
       pixelBufferCleanupCallback
     )
+  }
+
+  private func scheduleRetiredRendererContextRelease(
+    _ context: PixelBufferRendererCallbackContext,
+    opaque: UnsafeMutableRawPointer
+  ) {
+    guard let retainedPlayer = libvlc_media_player_retain(player.pointer) else {
+      context.releaseRetiredOpaqueRetainIfNoOpenVout(opaque: opaque)
+      return
+    }
+    nonisolated(unsafe) let playerPointer = retainedPlayer
+    nonisolated(unsafe) let contextOpaque = opaque
+
+    DispatchQueue.global(qos: .utility).async {
+      context.releaseRetiredOpaqueRetainWhenPlayerIsQuiescent(
+        opaque: contextOpaque,
+        player: playerPointer
+      )
+      libvlc_media_player_release(playerPointer)
+    }
   }
 
   private func setupPiPController() {

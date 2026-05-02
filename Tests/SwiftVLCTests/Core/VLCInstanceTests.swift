@@ -9,6 +9,12 @@ extension Integration {
     }
 
     @Test
+    func `Prewarm shared resolves the shared instance`() async {
+      let instance = await VLCInstance.prepareShared()
+      #expect(instance === VLCInstance.shared)
+    }
+
+    @Test
     func `Version string is non-empty and contains a dot`() {
       let version = VLCInstance.shared.version
       #expect(!version.isEmpty)

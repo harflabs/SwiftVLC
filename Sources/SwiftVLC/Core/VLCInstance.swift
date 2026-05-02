@@ -18,6 +18,31 @@ public final class VLCInstance: Sendable {
   /// Triggers a fatal error if libVLC cannot be initialized (e.g. missing plugins).
   public static let shared = VLCInstance()
 
+  /// Starts initializing ``shared`` on a background task.
+  ///
+  /// The first libVLC instance performs one-time plugin and decoder setup that
+  /// can be expensive on iOS. Calling this from application launch lets that
+  /// work happen before the first player view is pushed, instead of blocking the
+  /// main actor when `Player()` first touches ``shared``.
+  ///
+  /// Keep the returned task if you want to await readiness before presenting
+  /// playback UI; otherwise it is safe to fire and forget.
+  @discardableResult
+  public static func prewarmShared(priority: TaskPriority = .utility) -> Task<VLCInstance, Never> {
+    Task.detached(priority: priority) {
+      VLCInstance.shared
+    }
+  }
+
+  /// Initializes and returns ``shared`` from a background task.
+  ///
+  /// Use this when an app has an explicit loading phase and wants to guarantee
+  /// the shared libVLC instance is ready before constructing a default
+  /// ``Player``.
+  public static func prepareShared(priority: TaskPriority = .utility) async -> VLCInstance {
+    await prewarmShared(priority: priority).value
+  }
+
   /// Default libVLC arguments used by ``shared``.
   ///
   /// Intentionally excludes `--no-stats`: disabling stats globally would

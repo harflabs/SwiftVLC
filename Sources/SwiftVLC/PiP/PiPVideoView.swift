@@ -309,16 +309,17 @@ final class MacNativePiPDrawableView: NSView {
 
   func attach(to player: Player) {
     guard attachedPlayer !== player else { return }
-    attachedPlayer?.setDrawable(nil)
+    attachedPlayer?.releaseDrawableOwnership(self)
     attachedPlayer = player
     nativePiPBackend.attach(to: player)
-    player.setDrawable(self)
+    player.claimDrawableOwnership(self)
+    player.setDrawable(self, owner: self)
   }
 
   func detach() {
     guard let player = attachedPlayer else { return }
     nativePiPBackend.stop()
-    player.setDrawable(nil)
+    player.releaseDrawableOwnership(self)
     nativePiPBackend.detach()
     attachedPlayer = nil
     lastBounds = .zero
@@ -349,8 +350,14 @@ final class MacNativePiPDrawableView: NSView {
   override func layout() {
     super.layout()
 
-    if let player = attachedPlayer, lastBounds == .zero, bounds.width > 0, bounds.height > 0 {
-      player.setDrawable(self)
+    if let player = attachedPlayer,
+       player.isDrawableOwner(self),
+       !player.isCurrentDrawable(self),
+       lastBounds == .zero,
+       bounds.width > 0,
+       bounds.height > 0
+    {
+      player.setDrawable(self, owner: self)
     }
     if bounds.width > 0, bounds.height > 0 {
       lastBounds = bounds

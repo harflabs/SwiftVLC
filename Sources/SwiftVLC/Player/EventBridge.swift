@@ -8,10 +8,10 @@ import Synchronization
 /// continuations under a `Mutex`, then yields outside the lock to avoid
 /// an AB-BA deadlock with Swift's task-cancellation lock.
 final class EventBridge: Sendable {
-  private nonisolated(unsafe) let eventManager: OpaquePointer
+  private nonisolated(unsafe) var eventManager: OpaquePointer
   private let store: ContinuationStore
   private nonisolated(unsafe) let storeOpaque: UnsafeMutableRawPointer
-  private let attachedEventTypes: [Int32]
+  private nonisolated(unsafe) var attachedEventTypes: [Int32]
   private let invalidated = Mutex(false)
 
   init(eventManager: OpaquePointer) {
@@ -22,13 +22,7 @@ final class EventBridge: Sendable {
     let opaque = Unmanaged.passRetained(store).toOpaque()
     storeOpaque = opaque
 
-    var attachedEventTypes: [Int32] = []
-    for eventType in Self.playerEventTypes {
-      if libvlc_event_attach(eventManager, eventType, playerEventCallback, opaque) == 0 {
-        attachedEventTypes.append(eventType)
-      }
-    }
-    self.attachedEventTypes = attachedEventTypes
+    attachedEventTypes = Self.attachEvents(to: eventManager, opaque: opaque)
   }
 
   deinit {
@@ -47,10 +41,25 @@ final class EventBridge: Sendable {
     }
     guard shouldCleanUp else { return }
 
-    for eventType in attachedEventTypes {
-      libvlc_event_detach(eventManager, eventType, playerEventCallback, storeOpaque)
-    }
+    Self.detachEvents(attachedEventTypes, from: eventManager, opaque: storeOpaque)
+    attachedEventTypes = []
     store.finishAll()
+  }
+
+  /// Moves the existing streams to a replacement native media player.
+  ///
+  /// `Player` recreates its libVLC handle after a stopped drawable-backed
+  /// playback because libVLC keeps a "free vout" whose iOS window provider
+  /// still points at the old UIView. The Swift `Player.events` stream must
+  /// survive that native-handle swap, so this detaches callbacks from the old
+  /// event manager and attaches the same continuation store to the new one.
+  func reattach(to newEventManager: OpaquePointer) {
+    let isInvalidated = invalidated.withLock { $0 }
+    guard !isInvalidated else { return }
+
+    Self.detachEvents(attachedEventTypes, from: eventManager, opaque: storeOpaque)
+    eventManager = newEventManager
+    attachedEventTypes = Self.attachEvents(to: newEventManager, opaque: storeOpaque)
   }
 
   /// Creates a new independent `AsyncStream` for consuming player events.
@@ -104,6 +113,29 @@ final class EventBridge: Sendable {
     libvlc_MediaPlayerProgramSelected,
     libvlc_MediaPlayerProgramUpdated
   ].map { Int32($0.rawValue) }
+
+  private static func attachEvents(
+    to eventManager: OpaquePointer,
+    opaque: UnsafeMutableRawPointer
+  ) -> [Int32] {
+    var attachedEventTypes: [Int32] = []
+    for eventType in playerEventTypes {
+      if libvlc_event_attach(eventManager, eventType, playerEventCallback, opaque) == 0 {
+        attachedEventTypes.append(eventType)
+      }
+    }
+    return attachedEventTypes
+  }
+
+  private static func detachEvents(
+    _ eventTypes: [Int32],
+    from eventManager: OpaquePointer,
+    opaque: UnsafeMutableRawPointer
+  ) {
+    for eventType in eventTypes {
+      libvlc_event_detach(eventManager, eventType, playerEventCallback, opaque)
+    }
+  }
 }
 
 // MARK: - Continuation Store

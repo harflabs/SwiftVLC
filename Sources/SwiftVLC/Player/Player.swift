@@ -15,7 +15,7 @@ import Observation
 ///     var body: some View {
 ///         VideoView(player)
 ///         Text(player.state.description)
-///         Button(player.isPlaybackRequestedActive ? "Pause" : "Play") {
+///         Button(player.isPlaying ? "Pause" : "Play") {
 ///             player.togglePlayPause()
 ///         }
 ///     }
@@ -269,10 +269,15 @@ public final class Player {
 
   // MARK: - Convenience
 
-  /// Whether the player is currently playing.
+  /// Whether transport controls should currently present playback as
+  /// playing.
+  ///
+  /// This follows the latest accepted play/resume/pause intent rather
+  /// than waiting for libVLC's asynchronous ``state`` transitions. Use
+  /// ``state`` when you need the strict native lifecycle state.
   public var isPlaying: Bool {
     access(keyPath: \.isPlaying)
-    return state == .playing
+    return isPlaybackRequestedActive
   }
 
   /// Whether playback is active (playing or buffering during playback).
@@ -300,7 +305,8 @@ public final class Player {
 
   // MARK: - Internal
 
-  nonisolated(unsafe) let pointer: OpaquePointer // libvlc_media_player_t*
+  @ObservationIgnored
+  nonisolated(unsafe) var pointer: OpaquePointer // libvlc_media_player_t*
   private let eventBridge: EventBridge
   private nonisolated let playbackIntentBridge: AsyncBroadcaster<Bool>
   private var eventTask: Task<Void, Never>?
@@ -337,6 +343,11 @@ public final class Player {
   /// across the offloaded release so `libvlc_media_player_release` can
   /// tear down the vout before ARC releases the view.
   var drawable: AnyObject?
+  private var drawableOwner: ObjectIdentifier?
+  var needsDrawableRebindForPlayback = false
+  private var nativePlayerHasHostedDrawable = false
+  private var nativePlayerNeedsReplacementBeforePlayback = false
+  private var retainedDrawablesUntilNativePlayerRelease: [AnyObject] = []
   let instance: VLCInstance
 
   // MARK: - Lifecycle
@@ -344,9 +355,7 @@ public final class Player {
   /// Creates a new player.
   /// - Parameter instance: The VLC instance to use.
   public init(instance: VLCInstance = .shared) {
-    guard let p = libvlc_media_player_new(instance.pointer) else {
-      preconditionFailure("Failed to create libvlc media player. Is the libvlc.xcframework linked correctly?")
-    }
+    let p = Self.makeNativePlayer(instance: instance)
     pointer = p
     self.instance = instance
     eventBridge = EventBridge(
@@ -354,6 +363,13 @@ public final class Player {
     )
     playbackIntentBridge = AsyncBroadcaster()
     startEventConsumer()
+  }
+
+  private static func makeNativePlayer(instance: VLCInstance) -> OpaquePointer {
+    guard let p = libvlc_media_player_new(instance.pointer) else {
+      preconditionFailure("Failed to create libvlc media player. Is the libvlc.xcframework linked correctly?")
+    }
+    return p
   }
 
   isolated deinit {
@@ -386,13 +402,15 @@ public final class Player {
     // narrow, explicit opt-out that matches that contract and avoids a
     // Mutex wrapper or an `@unchecked Sendable` box for a value we
     // never actually touch across threads.
-    nonisolated(unsafe) let drawable = drawable
+    nonisolated(unsafe) let drawables =
+      drawable.map { retainedDrawablesUntilNativePlayerRelease + [$0] }
+      ?? retainedDrawablesUntilNativePlayerRelease
     nonisolated(unsafe) let p = pointer
     DispatchQueue.global(qos: .utility).async {
       bridge.invalidate()
       libvlc_media_player_stop_async(p)
       libvlc_media_player_release(p)
-      _ = drawable
+      _ = drawables
     }
   }
 
@@ -403,8 +421,47 @@ public final class Player {
   /// the duration of the attachment so libVLC's raw `drawable-nsobject`
   /// pointer stays valid against asynchronous reads from the decode
   /// thread. Callers should normally use ``VideoView`` in SwiftUI; this
-  /// is the lower-level seam it builds on.
+  /// is the lower-level API it builds on.
   func setDrawable(_ newDrawable: AnyObject?) {
+    drawableOwner = newDrawable.map(ObjectIdentifier.init)
+    applyDrawable(newDrawable)
+  }
+
+  func claimDrawableOwnership(_ owner: AnyObject) {
+    drawableOwner = ObjectIdentifier(owner)
+  }
+
+  func releaseDrawableOwnership(_ owner: AnyObject) {
+    guard isDrawableOwner(owner) else { return }
+    drawableOwner = nil
+    if isCurrentDrawable(owner) {
+      applyDrawable(nil)
+    }
+  }
+
+  func setDrawable(_ newDrawable: AnyObject, owner: AnyObject) {
+    guard isDrawableOwner(owner) else { return }
+    applyDrawable(newDrawable)
+  }
+
+  func clearDrawable(ifCurrent staleDrawable: AnyObject) {
+    guard isCurrentDrawable(staleDrawable) else { return }
+    if drawableOwner == ObjectIdentifier(staleDrawable) {
+      drawableOwner = nil
+    }
+    setDrawable(nil)
+  }
+
+  func isCurrentDrawable(_ candidate: AnyObject) -> Bool {
+    guard let drawable else { return false }
+    return drawable === candidate
+  }
+
+  func isDrawableOwner(_ candidate: AnyObject) -> Bool {
+    drawableOwner == ObjectIdentifier(candidate)
+  }
+
+  private func applyDrawable(_ newDrawable: AnyObject?) {
     // Bind the outgoing reference to a local so it outlives the libVLC
     // call. After the ivar is reassigned, ARC would otherwise release
     // the previous view immediately; the vout thread could still be
@@ -412,12 +469,94 @@ public final class Player {
     // keeps the old view alive until this function returns, by which
     // point libVLC has atomically swapped the variable.
     let previous = drawable
+    if
+      let previous,
+      nativePlayerNeedsReplacementBeforePlayback,
+      newDrawable.map({ previous !== $0 }) ?? true
+    {
+      retainedDrawablesUntilNativePlayerRelease.append(previous)
+    }
     drawable = newDrawable
+    if newDrawable != nil {
+      nativePlayerHasHostedDrawable = true
+    }
     libvlc_media_player_set_nsobject(
       pointer,
       newDrawable.map { Unmanaged.passUnretained($0).toOpaque() }
     )
     _ = previous
+  }
+
+  func prepareDrawableForPlayback() {
+    if nativePlayerNeedsReplacementBeforePlayback {
+      replaceNativePlayerForDrawablePlayback(target: drawable)
+      return
+    }
+    guard let target = drawable else { return }
+    guard needsDrawableRebindForPlayback else { return }
+    let owner = drawableOwner
+    applyDrawable(nil)
+    drawableOwner = owner
+    applyDrawable(target)
+    needsDrawableRebindForPlayback = false
+  }
+
+  private func replaceNativePlayerForDrawablePlayback(target: AnyObject?) {
+    let oldPointer = pointer
+    let newPointer = Self.makeNativePlayer(instance: instance)
+    guard let newEventManager = libvlc_media_player_event_manager(newPointer) else {
+      libvlc_media_player_release(newPointer)
+      preconditionFailure("Failed to access libVLC media player event manager.")
+    }
+
+    let playbackRate = libvlc_media_player_get_rate(oldPointer)
+    let playerRole = libvlc_media_player_get_role(oldPointer)
+    let audioDelay = libvlc_audio_get_delay(oldPointer)
+    let subtitleDelay = libvlc_video_get_spu_delay(oldPointer)
+    let subtitleScale = libvlc_video_get_spu_text_scale(oldPointer)
+    let retainedDrawables = retainedDrawablesUntilNativePlayerRelease
+
+    if let currentMedia {
+      libvlc_media_player_set_media(newPointer, currentMedia.pointer)
+    }
+    _ = libvlc_audio_set_volume(newPointer, Int32(_volume * 100))
+    libvlc_audio_set_mute(newPointer, _isMuted ? 1 : 0)
+    _ = libvlc_media_player_set_rate(newPointer, playbackRate)
+    _ = libvlc_media_player_set_role(newPointer, UInt32(playerRole))
+    _ = libvlc_audio_set_delay(newPointer, audioDelay)
+    _ = libvlc_video_set_spu_delay(newPointer, subtitleDelay)
+    libvlc_video_set_spu_text_scale(newPointer, subtitleScale)
+    libvlc_media_player_set_equalizer(newPointer, _equalizer?.pointer)
+    libvlc_media_player_set_nsobject(
+      newPointer,
+      target.map { Unmanaged.passUnretained($0).toOpaque() }
+    )
+
+    eventBridge.reattach(to: newEventManager)
+    pointer = newPointer
+    applyAspectRatio()
+
+    retainedDrawablesUntilNativePlayerRelease.removeAll()
+    nativePlayerNeedsReplacementBeforePlayback = false
+    needsDrawableRebindForPlayback = false
+    nativePlayerHasHostedDrawable = target != nil
+
+    releaseNativePlayer(oldPointer, retaining: retainedDrawables)
+    notifyMediaDependentObservables()
+  }
+
+  private func releaseNativePlayer(
+    _ nativePlayer: OpaquePointer,
+    retaining drawables: [AnyObject] = []
+  ) {
+    nonisolated(unsafe) let nativePlayer = nativePlayer
+    nonisolated(unsafe) let drawables = drawables
+    DispatchQueue.global(qos: .utility).async {
+      libvlc_media_player_set_nsobject(nativePlayer, nil)
+      libvlc_media_player_stop_async(nativePlayer)
+      libvlc_media_player_release(nativePlayer)
+      _ = drawables
+    }
   }
 
   // MARK: - Media Loading
@@ -462,6 +601,7 @@ public final class Player {
   /// Starts playback.
   /// - Throws: `VLCError.playbackFailed` if playback cannot start.
   public func play() throws(VLCError) {
+    prepareDrawableForPlayback()
     if libvlc_media_player_play(pointer) == -1 {
       publishPlaybackIntent(false)
       let reason = libvlc_errmsg().map { String(cString: $0) } ?? "unknown"
@@ -608,6 +748,12 @@ public final class Player {
     pauseTransition = nil
     deferredPauseCommand = nil
     publishPlaybackIntent(false)
+    if nativePlayerHasHostedDrawable {
+      nativePlayerNeedsReplacementBeforePlayback = true
+      needsDrawableRebindForPlayback = true
+    } else {
+      needsDrawableRebindForPlayback = drawable != nil
+    }
     libvlc_media_player_stop_async(pointer)
   }
 
@@ -1322,13 +1468,13 @@ public final class Player {
 
   private func publishPlaybackState(_ newState: PlayerState) {
     state = newState
-    withMutation(keyPath: \.isPlaying) {}
     withMutation(keyPath: \.isActive) {}
   }
 
   private func publishPlaybackIntent(_ active: Bool) {
     guard isPlaybackRequestedActive != active else { return }
     isPlaybackRequestedActive = active
+    withMutation(keyPath: \.isPlaying) {}
     playbackIntentBridge.broadcast(active)
   }
 

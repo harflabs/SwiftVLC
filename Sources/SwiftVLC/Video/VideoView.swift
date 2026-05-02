@@ -55,44 +55,112 @@ public struct VideoView: UIViewRepresentable {
 @MainActor
 final class VideoSurface: UIView {
   private weak var attachedPlayer: Player?
-  private var lastBounds: CGRect = .zero
 
   func attach(to player: Player) {
-    guard attachedPlayer !== player else { return }
-    attachedPlayer?.setDrawable(nil)
-    attachedPlayer = player
-    player.setDrawable(self)
+    if attachedPlayer !== player {
+      attachedPlayer?.releaseDrawableOwnership(self)
+      attachedPlayer = player
+    }
+    player.claimDrawableOwnership(self)
+    publishDrawableIfReady()
   }
 
   func detach() {
     guard let player = attachedPlayer else { return }
-    player.setDrawable(nil)
+    player.releaseDrawableOwnership(self)
     attachedPlayer = nil
   }
 
   override func layoutSubviews() {
     super.layoutSubviews()
 
-    // First valid layout: re-assert the drawable so libVLC can attach
-    // its rendering subview once we have non-zero bounds. Both width
-    // and height must be non-zero; attaching at `(>0, 0)` creates the
-    // rendering subview at zero height and a later resize doesn't
-    // retroactively fix the initial parenting.
-    if let player = attachedPlayer, lastBounds == .zero, bounds.width > 0, bounds.height > 0 {
-      player.setDrawable(self)
-    }
+    guard hasDrawableBounds else { return }
 
-    // Keep VLC's rendering sublayer sized to our bounds
-    if bounds != lastBounds, bounds.width > 0, bounds.height > 0 {
-      lastBounds = bounds
-      layer.sublayers?.forEach { sublayer in
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        sublayer.frame = bounds
-        CATransaction.commit()
-      }
+    publishDrawableIfReady()
+    resizeRenderingChildren()
+  }
+
+  override func didAddSubview(_ subview: UIView) {
+    super.didAddSubview(subview)
+    resizeRenderingSubview(subview)
+  }
+
+  override func layoutSublayers(of layer: CALayer) {
+    super.layoutSublayers(of: layer)
+    guard layer === self.layer else { return }
+    resizeRenderingLayers()
+  }
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    if window != nil {
+      publishDrawableIfReady()
+      setNeedsLayout()
+      layer.setNeedsLayout()
     }
   }
+
+  private var hasDrawableBounds: Bool {
+    bounds.width > 0 && bounds.height > 0
+  }
+
+  private func publishDrawableIfReady() {
+    guard let player = attachedPlayer, player.isDrawableOwner(self) else { return }
+    if !player.isCurrentDrawable(self) {
+      player.setDrawable(self, owner: self)
+      resizeRenderingChildren()
+    }
+  }
+
+  private func resizeRenderingChildren() {
+    guard hasDrawableBounds else { return }
+    subviews.forEach(resizeRenderingSubview)
+    resizeRenderingLayers()
+  }
+
+  private func resizeRenderingSubview(_ subview: UIView) {
+    guard hasDrawableBounds else { return }
+    subview.frame = bounds
+    subview.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    syncContentScale(to: subview)
+    subview.setNeedsLayout()
+    subview.layoutIfNeeded()
+    reshapeVLCSubviewIfNeeded(subview)
+  }
+
+  private func resizeRenderingLayers() {
+    guard hasDrawableBounds else { return }
+    layer.sublayers?.forEach { sublayer in
+      CATransaction.begin()
+      CATransaction.setDisableActions(true)
+      sublayer.frame = bounds
+      CATransaction.commit()
+    }
+  }
+
+  private func syncContentScale(to subview: UIView) {
+    #if os(visionOS)
+    let scale = layer.contentsScale
+    #else
+    let scale = window?.screen.scale
+      ?? subview.window?.screen.scale
+      ?? UIScreen.main.scale
+    #endif
+    subview.contentScaleFactor = scale
+    subview.layer.contentsScale = scale
+  }
+}
+
+private let vlcUIViewReshapeSelector = NSSelectorFromString("reshape")
+
+@MainActor
+private func reshapeVLCSubviewIfNeeded(_ subview: UIView) {
+  guard
+    subview.responds(to: vlcUIViewReshapeSelector),
+    subview.bounds.width > 0,
+    subview.bounds.height > 0
+  else { return }
+  _ = subview.perform(vlcUIViewReshapeSelector)
 }
 
 #elseif canImport(AppKit)
@@ -138,22 +206,23 @@ public struct VideoView: NSViewRepresentable {
 @MainActor
 final class VideoSurface: NSView {
   private weak var attachedPlayer: Player?
-  private var lastBounds: CGRect = .zero
 
   override var wantsDefaultClipping: Bool {
     true
   }
 
   func attach(to player: Player) {
-    guard attachedPlayer !== player else { return }
-    attachedPlayer?.setDrawable(nil)
-    attachedPlayer = player
-    player.setDrawable(self)
+    if attachedPlayer !== player {
+      attachedPlayer?.releaseDrawableOwnership(self)
+      attachedPlayer = player
+    }
+    player.claimDrawableOwnership(self)
+    publishDrawableIfReady()
   }
 
   func detach() {
     guard let player = attachedPlayer else { return }
-    player.setDrawable(nil)
+    player.releaseDrawableOwnership(self)
     attachedPlayer = nil
   }
 
@@ -167,23 +236,50 @@ final class VideoSurface: NSView {
   override func layout() {
     super.layout()
 
-    if let player = attachedPlayer, lastBounds == .zero, bounds.width > 0, bounds.height > 0 {
-      player.setDrawable(self)
-    }
+    guard hasDrawableBounds else { return }
 
-    if bounds != lastBounds, bounds.width > 0, bounds.height > 0 {
-      lastBounds = bounds
-      for subview in subviews {
-        subview.frame = bounds
-        reshapeVLCSubviewIfNeeded(subview)
-      }
-      layer?.sublayers?.forEach { sublayer in
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        sublayer.frame = bounds
-        CATransaction.commit()
-      }
+    publishDrawableIfReady()
+    resizeRenderingChildren()
+  }
+
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    if window != nil {
+      publishDrawableIfReady()
+      needsLayout = true
+      layer?.setNeedsLayout()
     }
+  }
+
+  private var hasDrawableBounds: Bool {
+    bounds.width > 0 && bounds.height > 0
+  }
+
+  private func publishDrawableIfReady() {
+    guard let player = attachedPlayer, player.isDrawableOwner(self) else { return }
+    if !player.isCurrentDrawable(self) {
+      player.setDrawable(self, owner: self)
+      resizeRenderingChildren()
+    }
+  }
+
+  private func resizeRenderingChildren() {
+    guard hasDrawableBounds else { return }
+    for subview in subviews {
+      resizeRenderingSubview(subview)
+    }
+    layer?.sublayers?.forEach { sublayer in
+      CATransaction.begin()
+      CATransaction.setDisableActions(true)
+      sublayer.frame = bounds
+      CATransaction.commit()
+    }
+  }
+
+  private func resizeRenderingSubview(_ subview: NSView) {
+    guard hasDrawableBounds else { return }
+    subview.frame = bounds
+    reshapeVLCSubviewIfNeeded(subview)
   }
 }
 

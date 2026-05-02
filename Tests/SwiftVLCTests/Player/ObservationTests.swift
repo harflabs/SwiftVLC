@@ -102,7 +102,7 @@ extension Integration {
     }
 
     @Test
-    func `state events invalidate isPlaying and isActive`() {
+    func `state events reconcile playback intent and invalidate active observations`() {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let isPlayingFired = Mutex(false)
       let isActiveFired = Mutex(false)
@@ -122,6 +122,23 @@ extension Integration {
       player._handleEventForTesting(.stateChanged(.playing))
       #expect(isPlayingFired.withLock { $0 })
       #expect(isActiveFired.withLock { $0 })
+    }
+
+    @Test
+    func `playback intent invalidates isPlaying`() {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let fired = Mutex(false)
+
+      withObservationTracking {
+        _ = player.isPlaying
+      } onChange: {
+        fired.withLock { $0 = true }
+      }
+
+      player.setPlaybackIntentFromExternalControl(true)
+
+      #expect(player.isPlaying == true)
+      #expect(fired.withLock { $0 })
     }
 
     @Test

@@ -2,9 +2,9 @@ import XCTest
 
 /// Smoke / deep / stress coverage for the SimplePlayback case study.
 ///
-/// Every test launches deep-linked to `SimplePlaybackCase` and asserts both
-/// UI behavior (via accessibility identifiers) and library cleanliness (via
-/// the captured log file).
+/// Tests assert both UI behavior (via accessibility identifiers) and library
+/// cleanliness (via the captured log file). Most launch deep-linked to
+/// `SimplePlaybackCase`; the navigation regression starts at the root list.
 final class SimplePlaybackUITests: ShowcaseIOSTestCase {
   /// Inherits `@MainActor` from `ShowcaseIOSTestCase` so XCUI APIs are
   /// callable directly without isolation hops.
@@ -34,6 +34,7 @@ final class SimplePlaybackUITests: ShowcaseIOSTestCase {
 
     XCTAssertTrue(playPauseButton.waitForExistence(timeout: 5), "Play/pause button never appeared")
     waitForLabel(playPauseButton, equals: "Pause", timeout: 10)
+    assertRendersNonBlackFrame(videoView, timeout: 10)
 
     assertNoLibraryErrors()
   }
@@ -68,6 +69,30 @@ final class SimplePlaybackUITests: ShowcaseIOSTestCase {
     playPauseButton.tap()
     waitForLabel(playPauseButton, equals: "Pause", timeout: 3)
     waitForLabel(currentTime, notEqual: timeAfterSettle, timeout: 5)
+
+    assertNoLibraryErrors()
+  }
+
+  /// Recreates the manual failure mode: open Simple Playback from the root
+  /// list, pop it, then open it again. The video must still render real pixels
+  /// after SwiftUI has dismantled one `VideoSurface` and created another.
+  func test_regression_navigationBackAndForthKeepsVideoRendering() {
+    launchAtRoot()
+
+    openSimplePlaybackFromRoot()
+    XCTAssertTrue(playPauseButton.waitForExistence(timeout: 5))
+    waitForLabel(playPauseButton, equals: "Pause", timeout: 10)
+    waitForLabel(currentTime, notEqual: "00:00", timeout: 10)
+    assertRendersNonBlackFrame(videoView, timeout: 10)
+
+    backButton().tap()
+    XCTAssertTrue(simplePlaybackLink().waitForExistence(timeout: 5))
+
+    openSimplePlaybackFromRoot()
+    XCTAssertTrue(playPauseButton.waitForExistence(timeout: 5))
+    waitForLabel(playPauseButton, equals: "Pause", timeout: 10)
+    waitForLabel(currentTime, notEqual: "00:00", timeout: 10)
+    assertRendersNonBlackFrame(videoView, timeout: 10)
 
     assertNoLibraryErrors()
   }
@@ -162,5 +187,19 @@ final class SimplePlaybackUITests: ShowcaseIOSTestCase {
     }
 
     assertNoLibraryErrors()
+  }
+
+  private func openSimplePlaybackFromRoot() {
+    let link = simplePlaybackLink()
+    XCTAssertTrue(link.waitForExistence(timeout: 5), "Simple Playback link never appeared")
+    link.tap()
+  }
+
+  private func simplePlaybackLink() -> XCUIElement {
+    app.buttons["Simple playback"].firstMatch
+  }
+
+  private func backButton() -> XCUIElement {
+    app.navigationBars.buttons.element(boundBy: 0)
   }
 }

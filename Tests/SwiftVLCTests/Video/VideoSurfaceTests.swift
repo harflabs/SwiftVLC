@@ -49,7 +49,7 @@ extension Integration {
     func `re-attaching to a different player switches surfaces cleanly`() {
       let playerA = Player(instance: TestInstance.shared)
       let playerB = Player(instance: TestInstance.shared)
-      let surface = VideoSurface()
+      let surface = sizedSurface()
 
       surface.attach(to: playerA)
       surface.attach(to: playerB)
@@ -74,7 +74,7 @@ extension Integration {
     func `Dropping a still-attached surface leaves the player usable`() {
       let player = Player(instance: TestInstance.shared)
       do {
-        let surface = VideoSurface()
+        let surface = sizedSurface()
         surface.attach(to: player)
       }
       #expect(player.state == .idle)
@@ -90,7 +90,7 @@ extension Integration {
       let sublayer = CALayer()
       sublayer.frame = .zero
       surface.layer.addSublayer(sublayer)
-      // Force a new bounds so the `bounds != lastBounds` branch hits.
+      // Force a new bounds before layout so the sublayer frame sync path runs.
       surface.bounds = CGRect(x: 0, y: 0, width: 640, height: 480)
       surface.layoutSubviews()
       #expect(sublayer.frame == surface.bounds)
@@ -103,6 +103,75 @@ extension Integration {
       surface.bounds = CGRect(x: 0, y: 0, width: 640, height: 480)
       surface.layout()
       #expect(sublayer.frame == surface.bounds)
+      #endif
+    }
+
+    /// libVLC can create its renderer after SwiftUI has already laid out
+    /// the hosting view. A late layer still has to be pinned immediately,
+    /// otherwise playback continues behind a black placeholder.
+    @Test
+    func `Late-added renderer layer is pinned without a bounds change`() {
+      let sublayer = CALayer()
+      sublayer.frame = .zero
+
+      #if canImport(UIKit)
+      let surface = VideoSurface(frame: CGRect(x: 0, y: 0, width: 320, height: 180))
+      surface.layoutSubviews()
+      surface.layer.addSublayer(sublayer)
+      surface.layoutSublayers(of: surface.layer)
+      #expect(sublayer.frame == surface.bounds)
+      #elseif canImport(AppKit)
+      let surface = VideoSurface(frame: CGRect(x: 0, y: 0, width: 320, height: 180))
+      surface.wantsLayer = true
+      surface.layout()
+      surface.layer?.addSublayer(sublayer)
+      surface.layout()
+      #expect(sublayer.frame == surface.bounds)
+      #endif
+    }
+
+    /// Some libVLC display modules add a native child view instead of a
+    /// raw sublayer. That child view must be pinned as soon as it appears.
+    @Test
+    func `Late-added renderer view is pinned to local bounds`() {
+      #if canImport(UIKit)
+      let surface = VideoSurface(frame: CGRect(x: 20, y: 40, width: 320, height: 180))
+      surface.layoutSubviews()
+      let renderer = UIKitLayoutProbeView(frame: .zero)
+      surface.addSubview(renderer)
+
+      #expect(renderer.frame == surface.bounds)
+      #expect(renderer.autoresizingMask.contains(.flexibleWidth))
+      #expect(renderer.autoresizingMask.contains(.flexibleHeight))
+      #expect(renderer.layoutCount == 1)
+      #elseif canImport(AppKit)
+      let surface = VideoSurface(frame: NSRect(x: 20, y: 40, width: 320, height: 180))
+      surface.layout()
+      let renderer = NSView(frame: .zero)
+      surface.addSubview(renderer)
+
+      #expect(renderer.frame == surface.bounds)
+      #expect(renderer.autoresizingMask.contains(.width))
+      #expect(renderer.autoresizingMask.contains(.height))
+      #endif
+    }
+
+    @Test
+    func `UIKit surface applies display scale before reshaping VLC subviews`() {
+      #if canImport(UIKit) && !os(visionOS)
+      let surface = VideoSurface(frame: CGRect(x: 20, y: 40, width: 320, height: 180))
+      surface.layoutSubviews()
+
+      let renderer = UIKitReshapeProbeView(frame: .zero)
+      surface.addSubview(renderer)
+
+      #expect(renderer.frame == surface.bounds)
+      #expect(renderer.contentScaleFactor == UIScreen.main.scale)
+      #expect(renderer.layer.contentsScale == UIScreen.main.scale)
+      #expect(renderer.reshapeCount == 1)
+      #expect(renderer.scaleAtReshape == UIScreen.main.scale)
+      #else
+      #expect(Bool(true))
       #endif
     }
 
@@ -155,6 +224,14 @@ extension Integration {
       #expect(sublayer.frame == CGRect(x: 0, y: 0, width: 100, height: 100))
       #endif
     }
+
+    private func sizedSurface() -> VideoSurface {
+      #if canImport(UIKit)
+      VideoSurface(frame: CGRect(x: 0, y: 0, width: 320, height: 180))
+      #elseif canImport(AppKit)
+      VideoSurface(frame: NSRect(x: 0, y: 0, width: 320, height: 180))
+      #endif
+    }
   }
 }
 
@@ -166,6 +243,30 @@ private final class AppKitReshapeProbeView: NSView {
   @objc(reshape)
   func reshapeForTesting() {
     reshapeCount += 1
+  }
+}
+#endif
+
+#if canImport(UIKit)
+@MainActor
+private final class UIKitLayoutProbeView: UIView {
+  var layoutCount = 0
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    layoutCount += 1
+  }
+}
+
+@MainActor
+private final class UIKitReshapeProbeView: UIView {
+  var reshapeCount = 0
+  var scaleAtReshape: CGFloat = 0
+
+  @objc(reshape)
+  func reshapeForTesting() {
+    reshapeCount += 1
+    scaleAtReshape = contentScaleFactor
   }
 }
 #endif

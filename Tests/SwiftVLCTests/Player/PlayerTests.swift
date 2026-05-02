@@ -244,8 +244,14 @@ extension Integration {
     }
 
     @Test
-    func `isPlaying reflects state`() {
+    func `isPlaying reflects playback intent`() {
       let player = Player(instance: TestInstance.shared)
+      #expect(player.isPlaying == false)
+
+      player.setPlaybackIntentFromExternalControl(true)
+      #expect(player.isPlaying == true)
+
+      player.setPlaybackIntentFromExternalControl(false)
       #expect(player.isPlaying == false)
     }
 

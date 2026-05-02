@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 /// Base class for every iOS showcase UI test.
 ///
@@ -144,6 +145,60 @@ class ShowcaseIOSTestCase: XCTestCase {
     }
   }
 
+  /// Waits until the element's visible screen region contains real video
+  /// pixels instead of the all-black drawable placeholder.
+  func assertRendersNonBlackFrame(
+    _ element: XCUIElement,
+    timeout: TimeInterval,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) {
+    let deadline = Date().addingTimeInterval(timeout)
+    var lastNonBlackRatio = 0.0
+    var lastScreenScreenshot: XCUIScreenshot?
+    var lastVideoRegion: UIImage?
+
+    while Date() < deadline {
+      guard element.exists else {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        continue
+      }
+
+      let screenScreenshot = XCUIScreen.main.screenshot()
+      guard let videoRegion = croppedImage(screenScreenshot.image, to: element.frame) else {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        continue
+      }
+
+      lastScreenScreenshot = screenScreenshot
+      lastVideoRegion = videoRegion
+      lastNonBlackRatio = nonBlackSampleRatio(in: videoRegion)
+      if lastNonBlackRatio >= 0.2 {
+        return
+      }
+
+      RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+    }
+
+    if let lastVideoRegion {
+      let attachment = XCTAttachment(image: lastVideoRegion)
+      attachment.name = "black-video-region"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    if let lastScreenScreenshot {
+      let attachment = XCTAttachment(screenshot: lastScreenScreenshot)
+      attachment.name = "black-video-full-screen"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    XCTFail(
+      "Expected video pixels, but sampled only \(Int(lastNonBlackRatio * 100))% non-black pixels after \(timeout)s",
+      file: file,
+      line: line
+    )
+  }
+
   // MARK: - Fixtures
 
   /// The happy-path fixture: a 10s h264 + aac mp4. Short enough to keep
@@ -166,4 +221,71 @@ class ShowcaseIOSTestCase: XCTestCase {
     }
     fatalError("\(name).\(ext) not found in UI test bundle")
   }
+}
+
+private func nonBlackSampleRatio(in image: UIImage) -> Double {
+  guard let cgImage = image.cgImage else { return 0 }
+
+  let width = cgImage.width
+  let height = cgImage.height
+  guard width > 0, height > 0 else { return 0 }
+
+  let bytesPerPixel = 4
+  let bytesPerRow = width * bytesPerPixel
+  var pixels = [UInt8](repeating: 0, count: height * bytesPerRow)
+  guard
+    let context = CGContext(
+      data: &pixels,
+      width: width,
+      height: height,
+      bitsPerComponent: 8,
+      bytesPerRow: bytesPerRow,
+      space: CGColorSpaceCreateDeviceRGB(),
+      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    )
+  else { return 0 }
+
+  context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+  let xRange = stride(from: 0.2, through: 0.8, by: 0.1)
+  let yRange = stride(from: 0.2, through: 0.8, by: 0.1)
+  var sampled = 0
+  var nonBlack = 0
+
+  for yFraction in yRange {
+    for xFraction in xRange {
+      let x = min(width - 1, max(0, Int(Double(width) * xFraction)))
+      let y = min(height - 1, max(0, Int(Double(height) * yFraction)))
+      let offset = y * bytesPerRow + x * bytesPerPixel
+      let red = pixels[offset]
+      let green = pixels[offset + 1]
+      let blue = pixels[offset + 2]
+      sampled += 1
+      if max(red, green, blue) > 40 {
+        nonBlack += 1
+      }
+    }
+  }
+
+  return sampled == 0 ? 0 : Double(nonBlack) / Double(sampled)
+}
+
+private func croppedImage(_ image: UIImage, to frame: CGRect) -> UIImage? {
+  guard let cgImage = image.cgImage else { return nil }
+
+  let imageBounds = CGRect(origin: .zero, size: image.size)
+  let pointRect = frame.intersection(imageBounds)
+  guard pointRect.width > 0, pointRect.height > 0 else { return nil }
+
+  let scaleX = CGFloat(cgImage.width) / image.size.width
+  let scaleY = CGFloat(cgImage.height) / image.size.height
+  let pixelRect = CGRect(
+    x: pointRect.minX * scaleX,
+    y: pointRect.minY * scaleY,
+    width: pointRect.width * scaleX,
+    height: pointRect.height * scaleY
+  ).integral
+
+  guard let cropped = cgImage.cropping(to: pixelRect) else { return nil }
+  return UIImage(cgImage: cropped, scale: image.scale, orientation: image.imageOrientation)
 }
