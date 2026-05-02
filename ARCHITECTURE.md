@@ -48,7 +48,7 @@ flowchart TB
         subgraph Bottom["Supporting Modules"]
             Playlist["Playlist<br/>MediaList · ListPlayer"]
             Discovery["Discovery<br/>LAN/UPnP · Renderer"]
-            PiP["PiP<br/>vmem → PiP API"]
+            PiP["PiP<br/>iOS sample buffers · macOS native drawable"]
             EventBridge["EventBridge<br/>C → AsyncStream"]
         end
     end
@@ -58,7 +58,7 @@ flowchart TB
     end
 
     subgraph XCF["libvlc.xcframework"]
-        Binary["Pre-built libVLC 4.0<br/>iOS · macOS · tvOS · Catalyst<br/>21 system frameworks · 7 system libraries"]
+        Binary["Pre-built libVLC 4.0<br/>iOS · macOS · tvOS · visionOS · Catalyst<br/>21 system frameworks · 7 system libraries"]
     end
 
     App --> SwiftVLC
@@ -86,10 +86,10 @@ flowchart TB
 | **State** | `@Observable` / `@MainActor` | Automatic SwiftUI integration, thread safety |
 | **Events** | `AsyncStream<PlayerEvent>` | Native structured concurrency, multi-consumer |
 | **Video** | `UIView` / `NSView` via `set_nsobject` | Platform-native rendering, zero-copy |
-| **PiP** | vmem → `CVPixelBuffer` → `AVSampleBufferDisplayLayer` | Full pixel control for PiP API |
+| **PiP** | iOS: vmem → `AVSampleBufferDisplayLayer`; macOS: native drawable PiP | Platform-appropriate PiP control |
 | **Thread Safety** | `Mutex<T>`, `Sendable`, `nonisolated(unsafe)` | Compile-time data race prevention |
 | **Testing** | Swift Testing framework | Modern `@Test`, `#expect`, tags, traits |
-| **Platforms** | iOS 18+, macOS 15+, tvOS 18+, Mac Catalyst | Unified SwiftUI minimum |
+| **Platforms** | iOS 18+, macOS 15+, tvOS 18+, visionOS 2+, Mac Catalyst | Unified SwiftUI minimum |
 
 ---
 
@@ -106,7 +106,7 @@ Foundation types shared across all modules.
 | `Logging.swift` | `AsyncStream<LogEntry>` | Filterable log stream (debug/notice/warning/error). C shim formats `va_list` before Swift callback. |
 | `Duration+Extensions.swift` | Extensions on `Duration` | `milliseconds`, `microseconds` properties and `formatted` display string |
 
-**Default VLC arguments:** `["--no-video-title-show", "--no-snapshot-preview"]`. `--no-stats` is *not* in the defaults — leaving it on would silently zero every `Media.statistics()` read, which is almost never what a caller wants.
+**Default VLC arguments:** `["--no-video-title-show", "--no-snapshot-preview"]`. `--no-stats` is *not* in the defaults — leaving it on would silently zero every `Media.statistics()` read, which is almost never what a caller wants. On macOS the default keeps VLC's Apple sample-buffer display available for inline playback, including its paired subtitle layer. ``PiPVideoView`` owns a native drawable container and moves that whole container into the system PiP presenter.
 
 ### Player
 
@@ -240,13 +240,14 @@ Network service and renderer discovery.
 
 ### PiP (iOS/macOS only)
 
-Picture-in-Picture via video memory callbacks.
+Picture-in-Picture uses the platform path that best matches libVLC's
+video output.
 
 | File | Type | Purpose |
 |---|---|---|
-| `PiPController.swift` | `@MainActor class PiPController` | Manages `AVPictureInPictureController` lifecycle, timebase sync, playback delegation |
-| `PiPVideoView.swift` | SwiftUI representable | `PiPVideoView(player, controller: $binding)` — hosts the sample buffer display layer |
-| `PixelBufferRenderer.swift` | `class PixelBufferRenderer: Sendable` | vmem callbacks: format → lock → unlock → display. `CVPixelBufferPool` → `CMSampleBuffer` → layer. |
+| `PiPController.swift` | `@MainActor class PiPController` | Manages PiP lifecycle, timebase sync, playback delegation |
+| `PiPVideoView.swift` | SwiftUI representable | `PiPVideoView(player, controller: $binding)` — iOS hosts a sample-buffer layer; macOS reparents libVLC's native drawable into PiP |
+| `PixelBufferRenderer.swift` | `class PixelBufferRenderer: Sendable` | iOS/direct sample-buffer path: format → lock → unlock → display. `CVPixelBufferPool` → `CMSampleBuffer` → layer. |
 
 ---
 
@@ -290,7 +291,7 @@ libVLC needs for decoding, rendering, and platform services:
 
 **Libraries:** libbz2, libc++, libiconv, libresolv, libsqlite3, libxml2, libz
 
-\*Platform-conditional: AudioUnit/IOKit/OpenGL are macOS-only; OpenGLES is iOS/tvOS-only.
+\*Platform-conditional: AudioUnit/IOKit/OpenGL are macOS-only; OpenGLES is iOS/tvOS/visionOS-only.
 
 ---
 
@@ -492,14 +493,15 @@ There is no `CALayer` setup, no `MTKView`, and no `AVPlayerLayer` to configure. 
 
 ## Picture-in-Picture
 
-PiP uses a fundamentally different rendering path than `VideoView`:
+PiP rendering depends on the platform:
 
 | Path | Pipeline |
 |---|---|
 | **VideoView** | `set_nsobject` → VLC renders directly into the view |
-| **PiP** | vmem callbacks → `CVPixelBuffer` → `CMSampleBuffer` → `AVSampleBufferDisplayLayer` → PiP |
+| **PiP on iOS** | vmem callbacks → `CVPixelBuffer` → `CMSampleBuffer` → `AVSampleBufferDisplayLayer` → PiP |
+| **PiP on macOS** | `set_nsobject` drawable → same VLC-owned `NSView` is moved into the system PiP presenter |
 
-### vmem Callback Pipeline
+### iOS/Direct vmem Callback Pipeline
 
 ```mermaid
 flowchart TB
@@ -528,11 +530,24 @@ flowchart TB
 2. **Duration reporting.** Invalidates the PiP controller once the duration becomes known, which is required before the controls can render.
 3. **Playback delegation.** Implements `AVPictureInPictureSampleBufferPlaybackDelegate` so the play, pause, and seek buttons on the PiP window route into the ``Player``.
 4. **State observation.** An observer task distinguishes VLC-initiated state changes from PiP-initiated ones.
-5. **Deferred pause.** Skip-without-blink by deferring the pause via task cancellation.
+5. **Render-size tracking.** The iOS/direct sample-buffer path follows AVKit's render-size callbacks and emits target-sized buffers so live PiP resizing cannot display stale-size frames.
+6. **Deferred pause.** Skip-without-blink by deferring the pause via task cancellation.
+
+On macOS, ``PiPVideoView`` intentionally bypasses SwiftVLC's vmem
+renderer. It gives libVLC a normal `NSView` drawable and deliberately does
+not conform that view to VLC's sample-buffer PiP protocols. Entering PiP
+loads macOS's PiP presenter at runtime and reparents the exact VLC drawable
+view into the floating PiP controller. That keeps video, audio, play/pause
+intent, and time on one VLC timeline while avoiding the macOS AVKit
+sample-buffer `CALayerHost` mirror that can crop at 1:1 layer size instead
+of scaling into the PiP panel.
 
 ### Mutually Exclusive
 
-`VideoView` and `PiPVideoView` are mutually exclusive for a given player: `set_nsobject` and vmem callbacks cannot coexist on the same `libvlc_media_player_t`.
+`VideoView` and `PiPVideoView` are mutually exclusive for a given player.
+On iOS, `set_nsobject` and vmem callbacks cannot coexist on the same
+`libvlc_media_player_t`. On macOS, both views use `set_nsobject`, and
+the most recently attached drawable owns VLC's native video output.
 
 ---
 
@@ -627,7 +642,7 @@ func playAndWaitForState() async throws {
 | Script | Purpose |
 |---|---|
 | `scripts/setup-dev.sh` | First step for local repo work. Downloads the last-released xcframework into `Vendor/`, flips `Package.swift` to the local-path form, and points the Showcase app at the repo-local Swift package. Flags: `--force` (re-download), `--skip-download` (only flip local references). |
-| `scripts/build-libvlc.sh` | Compiles libVLC from VideoLAN source (pinned via `VLC_HASH`) into `Vendor/libvlc.xcframework`. Applies 5 in-tree patches needed for current Xcode (26) and Homebrew libtool (2.5) — see README. |
+| `scripts/build-libvlc.sh` | Compiles libVLC from VideoLAN source (pinned via `VLC_HASH`) into `Vendor/libvlc.xcframework`. Applies the local VLC source patches described in README. |
 | `scripts/fix-duplicate-symbols.sh` | Localizes `_json_parse_error` and `_json_read` in the chromecast plugin, which two VLC plugins each emit. Called automatically by `build-libvlc.sh` and `setup-dev.sh`. |
 | `scripts/release.sh` | Cuts a versioned release, uploads the xcframework asset, pins the Showcase app to that exact Swift package version, and advances `main`. |
 | `scripts/ci-use-released-xcframework.sh` | CI-only. Rewrites the current `Package.swift` `binaryTarget` to the url+checksum of the latest release tag. Run at CI job start so tests resolve against the same binary a downstream consumer would. |
@@ -720,6 +735,7 @@ SwiftVLC/
 │   ├── iOS/                        # Full-featured iOS target/scheme, also enabled for Mac Catalyst
 │   ├── macOS/                      # Native macOS target/scheme with Mac-tailored showcases
 │   ├── tvOS/                       # Native tvOS target/scheme with TV-tailored showcases
+│   ├── visionOS/                   # Native visionOS target/scheme with focused playback coverage
 │   └── UITests/
 │       ├── iOS/                    # Existing UI tests for the iOS/Catalyst showcase
 │       ├── macOS/                  # Empty native macOS UI-test target shell

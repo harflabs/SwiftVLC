@@ -114,7 +114,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Play starts playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.testMP4URL))
       try #require(await poll(until: { player.state != .idle }), "Waiting for: player.state != .idle")
       #expect(player.state != .idle)
@@ -123,7 +123,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Pause pauses playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       player.pause()
@@ -134,7 +134,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Resume after pause`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       player.pause()
@@ -147,7 +147,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Stop stops playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.testMP4URL))
       try #require(await poll(until: { player.state != .idle }), "Waiting for: player.state != .idle")
       player.stop()
@@ -157,7 +157,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Seek to time`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       player.seek(to: .seconds(1))
@@ -167,7 +167,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Seek by offset`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       player.seek(by: .milliseconds(500))
@@ -244,8 +244,14 @@ extension Integration {
     }
 
     @Test
-    func `isPlaying reflects state`() {
+    func `isPlaying reflects playback intent`() {
       let player = Player(instance: TestInstance.shared)
+      #expect(player.isPlaying == false)
+
+      player.setPlaybackIntentFromExternalControl(true)
+      #expect(player.isPlaying == true)
+
+      player.setPlaybackIntentFromExternalControl(false)
       #expect(player.isPlaying == false)
     }
 
@@ -305,7 +311,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Play URL convenience`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(url: TestMedia.testMP4URL)
       try #require(await poll(until: { player.state != .idle }), "Waiting for: player.state != .idle")
       #expect(player.state != .idle)
@@ -340,7 +346,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Stop resets position`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       player.stop()
@@ -487,7 +493,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Add external subtitle track`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       do {
@@ -574,7 +580,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Tracks refresh during playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       _ = player.audioTracks
@@ -585,7 +591,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Duration available during playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
 
       // libVLC's `MediaPlayerLengthChanged` event is not guaranteed to fire
@@ -640,7 +646,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Duration set via event during playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
       try #require(await poll(until: { player.duration != nil }), "Waiting for: player.duration != nil")
       if let dur = player.duration {
@@ -651,7 +657,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Position updates during playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       _ = player.position
@@ -660,7 +666,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Seekable and pausable update during playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       _ = player.isSeekable
@@ -670,7 +676,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `isActive true during playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       if player.state == .playing || player.state == .opening {
@@ -681,7 +687,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Stop sets state to stopped`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       player.stop()

@@ -8,8 +8,8 @@ struct MacPiPCase: View {
   var body: some View {
     MacShowcaseContent(
       title: "Picture in Picture",
-      summary: "Use PiPVideoView when the app needs an AVPictureInPictureController-compatible video surface.",
-      usage: "Start playback, then use the Picture in Picture control to hand the PiPVideoView surface to AppKit's PiP controller."
+      summary: "Use PiPVideoView when the app needs a Picture in Picture-capable video surface.",
+      usage: "Start playback, then use the Picture in Picture control to move the native video surface into macOS PiP."
     ) {
       VStack(spacing: 16) {
         PiPVideoView(player, controller: $controller)
@@ -23,6 +23,7 @@ struct MacPiPCase: View {
         MacSection(title: "Picture in Picture") {
           if let controller {
             Button(controller.isActive ? "Stop PiP" : "Start PiP", systemImage: "pip") { controller.toggle() }
+              .accessibilityIdentifier("macos.pip.toggle")
               .disabled(!controller.isPossible)
           } else {
             ProgressView("Preparing...")
@@ -33,11 +34,24 @@ struct MacPiPCase: View {
       MacSection(title: "Controller") {
         MacMetricGrid {
           MacMetricRow(title: "Ready", value: controller == nil ? "No" : "Yes")
-          MacMetricRow(title: "Possible", value: controller?.isPossible == true ? "Yes" : "No")
-          MacMetricRow(title: "Active", value: controller?.isActive == true ? "Yes" : "No")
+          MacMetricRow(
+            title: "Possible",
+            value: controller?.isPossible == true ? "Yes" : "No",
+            valueIdentifier: "macos.pip.possible.value"
+          )
+          MacMetricRow(
+            title: "Active",
+            value: controller?.isActive == true ? "Yes" : "No",
+            valueIdentifier: "macos.pip.active.value"
+          )
         }
       }
-      MacLibrarySurface(symbols: ["PiPVideoView", "PiPController.toggle()"])
+      MacLibrarySurface(
+        symbols: [
+          "PiPVideoView",
+          "PiPController.toggle()"
+        ]
+      )
     }
     .task { try? player.play(url: MacTestMedia.demo) }
     .onDisappear { player.stop() }

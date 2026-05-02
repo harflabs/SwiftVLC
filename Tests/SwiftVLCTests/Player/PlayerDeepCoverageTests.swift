@@ -27,7 +27,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Track selection and external subtitle during playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       try #require(await poll(until: { !player.audioTracks.isEmpty }), "Waiting for: !player.audioTracks.isEmpty")
@@ -61,7 +61,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Aspect ratio seek rate volume during playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       // Aspect ratio all cases
@@ -104,7 +104,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Statistics recording snapshot equalizer during playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       try await Task.sleep(for: .milliseconds(300))
@@ -133,7 +133,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Pause resume delay role scale nextFrame during playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       // Pause/resume
@@ -169,7 +169,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Titles chapters programs ABloop mediaSwitch during playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       // Titles & chapters
@@ -200,7 +200,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Load play seekable duration time stop reset`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       let media = try Media(url: TestMedia.twosecURL)
       player.load(media)
       #expect(player.currentMedia != nil)
@@ -232,7 +232,7 @@ extension Integration {
 
       // Deinit during playback (nested scope)
       do {
-        let p2 = Player(instance: TestInstance.shared)
+        let p2 = Player(instance: TestInstance.makePlayback())
         try p2.play(Media(url: TestMedia.twosecURL))
         _ = try await poll(until: { p2.state == .playing })
       }
@@ -243,7 +243,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Buffering state observed during opening`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
       var sawBuffering = false
       for _ in 0..<40 {

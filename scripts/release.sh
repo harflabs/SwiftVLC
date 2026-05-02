@@ -19,13 +19,15 @@ SHOWCASE_PROJECT="Showcase/SwiftVLCShowcase.xcodeproj/project.pbxproj"
 ZIP_NAME="libvlc.xcframework.zip"
 MAX_SIZE=$((2 * 1024 * 1024 * 1024))  # 2 GB (GitHub release asset limit)
 
-# All 6 slices the xcframework must contain. If a slice is missing, the
-# release would ship a partial artifact that fails on one of iOS/tvOS/macOS/Catalyst.
+# All 8 slices the xcframework must contain. If a slice is missing, the release
+# would ship a partial artifact that fails on one of SwiftVLC's Apple platforms.
 EXPECTED_SLICES=(
   "ios-arm64"
   "ios-arm64_x86_64-simulator"
   "tvos-arm64"
   "tvos-arm64_x86_64-simulator"
+  "xros-arm64"
+  "xros-arm64_x86_64-simulator"
   "macos-arm64_x86_64"
   "ios-arm64_x86_64-maccatalyst"
 )
@@ -405,7 +407,7 @@ gh release create "$TAG" "$ZIP_PATH" \
 
 Pre-built static xcframework for libVLC 4.0.
 
-**Platforms:** iOS 18+, macOS 15+, tvOS 18+, Mac Catalyst
+**Platforms:** iOS 18+, macOS 15+, tvOS 18+, visionOS 2+, Mac Catalyst
 **Size:** ${ZIP_SIZE_MB} MB (stripped)
 **Checksum:** \`$CHECKSUM\`
 

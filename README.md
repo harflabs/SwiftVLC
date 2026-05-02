@@ -8,7 +8,7 @@
 [![Swift versions](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fharflabs%2FSwiftVLC%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/harflabs/SwiftVLC)
 [![Platforms](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fharflabs%2FSwiftVLC%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/harflabs/SwiftVLC)
 
-A Swift wrapper around [libVLC](https://www.videolan.org/vlc/libvlc.html) for iOS, macOS, tvOS, and Mac Catalyst.
+A Swift wrapper around [libVLC](https://www.videolan.org/vlc/libvlc.html) for iOS, macOS, tvOS, visionOS, and Mac Catalyst.
 
 ## Why?
 
@@ -52,7 +52,7 @@ The existing iOS wrapper, [VLCKit](https://code.videolan.org/videolan/VLCKit), i
 ## Requirements
 
 - Swift 6.3+ / Xcode 26+
-- iOS 18+ / macOS 15+ / tvOS 18+ / Mac Catalyst 18+
+- iOS 18+ / macOS 15+ / tvOS 18+ / visionOS 2+ / Mac Catalyst 18+
 
 ## Installation
 
@@ -141,8 +141,9 @@ The `Showcase/` directory contains separate folders, targets, and schemes for ea
 - **iOS.** The existing full-featured app target, also enabled for Mac Catalyst.
 - **macOS.** Native macOS app target with the same showcase coverage, adapted into sidebar-driven Mac UI.
 - **tvOS.** Native tvOS showcase app target with TV-focused focus navigation and Siri Remote controls.
+- **visionOS.** Native visionOS app target with a focused simple playback showcase.
 
-Showcase UI tests are split the same way under `Showcase/UITests/`: the existing coverage lives in the `iOSUITests` target, while `macOSUITests` and `tvOSUITests` are empty target shells.
+Showcase UI tests live under `Showcase/UITests/`: the existing coverage lives in the `iOSUITests` target, while `macOSUITests` and `tvOSUITests` are empty target shells. The visionOS showcase does not have a UI-test target yet.
 
 ## Testing
 
@@ -186,16 +187,16 @@ brew install autoconf automake libtool cmake pkg-config gettext
 ./scripts/build-libvlc.sh --all
 ```
 
-Expect ~15–20 minutes on a clean run and ~2–7 minutes warm on Apple Silicon. The script clones VLC at a pinned commit into `scripts/.build-libvlc/`, applies the source patches below, builds every contrib (FFmpeg, dav1d, x264, libass, …) per slice, and assembles the result into `Vendor/libvlc.xcframework`.
+Expect a full `--all` build to take tens of minutes on Apple Silicon. The script clones VLC at a pinned commit into `scripts/.build-libvlc/`, applies the source patches below, builds every contrib (FFmpeg, dav1d, x264, libass, …) per slice, and assembles the result into `Vendor/libvlc.xcframework`.
 
 ### Platform selection
 
 | Flag | Platforms |
 |---|---|
 | *(default)* | iOS device + simulator |
-| `--all` | iOS, tvOS, macOS, Mac Catalyst (six slices) |
-| `--ios-only` / `--tvos-only` / `--macos-only` / `--catalyst-only` | Replaces `Vendor/` with that single platform |
-| `--tvos` / `--macos` / `--catalyst` | Adds a platform to the default set |
+| `--all` | iOS, tvOS, visionOS, macOS, Mac Catalyst (eight slices) |
+| `--ios-only` / `--tvos-only` / `--visionos-only` / `--macos-only` / `--catalyst-only` | Replaces `Vendor/` with that single platform |
+| `--tvos` / `--visionos` / `--macos` / `--catalyst` | Adds a platform to the default set |
 | `--clean` / `--clean-build` | Wipe `scripts/.build-libvlc/` (the latter rebuilds afterwards) |
 | `--hash=<sha>` | Override the pinned VLC commit |
 
@@ -203,13 +204,14 @@ Expect ~15–20 minutes on a clean run and ~2–7 minutes warm on Apple Silicon.
 
 ### Source patches
 
-VLC master doesn't build cleanly against current Xcode and Homebrew libtool. The script applies these patches in-tree on every invocation, idempotently:
+VLC master requires a few local patches for SwiftVLC's supported Apple toolchains. The script applies them in-tree on every invocation, idempotently:
 
 1. **Mac Catalyst.** Teaches VLC's build system the `macabi` target triple and guards OpenGLES-only code paths.
-2. **Xcode 26 LDFLAGS.** Adds `-isysroot` to linker invocations so libSystem resolves.
-3. **libtool 2.5 OBJC tag.** Adds `_LIBTOOLFLAGS = --tag=CC` to the `Makefile.am` files that contain `.m` sources. Older libtool versions inferred the tag; 2.5 refuses.
-4. **Rust contribs disabled.** `cargo-c 0.9.29` no longer compiles on recent Rust. The only Rust contrib on Apple is `rav1e` (AV1 *encoder*); `dav1d` handles decoding.
-5. **`dup3` / `pipe2`.** Forced unavailable via autoconf cache vars. iOS Simulator SDK 26 exports these Linux-only syscalls from libSystem, fooling configure into using them.
+2. **visionOS deployment target.** Adds the `xros` target triple so object files are stamped with visionOS 2.0 instead of the installed SDK version.
+3. **Xcode 26 LDFLAGS.** Adds `-isysroot` to linker invocations so libSystem resolves.
+4. **libtool 2.5 OBJC tag.** Adds `_LIBTOOLFLAGS = --tag=CC` to the `Makefile.am` files that contain `.m` sources. Older libtool versions inferred the tag; 2.5 refuses.
+5. **Rust contribs disabled.** `cargo-c 0.9.29` no longer compiles on recent Rust. The only Rust contrib on Apple is `rav1e` (AV1 *encoder*); `dav1d` handles decoding.
+6. **`dup3` / `pipe2`.** Forced unavailable via autoconf cache vars. iOS Simulator SDK 26 exports these Linux-only syscalls from libSystem, fooling configure into using them.
 
 `git reset --hard` only runs when HEAD is not at `VLC_HASH`, so the patches and per-platform build dirs survive repeated runs.
 
@@ -225,7 +227,7 @@ Releases advance `main`: `release.sh` rewrites `Package.swift` to the new remote
 
 What `release.sh` does:
 
-1. Verifies all six platform slices are present in the xcframework.
+1. Verifies all eight platform slices are present in the xcframework.
 2. Copies it to a temp dir, strips debug symbols, zips with `ditto`.
 3. Computes SHA-256 via `swift package compute-checksum`.
 4. Rewrites `Package.swift` to the remote URL and checksum, and pins the Showcase app to `SwiftVLC` exact version `X.Y.Z`.

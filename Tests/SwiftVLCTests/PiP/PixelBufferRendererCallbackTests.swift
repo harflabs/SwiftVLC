@@ -3,6 +3,7 @@
 import AVFoundation
 import CoreMedia
 import CoreVideo
+import CustomDump
 import Synchronization
 import Testing
 
@@ -25,12 +26,83 @@ extension Integration {
       var lines: UInt32 = 0
     }
 
+    private func makeRetainedContext(
+      renderer: PixelBufferRenderer
+    ) -> Unmanaged<PixelBufferRendererCallbackContext> {
+      Unmanaged.passRetained(PixelBufferRendererCallbackContext(renderer: renderer))
+    }
+
+    private func makeBGRAImageBuffer(
+      width: Int,
+      height: Int,
+      alpha: UInt8 = .max
+    )
+      throws -> CVPixelBuffer {
+      var pixelBuffer: CVPixelBuffer?
+      let attrs: [String: Any] = [
+        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+        kCVPixelBufferWidthKey as String: width,
+        kCVPixelBufferHeightKey as String: height,
+        kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any]
+      ]
+      let status = CVPixelBufferCreate(
+        kCFAllocatorDefault,
+        width,
+        height,
+        kCVPixelFormatType_32BGRA,
+        attrs as CFDictionary,
+        &pixelBuffer
+      )
+      #expect(status == kCVReturnSuccess)
+      let buffer = try #require(pixelBuffer)
+
+      #expect(CVPixelBufferLockBaseAddress(buffer, []) == kCVReturnSuccess)
+      defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+      let base = try #require(CVPixelBufferGetBaseAddress(buffer))
+        .assumingMemoryBound(to: UInt8.self)
+      let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
+      for row in 0..<height {
+        var pixel = base.advanced(by: row * bytesPerRow)
+        for column in 0..<width {
+          pixel[0] = UInt8((column * 47) & 0xFF)
+          pixel[1] = UInt8((row * 83) & 0xFF)
+          pixel[2] = 0xCC
+          pixel[3] = alpha
+          pixel = pixel.advanced(by: 4)
+        }
+      }
+
+      return buffer
+    }
+
+    private func alphaBytes(in buffer: CVPixelBuffer) throws -> [UInt8] {
+      #expect(CVPixelBufferLockBaseAddress(buffer, .readOnly) == kCVReturnSuccess)
+      defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+
+      let width = CVPixelBufferGetWidth(buffer)
+      let height = CVPixelBufferGetHeight(buffer)
+      let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
+      let base = try #require(CVPixelBufferGetBaseAddress(buffer))
+        .assumingMemoryBound(to: UInt8.self)
+
+      var result: [UInt8] = []
+      result.reserveCapacity(width * height)
+      for row in 0..<height {
+        var alpha = base.advanced(by: row * bytesPerRow + 3)
+        for _ in 0..<width {
+          result.append(alpha.pointee)
+          alpha = alpha.advanced(by: 4)
+        }
+      }
+      return result
+    }
+
     // MARK: - Format callback
 
     @Test
     func `Format callback creates pool and updates state`() {
       let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
-      let retained = Unmanaged.passRetained(renderer)
+      let retained = makeRetainedContext(renderer: renderer)
       defer { retained.release() }
 
       var opaqueSlot: UnsafeMutableRawPointer? = retained.toOpaque()
@@ -57,7 +129,7 @@ extension Integration {
         }
       }
 
-      #expect(result == 1) // single BGRA plane
+      #expect(result == 3)
 
       // Chroma should be forced to BGRA.
       let chromaString = String(
@@ -117,7 +189,7 @@ extension Integration {
     @Test
     func `Lock callback returns nil before pool is initialized`() {
       let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
-      let retained = Unmanaged.passRetained(renderer)
+      let retained = makeRetainedContext(renderer: renderer)
       defer { retained.release() }
 
       var plane: UnsafeMutableRawPointer?
@@ -140,7 +212,7 @@ extension Integration {
     @Test
     func `Lock then unlock round trip after format`() {
       let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
-      let retained = Unmanaged.passRetained(renderer)
+      let retained = makeRetainedContext(renderer: renderer)
       defer { retained.release() }
 
       // Prime the pool via format callback.
@@ -200,6 +272,146 @@ extension Integration {
       pixelBufferCleanupCallback(opaque: nil)
     }
 
+    @Test
+    func `Retiring callback context without opened vout releases opaque retain`() {
+      weak var weakContext: PixelBufferRendererCallbackContext?
+      weak var weakRenderer: PixelBufferRenderer?
+
+      do {
+        var renderer: PixelBufferRenderer? = PixelBufferRenderer(
+          displayLayer: AVSampleBufferDisplayLayer()
+        )
+        let context = try! PixelBufferRendererCallbackContext(renderer: #require(renderer))
+        weakContext = context
+        weakRenderer = renderer
+        let retained = Unmanaged.passRetained(context)
+        renderer = nil
+
+        context.requestRetirement(
+          opaque: retained.toOpaque(),
+          deferIfVoutMayBeOpening: false
+        )
+      }
+
+      #expect(weakContext == nil)
+      #expect(weakRenderer == nil)
+    }
+
+    @Test
+    func `Retirement keeps renderer alive for a callback already in flight`() throws {
+      weak var weakContext: PixelBufferRendererCallbackContext?
+      weak var weakRenderer: PixelBufferRenderer?
+
+      do {
+        var renderer: PixelBufferRenderer? = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+        let context = try PixelBufferRendererCallbackContext(renderer: #require(renderer))
+        weakContext = context
+        weakRenderer = renderer
+        renderer = nil
+        let retained = Unmanaged.passRetained(context)
+
+        let result = context.withRenderer(opaque: retained.toOpaque()) { callbackRenderer in
+          context.requestRetirement(
+            opaque: retained.toOpaque(),
+            deferIfVoutMayBeOpening: false
+          )
+          #expect(weakRenderer != nil)
+          _ = callbackRenderer
+          return true
+        }
+
+        #expect(result == true)
+      }
+
+      #expect(weakContext == nil)
+      #expect(weakRenderer == nil)
+    }
+
+    @Test
+    func `Retired callback context balances no-op callback entry`() throws {
+      weak var weakContext: PixelBufferRendererCallbackContext?
+      weak var weakRenderer: PixelBufferRenderer?
+
+      do {
+        var renderer: PixelBufferRenderer? = PixelBufferRenderer(
+          displayLayer: AVSampleBufferDisplayLayer()
+        )
+        let context = PixelBufferRendererCallbackContext(renderer: try #require(renderer))
+        weakContext = context
+        weakRenderer = renderer
+        let retained = Unmanaged.passRetained(context)
+        renderer = nil
+
+        context.requestRetirement(
+          opaque: retained.toOpaque(),
+          deferIfVoutMayBeOpening: true
+        )
+
+        #expect(weakContext != nil)
+        #expect(weakRenderer == nil)
+        let result = context.withRenderer(opaque: retained.toOpaque()) { _ in true }
+        #expect(result == nil)
+        #expect(context.releaseRetiredOpaqueRetainIfNoOpenVout(opaque: retained.toOpaque()))
+      }
+
+      #expect(weakContext == nil)
+      #expect(weakRenderer == nil)
+    }
+
+    @Test
+    func `Retired callback context keeps opaque alive until vout cleanup`() {
+      weak var weakContext: PixelBufferRendererCallbackContext?
+      weak var weakRenderer: PixelBufferRenderer?
+      var contextOpaque: UnsafeMutableRawPointer?
+
+      do {
+        let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+        let context = PixelBufferRendererCallbackContext(renderer: renderer)
+        weakContext = context
+        weakRenderer = renderer
+        let retained = Unmanaged.passRetained(context)
+        contextOpaque = retained.toOpaque()
+
+        var opaqueSlot: UnsafeMutableRawPointer? = contextOpaque
+        var buffers = FormatBuffers()
+        let result = withUnsafeMutablePointer(to: &opaqueSlot) { opaquePtr in
+          buffers.chroma.withUnsafeMutableBufferPointer { chromaBuf in
+            withUnsafeMutablePointer(to: &buffers.width) { widthPtr in
+              withUnsafeMutablePointer(to: &buffers.height) { heightPtr in
+                withUnsafeMutablePointer(to: &buffers.pitches) { pitchPtr in
+                  withUnsafeMutablePointer(to: &buffers.lines) { linesPtr in
+                    pixelBufferFormatCallback(
+                      opaque: opaquePtr,
+                      chroma: chromaBuf.baseAddress,
+                      width: widthPtr,
+                      height: heightPtr,
+                      pitches: pitchPtr,
+                      lines: linesPtr
+                    )
+                  }
+                }
+              }
+            }
+          }
+        }
+        #expect(result == 3)
+        #expect(context.hasOpenVoutForTesting)
+
+        context.requestRetirement(
+          opaque: retained.toOpaque(),
+          deferIfVoutMayBeOpening: false
+        )
+      }
+
+      #expect(weakContext != nil)
+      #expect(weakRenderer == nil)
+
+      pixelBufferCleanupCallback(opaque: contextOpaque)
+
+      #expect(weakContext == nil)
+      #expect(weakRenderer == nil)
+    }
+
     // MARK: - Display callback
 
     /// Synthesize a BGRA `CVPixelBuffer`, hand it to the display callback,
@@ -209,32 +421,16 @@ extension Integration {
     /// Runs on `@MainActor` because `AVSampleBufferDisplayLayer` is not
     /// `Sendable` — the layer and the renderer must be allocated on the
     /// same actor. The callback itself is invoked synchronously; the
-    /// `DispatchQueue.main.async` enqueue inside is awaited via a
-    /// `Task.sleep` afterwards.
+    /// renderer's async enqueue is awaited via a short `Task.sleep`.
     @MainActor
     @Test
-    func `Display callback enqueues a sample onto the display layer`() async {
+    func `Display callback enqueues a sample onto the display layer`() async throws {
       let displayLayer = AVSampleBufferDisplayLayer()
       let renderer = PixelBufferRenderer(displayLayer: displayLayer)
-      let retained = Unmanaged.passRetained(renderer)
+      let retained = makeRetainedContext(renderer: renderer)
       defer { retained.release() }
 
-      // Build a 2x2 BGRA pixel buffer.
-      var pixelBuffer: CVPixelBuffer?
-      let attrs: [String: Any] = [
-        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-        kCVPixelBufferWidthKey as String: 2,
-        kCVPixelBufferHeightKey as String: 2,
-        kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any]
-      ]
-      let status = CVPixelBufferCreate(
-        kCFAllocatorDefault, 2, 2,
-        kCVPixelFormatType_32BGRA,
-        attrs as CFDictionary,
-        &pixelBuffer
-      )
-      #expect(status == kCVReturnSuccess)
-      guard let pb = pixelBuffer else { return }
+      let pb = try makeBGRAImageBuffer(width: 2, height: 2)
 
       // The display callback expects a retained `AnyObject` pointer —
       // matches the `passRetained(pb as AnyObject)` on the lock path.
@@ -242,8 +438,25 @@ extension Integration {
 
       pixelBufferDisplayCallback(opaque: retained.toOpaque(), picture: pictureHandle)
 
-      // Give the main-queue async enqueue a moment to settle.
+      // Give the renderer's async enqueue queue a moment to settle.
       try? await Task.sleep(for: .milliseconds(20))
+    }
+
+    @MainActor
+    @Test
+    func `Display callback does not mutate source frame bytes`() throws {
+      let displayLayer = AVSampleBufferDisplayLayer()
+      let renderer = PixelBufferRenderer(displayLayer: displayLayer)
+      let retained = makeRetainedContext(renderer: renderer)
+      defer { retained.release() }
+
+      let pb = try makeBGRAImageBuffer(width: 3, height: 2, alpha: 37)
+      let expectedAlphaBytes = try alphaBytes(in: pb)
+
+      let pictureHandle = Unmanaged.passRetained(pb as AnyObject).toOpaque()
+      pixelBufferDisplayCallback(opaque: retained.toOpaque(), picture: pictureHandle)
+
+      try expectNoDifference(alphaBytes(in: pb), expectedAlphaBytes)
     }
 
     /// A nil `opaque` guards-out early.
@@ -258,7 +471,7 @@ extension Integration {
     @Test
     func `Display callback with nil picture is a no-op`() {
       let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
-      let retained = Unmanaged.passRetained(renderer)
+      let retained = makeRetainedContext(renderer: renderer)
       defer { retained.release() }
 
       pixelBufferDisplayCallback(opaque: retained.toOpaque(), picture: nil)

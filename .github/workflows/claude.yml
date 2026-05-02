@@ -40,7 +40,7 @@ jobs:
             actions: read
           settings: |
             system: >
-              This is SwiftVLC — a Swift 6 wrapper around libVLC 4.0 for iOS, macOS, tvOS, and Mac Catalyst.
+              This is SwiftVLC — a Swift 6 wrapper around libVLC 4.0 for iOS, macOS, tvOS, visionOS, and Mac Catalyst.
 
               Key architecture:
               - Sources/CLibVLC/ — C bridging shim with libVLC 4.0 headers

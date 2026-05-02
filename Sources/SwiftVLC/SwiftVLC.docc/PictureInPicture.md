@@ -5,8 +5,20 @@ PiP on macOS.
 
 ## Using PiPVideoView
 
-``PiPVideoView`` replaces ``VideoView`` and configures AVKit's PiP
-controller on your behalf.
+``PiPVideoView`` replaces ``VideoView`` and configures the platform PiP
+surface on your behalf. On iOS it uses SwiftVLC's AVKit sample-buffer
+path. On macOS it keeps libVLC's native drawable as the only video surface
+and moves that drawable into the system PiP presenter. That keeps video,
+audio, playback intent, and time on the same VLC timeline while avoiding
+macOS's broken AVKit sample-buffer mirror path.
+
+SwiftVLC's default macOS ``VLCInstance`` arguments leave VLC's Apple
+sample-buffer display enabled for normal inline playback. ``PiPVideoView``
+owns a native drawable container and moves that whole container into the
+system PiP presenter, so subtitle and video layers remain together during
+the transition. If you create a custom ``VLCInstance`` for a macOS player
+that will enter PiP, include ``VLCInstance/defaultArguments`` in your
+custom argument list.
 
 ```swift
 struct PlayerScreen: View {
@@ -27,7 +39,7 @@ struct PlayerScreen: View {
 
 The `controller` binding is populated during view construction and
 stays in sync with the view's lifetime. It's `nil` on platforms that
-don't support sample-buffer PiP (e.g. tvOS).
+don't expose SwiftVLC's PiP APIs (e.g. tvOS and visionOS).
 
 ## Audio session (iOS only)
 
@@ -50,9 +62,9 @@ Your app must also declare background modes in its Info.plist:
 
 ## Using PiPController directly
 
-Instantiate ``PiPController`` yourself when placing the video into a
-non-SwiftUI view hierarchy, or when your layout needs more control
-than ``PiPVideoView`` offers:
+Instantiate ``PiPController`` yourself when placing SwiftVLC's
+sample-buffer video layer into a non-SwiftUI view hierarchy, or when
+your layout needs more control than ``PiPVideoView`` offers:
 
 ```swift
 let controller = PiPController(player: player)
@@ -61,24 +73,31 @@ controller.start()
 ```
 
 ``PiPController/layer`` uses `videoGravity = .resizeAspect`. Size the
-parent view to the aspect ratio you want.
+parent view to the aspect ratio you want. On macOS, prefer
+``PiPVideoView`` unless you are intentionally using the direct
+sample-buffer pipeline.
 
 ## Common pitfalls
 
-- **Never mix rendering paths.** A player attached to ``PiPController``
-  cannot also back a ``VideoView``. Frames flow through vmem callbacks
-  into an `AVSampleBufferDisplayLayer`; libVLC's `set_nsobject`
-  drawable is disabled on the same player.
-- **Add the layer to a view before calling `player.play()`.** PiP
-  recognizes the sample-buffer layer as a valid content source only
-  once it's on screen.
+- **Never mix rendering paths.** A player attached to direct
+  ``PiPController`` sample-buffer rendering cannot also back a
+  ``VideoView``. ``PiPVideoView`` owns the active video output for the
+  lifetime of the view.
+- **Put the PiP surface on screen before calling `player.play()`.**
+  AVKit recognizes the PiP source only once the surface is visible and
+  receiving frames.
+- **Keep the macOS PiP-safe VLC defaults.** Passing a completely custom
+  ``VLCInstance`` argument list on macOS can disable video output or force
+  an unsupported vout. Start from ``VLCInstance/defaultArguments`` and
+  append your own options instead.
 
 ## Platform availability
 
 Picture-in-Picture is available on iOS and macOS. tvOS has no PiP API
-(its system player UI handles background playback instead), so
-``PiPController`` and ``PiPVideoView`` are not compiled on that
-platform.
+(its system player UI handles background playback instead), and
+SwiftVLC does not compile the PiP wrapper on visionOS.
+``PiPController`` and ``PiPVideoView`` are not compiled on those
+platforms.
 
 ## Topics
 

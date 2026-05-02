@@ -18,6 +18,11 @@ Construction allocates the underlying libVLC resources. Release
 happens off the main actor in `deinit`, so tearing down a view never
 stalls the UI thread.
 
+For the default shared instance, call
+``VLCInstance/prewarmShared(priority:)`` during app launch when possible.
+That moves libVLC's one-time startup work out of the first SwiftUI
+player screen.
+
 ## Observable state
 
 Read-only properties refresh whenever libVLC reports new state. SwiftUI
@@ -26,6 +31,8 @@ binds to them directly, without a publisher or Combine adapter.
 | Property | Type | Meaning |
 |---|---|---|
 | ``Player/state`` | ``PlayerState`` | `.idle`, `.opening`, `.buffering`, `.playing`, `.paused`, `.stopped`, `.stopping`, `.error` |
+| ``Player/isPlaying`` | `Bool` | User-facing playback signal for Play/Pause controls while libVLC state transitions settle |
+| ``Player/isPlaybackRequestedActive`` | `Bool` | Lower-level playback intent mirrored by PiP and external transport controls |
 | ``Player/bufferFill`` | `Float` | Continuously-updated cache level (`0.0…1.0`), independent of `state` |
 | ``Player/currentTime`` | `Duration` | Wall-clock position, millisecond resolution |
 | ``Player/duration`` | `Duration?` | `nil` until the container reports length |
@@ -36,9 +43,13 @@ binds to them directly, without a publisher or Combine adapter.
 
 ### Convenience
 
-- ``Player/isPlaying`` is `true` when `state == .playing`.
+- ``Player/isPlaying`` is the best signal for a Play/Pause button label
+  because it updates synchronously when a play, pause, or resume request
+  is accepted, before the native player finishes its state transition.
 - ``Player/isActive`` is `true` while the player is opening, buffering,
   or playing.
+- ``Player/state`` is the strict libVLC lifecycle state. It can lag
+  transport intent briefly during PiP and other asynchronous transitions.
 
 ## Bindable state
 
@@ -120,6 +131,7 @@ See <doc:ConcurrencyModel> for the full isolation story.
 - ``Player/duration``
 - ``Player/isPlaying``
 - ``Player/isActive``
+- ``Player/isPlaybackRequestedActive``
 - ``PlayerState``
 - ``PlayerEvent``
 

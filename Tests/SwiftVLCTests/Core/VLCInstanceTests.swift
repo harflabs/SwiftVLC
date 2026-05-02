@@ -9,6 +9,12 @@ extension Integration {
     }
 
     @Test
+    func `Prewarm shared resolves the shared instance`() async {
+      let instance = await VLCInstance.prepareShared()
+      #expect(instance === VLCInstance.shared)
+    }
+
+    @Test
     func `Version string is non-empty and contains a dot`() {
       let version = VLCInstance.shared.version
       #expect(!version.isEmpty)
@@ -60,12 +66,49 @@ extension Integration {
     func `Default arguments contains expected values`() {
       let args = VLCInstance.defaultArguments
       #expect(args.count == 2)
+      #expect(!args.contains("--force-darwin-legacy-display"))
+      #expect(!args.contains("--vout=macosx"))
       #expect(args.contains("--no-video-title-show"))
       #expect(args.contains("--no-snapshot-preview"))
+      #expect(!args.contains("--text-renderer=freetype"))
       // --no-stats is intentionally absent: it would zero every stats
       // counter every app ever reads. Opt in by passing it explicitly.
       #expect(!args.contains("--no-stats"))
     }
+
+    #if os(macOS)
+    @Test
+    func `Default instance uses PiP safe macOS display`() throws {
+      let instance = try VLCInstance()
+      #expect(instance.usesPiPSafeDarwinDisplay)
+      #expect(!instance.arguments.contains("--force-darwin-legacy-display"))
+      #expect(!instance.arguments.contains("--vout=macosx"))
+    }
+
+    @Test
+    func `Custom instance with legacy macOS vout is PiP safe on macOS`() throws {
+      let instance = try VLCInstance(arguments: ["--no-video-title-show", "--vout=macosx"])
+      #expect(instance.usesPiPSafeDarwinDisplay)
+    }
+
+    @Test
+    func `Custom instance with no video is not PiP safe on macOS`() throws {
+      let instance = try VLCInstance(arguments: ["--no-video-title-show", "--no-video"])
+      #expect(!instance.usesPiPSafeDarwinDisplay)
+    }
+
+    @Test
+    func `Custom instance with forced legacy display but no vout is not PiP safe on macOS`() throws {
+      let instance = try VLCInstance(arguments: ["--force-darwin-legacy-display"])
+      #expect(!instance.usesPiPSafeDarwinDisplay)
+    }
+
+    @Test
+    func `Custom instance with CAOpenGLLayer vout is not PiP safe on macOS`() throws {
+      let instance = try VLCInstance(arguments: ["--force-darwin-legacy-display", "--vout=caopengllayer"])
+      #expect(!instance.usesPiPSafeDarwinDisplay)
+    }
+    #endif
 
     @Test
     func `Audio outputs returns non-empty list`() {

@@ -4,18 +4,19 @@ import AVKit
 import CLibVLC
 import Dispatch
 import Observation
+import Synchronization
 
 /// Controls Picture-in-Picture playback for a ``Player``.
 ///
-/// `PiPController` routes video through libVLC's vmem callbacks and an
-/// `AVSampleBufferDisplayLayer`, which is the only rendering path
-/// AVKit's PiP can attach to. A `PiPController` replaces the default
-/// `VideoView` pipeline: do not use both on the same player.
+/// When instantiated directly, `PiPController` routes video through
+/// libVLC's vmem callbacks and an `AVSampleBufferDisplayLayer`. That
+/// sample-buffer path replaces the default `VideoView` pipeline: do
+/// not use both on the same player.
 ///
 /// Most apps should prefer ``PiPVideoView``, which creates and owns a
-/// `PiPController` behind a single SwiftUI view. Instantiate
-/// `PiPController` directly only when you need fine-grained control
-/// over the layer's placement or lifecycle.
+/// `PiPController` behind a single SwiftUI view. On macOS that view owns
+/// VLC's native drawable container and moves the whole container into the
+/// system PiP presenter, avoiding AVKit's sample-buffer mirror path.
 ///
 /// ```swift
 /// let controller = PiPController(player: player)
@@ -26,14 +27,18 @@ import Observation
 @MainActor
 public final class PiPController: NSObject {
   struct PlaybackDriver {
-    let pause: @MainActor () -> Void
-    let resume: @MainActor () -> Void
+    let pause: @MainActor () -> Bool
+    let resume: @MainActor () -> Bool
+    let cancelPendingPause: @MainActor () -> Void
+    let shouldResume: @MainActor () -> Bool
     let seek: @MainActor (Duration) -> Void
 
     static func live(player: Player) -> Self {
       Self(
-        pause: { player.pause() },
-        resume: { player.resume() },
+        pause: { player.issuePause() },
+        resume: { player.issueResume() },
+        cancelPendingPause: { player.cancelPendingPause() },
+        shouldResume: { player.shouldResumeForExternalPlayRequest },
         seek: { player.seek(to: $0) }
       )
     }
@@ -64,15 +69,23 @@ public final class PiPController: NSObject {
   @ObservationIgnored
   private var pipController: AVPictureInPictureController?
   @ObservationIgnored
-  private var rendererOpaque: Unmanaged<PixelBufferRenderer>?
+  private var rendererContext: PixelBufferRendererCallbackContext?
+  @ObservationIgnored
+  private var rendererOpaque: UnsafeMutableRawPointer?
   @ObservationIgnored
   private var controlTimebase: CMTimebase?
   @ObservationIgnored
   private var stateObserverTask: Task<Void, Never>?
   @ObservationIgnored
+  private var playbackIntentObserverTask: Task<Void, Never>?
+  @ObservationIgnored
   private var possibleObservation: NSKeyValueObservation?
   @ObservationIgnored
   private var activeObservation: NSKeyValueObservation?
+  #if os(macOS)
+  @ObservationIgnored
+  private var nativeBackend: MacNativePiPBackend?
+  #endif
 
   /// Playback state as PiP sees it. Updated synchronously in
   /// `setPlaying` (PiP-initiated) and by the observer (VLC-initiated,
@@ -82,6 +95,13 @@ public final class PiPController: NSObject {
   /// `setPlaying` and would otherwise see stale values.
   @ObservationIgnored
   fileprivate var pipPlaybackActive: Bool = false
+  /// Desired playback state from the PiP controls while libVLC is still
+  /// catching up. During this window player events can still report the
+  /// old state, so the event observer must not overwrite
+  /// `pipPlaybackActive` until native playback reaches the requested
+  /// state or exits playback entirely.
+  @ObservationIgnored
+  private var pendingPiPPlaybackState: Bool?
 
   /// Debounced pause task. AVKit can transiently report "paused" during
   /// skip and PiP transitions; issuing a real libVLC pause for those
@@ -148,7 +168,32 @@ public final class PiPController: NSObject {
     attachCallbacks()
     setupPiPController()
     startStateObserver()
+    startPlaybackIntentObserver()
   }
+
+  #if os(macOS)
+  init(
+    player: Player,
+    nativeBackend: MacNativePiPBackend
+  ) {
+    self.player = player
+    playbackDriver = .live(player: player)
+    pauseDebounce = .milliseconds(250)
+    displayLayer = AVSampleBufferDisplayLayer()
+    renderer = PixelBufferRenderer(displayLayer: displayLayer)
+    playbackDelegateProxy = PiPPlaybackDelegateProxy()
+    self.nativeBackend = nativeBackend
+
+    super.init()
+
+    playbackDelegateProxy.owner = self
+    nativeBackend.owner = self
+    updatePiPPossible(nativeBackend.isPossible)
+    updatePiPActive(nativeBackend.isActive)
+    startStateObserver()
+    startPlaybackIntentObserver()
+  }
+  #endif
 
   init(
     player: Player,
@@ -173,29 +218,63 @@ public final class PiPController: NSObject {
     attachCallbacks()
     setupPiPController()
     startStateObserver()
+    startPlaybackIntentObserver()
   }
 
   isolated deinit {
     cancelDeferredPause()
     stateObserverTask?.cancel()
+    playbackIntentObserverTask?.cancel()
     possibleObservation = nil
     activeObservation = nil
-    libvlc_video_set_callbacks(player.pointer, nil, nil, nil, nil)
-    libvlc_video_set_format_callbacks(player.pointer, nil, nil)
-    rendererOpaque?.release()
+    #if os(macOS)
+    nativeBackend?.owner = nil
+    #endif
     renderer.setDisplayLayer(nil)
     renderer.setTimebase(nil)
+    if let rendererContext, let rendererOpaque {
+      let nativeState = PlayerState(from: libvlc_media_player_get_state(player.pointer))
+      let mayHaveInheritedCallbacks = switch nativeState {
+      case .idle, .stopped, .error:
+        player.isPlaybackRequestedActive
+      case .opening, .buffering, .playing, .paused, .stopping:
+        true
+      }
+      libvlc_video_set_callbacks(player.pointer, nil, nil, nil, nil)
+      libvlc_video_set_format_callbacks(player.pointer, nil, nil)
+      rendererContext.requestRetirement(
+        opaque: rendererOpaque,
+        deferIfVoutMayBeOpening: mayHaveInheritedCallbacks
+      )
+      if mayHaveInheritedCallbacks {
+        scheduleRetiredRendererContextRelease(rendererContext, opaque: rendererOpaque)
+      }
+    }
   }
 
   // MARK: - Public API
 
-  /// Starts Picture-in-Picture if possible.
+  /// Starts Picture-in-Picture if possible and media is loaded.
   public func start() {
-    pipController?.startPictureInPicture()
+    #if os(macOS)
+    if let nativeBackend {
+      nativeBackend.start()
+      return
+    }
+    #endif
+    guard let pipController else { return }
+    guard player.currentMedia != nil else { return }
+    pipController.startPictureInPicture()
   }
 
   /// Stops Picture-in-Picture.
   public func stop() {
+    #if os(macOS)
+    if let nativeBackend {
+      nativeBackend.stop()
+      return
+    }
+    #endif
     pipController?.stopPictureInPicture()
   }
 
@@ -238,9 +317,11 @@ public final class PiPController: NSObject {
   }
 
   private func attachCallbacks() {
-    let opaque = Unmanaged.passRetained(renderer)
-    rendererOpaque = opaque
-    let ptr = opaque.toOpaque()
+    let context = PixelBufferRendererCallbackContext(renderer: renderer)
+    let retained = Unmanaged.passRetained(context)
+    rendererContext = context
+    let ptr = retained.toOpaque()
+    rendererOpaque = ptr
 
     // Set the opaque pointer for vmem callbacks
     libvlc_video_set_callbacks(
@@ -256,6 +337,26 @@ public final class PiPController: NSObject {
       pixelBufferFormatCallback,
       pixelBufferCleanupCallback
     )
+  }
+
+  private func scheduleRetiredRendererContextRelease(
+    _ context: PixelBufferRendererCallbackContext,
+    opaque: UnsafeMutableRawPointer
+  ) {
+    guard let retainedPlayer = libvlc_media_player_retain(player.pointer) else {
+      context.releaseRetiredOpaqueRetainIfNoOpenVout(opaque: opaque)
+      return
+    }
+    nonisolated(unsafe) let playerPointer = retainedPlayer
+    nonisolated(unsafe) let contextOpaque = opaque
+
+    DispatchQueue.global(qos: .utility).async {
+      context.releaseRetiredOpaqueRetainWhenPlayerIsQuiescent(
+        opaque: contextOpaque,
+        player: playerPointer
+      )
+      libvlc_media_player_release(playerPointer)
+    }
   }
 
   private func setupPiPController() {
@@ -318,6 +419,16 @@ public final class PiPController: NSObject {
     self.isActive = isActive
   }
 
+  private func invalidatePictureInPicturePlaybackState() {
+    #if os(macOS)
+    if let nativeBackend {
+      nativeBackend.invalidatePlaybackState()
+      return
+    }
+    #endif
+    pipController?.invalidatePlaybackState()
+  }
+
   private func cancelDeferredPause() {
     deferredPauseGeneration &+= 1
     deferredPauseTask?.cancel()
@@ -347,10 +458,12 @@ public final class PiPController: NSObject {
 
         switch player.state {
         case .playing:
-          didIssueDeferredPause = true
           deferredPauseTask = nil
-          playbackDriver.pause()
-          return
+          if playbackDriver.pause() {
+            didIssueDeferredPause = true
+            return
+          }
+          continue
         case .opening, .buffering:
           // Avoid pausing libVLC while it is still stabilizing input state.
           // Keep waiting unless AVKit changes its mind first.
@@ -363,41 +476,33 @@ public final class PiPController: NSObject {
     }
   }
 
-  private func resumeIfNeeded() {
-    let shouldResume = didIssueDeferredPause || player.state == .paused
+  private func requestResumeIfNeeded() -> (needed: Bool, accepted: Bool) {
+    let shouldResume = didIssueDeferredPause || playbackDriver.shouldResume()
     didIssueDeferredPause = false
-    guard shouldResume else { return }
-    playbackDriver.resume()
+    guard shouldResume else { return (needed: false, accepted: false) }
+    return (needed: true, accepted: playbackDriver.resume())
   }
 
   // MARK: - State Observation
 
   /// Drives the control timebase and PiP UI from player events.
   ///
-  /// The previous implementation wrapped each iteration in
-  /// `withCheckedContinuation { withObservationTracking { … } }`, with a
-  /// `guard let self else { return }` hoisted above the `await`. Swift
-  /// scopes guard-let bindings to the enclosing block, so the strong
-  /// `self` binding lived across the suspension and was captured into
-  /// the task's suspended frame. With external strong references gone,
-  /// the suspended frame became the last holder, and nothing could wake
-  /// the continuation — the observation's `onChange` was itself behind
-  /// the continuation the controller was waiting on. The PiPController
-  /// pinned itself until the process exited.
-  ///
   /// The shape below matches `Player.startEventConsumer`: subscribe to
   /// `player.events` (the same broadcaster that drives `Player`'s own
   /// `@Observable` state), pull events via `for await`, and bind `self`
   /// strongly *inside* the loop body where the binding lifetime is a
-  /// single iteration. The implicit suspension between events runs with
-  /// only a weak reference in scope, so the task never prevents
-  /// deinit — when the controller is dropped, the bridge finishes the
-  /// stream (via `Player.deinit`) or the task sees cancellation, and
-  /// the loop exits.
+  /// single iteration. The implicit suspension between events keeps only
+  /// a weak reference in scope, so the observer task never prevents the
+  /// controller from deinitializing.
   private func startStateObserver() {
     let events = player.events
+    let initialActive = player.isPlaybackRequestedActive
+    let initialNativeActive = player.isActive
+    pipPlaybackActive = initialActive
+    syncTimebase(playing: initialNativeActive)
+
     stateObserverTask = Task { @MainActor [weak self] in
-      var wasActive = false
+      var wasActive = initialNativeActive
       var lastDurationMs: Int64?
       var lastRate: Float = 1.0
       for await _ in events {
@@ -410,20 +515,14 @@ public final class PiPController: NSObject {
         // State transition: sync the timebase rate.
         if active != wasActive {
           wasActive = active
-          syncTimebase(playing: active)
+          let didAcceptNativeState = handleObservedPlaybackActivity(active)
 
-          if active {
-            didIssueDeferredPause = false
+          if didAcceptNativeState {
+            syncTimebase(playing: active)
           }
 
-          // Only update pipPlaybackActive and notify PiP for
-          // VLC-initiated changes (end-of-media, error). For
-          // PiP-initiated changes (from setPlaying), the value is
-          // already correct; overriding it with VLC's delayed state
-          // causes the PiP button to blink.
-          if active != pipPlaybackActive {
-            pipPlaybackActive = active
-            pipController?.invalidatePlaybackState()
+          if didAcceptNativeState, active {
+            didIssueDeferredPause = false
           }
         }
 
@@ -437,7 +536,7 @@ public final class PiPController: NSObject {
         // timebase rate matters).
         if rate != lastRate {
           lastRate = rate
-          if pipPlaybackActive, let tb = controlTimebase {
+          if active, let tb = controlTimebase {
             CMTimebaseSetRate(tb, rate: Float64(rate))
           }
         }
@@ -445,7 +544,7 @@ public final class PiPController: NSObject {
         // Duration became known or changed: re-query timeRange.
         if durationMs != lastDurationMs {
           lastDurationMs = durationMs
-          pipController?.invalidatePlaybackState()
+          invalidatePictureInPicturePlaybackState()
         }
 
         // Sync timebase when player position diverges significantly
@@ -466,21 +565,139 @@ public final class PiPController: NSObject {
     }
   }
 
+  private func startPlaybackIntentObserver() {
+    let intents = player.playbackIntentEvents
+    playbackIntentObserverTask = Task { @MainActor [weak self] in
+      for await active in intents {
+        guard let self else { return }
+        handlePlaybackIntentChanged(active)
+      }
+    }
+  }
+
+  private func handlePlaybackIntentChanged(_ active: Bool) {
+    if let pendingPiPPlaybackState, pendingPiPPlaybackState != active {
+      self.pendingPiPPlaybackState = active
+    }
+    if pipPlaybackActive != active {
+      pipPlaybackActive = active
+    }
+    if active {
+      cancelDeferredPause()
+      didIssueDeferredPause = false
+    }
+    // Playback intent drives the PiP button state, but the display
+    // timebase must follow native playback. If libVLC has not actually
+    // paused yet, stopping this timebase freezes video while audio keeps
+    // running.
+    syncTimebase(playing: player.isActive)
+    invalidatePictureInPicturePlaybackState()
+  }
+
   fileprivate func handleSetPlaying(_ playing: Bool) {
     cancelDeferredPause()
 
     // Set immediately so isPlaybackPaused returns the correct value
     // when PiP queries it right after this call (before VLC catches up).
     pipPlaybackActive = playing
+    pendingPiPPlaybackState = playing
 
     if playing {
-      resumeIfNeeded()
+      playbackDriver.cancelPendingPause()
+      let resumeRequest = requestResumeIfNeeded()
+      if resumeRequest.needed, !resumeRequest.accepted {
+        pendingPiPPlaybackState = nil
+        player.setPlaybackIntentFromExternalControl(player.isActive)
+        pipPlaybackActive = player.isPlaybackRequestedActive
+      } else if player.isActive, !resumeRequest.needed {
+        player.setPlaybackIntentFromExternalControl(true)
+        pendingPiPPlaybackState = nil
+      } else {
+        player.setPlaybackIntentFromExternalControl(true)
+      }
     } else {
+      player.setPlaybackIntentFromExternalControl(false)
       scheduleDeferredPause()
+      if !player.isActive {
+        pendingPiPPlaybackState = nil
+      }
     }
 
-    syncTimebase(playing: playing)
-    pipController?.invalidatePlaybackState()
+    syncTimebase(playing: player.isActive)
+    invalidatePictureInPicturePlaybackState()
+  }
+
+  @discardableResult
+  private func handleObservedPlaybackActivity(_ active: Bool) -> Bool {
+    if let pendingPiPPlaybackState {
+      if active == pendingPiPPlaybackState {
+        self.pendingPiPPlaybackState = nil
+        if pipPlaybackActive != active {
+          pipPlaybackActive = active
+        }
+        invalidatePictureInPicturePlaybackState()
+        return true
+      }
+
+      switch player.state {
+      case .idle, .stopped, .stopping, .error:
+        self.pendingPiPPlaybackState = nil
+        if pipPlaybackActive != false {
+          pipPlaybackActive = false
+          invalidatePictureInPicturePlaybackState()
+        }
+        return true
+      default:
+        break
+      }
+      return false
+    }
+
+    // Only update pipPlaybackActive and notify PiP for VLC-initiated
+    // changes (end-of-media, error, or external app controls). For
+    // PiP-initiated changes (from setPlaying), the pending state above
+    // keeps the UI stable while libVLC catches up.
+    if active != pipPlaybackActive {
+      pipPlaybackActive = active
+      invalidatePictureInPicturePlaybackState()
+    }
+    return true
+  }
+
+  private func syncPlaybackStateForPictureInPicture() {
+    guard pendingPiPPlaybackState == nil else { return }
+    let active = player.isPlaybackRequestedActive
+    if pipPlaybackActive != active {
+      pipPlaybackActive = active
+    }
+    if active {
+      didIssueDeferredPause = false
+    }
+    syncTimebase(playing: player.isActive)
+  }
+
+  #if os(macOS)
+  func handleNativePictureInPictureReady() {
+    updatePiPPossible(nativeBackend?.isPossible == true)
+  }
+
+  func handleNativePictureInPictureActiveChanged(_ isActive: Bool) {
+    updatePiPActive(isActive)
+  }
+
+  func handleNativePictureInPictureSetPlaying(_ playing: Bool) {
+    handleSetPlaying(playing)
+  }
+  #endif
+
+  fileprivate func handleRenderSizeTransition(_ size: CMVideoDimensions) {
+    #if os(macOS)
+    guard nativeBackend == nil else { return }
+    renderer.setRenderSize(size)
+    renderer.flushDisplayLayer()
+    #else
+    _ = size
+    #endif
   }
 
   fileprivate func handleSkip(
@@ -507,7 +724,7 @@ public final class PiPController: NSObject {
         seconds: Double(targetMs) / 1000.0,
         preferredTimescale: 1000
       ))
-      CMTimebaseSetRate(tb, rate: pipPlaybackActive ? Float64(player.rate) : 0.0)
+      CMTimebaseSetRate(tb, rate: player.isActive ? Float64(player.rate) : 0.0)
     }
 
     completionHandler()
@@ -570,20 +787,53 @@ public final class PiPController: NSObject {
     handleSetPlaying(playing)
   }
 
+  func _pipPlaybackActiveForTesting() -> Bool {
+    pipPlaybackActive
+  }
+
+  func _pendingPiPPlaybackStateForTesting() -> Bool? {
+    pendingPiPPlaybackState
+  }
+
+  func _handleObservedPlaybackActivityForTesting(_ active: Bool) {
+    handleObservedPlaybackActivity(active)
+  }
+
+  func _controlTimebaseRateForTesting() -> Double? {
+    controlTimebase.map { CMTimebaseGetRate($0) }
+  }
+
   func _skipByIntervalForTesting(_ skipInterval: CMTime) {
     handleSkip(by: skipInterval) {}
+  }
+
+  func _renderSizeForTesting() -> CMVideoDimensions? {
+    renderer.state.withLock { $0.renderSize }
   }
 }
 
 // MARK: - AVPictureInPictureControllerDelegate
 
 extension PiPController: AVPictureInPictureControllerDelegate {
+  /// Synchronizes playback state just before AVKit transitions into
+  /// Picture in Picture.
+  public nonisolated func pictureInPictureControllerWillStartPictureInPicture(
+    _: AVPictureInPictureController
+  ) {
+    pipMainActorSync {
+      syncPlaybackStateForPictureInPicture()
+      invalidatePictureInPicturePlaybackState()
+    }
+  }
+
   /// Mirrors AVKit's active flag into Observation so SwiftUI can keep
   /// button labels and status UI in sync with system-driven PiP changes.
   public nonisolated func pictureInPictureControllerDidStartPictureInPicture(
     _: AVPictureInPictureController
   ) {
     pipMainActorSync {
+      syncPlaybackStateForPictureInPicture()
+      invalidatePictureInPicturePlaybackState()
       updatePiPActive(true)
     }
   }
@@ -626,8 +876,7 @@ extension PiPController: AVPictureInPictureControllerDelegate {
 /// controller weakly, and AVKit's retention of the proxy is harmless.
 ///
 /// The forwarders run on whatever thread AVKit invokes them on. Each
-/// one hops to the main actor before reading or mutating the owner,
-/// matching the previous in-class implementation.
+/// one hops to the main actor before reading or mutating the owner.
 private final class PiPPlaybackDelegateProxy: NSObject, AVPictureInPictureSampleBufferPlaybackDelegate, @unchecked Sendable {
   /// `@unchecked Sendable` is the narrow concession that lets AVKit
   /// hand the proxy between threads. The owner field is the only state,
@@ -695,14 +944,18 @@ private final class PiPPlaybackDelegateProxy: NSObject, AVPictureInPictureSample
 
   func pictureInPictureController(
     _: AVPictureInPictureController,
-    didTransitionToRenderSize _: CMVideoDimensions
-  ) {}
+    didTransitionToRenderSize size: CMVideoDimensions
+  ) {
+    pipMainActorSync { [weak self] in
+      self?.owner?.handleRenderSizeTransition(size)
+    }
+  }
 }
 
 /// AVKit may invoke the proxy's callbacks from non-main threads but
 /// expects synchronous answers. Bounce onto the main actor without
 /// routing through an async task so the answer is immediate.
-private func pipMainActorSync<T: Sendable>(
+func pipMainActorSync<T: Sendable>(
   _ body: @MainActor @Sendable () -> T
 ) -> T {
   if Thread.isMainThread {

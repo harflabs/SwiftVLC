@@ -56,6 +56,7 @@ extension Integration {
       player._handleEventForTesting(.bufferingProgress(0.1))
 
       #expect(player.state == .buffering)
+      #expect(player.isPlaying)
       #expect(player.bufferFill == 0.1)
     }
 

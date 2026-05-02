@@ -38,6 +38,15 @@ public enum PlayerState: Sendable, Hashable, CustomStringConvertible {
     }
   }
 
+  var isActive: Bool {
+    switch self {
+    case .playing, .opening, .buffering:
+      true
+    default:
+      false
+    }
+  }
+
   init(from cState: libvlc_state_t) {
     switch cState {
     case libvlc_NothingSpecial: self = .idle
