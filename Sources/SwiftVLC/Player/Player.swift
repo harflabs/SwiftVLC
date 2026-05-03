@@ -32,7 +32,7 @@ public final class Player {
   // MARK: - Observable State
 
   /// Current playback state.
-  public private(set) var state: PlayerState = .idle
+  public internal(set) var state: PlayerState = .idle
 
   /// Whether playback controls should currently present the media as
   /// active.
@@ -43,38 +43,38 @@ public final class Player {
   /// `.paused`. This property follows the user's latest playback intent
   /// synchronously so transport controls, including Picture in Picture,
   /// stay visually aligned while libVLC catches up.
-  public private(set) var isPlaybackRequestedActive: Bool = false
+  public internal(set) var isPlaybackRequestedActive: Bool = false
 
   /// Current playback time.
-  public private(set) var currentTime: Duration = .zero
+  public internal(set) var currentTime: Duration = .zero
 
   /// Total media duration (nil until known).
-  public private(set) var duration: Duration?
+  public internal(set) var duration: Duration?
 
   /// Whether the current media is seekable.
-  public private(set) var isSeekable: Bool = false
+  public internal(set) var isSeekable: Bool = false
 
   /// Whether the current media can be paused.
-  public private(set) var isPausable: Bool = false
+  public internal(set) var isPausable: Bool = false
 
   /// Buffer fill, normalized to `0.0...1.0`.
   ///
   /// Updated continuously while playback is active, including while
   /// ``state`` is `.paused` or `.playing`. Read this for a progress
   /// bar; the `state` enum only carries lifecycle information.
-  public private(set) var bufferFill: Float = 0
+  public internal(set) var bufferFill: Float = 0
 
   /// The currently loaded media.
-  public private(set) var currentMedia: Media?
+  public internal(set) var currentMedia: Media?
 
   /// Available audio tracks.
-  public private(set) var audioTracks: [Track] = []
+  public internal(set) var audioTracks: [Track] = []
 
   /// Available video tracks.
-  public private(set) var videoTracks: [Track] = []
+  public internal(set) var videoTracks: [Track] = []
 
   /// Available subtitle tracks.
-  public private(set) var subtitleTracks: [Track] = []
+  public internal(set) var subtitleTracks: [Track] = []
 
   // MARK: - Bindable Properties
 
@@ -300,38 +300,44 @@ public final class Player {
   }
 
   nonisolated var playbackIntentEvents: AsyncStream<Bool> {
-    playbackIntentBridge.makeStream()
+    playbackIntentBridge.subscribe()
   }
 
   // MARK: - Internal
 
   @ObservationIgnored
   nonisolated(unsafe) var pointer: OpaquePointer // libvlc_media_player_t*
-  private let eventBridge: EventBridge
-  private nonisolated let playbackIntentBridge: AsyncBroadcaster<Bool>
-  private var eventTask: Task<Void, Never>?
-  private var _position: Double = 0
-  private var _equalizer: Equalizer?
-  private var _volume: Float = 1.0
-  private var _isMuted: Bool = false
-  private enum PauseTransition {
+  let eventBridge: EventBridge
+  nonisolated let playbackIntentBridge: Broadcaster<Bool>
+  var eventTask: Task<Void, Never>?
+  var _position: Double = 0
+  var _equalizer: Equalizer?
+  var _volume: Float = 1.0
+  var _isMuted: Bool = false
+  enum PauseTransition {
     case pausing
     case resuming
   }
 
-  private enum DeferredPauseCommand {
+  enum DeferredPauseCommand {
     case pause
     case resume
   }
 
-  private var pauseTransition: PauseTransition?
-  private var deferredPauseCommand: DeferredPauseCommand?
+  var pauseTransition: PauseTransition?
+  var deferredPauseCommand: DeferredPauseCommand?
   /// Shadow of the string last passed to `Marquee.setText`. libVLC's text
   /// renderer keys its glyph-bitmap cache on the text string, so a style-
   /// only write (color/opacity/fontSize) hits the cached entry and draws
   /// with the old style. The `Marquee` setters briefly write a different
   /// text to bust the cache, then restore this value.
   var _marqueeText: String = ""
+  /// In-flight task that restores `_marqueeText` after a cache-bust write.
+  /// Held on `Player` (not `Marquee`) because `Marquee` is `~Escapable`
+  /// and cannot store cross-call state. A new style write cancels and
+  /// replaces this task so rapid mutations collapse into a single restore
+  /// scheduled from the latest write.
+  var _marqueeRestoreTask: Task<Void, Never>?
   /// The platform view currently receiving video frames. Held strongly
   /// because libVLC stores the view as an unretained raw pointer in its
   /// `drawable-nsobject` variable and reads it asynchronously from the
@@ -361,7 +367,7 @@ public final class Player {
     eventBridge = EventBridge(
       eventManager: libvlc_media_player_event_manager(p)!
     )
-    playbackIntentBridge = AsyncBroadcaster()
+    playbackIntentBridge = Broadcaster<Bool>(defaultBufferSize: 16)
     startEventConsumer()
   }
 
@@ -374,6 +380,7 @@ public final class Player {
 
   isolated deinit {
     eventTask?.cancel()
+    _marqueeRestoreTask?.cancel()
     playbackIntentBridge.finishAll()
     // Tell libVLC to forget the drawable *before* release so the
     // vout thread observes a nil pointer rather than dereferencing a
@@ -404,7 +411,7 @@ public final class Player {
     // never actually touch across threads.
     nonisolated(unsafe) let drawables =
       drawable.map { retainedDrawablesUntilNativePlayerRelease + [$0] }
-      ?? retainedDrawablesUntilNativePlayerRelease
+        ?? retainedDrawablesUntilNativePlayerRelease
     nonisolated(unsafe) let p = pointer
     DispatchQueue.global(qos: .utility).async {
       bridge.invalidate()
@@ -472,8 +479,7 @@ public final class Player {
     if
       let previous,
       nativePlayerNeedsReplacementBeforePlayback,
-      newDrawable.map({ previous !== $0 }) ?? true
-    {
+      newDrawable.map({ previous !== $0 }) ?? true {
       retainedDrawablesUntilNativePlayerRelease.append(previous)
     }
     drawable = newDrawable
@@ -823,435 +829,6 @@ public final class Player {
     }
   }
 
-  // MARK: - Snapshot
-
-  /// Takes a snapshot of the current video frame and writes it to disk as PNG.
-  ///
-  /// Pass `0` for `width` or `height` to derive that dimension from the
-  /// other while preserving the source aspect ratio. Passing `0` for both
-  /// writes the frame at its native resolution.
-  ///
-  /// - Parameters:
-  ///   - path: Destination file path. The file is always PNG regardless of
-  ///     the extension you provide.
-  ///   - width: Desired width in pixels, or `0` to derive from `height`
-  ///     and the aspect ratio.
-  ///   - height: Desired height in pixels, or `0` to derive from `width`
-  ///     and the aspect ratio.
-  /// - Throws: ``VLCError/operationFailed(_:)`` if no frame is available
-  ///   (e.g. audio-only media) or the file cannot be written.
-  public func takeSnapshot(to path: String, width: Int = 0, height: Int = 0) throws(VLCError) {
-    guard libvlc_video_take_snapshot(pointer, 0, path, UInt32(width), UInt32(height)) == 0 else {
-      throw .operationFailed("Take snapshot")
-    }
-  }
-
-  // MARK: - Recording
-
-  /// Starts recording the current stream to the specified directory.
-  /// No-op when no media is loaded.
-  ///
-  /// Listen to ``PlayerEvent/recordingChanged(isRecording:filePath:)`` for state updates.
-  /// - Parameter directory: Path to save recording (`nil` for default).
-  public func startRecording(to directory: String? = nil) {
-    guard currentMedia != nil else { return }
-    libvlc_media_player_record(pointer, true, directory)
-  }
-
-  /// Stops recording the current stream. No-op when no media is loaded.
-  public func stopRecording() {
-    guard currentMedia != nil else { return }
-    libvlc_media_player_record(pointer, false, nil)
-  }
-
-  // MARK: - Navigation (DVD menus)
-
-  /// Navigates through DVD/Blu-ray menus.
-  public func navigate(_ action: NavigationAction) {
-    libvlc_media_player_navigate(pointer, action.cValue)
-  }
-
-  // MARK: - Chapters & Titles
-
-  /// Number of chapters in the current title.
-  public var chapterCount: Int {
-    Int(libvlc_media_player_get_chapter_count(pointer))
-  }
-
-  /// Current chapter index, zero-based (get/set).
-  public var currentChapter: Int {
-    get {
-      access(keyPath: \.currentChapter)
-      return Int(libvlc_media_player_get_chapter(pointer))
-    }
-    set {
-      withMutation(keyPath: \.currentChapter) {
-        libvlc_media_player_set_chapter(pointer, Int32(newValue))
-      }
-    }
-  }
-
-  /// Navigates to the next chapter.
-  public func nextChapter() {
-    libvlc_media_player_next_chapter(pointer)
-  }
-
-  /// Navigates to the previous chapter.
-  public func previousChapter() {
-    libvlc_media_player_previous_chapter(pointer)
-  }
-
-  /// Number of titles.
-  public var titleCount: Int {
-    Int(libvlc_media_player_get_title_count(pointer))
-  }
-
-  /// Current title index, zero-based (get/set).
-  public var currentTitle: Int {
-    get {
-      access(keyPath: \.currentTitle)
-      return Int(libvlc_media_player_get_title(pointer))
-    }
-    set {
-      withMutation(keyPath: \.currentTitle) {
-        libvlc_media_player_set_title(pointer, Int32(newValue))
-      }
-    }
-  }
-
-  /// Full title descriptions for the current media.
-  public var titles: [Title] {
-    var cTitles: UnsafeMutablePointer<UnsafeMutablePointer<libvlc_title_description_t>?>?
-    let count = libvlc_media_player_get_full_title_descriptions(pointer, &cTitles)
-    guard count > 0, let cTitles else { return [] }
-    defer { libvlc_title_descriptions_release(cTitles, UInt32(count)) }
-
-    return (0..<Int(count)).compactMap { i -> Title? in
-      guard let desc = cTitles[i]?.pointee else { return nil }
-      return Title(
-        index: i,
-        duration: .milliseconds(desc.i_duration),
-        name: desc.psz_name.map { String(cString: $0) },
-        isMenu: desc.i_flags & UInt32(libvlc_title_menu) != 0,
-        isInteractive: desc.i_flags & UInt32(libvlc_title_interactive) != 0
-      )
-    }
-  }
-
-  /// Full chapter descriptions for a title.
-  /// - Parameter titleIndex: Zero-based title index, or `-1` for the current title.
-  public func chapters(forTitle titleIndex: Int = -1) -> [Chapter] {
-    var cChapters: UnsafeMutablePointer<UnsafeMutablePointer<libvlc_chapter_description_t>?>?
-    let count = libvlc_media_player_get_full_chapter_descriptions(
-      pointer, Int32(titleIndex), &cChapters
-    )
-    guard count > 0, let cChapters else { return [] }
-    defer { libvlc_chapter_descriptions_release(cChapters, UInt32(count)) }
-
-    return (0..<Int(count)).compactMap { i -> Chapter? in
-      guard let desc = cChapters[i]?.pointee else { return nil }
-      return Chapter(
-        index: i,
-        timeOffset: .milliseconds(desc.i_time_offset),
-        duration: .milliseconds(desc.i_duration),
-        name: desc.psz_name.map { String(cString: $0) }
-      )
-    }
-  }
-
-  // MARK: - A-B Loop
-
-  /// Sets an A-B loop using absolute times.
-  /// - Throws: `VLCError.operationFailed` if the loop cannot be set.
-  public func setABLoop(a: Duration, b: Duration) throws(VLCError) {
-    guard libvlc_media_player_set_abloop_time(pointer, a.milliseconds, b.milliseconds) == 0 else {
-      throw .operationFailed("Set A-B loop by time")
-    }
-    withMutation(keyPath: \.abLoopState) {}
-  }
-
-  /// Sets an A-B loop using fractional positions (0.0...1.0).
-  /// - Throws: `VLCError.operationFailed` if the loop cannot be set.
-  public func setABLoop(aPosition: Double, bPosition: Double) throws(VLCError) {
-    guard libvlc_media_player_set_abloop_position(pointer, aPosition, bPosition) == 0 else {
-      throw .operationFailed("Set A-B loop by position")
-    }
-    withMutation(keyPath: \.abLoopState) {}
-  }
-
-  /// Resets (disables) the A-B loop.
-  /// - Throws: `VLCError.operationFailed` if the loop cannot be reset.
-  public func resetABLoop() throws(VLCError) {
-    guard libvlc_media_player_reset_abloop(pointer) == 0 else {
-      throw .operationFailed("Reset A-B loop")
-    }
-    withMutation(keyPath: \.abLoopState) {}
-  }
-
-  /// Current A-B loop state.
-  public var abLoopState: ABLoopState {
-    access(keyPath: \.abLoopState)
-    var aTime: Int64 = 0
-    var aPos: Double = 0
-    var bTime: Int64 = 0
-    var bPos: Double = 0
-    let state = libvlc_media_player_get_abloop(pointer, &aTime, &aPos, &bTime, &bPos)
-    return ABLoopState(from: state)
-  }
-
-  // MARK: - Video Adjustments
-
-  /// Video color adjustments (contrast, brightness, hue, saturation, gamma).
-  public var adjustments: VideoAdjustments {
-    VideoAdjustments(player: self)
-  }
-
-  /// Scoped access to video adjustments for batched mutations.
-  ///
-  /// Prefer this over repeated `player.adjustments.x = ...` assignments
-  /// when setting several values in sequence:
-  /// ```swift
-  /// player.withAdjustments { adj in
-  ///     adj.isEnabled = true
-  ///     adj.contrast = 1.2
-  ///     adj.brightness = 1.1
-  /// }
-  /// ```
-  public func withAdjustments<R>(_ body: (borrowing VideoAdjustments) throws -> R) rethrows -> R {
-    let adj = VideoAdjustments(player: self)
-    return try body(adj)
-  }
-
-  /// Text overlay (marquee) controls.
-  public var marquee: Marquee {
-    Marquee(player: self)
-  }
-
-  /// Scoped access to marquee controls for batch operations.
-  ///
-  /// ```swift
-  /// player.withMarquee { m in
-  ///     m.isEnabled = true
-  ///     m.setText("Now Playing")
-  ///     m.fontSize = 24
-  /// }
-  /// ```
-  public func withMarquee<R>(_ body: (borrowing Marquee) throws -> R) rethrows -> R {
-    let m = Marquee(player: self)
-    return try body(m)
-  }
-
-  /// Image overlay (logo) controls.
-  public var logo: Logo {
-    Logo(player: self)
-  }
-
-  /// Scoped access to logo controls for batch operations.
-  ///
-  /// ```swift
-  /// player.withLogo { logo in
-  ///     logo.isEnabled = true
-  ///     logo.setFile("/path/to/logo.png")
-  ///     logo.opacity = 200
-  /// }
-  /// ```
-  public func withLogo<R>(_ body: (borrowing Logo) throws -> R) rethrows -> R {
-    let l = Logo(player: self)
-    return try body(l)
-  }
-
-  /// Updates the 360/VR video viewpoint.
-  ///
-  /// - Parameters:
-  ///   - viewpoint: The new viewpoint values.
-  ///   - absolute: If `true`, replaces the current viewpoint. If `false`, adjusts relative to current.
-  /// - Throws: `VLCError.operationFailed` if the viewpoint cannot be applied.
-  public func updateViewpoint(_ viewpoint: Viewpoint, absolute: Bool = true) throws(VLCError) {
-    guard let vp = libvlc_video_new_viewpoint() else { throw .operationFailed("Allocate viewpoint") }
-    defer { free(vp) }
-    vp.pointee.f_yaw = viewpoint.yaw
-    vp.pointee.f_pitch = viewpoint.pitch
-    vp.pointee.f_roll = viewpoint.roll
-    vp.pointee.f_field_of_view = viewpoint.fieldOfView
-    guard libvlc_video_update_viewpoint(pointer, vp, absolute) == 0 else {
-      throw .operationFailed("Update viewpoint")
-    }
-  }
-
-  // MARK: - Teletext
-
-  /// Current teletext page, or 0 if disabled.
-  public var teletextPage: Int {
-    get {
-      access(keyPath: \.teletextPage)
-      return Int(libvlc_video_get_teletext(pointer))
-    }
-    set {
-      withMutation(keyPath: \.teletextPage) {
-        libvlc_video_set_teletext(pointer, Int32(newValue))
-      }
-    }
-  }
-
-  // MARK: - Equalizer
-
-  /// The audio equalizer applied to this player. Set `nil` to disable.
-  ///
-  /// Subsequent mutations on the assigned `Equalizer` are re-applied
-  /// to the audio output automatically through an installed change
-  /// handler. libVLC copies settings on each
-  /// `libvlc_media_player_set_equalizer` call and does not retain the
-  /// reference.
-  public var equalizer: Equalizer? {
-    get { _equalizer }
-    set {
-      _equalizer?.onChange = nil
-      _equalizer = newValue
-      libvlc_media_player_set_equalizer(pointer, newValue?.pointer)
-      newValue?.onChange = { [weak self, weak newValue] in
-        guard let self, let newValue else { return }
-        libvlc_media_player_set_equalizer(pointer, newValue.pointer)
-      }
-    }
-  }
-
-  // MARK: - Audio Output & Devices
-
-  /// Sets the audio output module.
-  /// - Throws: `VLCError.operationFailed` if the module cannot be set.
-  public func setAudioOutput(_ name: String) throws(VLCError) {
-    guard libvlc_audio_output_set(pointer, name) == 0 else {
-      throw .operationFailed("Set audio output '\(name)'")
-    }
-  }
-
-  /// Lists available audio output devices for the current output.
-  public func audioDevices() -> [AudioDevice] {
-    guard let list = libvlc_audio_output_device_enum(pointer) else { return [] }
-    defer { libvlc_audio_output_device_list_release(list) }
-
-    return sequence(first: list, next: { $0.pointee.p_next }).map { node in
-      AudioDevice(
-        deviceId: String(cString: node.pointee.psz_device),
-        deviceDescription: String(cString: node.pointee.psz_description)
-      )
-    }
-  }
-
-  /// Sets the audio output device.
-  /// - Throws: `VLCError.operationFailed` if the device cannot be set.
-  public func setAudioDevice(_ deviceId: String) throws(VLCError) {
-    guard libvlc_audio_output_device_set(pointer, deviceId) == 0 else {
-      throw .operationFailed("Set audio device '\(deviceId)'")
-    }
-  }
-
-  /// Current audio output device identifier.
-  public var currentAudioDevice: String? {
-    access(keyPath: \.currentAudioDevice)
-    guard let cstr = libvlc_audio_output_device_get(pointer) else { return nil }
-    defer { free(cstr) }
-    return String(cString: cstr)
-  }
-
-  // MARK: - Stereo & Mix Mode
-
-  /// Audio stereo mode.
-  public var stereoMode: StereoMode {
-    get {
-      access(keyPath: \.stereoMode)
-      return StereoMode(from: libvlc_audio_get_stereomode(pointer))
-    }
-    set {
-      _ = withMutation(keyPath: \.stereoMode) {
-        libvlc_audio_set_stereomode(pointer, newValue.cValue)
-      }
-    }
-  }
-
-  /// Audio mix/channel mode.
-  public var mixMode: MixMode {
-    get {
-      access(keyPath: \.mixMode)
-      return MixMode(from: libvlc_audio_get_mixmode(pointer))
-    }
-    set {
-      _ = withMutation(keyPath: \.mixMode) {
-        libvlc_audio_set_mixmode(pointer, newValue.cValue)
-      }
-    }
-  }
-
-  // MARK: - Programs (DVB/MPEG-TS)
-
-  /// Lists all available programs in the current media.
-  public var programs: [Program] {
-    access(keyPath: \.programs)
-    guard let list = libvlc_media_player_get_programlist(pointer) else { return [] }
-    defer { libvlc_player_programlist_delete(list) }
-
-    let count = libvlc_player_programlist_count(list)
-    return (0..<count).compactMap { i in
-      libvlc_player_programlist_at(list, i).map { Program(from: $0.pointee) }
-    }
-  }
-
-  /// The currently selected program.
-  public var selectedProgram: Program? {
-    access(keyPath: \.selectedProgram)
-    guard let prog = libvlc_media_player_get_selected_program(pointer) else { return nil }
-    defer { libvlc_player_program_delete(prog) }
-    return Program(from: prog.pointee)
-  }
-
-  /// Selects a program by its group ID.
-  public func selectProgram(id: Int) {
-    libvlc_media_player_select_program_id(pointer, Int32(id))
-  }
-
-  /// Whether the current program is scrambled (encrypted).
-  public var isProgramScrambled: Bool {
-    access(keyPath: \.isProgramScrambled)
-    return libvlc_media_player_program_scrambled(pointer)
-  }
-
-  // MARK: - Renderer (Chromecast / AirPlay)
-
-  /// Sets a renderer for output (e.g. Chromecast).
-  ///
-  /// Pass `nil` to revert to local playback. libVLC rejects renderer
-  /// changes while media is active; this is only valid when the player
-  /// is `.idle`, `.stopped`, or `.error`. Call `stop()` first to
-  /// reconfigure casting mid-session.
-  ///
-  /// - Parameter renderer: A ``RendererItem`` discovered by ``RendererDiscoverer``, or `nil`.
-  /// - Throws: `VLCError.operationFailed` if the renderer cannot be set,
-  ///   or if the player isn't in an idle-like state.
-  public func setRenderer(_ renderer: RendererItem?) throws(VLCError) {
-    switch state {
-    case .idle, .stopped, .error:
-      break
-    default:
-      throw .operationFailed("Set renderer while player is \(state)")
-    }
-    let result = libvlc_media_player_set_renderer(pointer, renderer?.pointer)
-    guard result == 0 else { throw .operationFailed("Set renderer") }
-  }
-
-  // MARK: - Deinterlacing
-
-  /// Enables, disables, or sets deinterlacing.
-  ///
-  /// - Parameters:
-  ///   - state: `-1` for auto, `0` to disable, `1` to enable.
-  ///   - mode: Deinterlace filter name (e.g. "blend", "bob", "x", "yadif"), or `nil` for default.
-  /// - Throws: `VLCError.operationFailed` if the filter cannot be applied.
-  public func setDeinterlace(state: Int = -1, mode: String? = nil) throws(VLCError) {
-    guard libvlc_video_set_deinterlace(pointer, Int32(state), mode) == 0 else {
-      throw .operationFailed("Set deinterlace")
-    }
-  }
-
   // MARK: - Track Selection
 
   private func selectTrack(_ track: Track?, type: TrackType) {
@@ -1315,310 +892,6 @@ public final class Player {
     return (0..<count).compactMap { i in
       libvlc_media_tracklist_at(tracklist, i).map { Track(from: $0) }
     }
-  }
-
-  // MARK: - Event Consumer
-
-  private var nativePlaybackState: PlayerState {
-    PlayerState(from: libvlc_media_player_get_state(pointer))
-  }
-
-  private var canIssueNativePause: Bool {
-    if libvlc_media_player_get_time(pointer) > 0 {
-      return true
-    }
-    // With a real audio output, libVLC can report `.playing` and
-    // pausable before the first audio timestamp has cleared zero. Pausing
-    // in that window leaves the aout stream with a stale pause date and
-    // the next audio block trips libVLC's debug assertion. When audio is
-    // disabled or not initialized, libVLC reports a negative volume
-    // sentinel and no aout stream participates in that assertion.
-    return libvlc_audio_get_volume(pointer) < 0
-  }
-
-  /// Consumes the event stream and mirrors each event onto the
-  /// `@Observable` properties that SwiftUI binds to.
-  private func startEventConsumer() {
-    // Capture eventBridge strongly and self weakly to avoid the retain
-    // cycle Player → eventTask → Player.
-    let bridge = eventBridge
-    let stream = bridge.makeStream()
-    eventTask = Task { [weak self] in
-      for await event in stream {
-        guard !Task.isCancelled else { return }
-        self?.handleEvent(event)
-        // Yield after each event so other main-actor work (UI updates,
-        // tests, etc.) isn't starved when VLC produces events rapidly.
-        await Task.yield()
-      }
-    }
-  }
-
-  private func handleEvent(_ event: PlayerEvent) {
-    switch event {
-    case .stateChanged(let newState):
-      publishPlaybackState(newState)
-      updatePauseTransition(for: newState)
-      reconcilePlaybackIntent(for: newState)
-      if case .stopped = newState {
-        currentTime = .zero
-        bufferFill = 0
-        withMutation(keyPath: \.position) {
-          _position = 0
-        }
-        withMutation(keyPath: \.abLoopState) {}
-      }
-      // libVLC doesn't always emit `MediaPlayerLengthChanged`,
-      // `MediaPlayerSeekableChanged`, or `MediaPlayerPausableChanged`
-      // events on the player side. For some inputs the demuxer publishes
-      // those via `MediaParsedChanged` on `Media` (which we don't bridge
-      // to the player), or sets the fields before the player has a
-      // chance to attach its event listener. Polling on every state
-      // transition catches those cases. It's three C calls and is
-      // idempotent when the events do fire.
-      refreshNativeStateIfNeeded()
-      performDeferredPauseCommandIfNeeded()
-
-    case .timeChanged(let time):
-      currentTime = time
-      if duration == nil || !isSeekable || !isPausable {
-        refreshNativeStateIfNeeded()
-      }
-      performDeferredPauseCommandIfNeeded()
-
-    case .positionChanged(let pos):
-      withMutation(keyPath: \.position) {
-        _position = pos
-      }
-
-    case .lengthChanged(let length):
-      duration = length
-
-    case .seekableChanged(let seekable):
-      isSeekable = seekable
-
-    case .pausableChanged(let pausable):
-      isPausable = pausable
-      performDeferredPauseCommandIfNeeded()
-
-    case .tracksChanged:
-      refreshTracks()
-
-    case .mediaChanged:
-      syncCurrentMediaFromNative()
-      resetMediaDerivedState()
-      refreshTracks()
-      notifyMediaDependentObservables()
-
-    case .encounteredError:
-      publishPlaybackState(.error)
-      pauseTransition = nil
-      deferredPauseCommand = nil
-      reconcilePlaybackIntent(for: .error)
-
-    case .bufferingProgress(let pct):
-      // Fill level is useful in every state, so update regardless. A
-      // `.paused` player mid-preload still needs to show progress.
-      bufferFill = pct
-      // Only enter `.buffering` from a pre-play state. Once libVLC is
-      // `.playing` or `.paused`, `.stateChanged` drives the lifecycle.
-      switch state {
-      case .idle, .opening, .buffering:
-        if state != .buffering {
-          publishPlaybackState(.buffering)
-          reconcilePlaybackIntent(for: .buffering)
-        }
-      default:
-        break
-      }
-
-    // Computed properties read fresh state from libVLC in their getter.
-    // An empty `withMutation` is what re-triggers SwiftUI when the
-    // underlying C state changes externally (hardware keys, AirPlay,
-    // CarPlay, renderer-initiated chapter/title moves). Without this
-    // the observers stay pinned to their last read.
-    case .volumeChanged:
-      withMutation(keyPath: \.volume) {}
-
-    case .muted, .unmuted:
-      withMutation(keyPath: \.isMuted) {}
-
-    case .chapterChanged:
-      withMutation(keyPath: \.currentChapter) {}
-
-    case .titleSelectionChanged:
-      withMutation(keyPath: \.currentTitle) {}
-
-    // Events without a matching observable property are only exposed
-    // on the raw `events` stream; consumers that care subscribe there.
-    case .audioDeviceChanged:
-      withMutation(keyPath: \.currentAudioDevice) {}
-
-    case .programAdded, .programDeleted, .programSelected, .programUpdated:
-      withMutation(keyPath: \.programs) {}
-      withMutation(keyPath: \.selectedProgram) {}
-      withMutation(keyPath: \.isProgramScrambled) {}
-
-    case .corked, .uncorked, .voutChanged,
-         .recordingChanged, .titleListChanged, .snapshotTaken,
-         .mediaStopping:
-      break
-    }
-  }
-
-  private func publishPlaybackState(_ newState: PlayerState) {
-    state = newState
-    withMutation(keyPath: \.isActive) {}
-  }
-
-  private func publishPlaybackIntent(_ active: Bool) {
-    guard isPlaybackRequestedActive != active else { return }
-    isPlaybackRequestedActive = active
-    withMutation(keyPath: \.isPlaying) {}
-    playbackIntentBridge.broadcast(active)
-  }
-
-  func setPlaybackIntentFromExternalControl(_ active: Bool) {
-    publishPlaybackIntent(active)
-  }
-
-  private func reconcilePlaybackIntent(for state: PlayerState) {
-    switch state {
-    case .opening, .buffering, .playing:
-      guard pauseTransition != .pausing, deferredPauseCommand != .pause else { return }
-      publishPlaybackIntent(true)
-
-    case .paused:
-      guard pauseTransition != .resuming, deferredPauseCommand != .resume else { return }
-      publishPlaybackIntent(false)
-
-    case .idle, .stopped, .stopping, .error:
-      publishPlaybackIntent(false)
-    }
-  }
-
-  private func updatePauseTransition(for newState: PlayerState) {
-    switch (pauseTransition, newState) {
-    case (.pausing, .paused), (.resuming, .playing):
-      pauseTransition = nil
-      performDeferredPauseCommandIfNeeded()
-    case (_, .idle), (_, .stopped), (_, .stopping), (_, .error):
-      pauseTransition = nil
-      deferredPauseCommand = nil
-    default:
-      break
-    }
-  }
-
-  private func performDeferredPauseCommandIfNeeded() {
-    guard pauseTransition == nil, let command = deferredPauseCommand else {
-      return
-    }
-    deferredPauseCommand = nil
-    switch command {
-    case .pause:
-      pause()
-    case .resume:
-      resume()
-    }
-  }
-
-  private func resetMediaDerivedState() {
-    pauseTransition = nil
-    deferredPauseCommand = nil
-    publishPlaybackIntent(false)
-    currentTime = .zero
-    duration = nil
-    isSeekable = false
-    isPausable = false
-    bufferFill = 0
-    withMutation(keyPath: \.position) {
-      _position = 0
-    }
-  }
-
-  /// Signals every observable whose value is read live from libVLC and
-  /// can change when a new media is loaded. libVLC emits no standalone
-  /// events for most of these (no `RateChanged`, no `AudioDelayChanged`,
-  /// etc. on the player's event manager), so SwiftUI would otherwise
-  /// keep showing the pre-swap value. Empty `withMutation` calls force
-  /// the getters to re-run next frame.
-  private func notifyMediaDependentObservables() {
-    withMutation(keyPath: \.rate) {}
-    withMutation(keyPath: \.audioDelay) {}
-    withMutation(keyPath: \.subtitleDelay) {}
-    withMutation(keyPath: \.subtitleTextScale) {}
-    withMutation(keyPath: \.role) {}
-    withMutation(keyPath: \.stereoMode) {}
-    withMutation(keyPath: \.mixMode) {}
-    withMutation(keyPath: \.teletextPage) {}
-    withMutation(keyPath: \.currentChapter) {}
-    withMutation(keyPath: \.currentTitle) {}
-    withMutation(keyPath: \.abLoopState) {}
-    withMutation(keyPath: \.programs) {}
-    withMutation(keyPath: \.selectedProgram) {}
-    withMutation(keyPath: \.isProgramScrambled) {}
-    withMutation(keyPath: \.currentAudioDevice) {}
-    withMutation(keyPath: \.selectedAudioTrack) {}
-    withMutation(keyPath: \.selectedSubtitleTrack) {}
-  }
-
-  /// Reads length / seekable / pausable directly from libVLC and
-  /// publishes any changes to the matching observable property. Called
-  /// on state transitions and early time updates as a resilient companion
-  /// to `MediaPlayerLengthChanged` / `SeekableChanged` /
-  /// `PausableChanged`, which are not guaranteed to fire on the player's
-  /// event manager for every media.
-  private func refreshNativeStateIfNeeded() {
-    if duration == nil {
-      let ms = libvlc_media_player_get_length(pointer)
-      if ms > 0 {
-        duration = .milliseconds(ms)
-      }
-    }
-
-    let nativeSeekable = libvlc_media_player_is_seekable(pointer)
-    if isSeekable != nativeSeekable {
-      isSeekable = nativeSeekable
-    }
-
-    let nativePausable = libvlc_media_player_can_pause(pointer)
-    if isPausable != nativePausable {
-      isPausable = nativePausable
-    }
-
-    // libVLC reports volume/mute via `libvlc_audio_get_volume` and
-    // `libvlc_audio_get_mute`; both return negative sentinels (observed
-    // as `-100` and `-1` respectively on libVLC 4.0) when the audio
-    // output isn't initialized yet. Only sync the shadow state from
-    // valid (non-negative) reads.
-    let nativeVolume = libvlc_audio_get_volume(pointer)
-    if nativeVolume >= 0 {
-      let normalized = Float(nativeVolume) / 100.0
-      if abs(_volume - normalized) > 0.001 {
-        withMutation(keyPath: \.volume) {
-          _volume = normalized
-        }
-      }
-    }
-
-    let nativeMute = libvlc_audio_get_mute(pointer)
-    if nativeMute >= 0 {
-      let muted = nativeMute > 0
-      if _isMuted != muted {
-        withMutation(keyPath: \.isMuted) {
-          _isMuted = muted
-        }
-      }
-    }
-  }
-
-  private func syncCurrentMediaFromNative() {
-    guard let media = libvlc_media_player_get_media(pointer) else {
-      currentMedia = nil
-      return
-    }
-    currentMedia = Media(retaining: media)
   }
 
   func _handleEventForTesting(_ event: PlayerEvent) {

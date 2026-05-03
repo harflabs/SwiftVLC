@@ -61,3 +61,47 @@ public enum PlayerState: Sendable, Hashable, CustomStringConvertible {
     }
   }
 }
+
+// MARK: - Per-case accessors
+
+extension PlayerState {
+  /// `true` when this state is `.idle`.
+  public var isIdle: Bool {
+    self == .idle
+  }
+
+  /// `true` when this state is `.opening`.
+  public var isOpening: Bool {
+    self == .opening
+  }
+
+  /// `true` when this state is `.buffering`.
+  public var isBuffering: Bool {
+    self == .buffering
+  }
+
+  /// `true` when this state is `.playing`.
+  public var isPlaying: Bool {
+    self == .playing
+  }
+
+  /// `true` when this state is `.paused`.
+  public var isPaused: Bool {
+    self == .paused
+  }
+
+  /// `true` when this state is `.stopped`.
+  public var isStopped: Bool {
+    self == .stopped
+  }
+
+  /// `true` when this state is `.stopping`.
+  public var isStopping: Bool {
+    self == .stopping
+  }
+
+  /// `true` when this state is `.error`.
+  public var isError: Bool {
+    self == .error
+  }
+}

@@ -253,6 +253,24 @@ extension Integration {
       #expect(recorder.cancelPendingPauseCount == 1)
       #expect(recorder.seekTargets.count == 1)
     }
+
+    /// `allowsPrivateMacOSAPI` is a simple atomic-backed property; the
+    /// only contract is that reads see the most recent write. The flag
+    /// defaults to `false` and roundtrips through `true` and back.
+    @Test func `allowsPrivateMacOSAPI defaults to false and roundtrips`() {
+      // Remember the entry value so the rest of the suite isn't
+      // affected by this test's writes.
+      let initial = PiPController.allowsPrivateMacOSAPI
+      defer { PiPController.allowsPrivateMacOSAPI = initial }
+
+      #expect(PiPController.allowsPrivateMacOSAPI == false)
+
+      PiPController.allowsPrivateMacOSAPI = true
+      #expect(PiPController.allowsPrivateMacOSAPI == true)
+
+      PiPController.allowsPrivateMacOSAPI = false
+      #expect(PiPController.allowsPrivateMacOSAPI == false)
+    }
   }
 }
 #endif

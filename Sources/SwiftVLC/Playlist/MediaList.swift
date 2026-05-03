@@ -18,7 +18,10 @@ public final class MediaList: Sendable {
 
   /// Creates an empty media list.
   public init() {
-    pointer = libvlc_media_list_new()!
+    guard let p = libvlc_media_list_new() else {
+      preconditionFailure("Failed to allocate libvlc media list. Out of memory?")
+    }
+    pointer = p
   }
 
   /// Wraps an existing libvlc_media_list_t pointer (retains it).

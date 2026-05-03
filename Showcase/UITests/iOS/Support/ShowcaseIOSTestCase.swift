@@ -1,5 +1,5 @@
-import XCTest
 import UIKit
+import XCTest
 
 /// Base class for every iOS showcase UI test.
 ///

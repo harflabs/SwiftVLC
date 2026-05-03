@@ -57,18 +57,7 @@ extension VLCInstance {
   public func logStream(
     minimumLevel: LogLevel = .warning
   ) -> AsyncStream<LogEntry> {
-    let (stream, continuation) = AsyncStream<LogEntry>.makeStream(
-      bufferingPolicy: .bufferingNewest(128)
-    )
-
-    let id = logBroadcaster.add(continuation: continuation, minimumLevel: minimumLevel)
-
-    let broadcaster = logBroadcaster
-    continuation.onTermination = { @Sendable _ in
-      broadcaster.remove(id: id)
-    }
-
-    return stream
+    logBroadcaster.subscribe(minimumLevel: minimumLevel)
   }
 }
 
@@ -76,41 +65,49 @@ extension VLCInstance {
 
 /// Multiplexes a single libVLC log callback to multiple Swift consumers.
 ///
-/// The libVLC log callback is installed lazily on the first consumer and
-/// uninstalled when the last consumer terminates. Each consumer has its
-/// own `minimumLevel` filter, so subscribers don't leak messages to each other.
-///
-/// Thread-safety: all mutable state is guarded by a `Mutex`. The C callback
-/// runs on libVLC's internal logging thread; yield happens outside the lock
-/// to avoid blocking the logger on slow consumers.
+/// Thin wrapper around `Broadcaster<LogEntry>` plus the lazy install /
+/// uninstall of libVLC's log callback. The callback is installed when
+/// the first subscriber attaches and uninstalled when the last one
+/// terminates, so we don't pay libVLC's logging cost while no one is
+/// listening.
 final class LogBroadcaster: Sendable {
-  private struct Subscriber {
-    let continuation: AsyncStream<LogEntry>.Continuation
-    let minimumLevel: LogLevel
+  /// Shared reference held by both `LogBroadcaster` and the
+  /// `Broadcaster<LogEntry>`'s lifecycle callbacks. A separate class
+  /// (rather than a `Mutex` directly on `LogBroadcaster`) is what lets
+  /// the closures retain it independently of `self`, sidestepping
+  /// Mutex's `~Copyable` constraint and the no-self-yet problem during
+  /// `init`.
+  private final class Installation: Sendable {
+    /// `@unchecked` because the bridge context is an
+    /// `UnsafeMutableRawPointer` returned by libVLC's shim. Every read
+    /// and write happens under `state.withLock`, so the non-Sendable
+    /// pointer never straddles isolation domains.
+    struct State: @unchecked Sendable {
+      var bridgeContext: UnsafeMutableRawPointer?
+      var selfBox: UnsafeMutableRawPointer?
+    }
+
+    let state = Mutex(State())
+    nonisolated(unsafe) let instancePointer: OpaquePointer
+    let installBridge: @Sendable (OpaquePointer, UnsafeMutableRawPointer) -> UnsafeMutableRawPointer?
+    let uninstallBridge: @Sendable (OpaquePointer, UnsafeMutableRawPointer?) -> Void
+
+    init(
+      instancePointer: OpaquePointer,
+      installBridge: @escaping @Sendable (OpaquePointer, UnsafeMutableRawPointer) -> UnsafeMutableRawPointer?,
+      uninstallBridge: @escaping @Sendable (OpaquePointer, UnsafeMutableRawPointer?) -> Void
+    ) {
+      self.instancePointer = instancePointer
+      self.installBridge = installBridge
+      self.uninstallBridge = uninstallBridge
+    }
   }
 
-  /// `@unchecked` because `UnsafeMutableRawPointer` isn't Sendable under
-  /// Swift's region analysis. Safety is provided by the enclosing
-  /// `Mutex`: every read and write happens under `state.withLock`, so
-  /// the non-Sendable pointer fields never straddle isolation domains.
-  private struct State: @unchecked Sendable {
-    var nextID: Int = 0
-    var subscribers: [Int: Subscriber] = [:]
-    /// The retained `LogBroadcaster` box passed to libVLC, or `nil` when
-    /// the callback isn't installed. Owned by the C side while set.
-    var selfBox: UnsafeMutableRawPointer?
-    /// The shim bridge context returned by `swiftvlc_log_set`, or `nil`
-    /// when the callback isn't installed.
-    var bridgeContext: UnsafeMutableRawPointer?
-    /// Prevents concurrent first-subscriber installs from racing each other.
-    var isInstalling = false
+  private let installation: Installation
+  private let broadcaster: Broadcaster<LogEntry>
+  var instancePointer: OpaquePointer {
+    installation.instancePointer
   }
-
-  private let state = Mutex(State())
-  private let maintenanceQueue = DispatchQueue(label: "swiftvlc.logging.maintenance")
-  nonisolated(unsafe) let instancePointer: OpaquePointer
-  private let installBridge: @Sendable (OpaquePointer, UnsafeMutableRawPointer) -> UnsafeMutableRawPointer?
-  private let uninstallBridge: @Sendable (OpaquePointer, UnsafeMutableRawPointer?) -> Void
 
   init(
     instancePointer: OpaquePointer,
@@ -121,134 +118,91 @@ final class LogBroadcaster: Sendable {
       swiftvlc_log_unset(instance, bridge)
     }
   ) {
-    self.instancePointer = instancePointer
-    self.installBridge = installBridge
-    self.uninstallBridge = uninstallBridge
+    let installation = Installation(
+      instancePointer: instancePointer,
+      installBridge: installBridge,
+      uninstallBridge: uninstallBridge
+    )
+    self.installation = installation
+
+    // The install closure needs to retain the broadcaster as the
+    // userData pointer it passes to libVLC. We can't capture
+    // `self.broadcaster` here because it isn't initialized yet, and
+    // capturing a `var` local by value only sees its initial nil. The
+    // workaround is a tiny `Box` reference that the closure captures
+    // by reference; we populate it after the broadcaster is built.
+    let broadcasterBox = BroadcasterBox()
+    broadcaster = Broadcaster<LogEntry>(
+      defaultBufferSize: 128,
+      onFirstSubscriber: { [installation, broadcasterBox] in
+        guard let broadcaster = broadcasterBox.value else { return }
+        let selfBox = Unmanaged.passRetained(broadcaster).toOpaque()
+        nonisolated(unsafe) let pointer = installation.instancePointer
+        if let bridgeContext = installation.installBridge(pointer, selfBox) {
+          installation.state.withLock { state in
+            state.selfBox = selfBox
+            state.bridgeContext = bridgeContext
+          }
+        } else {
+          // install() failed; drop the retain we took.
+          Unmanaged<Broadcaster<LogEntry>>.fromOpaque(selfBox).release()
+        }
+      },
+      onLastUnsubscribed: { [installation] in
+        let toRelease = installation.state.withLock { state -> (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) in
+          let pair = (state.selfBox, state.bridgeContext)
+          state.selfBox = nil
+          state.bridgeContext = nil
+          return pair
+        }
+        nonisolated(unsafe) let pointer = installation.instancePointer
+        if let bridgeContext = toRelease.1 {
+          installation.uninstallBridge(pointer, bridgeContext)
+        }
+        if let selfBox = toRelease.0 {
+          Unmanaged<Broadcaster<LogEntry>>.fromOpaque(selfBox).release()
+        }
+      }
+    )
+    broadcasterBox.value = broadcaster
   }
 
-  func add(
-    continuation: AsyncStream<LogEntry>.Continuation,
-    minimumLevel: LogLevel
-  ) -> Int {
-    let id = state.withLock { state -> Int in
-      let id = state.nextID
-      state.nextID += 1
-      state.subscribers[id] = Subscriber(
-        continuation: continuation,
-        minimumLevel: minimumLevel
-      )
-      return id
+  func subscribe(minimumLevel: LogLevel) -> AsyncStream<LogEntry> {
+    broadcaster.subscribe { entry in
+      entry.level >= minimumLevel
     }
-
-    scheduleReconcile()
-    return id
-  }
-
-  func remove(id: Int) {
-    _ = state.withLock { state in
-      state.subscribers.removeValue(forKey: id)
-    }
-    scheduleReconcile()
   }
 
   /// Terminates all active subscribers and uninstalls the libVLC log
-  /// callback. Called from `VLCInstance.deinit`. After this returns,
-  /// the libVLC instance pointer is about to be released, so no
-  /// further callbacks can fire.
+  /// callback. Called from `VLCInstance.deinit`.
   func invalidate() {
-    let subscribers = state.withLock { state -> [Subscriber] in
-      let subs = Array(state.subscribers.values)
-      state.subscribers.removeAll()
-      return subs
-    }
-
-    for sub in subscribers {
-      sub.continuation.finish()
-    }
-
-    maintenanceQueue.sync {
-      reconcile()
-    }
+    broadcaster.terminateAndWaitForLifecycleCallbacks()
   }
 
-  /// Called by the C callback (outside our lock) with a snapshot of subscribers.
+  /// Called by the C callback (outside our lock) with the LogEntry.
   fileprivate func broadcast(_ entry: LogEntry) {
-    // Snapshot under lock, yield outside. Same pattern as EventBridge,
-    // to avoid AB-BA with task-cancellation locks.
-    let snapshot = state.withLock { state -> [Subscriber] in
-      state.subscribers.values.filter { entry.level >= $0.minimumLevel }
-    }
-    for sub in snapshot {
-      sub.continuation.yield(entry)
-    }
+    broadcaster.broadcast(entry)
   }
 
+  /// Returns `true` if some subscriber would receive an entry at this
+  /// level. Used by the C callback to short-circuit String allocation
+  /// when no one is listening.
   func hasSubscriber(atOrBelow level: LogLevel) -> Bool {
-    state.withLock { state in
-      state.subscribers.values.contains { $0.minimumLevel <= level }
-    }
+    // Construct a minimal probe entry. Empty string and nil module
+    // avoid the upstream String allocation we're trying to skip.
+    let probe = LogEntry(level: level, message: "", module: nil)
+    return broadcaster.hasSubscriber(matching: probe)
   }
+}
 
-  private enum Action {
-    case install
-    case uninstall(box: UnsafeMutableRawPointer, bridge: UnsafeMutableRawPointer?)
-    case none
-  }
-
-  private func scheduleReconcile() {
-    maintenanceQueue.async { [self] in
-      reconcile()
-    }
-  }
-
-  private func reconcile() {
-    let action = state.withLock { state -> Action in
-      if state.subscribers.isEmpty {
-        guard let box = state.selfBox else { return .none }
-        let bridge = state.bridgeContext
-        state.selfBox = nil
-        state.bridgeContext = nil
-        return .uninstall(box: box, bridge: bridge)
-      }
-
-      guard state.selfBox == nil, !state.isInstalling else { return .none }
-      state.isInstalling = true
-      return .install
-    }
-
-    switch action {
-    case .install:
-      install()
-    case .uninstall(let box, let bridge):
-      uninstallBridge(instancePointer, bridge)
-      Unmanaged<LogBroadcaster>.fromOpaque(box).release()
-    case .none:
-      return
-    }
-  }
-
-  private func install() {
-    let selfBox = Unmanaged.passRetained(self).toOpaque()
-    let bridgeContext = installBridge(instancePointer, selfBox)
-
-    let keepInstall = state.withLock { state -> Bool in
-      state.isInstalling = false
-      guard let bridgeContext, !state.subscribers.isEmpty, state.selfBox == nil else {
-        return false
-      }
-
-      state.selfBox = selfBox
-      state.bridgeContext = bridgeContext
-      return true
-    }
-
-    guard !keepInstall else { return }
-
-    if bridgeContext != nil {
-      uninstallBridge(instancePointer, bridgeContext)
-    }
-    Unmanaged<LogBroadcaster>.fromOpaque(selfBox).release()
-  }
+/// Captures-by-reference helper for resolving the `Broadcaster` retain
+/// cycle in `LogBroadcaster.init`: the lifecycle closures must retain
+/// the broadcaster as the libVLC userData pointer, but the broadcaster
+/// doesn't exist when the closures are constructed. The box is captured
+/// by the closures; `LogBroadcaster.init` populates it after the
+/// broadcaster is built.
+private final class BroadcasterBox: @unchecked Sendable {
+  var value: Broadcaster<LogEntry>?
 }
 
 /// C callback. Receives pre-formatted messages from the C shim and
@@ -262,12 +216,13 @@ private func logCallback(
 ) {
   guard let data, let message else { return }
 
-  let broadcaster = Unmanaged<LogBroadcaster>.fromOpaque(data).takeUnretainedValue()
+  let broadcaster = Unmanaged<Broadcaster<LogEntry>>.fromOpaque(data).takeUnretainedValue()
 
   guard let logLevel = LogLevel(rawValue: level) else { return }
-  guard broadcaster.hasSubscriber(atOrBelow: LogNoiseFilter.mostSeverePossibleResult(for: logLevel)) else {
-    return
-  }
+  // Probe with an empty entry to skip String allocation when no
+  // subscriber is interested in this level.
+  let probe = LogEntry(level: logLevel, message: "", module: nil)
+  guard broadcaster.hasSubscriber(matching: probe) else { return }
 
   let messageString = String(cString: message)
   let moduleString = module.map { String(cString: $0) }

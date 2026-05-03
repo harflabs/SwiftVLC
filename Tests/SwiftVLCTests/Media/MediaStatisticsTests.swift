@@ -45,6 +45,11 @@ extension Integration {
       let _: any Sendable.Type = MediaStatistics.self
     }
 
+    @Test
+    func hashable() {
+      let _: any Hashable.Type = MediaStatistics.self
+    }
+
     @Test(.tags(.mainActor, .async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     @MainActor
     func `Statistics accessible during playback`() async throws {

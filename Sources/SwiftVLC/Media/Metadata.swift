@@ -8,7 +8,7 @@ import Foundation
 /// ```swift
 /// let title = metadata[.title]
 /// ```
-public struct Metadata: Sendable, Equatable {
+public struct Metadata: Sendable, Hashable {
   /// Track or media title.
   public let title: String?
   /// Performing artist.
@@ -44,8 +44,10 @@ public struct Metadata: Sendable, Equatable {
   /// Content language (ISO 639 code or free-form).
   public let language: String?
 
-  /// Access any metadata key by its raw string value.
-  /// - Returns: The metadata value, or `nil` if not present.
+  /// Access any metadata key.
+  /// - Parameter key: The metadata key to fetch.
+  /// - Returns: The value libVLC reported for `key`, or `nil` if the
+  ///   media omitted it.
   public subscript(key: MetadataKey) -> String? {
     values[key]
   }

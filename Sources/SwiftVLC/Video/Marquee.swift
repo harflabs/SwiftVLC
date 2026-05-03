@@ -96,10 +96,24 @@ public struct Marquee: ~Copyable, ~Escapable {
 
   /// Screen position as a bitmask: `0` = center, `1` = left, `2` = right,
   /// `4` = top, `8` = bottom. Combine horizontal and vertical flags with
-  /// bitwise OR (e.g. `4 | 1` for top-left).
+  /// bitwise OR (e.g. `4 | 1` for top-left). For a typed equivalent see
+  /// ``screenPosition``.
   public var position: Int {
     get { Int(libvlc_video_get_marquee_int(pointer, UInt32(libvlc_marquee_Position.rawValue))) }
     nonmutating set { writeInt(libvlc_marquee_Position, newValue) }
+  }
+
+  /// Screen position as a typed ``OverlayPosition`` `OptionSet`. Maps
+  /// 1:1 onto the raw ``position`` bitmask.
+  ///
+  /// ```swift
+  /// player.marquee.screenPosition = .bottomRight
+  /// player.marquee.screenPosition = [.top]      // top-center
+  /// player.marquee.screenPosition = []          // center
+  /// ```
+  public var screenPosition: OverlayPosition {
+    get { OverlayPosition(rawValue: position) }
+    nonmutating set { position = newValue.rawValue }
   }
 
   /// Shows a marquee overlay with the given text, in one call.
@@ -165,33 +179,59 @@ public struct Marquee: ~Copyable, ~Escapable {
   /// the filter's internal state but still hits the cached bitmap, so the
   /// overlay keeps the old look until the text itself changes. We bust the
   /// cache by briefly writing a padded variant of the current text, then
-  /// restoring the original on the next main-actor tick. The intermediate
-  /// write produces a cache miss that re-renders with the new style, and
-  /// the restored text lands in the cache with the new style too.
+  /// restoring the original after one render cycle. The intermediate write
+  /// produces a cache miss that re-renders with the new style, and the
+  /// restored text lands in the cache with the new style too.
+  ///
+  /// Rapid style writes coalesce into a single restore task: each call
+  /// cancels any in-flight restore and schedules a fresh one. The task is
+  /// stored on ``Player`` because ``Marquee`` is `~Escapable` and cannot
+  /// hold cross-call state.
   ///
   /// No-op while disabled: there's no live filter, and the next
   /// `isEnabled = true` will instantiate one with the freshly-written vars.
   private func bustTextRenderCache() {
     guard isEnabled else { return }
-    let text = player._marqueeText
+    player.scheduleMarqueeTextRestore(pointer: pointer)
+  }
+}
+
+extension Player {
+  /// Writes a cache-busting variant of the current marquee text to libVLC,
+  /// then schedules a restore of the canonical text on the main actor.
+  ///
+  /// Cancels any in-flight restore so back-to-back style writes collapse
+  /// into one restore. The restore reads `self.pointer` and `_marqueeText`
+  /// *at run time*, so a `setText` between schedule and restore is honored,
+  /// and a native-player replacement during the 50ms window writes to the
+  /// live pointer rather than the stale one that just got released.
+  ///
+  /// The cache-bust write itself uses the caller-supplied `pointer` because
+  /// it must hit the same handle Marquee was reading from when its setter
+  /// fired (the user's mutation observed `self.pointer` at that instant).
+  func scheduleMarqueeTextRestore(pointer: OpaquePointer) {
     // Append a trailing space to force a different cache key. Invisible
     // controls like U+200B (ZWSP) don't alter the glyph sequence libVLC's
     // shaper produces, so they collapse to the same cache entry. Only a
     // visible-but-whitespace character reliably busts the cache.
-    libvlc_video_set_marquee_string(pointer, UInt32(libvlc_marquee_Text.rawValue), text + " ")
-    // Restore the original string on the next run-loop tick so the final
-    // display shows the caller's exact text. 50 ms is enough for one
-    // `spu_Render` cycle at 60 fps, which is what we need for the
-    // intermediate text to lay down a fresh cache entry.
-    let capturedPointer = pointer
-    let capturedPlayer = player
-    Task { @MainActor in
+    libvlc_video_set_marquee_string(
+      pointer,
+      UInt32(libvlc_marquee_Text.rawValue),
+      _marqueeText + " "
+    )
+
+    _marqueeRestoreTask?.cancel()
+    _marqueeRestoreTask = Task { @MainActor [weak self] in
+      // 50 ms covers one `spu_Render` cycle at 60 fps, which is enough
+      // for the intermediate text to lay down a fresh cache entry.
       try? await Task.sleep(for: .milliseconds(50))
+      guard !Task.isCancelled, let self else { return }
       libvlc_video_set_marquee_string(
-        capturedPointer,
+        self.pointer,
         UInt32(libvlc_marquee_Text.rawValue),
-        capturedPlayer._marqueeText
+        _marqueeText
       )
+      _marqueeRestoreTask = nil
     }
   }
 }

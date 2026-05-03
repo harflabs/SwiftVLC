@@ -18,7 +18,13 @@ import Dispatch
 /// ```
 @MainActor
 public final class MediaListPlayer {
-  var pointer: OpaquePointer // libvlc_media_list_player_t*
+  // `var` (not `let`) because `rebuildNativePlayer` swaps the underlying
+  // libVLC handle when the media player or list is detached. Annotated
+  // `nonisolated(unsafe)` to match every other libVLC pointer in the
+  // codebase: reads happen on the @MainActor; the offload-on-deinit
+  // closure binds the swapped pointer through its own
+  // `nonisolated(unsafe) let oldPointer` capture.
+  nonisolated(unsafe) var pointer: OpaquePointer // libvlc_media_list_player_t*
   private var _mediaPlayer: Player?
   private var _mediaList: MediaList?
   private var _playbackMode: PlaybackMode = .default

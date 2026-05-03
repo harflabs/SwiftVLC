@@ -49,6 +49,16 @@ try eq.setAmplification(5.0, forBand: 0)     // bass lift
 player.equalizer = eq
 ```
 
+For new code, prefer the typed accessors that wrap raw `Float` gains
+in ``EqualizerGain`` — each value is clamped to libVLC's
+`-20.0 ... +20.0` dB range at the type level:
+
+```swift
+eq.preampGain = .flat                                 // == .preamp = 0
+eq.bandGains = [+3, +2, .flat, -1, -2, -2, -1, .flat, +1, +2]
+try eq.setGain(+6.0, forBand: 3)
+```
+
 Use a built-in preset by index:
 
 ```swift
@@ -103,6 +113,7 @@ See ``PlayerRole`` for the full set.
 ### Equalization
 - ``Equalizer``
 - ``Player/equalizer``
+- ``EqualizerGain``
 
 ### Channel layout and role
 - ``Player/stereoMode``

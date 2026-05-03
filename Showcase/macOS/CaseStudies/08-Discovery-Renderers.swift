@@ -6,8 +6,8 @@ struct MacDiscoveryRenderersCase: View {
   @State private var services: [RendererService] = []
   @State private var selectedService = ""
   @State private var discoverer: RendererDiscoverer?
-  @State private var renderers: [Entry] = []
-  @State private var selectedRendererID: Entry.ID?
+  @State private var renderers: [RendererItem] = []
+  @State private var selectedRendererID: RendererItem.ID?
 
   var body: some View {
     MacShowcaseContent(
@@ -35,14 +35,14 @@ struct MacDiscoveryRenderersCase: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, minHeight: 120, alignment: .center)
             } else {
-              List(renderers, selection: $selectedRendererID) { entry in
+              List(renderers, selection: $selectedRendererID) { renderer in
                 VStack(alignment: .leading, spacing: 2) {
-                  Text(entry.item.name)
-                  Text(entry.item.type)
+                  Text(renderer.name)
+                  Text(renderer.type)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
-                .tag(entry.id)
+                .tag(renderer.id)
               }
               .frame(minHeight: 150)
             }
@@ -84,37 +84,22 @@ struct MacDiscoveryRenderersCase: View {
     for await event in discoverer.events {
       switch event {
       case .itemAdded(let renderer):
-        renderers.append(Entry(renderer))
+        renderers.append(renderer)
       case .itemDeleted(let renderer):
-        let id = Entry.id(for: renderer)
-        renderers.removeAll { $0.id == id }
+        renderers.removeAll { $0 == renderer }
       }
     }
   }
 
   private func selectedRendererChanged() {
-    guard let entry = renderers.first(where: { $0.id == selectedRendererID }) else { return }
+    guard let renderer = renderers.first(where: { $0.id == selectedRendererID }) else { return }
     player.stop()
-    try? player.setRenderer(entry.item)
+    try? player.setRenderer(renderer)
     try? player.play(url: MacTestMedia.demo)
   }
 
   private func viewDisappeared() {
     discoverer?.stop()
     player.stop()
-  }
-}
-
-private struct Entry: Identifiable {
-  let id: String
-  let item: RendererItem
-
-  init(_ item: RendererItem) {
-    self.item = item
-    id = Self.id(for: item)
-  }
-
-  static func id(for item: RendererItem) -> String {
-    "\(item.name)|\(item.type)"
   }
 }

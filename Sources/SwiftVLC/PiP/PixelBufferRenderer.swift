@@ -6,6 +6,7 @@ import CoreMedia
 import CoreVideo
 import Darwin
 import Foundation
+import os
 import Synchronization
 
 private let pixelBufferRendererPictureBufferCount: UInt32 = 3
@@ -93,6 +94,8 @@ final class PixelBufferRenderer: Sendable {
   }
 
   func outputPixelBuffer(from source: CVPixelBuffer) -> (buffer: CVPixelBuffer, generation: UInt64)? {
+    let interval = Signposts.signposter.beginInterval("PixelBufferRenderer.outputPixelBuffer")
+    defer { Signposts.signposter.endInterval("PixelBufferRenderer.outputPixelBuffer", interval) }
     let (target, generation) = state.withLock { ($0.renderSize, $0.renderGeneration) }
     guard
       let target,

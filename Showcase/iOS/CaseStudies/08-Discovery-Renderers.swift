@@ -11,17 +11,7 @@ struct DiscoveryRenderersCase: View {
   @State private var services: [RendererService] = []
   @State private var selectedService = ""
   @State private var discoverer: RendererDiscoverer?
-  @State private var renderers: [Entry] = []
-
-  private struct Entry: Identifiable {
-    let id: String
-    let item: RendererItem
-
-    init(_ item: RendererItem) {
-      self.item = item
-      id = "\(item.name)|\(item.type)"
-    }
-  }
+  @State private var renderers: [RendererItem] = []
 
   var body: some View {
     Form {
@@ -46,10 +36,10 @@ struct DiscoveryRenderersCase: View {
         if renderers.isEmpty {
           Text("Searching…").foregroundStyle(.secondary)
         } else {
-          ForEach(renderers) { entry in
+          ForEach(renderers) { renderer in
             VStack(alignment: .leading) {
-              Text(entry.item.name)
-              Text(entry.item.type).font(.caption).foregroundStyle(.secondary)
+              Text(renderer.name)
+              Text(renderer.type).font(.caption).foregroundStyle(.secondary)
             }
           }
         }
@@ -79,10 +69,9 @@ struct DiscoveryRenderersCase: View {
     for await event in d.events {
       switch event {
       case .itemAdded(let renderer):
-        renderers.append(Entry(renderer))
+        renderers.append(renderer)
       case .itemDeleted(let renderer):
-        let deletedId = "\(renderer.name)|\(renderer.type)"
-        renderers.removeAll { $0.id == deletedId }
+        renderers.removeAll { $0 == renderer }
       }
     }
   }

@@ -1,0 +1,128 @@
+name: Sanitizers
+
+# Sanitizer runs are slower than the regular test job (TSan instruments
+# every memory access, ~3-5x slowdown; ASan ~2x slowdown), so they run
+# only on PRs that touch concurrency-sensitive code, on push to main,
+# or weekly to catch regressions in dependencies.
+#
+# Scoped to the race/lifecycle/memory test suites — these are the suites
+# that exist *because* of races. Running the full test suite under
+# sanitizers would inflate CI minutes without proportional benefit.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'Sources/SwiftVLC/Player/**'
+      - 'Sources/SwiftVLC/PiP/**'
+      - 'Sources/SwiftVLC/Core/Logging.swift'
+      - 'Sources/SwiftVLC/Core/DialogHandler.swift'
+      - 'Sources/SwiftVLC/Media/Media.swift'
+      - 'Sources/SwiftVLC/Media/ThumbnailRequest.swift'
+      - 'Sources/SwiftVLC/Discovery/**'
+      - 'Sources/SwiftVLC/Playlist/**'
+      - 'Sources/SwiftVLC/Audio/Equalizer.swift'
+      - 'Sources/SwiftVLC/Video/VideoView.swift'
+      - 'Tests/SwiftVLCTests/**Race**'
+      - 'Tests/SwiftVLCTests/**Stress**'
+      - 'Tests/SwiftVLCTests/**Memory**'
+      - 'Tests/SwiftVLCTests/**Lifecycle**'
+      - 'Package.swift'
+      - '.github/workflows/sanitize.yml'
+  schedule:
+    # Weekly run on Monday 03:00 UTC catches sanitizer regressions in
+    # libVLC, Swift toolchain, or transitive deps even when no PR opens.
+    - cron: '0 3 * * 1'
+
+concurrency:
+  group: sanitize-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sanitize:
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [thread, address]
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+        timeout-minutes: 2
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        timeout-minutes: 5
+        with:
+          xcode-version: latest-stable
+
+      - uses: SwiftyLab/setup-swift@v1.13.0
+        timeout-minutes: 8
+        with:
+          swift-version: "6.3.1"
+
+      - name: Print toolchain
+        timeout-minutes: 1
+        run: xcrun --toolchain "$TOOLCHAINS" swift --version
+
+      - name: Point Package.swift at last released xcframework
+        id: xcf
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/ci-use-released-xcframework.sh
+
+      - name: Cache libvlc xcframework
+        uses: actions/cache@v4
+        timeout-minutes: 5
+        with:
+          path: .build/artifacts
+          key: libvlc-xcf-${{ steps.xcf.outputs.sha }}
+          enableCrossOsArchive: false
+
+      # Sanitizer-instrumented build products differ from the standard
+      # debug build, so cache them separately. Cache key includes the
+      # sanitizer name to avoid TSan and ASan stomping each other.
+      - name: Cache build products (sanitizer-${{ matrix.sanitizer }})
+        uses: actions/cache@v4
+        timeout-minutes: 3
+        with:
+          path: |
+            .build/debug
+            .build/arm64-apple-macosx
+          key: spm-build-sanitizer-${{ matrix.sanitizer }}-${{ hashFiles('Package.swift', 'Sources/**/*.swift', 'Sources/**/*.c', 'Sources/**/*.h', 'Tests/**/*.swift') }}
+          restore-keys: |
+            spm-build-sanitizer-${{ matrix.sanitizer }}-
+
+      - name: Cache SPM dependencies
+        uses: actions/cache@v4
+        timeout-minutes: 2
+        with:
+          path: |
+            .build/checkouts
+            .build/repositories
+            .build/workspace-state.json
+          key: spm-deps-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            spm-deps-${{ runner.os }}-
+
+      # Run only the suites that exist *because* of races/lifecycle/memory
+      # concerns. The general test suite runs unsanitized in `test.yml`.
+      #
+      # `--no-parallel` per the same rationale as the test job: serialized
+      # runs avoid main-actor contention that masks real races as timeouts.
+      #
+      # The 25-minute wall clock is generous because sanitizer-instrumented
+      # builds are 3-5x slower; the per-suite time limits inside the tests
+      # are NOT scaled, so a sanitizer pass that legitimately needs more
+      # time per test will fail with a clearer signal than a wall-clock kill.
+      - name: Run sanitized race tests
+        timeout-minutes: 25
+        env:
+          CI: "true"
+        run: |
+          ./scripts/ci-run-with-timeouts.py 1500 300 \
+            xcrun --toolchain "$TOOLCHAINS" swift test \
+              --sanitize=${{ matrix.sanitizer }} \
+              --no-parallel \
+              --filter "RaceTests|StressTests|MemoryTests|MemoryAndRetainTests|MemoryPressureTests|LifecycleStressTests"

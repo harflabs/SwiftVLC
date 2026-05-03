@@ -109,6 +109,15 @@ extension Integration {
       _ = sendable
     }
 
+    @Test
+    func `Metadata is Hashable`() async throws {
+      let media = try Media(url: TestMedia.testMP4URL)
+      let metadata = try await media.parse()
+      var hasher = Hasher()
+      metadata.hash(into: &hasher)
+      _ = Set([metadata, metadata]) // exercises Hashable conformance
+    }
+
     @Test(.tags(.async))
     func `Artwork URL nil for simple media`() async throws {
       let media = try Media(url: TestMedia.testMP4URL)

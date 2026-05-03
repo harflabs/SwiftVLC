@@ -72,6 +72,32 @@ Slider(value: $player.volume)     // 0.0 ... 1.25 (values above 1.0 amplify)
 | ``Player/audioDelay`` / ``Player/subtitleDelay`` | `Duration` | Positive values delay the channel |
 | ``Player/subtitleTextScale`` | `0.1 ... 5.0` | Clamped by libVLC |
 
+### Typed equivalents
+
+For new code, prefer the typed accessors that mirror these raw
+properties. Each accessor wraps its value in a struct that clamps to
+the valid range on construction and exposes named constants:
+
+```swift
+player.playbackPosition = .end          // == player.position = 1.0
+player.audioVolume = .muted             // == player.volume = 0.0
+player.playbackRate = .double           // == player.rate = 2.0
+player.subtitleScale = .doubleSize      // == player.subtitleTextScale = 2.0
+```
+
+Assigning to ``Player/playbackRate`` silently no-ops if libVLC rejects
+the change (as it does for some live streams). For rejection-aware
+control, use the throwing variant:
+
+```swift
+try player.setPlaybackRate(.normal)     // throws VLCError on rejection
+```
+
+The typed wrappers — ``PlaybackPosition``, ``Volume``, ``PlaybackRate``,
+``SubtitleScale``, ``EqualizerGain`` — are `Hashable`, `Comparable`,
+and `ExpressibleByFloatLiteral` so they fit naturally into existing
+SwiftUI bindings, set membership, and comparisons.
+
 ## Control
 
 ```swift
@@ -150,3 +176,10 @@ See <doc:ConcurrencyModel> for the full isolation story.
 - ``Player/volume``
 - ``Player/isMuted``
 - ``Player/rate``
+
+### Typed accessors
+- ``Player/playbackPosition``
+- ``Player/audioVolume``
+- ``Player/playbackRate``
+- ``Player/subtitleScale``
+- ``Player/setPlaybackRate(_:)``

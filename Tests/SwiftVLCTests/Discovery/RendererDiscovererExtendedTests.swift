@@ -122,6 +122,11 @@ extension Integration {
       let _: any Sendable.Type = RendererItem.self
     }
 
+    @Test
+    func `RendererItem conforms to Identifiable and Hashable`() {
+      let _: any (Identifiable & Hashable).Type = RendererItem.self
+    }
+
     // MARK: - RendererEvent cases are exhaustive
 
     @Test

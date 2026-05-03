@@ -70,10 +70,24 @@ public struct Logo: ~Copyable, ~Escapable {
 
   /// Screen position as a bitmask: `0` = center, `1` = left, `2` = right,
   /// `4` = top, `8` = bottom. Combine horizontal and vertical flags with
-  /// bitwise OR (e.g. `4 | 1` for top-left).
+  /// bitwise OR (e.g. `4 | 1` for top-left). For a typed equivalent see
+  /// ``screenPosition``.
   public var position: Int {
     get { Int(libvlc_video_get_logo_int(pointer, UInt32(libvlc_logo_position.rawValue))) }
     nonmutating set { libvlc_video_set_logo_int(pointer, UInt32(libvlc_logo_position.rawValue), Int32(newValue)) }
+  }
+
+  /// Screen position as a typed ``OverlayPosition`` `OptionSet`. Maps
+  /// 1:1 onto the raw ``position`` bitmask.
+  ///
+  /// ```swift
+  /// player.logo.screenPosition = .topLeft
+  /// player.logo.screenPosition = [.bottom]      // bottom-center
+  /// player.logo.screenPosition = []             // center
+  /// ```
+  public var screenPosition: OverlayPosition {
+    get { OverlayPosition(rawValue: position) }
+    nonmutating set { position = newValue.rawValue }
   }
 
   /// Shows a logo overlay with the given file, in one call.

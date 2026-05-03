@@ -141,18 +141,13 @@ extension Integration {
 
       #expect(!broadcaster.hasSubscriber(atOrBelow: .error))
 
-      let (stream, continuation) = AsyncStream<LogEntry>.makeStream()
-      _ = stream
-      let id = broadcaster.add(continuation: continuation, minimumLevel: .warning)
-      defer {
-        broadcaster.remove(id: id)
-        continuation.finish()
-      }
+      let stream = broadcaster.subscribe(minimumLevel: .warning)
 
       #expect(!broadcaster.hasSubscriber(atOrBelow: .debug))
       #expect(!broadcaster.hasSubscriber(atOrBelow: .notice))
       #expect(broadcaster.hasSubscriber(atOrBelow: .warning))
       #expect(broadcaster.hasSubscriber(atOrBelow: .error))
+      _ = stream
     }
 
     @Test(.tags(.async))
@@ -168,23 +163,45 @@ extension Integration {
       )
       defer { broadcaster.invalidate() }
 
-      let (stream1, continuation1) = AsyncStream<LogEntry>.makeStream()
-      _ = stream1
-      let firstID = broadcaster.add(continuation: continuation1, minimumLevel: .debug)
+      do {
+        let stream1 = broadcaster.subscribe(minimumLevel: .debug)
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(attempts.withLock { $0 } == 1)
+        _ = stream1
+      }
       try? await Task.sleep(for: .milliseconds(100))
       #expect(attempts.withLock { $0 } == 1)
 
-      broadcaster.remove(id: firstID)
-      continuation1.finish()
-      try? await Task.sleep(for: .milliseconds(100))
-      #expect(attempts.withLock { $0 } == 1)
+      do {
+        let stream2 = broadcaster.subscribe(minimumLevel: .debug)
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(attempts.withLock { $0 } == 2)
+        _ = stream2
+      }
+    }
 
-      let (stream2, continuation2) = AsyncStream<LogEntry>.makeStream()
-      _ = stream2
-      _ = broadcaster.add(continuation: continuation2, minimumLevel: .debug)
+    @Test(.tags(.async))
+    func `Invalidate synchronously uninstalls active log callback`() async {
+      let installed = Mutex(false)
+      let uninstalled = Mutex(false)
+      let broadcaster = LogBroadcaster(
+        instancePointer: VLCInstance.shared.pointer,
+        installBridge: { _, _ in
+          installed.withLock { $0 = true }
+          return UnsafeMutableRawPointer(bitPattern: 0x1)!
+        },
+        uninstallBridge: { _, _ in
+          uninstalled.withLock { $0 = true }
+        }
+      )
+
+      let stream = broadcaster.subscribe(minimumLevel: .debug)
       try? await Task.sleep(for: .milliseconds(100))
-      #expect(attempts.withLock { $0 } == 2)
-      continuation2.finish()
+
+      #expect(installed.withLock { $0 })
+      broadcaster.invalidate()
+      #expect(uninstalled.withLock { $0 })
+      _ = stream
     }
 
     @Test

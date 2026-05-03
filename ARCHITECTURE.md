@@ -101,9 +101,12 @@ Foundation types shared across all modules.
 
 | File | Type | Purpose |
 |---|---|---|
-| `VLCInstance.swift` | `final class VLCInstance: Sendable` | Manages `libvlc_instance_t*` lifecycle. Singleton `shared` or custom with arguments. |
-| `VLCError.swift` | `enum VLCError: Error, Sendable` | Typed errors: `instanceCreationFailed`, `mediaCreationFailed`, `playbackFailed`, `parseFailed`, `parseTimeout`, `trackNotFound`, `invalidState`, `operationFailed` |
-| `Logging.swift` | `AsyncStream<LogEntry>` | Filterable log stream (debug/notice/warning/error). C shim formats `va_list` before Swift callback. |
+| `VLCInstance.swift` | `final class VLCInstance: Sendable` | Manages `libvlc_instance_t*` lifecycle. Singleton `shared` or custom with arguments. Owns the per-instance `dialogRegistration` Mutex. |
+| `VLCError.swift` | `enum VLCError: Error, Sendable, Equatable, Hashable, LocalizedError, CustomStringConvertible` | Typed errors with hand-rolled per-case accessors (`error.parseTimeout`, `error.mediaCreationFailed`, …). Auto-synthesized `Equatable`/`Hashable` over `String` payloads. |
+| `Broadcaster.swift` | `public final class Broadcaster<Element: Sendable>` | Multi-consumer fan-out used by the dialog, renderer, log, player-event, and playback-intent streams. Exposes `subscribe`, `broadcast`, `finishAll` (allows resubscribe) and `terminate` (permanent — future `subscribe` calls return immediately-finished streams). Lifecycle reconciliation runs on a private serial queue. |
+| `DialogHandler.swift` | `final class DialogHandler: Sendable` | Bridges libVLC's dialog callbacks (`login`, `question`, `progress`, `error`) onto a `Broadcaster<DialogEvent>`. `DialogID` carries the dialog handle through `DialogIDStorage` for safe `dismiss()` + post calls. |
+| `Logging.swift` | `AsyncStream<LogEntry>` via `LogBridge` | Filterable log stream backed by `Broadcaster<LogEntry>`. C shim formats `va_list` before Swift callback. `LogNoiseFilter` demotes known-noisy libVLC errors to warnings. |
+| `Signposts.swift` | `enum Signposts` | Process-wide `OSSignposter` for `org.swiftvlc` subsystem. Hot paths (`Broadcaster.broadcast`, `Player.handleEvent`, `EventBridge.callback`, `PixelBufferRenderer.outputPixelBuffer`) emit signposts visible in Instruments. Zero cost when no profiler is attached. |
 | `Duration+Extensions.swift` | Extensions on `Duration` | `milliseconds`, `microseconds` properties and `formatted` display string |
 
 **Default VLC arguments:** `["--no-video-title-show", "--no-snapshot-preview"]`. `--no-stats` is *not* in the defaults — leaving it on would silently zero every `Media.statistics()` read, which is almost never what a caller wants. On macOS the default keeps VLC's Apple sample-buffer display available for inline playback, including its paired subtitle layer. ``PiPVideoView`` owns a native drawable container and moves that whole container into the system PiP presenter.
@@ -114,10 +117,19 @@ The central observable type that drives all playback.
 
 | File | Type | Purpose |
 |---|---|---|
-| `Player.swift` | `@Observable @MainActor class` | Wraps `libvlc_media_player_t*`. All playback control, state, and track management. |
-| `EventBridge.swift` | `internal class` | C callbacks → `AsyncStream<PlayerEvent>` multi-consumer broadcaster |
+| `Player.swift` | `@Observable @MainActor class` | Wraps `libvlc_media_player_t*`. Lifecycle, drawable management, media loading, and core playback control. The class body is split across 8 extensions in sibling files; the file itself contains no `swiftlint:disable` directives. |
+| `Player+Events.swift` | `extension Player` | The libVLC event-consumer task and `handleEvent(_:)` dispatch — pause-transition state machine, deferred-pause command, native-state probing, media-derived state reset. |
+| `Player+Audio.swift` | `extension Player` | Audio-output device selection, role, mix mode, stereo mode. |
+| `Player+Chapters.swift` | `extension Player` | Title/chapter navigation, DVD menu actions. |
+| `Player+ABLoop.swift` | `extension Player` | A-B loop state and time setters. |
+| `Player+Programs.swift` | `extension Player` | DVB/MPEG-TS program selection and scrambled-state polling. |
+| `Player+Recording.swift` | `extension Player` | Snapshot capture and recording start/stop. |
+| `Player+Overlays.swift` | `extension Player` | Scoped `withMarquee`/`withLogo`/`withAdjustments` accessors for the `~Copyable ~Escapable` overlay types. |
+| `Player+Typed.swift` | `extension Player` | Typed accessors that wrap raw `position`/`volume`/`rate`/`subtitleTextScale` setters in `PlaybackPosition`/`Volume`/`PlaybackRate`/`SubtitleScale`, plus the throwing `setPlaybackRate(_:)` variant. |
+| `PlaybackValues.swift` | 5 typed wrapper structs | `PlaybackPosition`, `Volume`, `PlaybackRate`, `SubtitleScale`, `EqualizerGain`. Each is `Sendable, Hashable, Comparable, ExpressibleByFloatLiteral` and clamps to its valid range on construction. |
+| `EventBridge.swift` | `internal class` | C callbacks → `Broadcaster<PlayerEvent>` multi-consumer broadcaster. |
 | `PlayerState.swift` | `enum PlayerState` | `.idle`, `.opening`, `.buffering`, `.playing`, `.paused`, `.stopped`, `.stopping`, `.error`. Buffer fill is exposed separately as `Player.bufferFill` so `.paused` players still publish progress. |
-| `PlayerEvent.swift` | `enum PlayerEvent` | Typed Swift cases mapped from libVLC's player event types |
+| `PlayerEvent.swift` | `enum PlayerEvent` | Typed Swift cases mapped from libVLC's player event types. Hand-rolled per-case accessors (`event.stateChanged`, `event.timeChanged`, …). |
 | `PlayerRole.swift` | `enum PlayerRole` | Audio behavior hints: `.music`, `.video`, `.communication`, `.game`, etc. |
 | `ABLoop.swift` | `enum ABLoopState` | `.none` → `.pointASet` → `.active` |
 | `NavigationAction.swift` | `enum NavigationAction` | DVD/Blu-ray menu: `.activate`, `.up`, `.down`, `.left`, `.right`, `.popup` |
@@ -241,12 +253,15 @@ Network service and renderer discovery.
 ### PiP (iOS/macOS only)
 
 Picture-in-Picture uses the platform path that best matches libVLC's
-video output.
+video output. The module is split into 5 focused files; none carries a
+`swiftlint:disable` directive.
 
 | File | Type | Purpose |
 |---|---|---|
-| `PiPController.swift` | `@MainActor class PiPController` | Manages PiP lifecycle, timebase sync, playback delegation |
-| `PiPVideoView.swift` | SwiftUI representable | `PiPVideoView(player, controller: $binding)` — iOS hosts a sample-buffer layer; macOS reparents libVLC's native drawable into PiP |
+| `PiPController.swift` | `@MainActor class PiPController` | PiP lifecycle, timebase sync, deferred-pause state machine, native-state observer task. |
+| `PiPController+Delegate.swift` | extension + private `PiPPlaybackDelegateProxy` | `AVPictureInPictureControllerDelegate` conformance plus the sample-buffer playback delegate proxy that breaks AVKit's strong-retain cycle (AVKit captures the playback delegate strongly even though the header declares it `weak`). Also hosts the `pipMainActorSync` helper for non-main AVKit callbacks that need synchronous main-actor answers. |
+| `PiPVideoView.swift` | SwiftUI representable | `PiPVideoView(player, controller: $binding)` — iOS hosts an `AVSampleBufferDisplayLayer`; macOS hosts the `MacNativePiPHostView` / `MacNativePiPDrawableView` containers. |
+| `PiPVideoView+MacPrivate.swift` | macOS-only private API plumbing | `MacNativePiPBackend` orchestrates `MacPrivatePiPPresenter` (dynamic loader for `PIPViewController` from `PIP.framework`), `MacPrivatePiPDelegate`, and `MacNativePiPMediaController`. All private-framework symbol references live in this one file for security/audit review. Gated by `PiPController.allowsPrivateMacOSAPI`. |
 | `PixelBufferRenderer.swift` | `class PixelBufferRenderer: Sendable` | iOS/direct sample-buffer path: format → lock → unlock → display. `CVPixelBufferPool` → `CMSampleBuffer` → layer. |
 
 ---
@@ -337,7 +352,7 @@ flowchart LR
   }
   ```
 
-- **`Mutex<State>` with `State: @unchecked Sendable`**, for persistent storage of pointers that must be read or written from multiple threads. `Mutex`'s `sending` semantics require `State` to be sendable to the callee; marking `State: @unchecked Sendable` honors that while the `Mutex` itself provides the actual mutual exclusion. Used by `LogBroadcaster`, `ThumbnailRequest.RequestBox`, and `PixelBufferRenderer`.
+- **`Mutex<State>` with `State: @unchecked Sendable`**, for persistent storage of pointers that must be read or written from multiple threads. `Mutex`'s `sending` semantics require `State` to be sendable to the callee; marking `State: @unchecked Sendable` honors that while the `Mutex` itself provides the actual mutual exclusion. Used throughout the library — log-bridge installation state, thumbnail-request coordination, pixel-buffer renderer state, dialog-handler registration, broadcaster subscriber tables.
   ```swift
   private struct State: @unchecked Sendable {
     var selfBox: UnsafeMutableRawPointer?
@@ -390,36 +405,25 @@ libVLC's player event types are attached to the event manager and mapped to type
 
 ### Multi-Consumer Broadcasting
 
-Id allocation and dictionary updates live under a single `Mutex<State>`, so registration is one lock acquisition. `broadcast` snapshots the continuations under the lock and yields outside it. Yielding resumes a consumer task and acquires its status-record lock; a concurrent task cancellation holds that same lock and calls `onTermination → remove → acquire Mutex`, so yielding while holding the `Mutex` would produce an AB-BA deadlock.
+`Broadcaster<Element: Sendable>` (in [`Sources/SwiftVLC/Core/Broadcaster.swift`](Sources/SwiftVLC/Core/Broadcaster.swift)) consolidates this pattern across the 5 places that needed it: player events, log entries, dialog callbacks, renderer discovery events, and playback intent. Per-subscriber state (continuation, optional filter, lifecycle phase) lives under a single `Mutex<State>`, so registration is one lock acquisition. `broadcast` snapshots the matching subscribers under the lock and yields outside it. Yielding resumes a consumer task and acquires its status-record lock; a concurrent task cancellation holds that same lock and calls `onTermination → unsubscribe → acquire Mutex`, so yielding while holding the `Mutex` would produce an AB-BA deadlock.
 
 ```swift
-private final class ContinuationStore: Sendable {
-  private struct State {
-    var nextID: Int = 0
-    var continuations: [Int: AsyncStream<PlayerEvent>.Continuation] = [:]
-  }
-  private let state = Mutex(State())
-
-  func add(continuation: AsyncStream<PlayerEvent>.Continuation) -> Int {
-    state.withLock { state in
-      let id = state.nextID
-      state.nextID += 1
-      state.continuations[id] = continuation
-      return id
-    }
-  }
-
-  func broadcast(_ event: PlayerEvent) {
-    let snapshot = state.withLock { Array($0.continuations.values) }
-    for cont in snapshot { cont.yield(event) }  // yield outside the lock
-  }
+public final class Broadcaster<Element: Sendable>: Sendable {
+  public func subscribe(bufferSize: Int? = nil, filter: Filter? = nil) -> AsyncStream<Element>
+  public func broadcast(_ element: Element)
+  public func finishAll()  // closes current subscribers; allows resubscribe
+  public func terminate()  // closes current + auto-finishes future subscribes
 }
 ```
 
+The `terminate()` / `finishAll()` distinction matters because some broadcasters expose `subscribe` indirectly via a *computed* property — e.g. `DialogHandler.dialogs` returns `broadcaster.subscribe()` per access. After a producer is permanently gone (handler whose registration was rejected, discoverer whose pointer is being released), `terminate()` ensures every future `subscribe` call returns an immediately-finished stream so consumers don't hang. `finishAll()` is reserved for lazy producers with `onFirstSubscriber` reconciliation that may re-attach later.
+
+`onFirstSubscriber` and `onLastUnsubscribed` callbacks let lazy producers attach to and detach from their upstream source only when there is actual demand. Both run on a per-broadcaster serial reconciliation `DispatchQueue` so concurrent subscribe/unsubscribe storms can't double-fire either side. The reconciliation is state-machine driven (`idle → scheduledOn → running → idle` and the symmetric off cycle), so a fast unsubscribe after a subscribe still terminates with the right callback.
+
 ### Lifecycle
 
-1. **`Player.init()`** creates the `EventBridge` and attaches every event type to the libVLC event manager.
-2. **`startEventConsumer()`** spawns a `Task` that reads the bridge stream and updates the player's `@Observable` properties.
+1. **`Player.init()`** creates the `EventBridge` (which owns a `Broadcaster<PlayerEvent>`) and attaches every event type to the libVLC event manager.
+2. **`startEventConsumer()`** in `Player+Events.swift` spawns a `Task` that reads the bridge stream and updates the player's `@Observable` properties.
 3. **`Player.deinit`** cancels the consumer task, then calls `EventBridge.invalidate()` to detach the C callbacks, finish the continuations, and release the store.
 
 ---

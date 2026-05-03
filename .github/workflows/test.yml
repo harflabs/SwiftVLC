@@ -16,11 +16,114 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Style and formatting gate. Cheap (<1 min) and runs in parallel with
+  # the test job so a style violation surfaces immediately without
+  # waiting for the test suite. swiftlint+swiftformat configs live in
+  # `.swiftlint.yml` and `.swiftformat`; both run with --strict so
+  # warnings are treated as errors.
+  lint:
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        timeout-minutes: 2
+
+      - name: Install swiftlint and swiftformat
+        timeout-minutes: 3
+        run: |
+          brew update >/dev/null
+          brew install swiftlint swiftformat
+          swiftlint --version
+          swiftformat --version
+
+      # Both run scoped to the Swift source roots. Without scoping,
+      # swiftlint scans `scripts/.build-libvlc/` (the upstream VLC source
+      # tree, multi-GB of C and headers), which makes it run for many
+      # minutes and consume gigabytes of RAM.
+      - name: SwiftLint
+        timeout-minutes: 2
+        run: swiftlint lint --strict --quiet Sources Tests Showcase
+
+      - name: SwiftFormat
+        timeout-minutes: 2
+        run: swiftformat Sources Tests Showcase --lint --strict
+
+  # Showcase apps build gate. Catches API breakage that the SwiftVLC
+  # test suite wouldn't notice — e.g. renaming a public symbol used
+  # only by the Showcase, or breaking the Showcase's Mac/iOS/tvOS/visionOS
+  # build settings. We compile (not test) every scheme.
+  #
+  # Schemes are pinned in the Showcase Xcode project to a published
+  # `SwiftVLC` version. `setup-dev.sh` flips it to the local repo
+  # checkout so the Showcase compiles against the in-PR code rather
+  # than the last release.
+  showcase:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        scheme: [iOS, macOS, tvOS, visionOS]
+        include:
+          - scheme: iOS
+            destination: "generic/platform=iOS"
+          - scheme: macOS
+            destination: "generic/platform=macOS"
+          - scheme: tvOS
+            destination: "generic/platform=tvOS"
+          - scheme: visionOS
+            destination: "generic/platform=visionOS"
+    steps:
+      - uses: actions/checkout@v4
+        timeout-minutes: 2
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        timeout-minutes: 5
+        with:
+          xcode-version: latest-stable
+
+      - uses: SwiftyLab/setup-swift@v1.13.0
+        timeout-minutes: 8
+        with:
+          swift-version: "6.3.1"
+
+      # The libvlc xcframework dominates the artifact cache.
+      - name: Cache libvlc xcframework
+        uses: actions/cache@v4
+        timeout-minutes: 5
+        with:
+          path: Vendor
+          key: libvlc-xcf-vendor-${{ hashFiles('Package.swift') }}
+          enableCrossOsArchive: false
+
+      # Download the libvlc xcframework + flip the Showcase project to
+      # the local SwiftVLC checkout so we compile against in-PR code.
+      - name: Set up Vendor + local Swift package
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/setup-dev.sh
+
+      - name: Build Showcase (${{ matrix.scheme }})
+        timeout-minutes: 20
+        run: |
+          xcodebuild build \
+            -project Showcase/SwiftVLCShowcase.xcodeproj \
+            -scheme "${{ matrix.scheme }}" \
+            -destination "${{ matrix.destination }}" \
+            -configuration Debug \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
   test:
     # `macos-latest` tracks the newest GitHub-provided runner. SwiftVLC
-    # requires Swift 6.3 (Package.swift tools-version), which ships with
-    # Xcode 26.4. Current GHA runners have only Xcode 26.3 preinstalled,
-    # so we install the Swift 6.3 open-source toolchain directly from
+    # requires Swift 6.3 (Package.swift tools-version), and the current
+    # 6.3 patch is Swift 6.3.1 in Xcode 26.4.1. GHA runner toolchains
+    # can lag, so we install the Swift 6.3.1 open-source toolchain from
     # swift.org and activate it via the TOOLCHAINS env var.
     runs-on: macos-latest
     # Absolute ceiling — the job CANNOT run longer than this. The wrapper
@@ -33,18 +136,18 @@ jobs:
         timeout-minutes: 2
 
       # Pin Xcode for SDKs / linker / simulators. Current GHA runners
-      # top out at Xcode 26.3 (Swift 6.2.4) — not enough to parse our
-      # tools-version 6.3 manifest — so we install the Swift 6.3
-      # open-source toolchain separately below and invoke it through
+      # can lag behind the package's tools-version 6.3 manifest, so we
+      # install the Swift 6.3.1 open-source toolchain separately below
+      # and invoke it through
       # `xcrun --toolchain`.
       - uses: maxim-lobanov/setup-xcode@v1
         timeout-minutes: 5
         with:
           xcode-version: latest-stable
 
-      # Install Swift 6.3 open-source toolchain from swift.org.
+      # Install Swift 6.3.1 open-source toolchain from swift.org.
       # Exports $TOOLCHAINS — later steps use `xcrun --toolchain` to run
-      # Swift 6.3 on top of the already-set-up Xcode SDKs.
+      # Swift 6.3.1 on top of the already-set-up Xcode SDKs.
       #
       # Pinned to v1.13.0 (latest as of 2026-03-26) rather than @latest
       # or @v1 so a compromised or breaking release of the action cannot
@@ -53,7 +156,7 @@ jobs:
       - uses: SwiftyLab/setup-swift@v1.13.0
         timeout-minutes: 8
         with:
-          swift-version: "6.3.0"
+          swift-version: "6.3.1"
 
       - name: Print toolchain
         timeout-minutes: 1
@@ -134,7 +237,7 @@ jobs:
           # need video output — CI macOS runners are headless.
           CI: "true"
         # `xcrun --toolchain "$TOOLCHAINS" swift test` routes through the
-        # Swift 6.3 toolchain installed above, while still using the
+        # Swift 6.3.1 toolchain installed above, while still using the
         # Xcode-provided SDKs/simulators.
         run: |
           ./scripts/ci-run-with-timeouts.py 600 180 \

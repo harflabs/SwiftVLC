@@ -45,7 +45,7 @@ public struct VideoView: UIViewRepresentable {
 /// libVLC's `set_nsobject` creates its own rendering subview and adds it
 /// to the drawable view. We handle sublayer frame updates automatically.
 ///
-/// Drawable ownership lives on ``Player`` via ``Player/setDrawable(_:)``;
+/// Drawable ownership lives on ``Player`` via `Player.setDrawable(_:)`;
 /// this surface only reports to the player when it is attached or
 /// detached. Routing the libVLC call through the player guarantees the
 /// view is strongly retained for the lifetime of the attachment, which
@@ -201,7 +201,7 @@ public struct VideoView: NSViewRepresentable {
 
 /// AppKit counterpart to the UIKit `VideoSurface`. Same ownership
 /// model: the surface delegates drawable attachment to
-/// ``Player/setDrawable(_:)``, which retains the view for the duration
+/// `Player.setDrawable(_:)`, which retains the view for the duration
 /// of the attachment so libVLC's decode-thread reads never outlive it.
 @MainActor
 final class VideoSurface: NSView {

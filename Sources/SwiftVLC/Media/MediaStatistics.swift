@@ -7,7 +7,7 @@ import CLibVLC
 /// at the moment of the call; capture multiple snapshots to display
 /// rates over time. Counters read as `0` before their stage of the
 /// pipeline has processed any data.
-public struct MediaStatistics: Sendable, Equatable {
+public struct MediaStatistics: Sendable, Hashable {
   // MARK: - Input
 
   /// Total bytes read from the input source.

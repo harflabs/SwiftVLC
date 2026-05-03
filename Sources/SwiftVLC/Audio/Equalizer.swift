@@ -156,3 +156,45 @@ public final class Equalizer {
     (0..<presetCount).compactMap { presetName(at: $0) }
   }
 }
+
+// MARK: - Typed-gain accessors
+
+/// Typed-gain accessors that wrap ``Equalizer``'s raw `Float`
+/// properties in ``EqualizerGain``, clamping to libVLC's
+/// `-20.0 ... +20.0` dB range at the type level.
+///
+/// ```swift
+/// equalizer.preampGain = .flat
+/// equalizer.bandGains = [+3.0, +2.0, .flat, -1.0, -2.0, -2.0, -1.0, .flat, +1.0, +2.0]
+/// try equalizer.setGain(+6.0, forBand: 3)
+/// ```
+extension Equalizer {
+  /// Preamp gain, clamped to `-20.0 ... +20.0` dB. Prefer this over
+  /// the raw ``preamp`` property when you want compile-time clamping
+  /// and the `.flat` shorthand.
+  public var preampGain: EqualizerGain {
+    get { EqualizerGain(preamp) }
+    set { preamp = newValue.rawValue }
+  }
+
+  /// Per-band amplification, each clamped to `-20.0 ... +20.0` dB.
+  /// Length must equal ``bandCount`` (same precondition as the raw
+  /// ``bands`` setter).
+  public var bandGains: [EqualizerGain] {
+    get { bands.map(EqualizerGain.init) }
+    set { bands = newValue.map(\.rawValue) }
+  }
+
+  /// Returns the typed gain for a specific band.
+  /// - Parameter band: Band index (0 ..< ``bandCount``).
+  /// - Precondition: `band` must be in `0 ..< bandCount`.
+  public func gain(forBand band: Int) -> EqualizerGain {
+    EqualizerGain(amplification(forBand: band))
+  }
+
+  /// Sets the typed gain for a specific band.
+  /// - Throws: `VLCError.operationFailed` if the band index is invalid.
+  public func setGain(_ gain: EqualizerGain, forBand band: Int) throws(VLCError) {
+    try setAmplification(gain.rawValue, forBand: band)
+  }
+}

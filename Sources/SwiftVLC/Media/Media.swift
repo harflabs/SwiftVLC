@@ -102,7 +102,7 @@ public final class Media: Sendable {
   ///   - instance: The libVLC instance that performs the parse.
   /// - Returns: The parsed ``Metadata``. Call ``tracks()`` afterwards
   ///   to obtain the discovered tracks.
-  /// - Throws: ``VLCError/parseTimeout`` if `timeout` expires, or
+  /// - Throws: ``VLCError/parseTimeout-enum.case`` if `timeout` expires, or
   ///   ``VLCError/parseFailed(reason:)`` for any other failure.
   public func parse(
     timeout: Duration = .seconds(10),
@@ -356,6 +356,15 @@ private final class ParseOperationRef: Sendable {
 
 private final class ParseOperation: Sendable {
   private struct State: @unchecked Sendable {
+    // Pointers live inside `State` so the Mutex's release-acquire
+    // pairing establishes a happens-before relation between the init
+    // (writer thread) and the libVLC event-thread callback (reader).
+    // ThreadSanitizer cannot see libVLC's internal synchronization; the
+    // explicit lock here makes the ordering visible without changing
+    // observable behavior — these pointers are write-once at init.
+    let media: OpaquePointer
+    let eventManager: OpaquePointer
+    let instance: OpaquePointer
     var continuation: CheckedContinuation<Result<Metadata, VLCError>, Never>?
     var callbackBox: UnsafeMutableRawPointer?
     var eventAttached = false
@@ -368,6 +377,7 @@ private final class ParseOperation: Sendable {
   private struct Cleanup: @unchecked Sendable {
     let callbackBox: UnsafeMutableRawPointer?
     let shouldDetachEvent: Bool
+    let eventManager: OpaquePointer
   }
 
   private struct Resume: @unchecked Sendable {
@@ -375,10 +385,14 @@ private final class ParseOperation: Sendable {
     let result: Result<Metadata, VLCError>
   }
 
-  nonisolated(unsafe) let media: OpaquePointer
-  private nonisolated(unsafe) let eventManager: OpaquePointer
-  private nonisolated(unsafe) let instance: OpaquePointer
   private let state: Mutex<State>
+
+  /// The media pointer this operation parses. Read through the lock so
+  /// callers (including the libVLC callback thread) get a TSan-visible
+  /// happens-before from init.
+  var media: OpaquePointer {
+    state.withLock { $0.media }
+  }
 
   init(
     continuation: CheckedContinuation<Result<Metadata, VLCError>, Never>,
@@ -386,14 +400,17 @@ private final class ParseOperation: Sendable {
     eventManager: OpaquePointer,
     instance: OpaquePointer
   ) {
-    self.media = media
-    self.eventManager = eventManager
-    self.instance = instance
     libvlc_media_retain(media)
-    state = Mutex(State(continuation: continuation))
+    state = Mutex(State(
+      media: media,
+      eventManager: eventManager,
+      instance: instance,
+      continuation: continuation
+    ))
   }
 
   deinit {
+    let media = state.withLock { $0.media }
     libvlc_media_release(media)
   }
 
@@ -415,25 +432,23 @@ private final class ParseOperation: Sendable {
   }
 
   func cancel() {
-    let resumeOrStop = state.withLock { state -> (Resume?, Bool) in
-      guard !state.isUserFinished else { return (nil, false) }
+    let (resume, parseStopArgs) = state.withLock { state -> (Resume?, (instance: OpaquePointer, media: OpaquePointer)?) in
+      guard !state.isUserFinished else { return (nil, nil) }
       state.isCancellationRequested = true
       guard state.requestStarted else {
-        return (
-          finishUserLocked(
-            &state,
-            with: .failure(.parseFailed(reason: "cancelled"))
-          ),
-          false
+        let resume = finishUserLocked(
+          &state,
+          with: .failure(.parseFailed(reason: "cancelled"))
         )
+        return (resume, nil)
       }
-      return (nil, true)
+      return (nil, (instance: state.instance, media: state.media))
     }
 
-    if resumeOrStop.1 {
-      libvlc_media_parse_stop(instance, media)
+    if let parseStopArgs {
+      libvlc_media_parse_stop(parseStopArgs.instance, parseStopArgs.media)
     }
-    if let resume = resumeOrStop.0 {
+    if let resume {
       resume.continuation.resume(returning: resume.result)
     }
   }
@@ -485,7 +500,8 @@ private final class ParseOperation: Sendable {
 
     let cleanup = Cleanup(
       callbackBox: state.callbackBox,
-      shouldDetachEvent: state.eventAttached
+      shouldDetachEvent: state.eventAttached,
+      eventManager: state.eventManager
     )
 
     state.callbackBox = nil
@@ -498,7 +514,7 @@ private final class ParseOperation: Sendable {
     guard let cleanup else { return }
     if cleanup.shouldDetachEvent, let box = cleanup.callbackBox {
       libvlc_event_detach(
-        eventManager,
+        cleanup.eventManager,
         Int32(libvlc_MediaParsedChanged.rawValue),
         parseCallback,
         box

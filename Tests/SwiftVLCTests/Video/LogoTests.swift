@@ -68,5 +68,21 @@ extension Integration {
       player.logo.position = 5 // top+left
       #expect(player.logo.position == 5)
     }
+
+    @Test
+    func `screenPosition typed accessor round-trips`() {
+      let player = Player(instance: TestInstance.shared)
+      player.logo.screenPosition = .topLeft
+      #expect(player.logo.screenPosition == .topLeft)
+      #expect(player.logo.position == 5) // raw bitmask still aligned
+
+      player.logo.screenPosition = .bottomRight
+      #expect(player.logo.screenPosition == .bottomRight)
+      #expect(player.logo.position == 10)
+
+      player.logo.screenPosition = []
+      #expect(player.logo.screenPosition == .center)
+      #expect(player.logo.position == 0)
+    }
   }
 }

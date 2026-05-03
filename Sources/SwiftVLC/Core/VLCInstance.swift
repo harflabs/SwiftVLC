@@ -1,5 +1,7 @@
 import CLibVLC
 import Darwin
+import Foundation
+import Synchronization
 
 /// The entry point for all libVLC operations.
 ///
@@ -104,6 +106,53 @@ public final class VLCInstance: Sendable {
   /// libVLC callback as consumers come and go.
   let logBroadcaster: LogBroadcaster
 
+  /// Per-instance dialog-handler claim. Scoping the registration to
+  /// the instance avoids cross-test leakage and ensures a freed
+  /// VLCInstance never leaves stale entries behind.
+  private let dialogRegistration = Mutex(DialogRegistrationState())
+
+  /// `@unchecked` because the box pointer is `UnsafeMutableRawPointer`.
+  /// All access goes through the enclosing `Mutex.withLock`.
+  fileprivate struct DialogRegistrationState: @unchecked Sendable {
+    var token: UUID?
+    var box: UnsafeMutableRawPointer?
+  }
+
+  /// Attempts to claim this instance's single dialog-callback slot.
+  ///
+  /// On success, returns the token the caller stores and later passes
+  /// to ``releaseDialogRegistration(token:)``. The caller is then
+  /// responsible for installing the libVLC dialog callbacks and
+  /// keeping the box pointer alive until release.
+  ///
+  /// Returns `nil` when another `DialogHandler` already holds the
+  /// slot — the caller must release the box themselves and finish
+  /// their stream.
+  func claimDialogRegistration(box: UnsafeMutableRawPointer) -> UUID? {
+    dialogRegistration.withLock { state -> UUID? in
+      guard state.token == nil else { return nil }
+      let token = UUID()
+      state.token = token
+      state.box = box
+      return token
+    }
+  }
+
+  /// Releases the dialog-callback slot. Returns the box pointer the
+  /// caller passed to `claimDialogRegistration` so it can be balanced
+  /// with `Unmanaged.release()`. Returns `nil` if the token doesn't
+  /// match the current registration (defensive: e.g. teardown order
+  /// where another handler already reclaimed the slot).
+  func releaseDialogRegistration(token: UUID) -> UnsafeMutableRawPointer? {
+    dialogRegistration.withLock { state -> UnsafeMutableRawPointer? in
+      guard state.token == token else { return nil }
+      let box = state.box
+      state.token = nil
+      state.box = nil
+      return box
+    }
+  }
+
   /// The libVLC version string (e.g. "4.0.0").
   public var version: String {
     String(cString: libvlc_get_version())
@@ -158,6 +207,23 @@ public final class VLCInstance: Sendable {
     // otherwise their continuations would hang forever and the C callback
     // could fire after the instance is freed.
     logBroadcaster.invalidate()
+
+    // Defensive: if a DialogHandler outlives normal cleanup or leaks,
+    // strip the libVLC dialog callbacks before release so the C side
+    // doesn't fire into a freed box. The box's Unmanaged retain leaks
+    // in that case (we can't safely release without knowing the type),
+    // but the alternative is a use-after-free.
+    let leakedBox = dialogRegistration.withLock { state -> UnsafeMutableRawPointer? in
+      let box = state.box
+      state.token = nil
+      state.box = nil
+      return box
+    }
+    if leakedBox != nil {
+      libvlc_dialog_set_callbacks(pointer, nil, nil)
+      libvlc_dialog_set_error_callback(pointer, nil, nil)
+    }
+
     libvlc_release(pointer)
   }
 }

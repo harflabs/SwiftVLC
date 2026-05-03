@@ -61,5 +61,27 @@ extension Logic {
       let sendable: any Sendable = error
       _ = sendable
     }
+
+    @Test
+    func `Equatable matches like cases by associated value`() {
+      #expect(VLCError.parseTimeout == .parseTimeout)
+      #expect(VLCError.parseTimeout != .instanceCreationFailed)
+      #expect(VLCError.mediaCreationFailed(source: "a.mp4") == .mediaCreationFailed(source: "a.mp4"))
+      #expect(VLCError.mediaCreationFailed(source: "a.mp4") != .mediaCreationFailed(source: "b.mp4"))
+      #expect(VLCError.trackNotFound(id: "0") != .invalidState("0"))
+    }
+
+    @Test
+    func `Hashable lets errors be deduplicated in a Set`() {
+      let errors: Set<VLCError> = [
+        .parseTimeout,
+        .parseTimeout,
+        .mediaCreationFailed(source: "a"),
+        .mediaCreationFailed(source: "a"),
+        .mediaCreationFailed(source: "b")
+      ]
+      // .parseTimeout collapses to 1; mediaCreationFailed has 2 distinct sources.
+      #expect(errors.count == 3)
+    }
   }
 }

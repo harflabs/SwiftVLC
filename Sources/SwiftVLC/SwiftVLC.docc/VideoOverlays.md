@@ -34,15 +34,17 @@ strftime-style placeholders refreshed at the interval configured by
 player.withMarquee { m in
     m.isEnabled = true
     m.setText("%H:%M:%S")
-    m.refresh = 1000          // refresh every second
+    m.refresh = 1000              // refresh every second
     m.fontSize = 24
     m.color = 0xFFFFFF
-    m.position = 8 | 1        // bottom-left (8 = bottom, 1 = left)
+    m.screenPosition = .bottomLeft
 }
 ```
 
-Position is a bitmask: combine `1` (left), `2` (right), `4` (top),
-`8` (bottom) with bitwise OR. `0` centers.
+Anchoring uses ``OverlayPosition``, an `OptionSet` whose flags compose
+into corners (`.topLeft`, `.bottomRight`, …) or an empty set for the
+center. The raw ``Marquee/position`` `Int` bitmask remains available for
+libVLC-flavored code.
 
 ## Logo (image overlay)
 
@@ -53,8 +55,8 @@ the video:
 player.withLogo { logo in
     logo.isEnabled = true
     logo.setFile("/tmp/logo.png")
-    logo.opacity = 200        // 0–255
-    logo.position = 4 | 2     // top-right
+    logo.opacity = 200            // 0–255
+    logo.screenPosition = .topRight
 }
 ```
 

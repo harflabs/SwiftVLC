@@ -34,11 +34,11 @@ do {
 
 | Case | Typically triggered by |
 |---|---|
-| ``VLCError/instanceCreationFailed`` | `libvlc.xcframework` not linked, missing plugins, OOM |
+| ``VLCError/instanceCreationFailed-enum.case`` | `libvlc.xcframework` not linked, missing plugins, OOM |
 | ``VLCError/mediaCreationFailed(source:)`` | Invalid URL, unreadable path, or bad file descriptor |
 | ``VLCError/playbackFailed(reason:)`` | libVLC refused to start playback; `reason` is its last error string |
 | ``VLCError/parseFailed(reason:)`` | ``Media/parse(timeout:instance:)`` ended with a non-success status |
-| ``VLCError/parseTimeout`` | ``Media/parse(timeout:instance:)`` hit the requested timeout |
+| ``VLCError/parseTimeout-enum.case`` | ``Media/parse(timeout:instance:)`` hit the requested timeout |
 | ``VLCError/trackNotFound(id:)`` | No track matches the requested identifier |
 | ``VLCError/invalidState(_:)`` | Operation is valid but the player isn't in the right state |
 | ``VLCError/operationFailed(_:)`` | A libVLC call returned non-zero; the string names the attempted op |

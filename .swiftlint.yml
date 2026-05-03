@@ -32,3 +32,9 @@ file_length:
 excluded:
 - .build
 - Modules
+# libVLC build artefacts and pre-built xcframework — multi-GB of upstream
+# C source plus binary frameworks. Swift files don't live here.
+- scripts/.build-libvlc
+- Vendor
+# .git working tree shouldn't ever be scanned by lint, but be explicit.
+- .git

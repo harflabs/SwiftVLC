@@ -82,5 +82,69 @@ extension Integration {
       player.marquee.position = 8 // bottom
       #expect(player.marquee.position == 8)
     }
+
+    @Test
+    func `screenPosition typed accessor round-trips`() {
+      let player = Player(instance: TestInstance.shared)
+      player.marquee.screenPosition = .bottomRight
+      #expect(player.marquee.screenPosition == .bottomRight)
+      #expect(player.marquee.position == 10)
+
+      player.marquee.screenPosition = [.top]
+      #expect(player.marquee.screenPosition == .top)
+      #expect(player.marquee.position == 4)
+
+      player.marquee.screenPosition = .center
+      #expect(player.marquee.position == 0)
+    }
+
+    /// Each style write cancels any pending restore task and schedules
+    /// a fresh one, so rapid mutations coalesce into a single restore
+    /// instead of queuing an unbounded number of in-flight tasks. We
+    /// verify by performing 100 rapid style writes interleaved with
+    /// text changes and checking that:
+    ///   1. No crash, no double-restore, no leaked task accumulation
+    ///   2. After the dust settles, `_marqueeText` matches the final
+    ///      explicit `setText` call.
+    @Test
+    func `Rapid style writes coalesce into a single restore`() async {
+      let player = Player(instance: TestInstance.shared)
+      player.marquee.isEnabled = true
+
+      for i in 0..<100 {
+        player.marquee.setText("text \(i)")
+        player.marquee.color = i % 2 == 0 ? 0xFF0000 : 0x00FF00
+        player.marquee.opacity = (i * 7) % 256
+        player.marquee.fontSize = 12 + (i % 24)
+      }
+
+      player.marquee.setText("final")
+
+      // Wait past the 50ms restore window plus a margin.
+      try? await Task.sleep(for: .milliseconds(150))
+
+      #expect(player._marqueeText == "final")
+      #expect(player._marqueeRestoreTask == nil)
+    }
+
+    /// Regression test: disabling the marquee while a restore task is
+    /// pending must not crash and must leave the player in a consistent
+    /// state.
+    @Test
+    func `Disable during pending restore is safe`() async {
+      let player = Player(instance: TestInstance.shared)
+      player.marquee.isEnabled = true
+      player.marquee.setText("hello")
+      // Schedule a restore by writing a style.
+      player.marquee.color = 0xFF0000
+      // Disable before the restore fires.
+      player.marquee.isEnabled = false
+
+      try? await Task.sleep(for: .milliseconds(150))
+
+      // Restore task either ran (and wrote text into a disabled filter,
+      // harmless) or got cancelled by deinit. Either way, no crash.
+      #expect(player.marquee.isEnabled == false)
+    }
   }
 }

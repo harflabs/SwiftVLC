@@ -91,6 +91,44 @@ sample-buffer pipeline.
   an unsupported vout. Start from ``VLCInstance/defaultArguments`` and
   append your own options instead.
 
+## macOS implementation notes
+
+SwiftVLC's macOS PiP path can use Apple's private `PIPViewController`
+class, loaded dynamically from `/System/Library/PrivateFrameworks/PIP.framework`.
+It is disabled by default because private frameworks are not public API.
+
+The reason: AVKit's public sample-buffer PiP API mirrors video frames
+through a `CALayerHost`, which on macOS releases SwiftVLC supports
+crops to 1:1 instead of scaling into the PiP panel. Without the
+private API, macOS PiP either looks broken or has to be disabled
+outright. The private API does what consumers expect — moves the
+existing VLC drawable view into the floating PiP window, keeping
+video, audio, subtitles, and time on the same VLC timeline.
+
+If your distribution channel accepts private API use, opt in at app
+launch:
+
+```swift
+import SwiftVLC
+
+@main
+struct MyApp: App {
+    init() {
+        PiPController.allowsPrivateMacOSAPI = true
+    }
+    var body: some Scene { ... }
+}
+```
+
+With the default flag value of `false`:
+- ``PiPController/isPossible`` returns `false` on macOS.
+- ``PiPController/start()`` is a no-op.
+- iOS PiP is unaffected — iOS uses only public AVKit.
+
+If `PIP.framework` ever stops loading (private API removed by Apple),
+``PiPController/isPossible`` returns `false` automatically — no crash,
+no fallback to the broken AVKit path.
+
 ## Platform availability
 
 Picture-in-Picture is available on iOS and macOS. tvOS has no PiP API

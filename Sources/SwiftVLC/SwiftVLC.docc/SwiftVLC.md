@@ -110,6 +110,7 @@ audio and video overlay APIs.
 
 - ``Marquee``
 - ``Logo``
+- ``OverlayPosition``
 - ``VideoAdjustments``
 - ``Viewpoint``
 
@@ -159,6 +160,14 @@ audio and video overlay APIs.
 
 - ``LogEntry``
 - ``LogLevel``
+
+### Typed values
+
+- ``PlaybackPosition``
+- ``Volume``
+- ``PlaybackRate``
+- ``SubtitleScale``
+- ``EqualizerGain``
 
 ### Errors
 

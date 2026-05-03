@@ -273,7 +273,7 @@ extension Integration {
     }
 
     @Test
-    func `Retiring callback context without opened vout releases opaque retain`() {
+    func `Retiring callback context without opened vout releases opaque retain`() throws {
       weak var weakContext: PixelBufferRendererCallbackContext?
       weak var weakRenderer: PixelBufferRenderer?
 
@@ -281,7 +281,7 @@ extension Integration {
         var renderer: PixelBufferRenderer? = PixelBufferRenderer(
           displayLayer: AVSampleBufferDisplayLayer()
         )
-        let context = try! PixelBufferRendererCallbackContext(renderer: #require(renderer))
+        let context = try PixelBufferRendererCallbackContext(renderer: #require(renderer))
         weakContext = context
         weakRenderer = renderer
         let retained = Unmanaged.passRetained(context)
@@ -336,7 +336,7 @@ extension Integration {
         var renderer: PixelBufferRenderer? = PixelBufferRenderer(
           displayLayer: AVSampleBufferDisplayLayer()
         )
-        let context = PixelBufferRendererCallbackContext(renderer: try #require(renderer))
+        let context = try PixelBufferRendererCallbackContext(renderer: #require(renderer))
         weakContext = context
         weakRenderer = renderer
         let retained = Unmanaged.passRetained(context)
