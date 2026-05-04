@@ -47,7 +47,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         timeout-minutes: 2
 
       - uses: maxim-lobanov/setup-xcode@v1
@@ -72,7 +72,7 @@ jobs:
         run: ./scripts/ci-use-released-xcframework.sh
 
       - name: Cache libvlc xcframework
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         timeout-minutes: 5
         with:
           path: .build/artifacts
@@ -83,7 +83,7 @@ jobs:
       # debug build, so cache them separately. Cache key includes the
       # sanitizer name to avoid TSan and ASan stomping each other.
       - name: Cache build products (sanitizer-${{ matrix.sanitizer }})
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         timeout-minutes: 3
         with:
           path: |
@@ -94,7 +94,7 @@ jobs:
             spm-build-sanitizer-${{ matrix.sanitizer }}-
 
       - name: Cache SPM dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         timeout-minutes: 2
         with:
           path: |

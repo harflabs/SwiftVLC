@@ -25,7 +25,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         timeout-minutes: 2
 
       - name: Install swiftlint and swiftformat
@@ -78,7 +78,7 @@ jobs:
           - scheme: visionOS
             destination: "generic/platform=visionOS"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         timeout-minutes: 2
 
       - uses: maxim-lobanov/setup-xcode@v1
@@ -94,7 +94,7 @@ jobs:
 
       # The libvlc xcframework dominates the artifact cache.
       - name: Cache libvlc xcframework
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         timeout-minutes: 5
         with:
           path: Vendor
@@ -137,7 +137,7 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         timeout-minutes: 2
 
       # Pin Xcode for SDKs / linker / simulators. Current GHA runners
@@ -183,7 +183,7 @@ jobs:
       # on the checksum means the cache only invalidates when the binary
       # actually changes — unrelated Package.swift edits don't bust it.
       - name: Cache libvlc xcframework
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         timeout-minutes: 5
         with:
           path: .build/artifacts
@@ -193,7 +193,7 @@ jobs:
       # Compiled outputs — safe to cache across runs with the same toolchain
       # and source state.
       - name: Cache build products
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         timeout-minutes: 3
         with:
           path: |
@@ -205,7 +205,7 @@ jobs:
             spm-build-${{ runner.os }}-
 
       - name: Cache SPM dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         timeout-minutes: 2
         with:
           path: |
