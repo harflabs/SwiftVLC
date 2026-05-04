@@ -144,7 +144,7 @@ The `Showcase/` directory contains separate folders, targets, and schemes for ea
 - **tvOS.** Native tvOS showcase app target with TV-focused focus navigation and Siri Remote controls.
 - **visionOS.** Native visionOS app target with a focused simple playback showcase.
 
-Showcase UI tests live under `Showcase/UITests/`: the existing coverage lives in the `iOSUITests` target, while `macOSUITests` and `tvOSUITests` are empty target shells. The visionOS showcase does not have a UI-test target yet.
+Showcase UI tests live under `Showcase/UITests/`. `iOSUITests` covers the broad showcase flows, and `macOSUITests` now covers the release-critical PiP, deinterlacing, and music-player regressions. `tvOSUITests` is still an empty target shell, and the visionOS showcase does not have a UI-test target yet.
 
 ## Testing
 
@@ -171,7 +171,7 @@ cd SwiftVLC
 swift test
 ```
 
-`main` tracks the latest released `url + checksum` form of the libVLC binary target, and the Showcase app tracks that same Swift package release. `setup-dev.sh` downloads `libvlc.xcframework.zip` into `Vendor/` and flips your checkout back to repo-local sources so package development and the Showcase app both build against what is on disk.
+`main` tracks the latest released `url + checksum` form of the libVLC binary target. `setup-dev.sh` downloads `libvlc.xcframework.zip` into `Vendor/` and idempotently flips `Package.swift` plus the Showcase package reference to repo-local sources so package development and Showcase builds use the checkout on disk.
 
 | `setup-dev.sh` flag | Effect |
 |---|---|

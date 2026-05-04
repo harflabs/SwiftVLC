@@ -103,7 +103,7 @@ Foundation types shared across all modules.
 |---|---|---|
 | `VLCInstance.swift` | `final class VLCInstance: Sendable` | Manages `libvlc_instance_t*` lifecycle. Singleton `shared` or custom with arguments. Owns the per-instance `dialogRegistration` Mutex. |
 | `VLCError.swift` | `enum VLCError: Error, Sendable, Equatable, Hashable, LocalizedError, CustomStringConvertible` | Typed errors with hand-rolled per-case accessors (`error.parseTimeout`, `error.mediaCreationFailed`, …). Auto-synthesized `Equatable`/`Hashable` over `String` payloads. |
-| `Broadcaster.swift` | `public final class Broadcaster<Element: Sendable>` | Multi-consumer fan-out used by the dialog, renderer, log, player-event, and playback-intent streams. Exposes `subscribe`, `broadcast`, `finishAll` (allows resubscribe) and `terminate` (permanent — future `subscribe` calls return immediately-finished streams). Lifecycle reconciliation runs on a private serial queue. |
+| `Broadcaster.swift` | `final class Broadcaster<Element: Sendable>` | Internal multi-consumer fan-out used by the dialog, renderer, log, player-event, and playback-intent streams. Exposes `subscribe`, `broadcast`, `finishAll` (allows resubscribe) and `terminate` (permanent — future `subscribe` calls return immediately-finished streams) inside the module. Lifecycle reconciliation runs on a private serial queue. |
 | `DialogHandler.swift` | `final class DialogHandler: Sendable` | Bridges libVLC's dialog callbacks (`login`, `question`, `progress`, `error`) onto a `Broadcaster<DialogEvent>`. `DialogID` carries the dialog handle through `DialogIDStorage` for safe `dismiss()` + post calls. |
 | `Logging.swift` | `AsyncStream<LogEntry>` via `LogBridge` | Filterable log stream backed by `Broadcaster<LogEntry>`. C shim formats `va_list` before Swift callback. `LogNoiseFilter` demotes known-noisy libVLC errors to warnings. |
 | `Signposts.swift` | `enum Signposts` | Process-wide `OSSignposter` for `org.swiftvlc` subsystem. Hot paths (`Broadcaster.broadcast`, `Player.handleEvent`, `EventBridge.callback`, `PixelBufferRenderer.outputPixelBuffer`) emit signposts visible in Instruments. Zero cost when no profiler is attached. |
@@ -421,11 +421,11 @@ libVLC's player event types are attached to the event manager and mapped to type
 `Broadcaster<Element: Sendable>` (in [`Sources/SwiftVLC/Core/Broadcaster.swift`](Sources/SwiftVLC/Core/Broadcaster.swift)) consolidates this pattern across the 5 places that needed it: player events, log entries, dialog callbacks, renderer discovery events, and playback intent. Per-subscriber state (continuation, optional filter, lifecycle phase) lives under a single `Mutex<State>`, so registration is one lock acquisition. `broadcast` snapshots the matching subscribers under the lock and yields outside it. Yielding resumes a consumer task and acquires its status-record lock; a concurrent task cancellation holds that same lock and calls `onTermination → unsubscribe → acquire Mutex`, so yielding while holding the `Mutex` would produce an AB-BA deadlock.
 
 ```swift
-public final class Broadcaster<Element: Sendable>: Sendable {
-  public func subscribe(bufferSize: Int? = nil, filter: Filter? = nil) -> AsyncStream<Element>
-  public func broadcast(_ element: Element)
-  public func finishAll()  // closes current subscribers; allows resubscribe
-  public func terminate()  // closes current + auto-finishes future subscribes
+final class Broadcaster<Element: Sendable>: Sendable {
+  func subscribe(bufferSize: Int? = nil, filter: Filter? = nil) -> AsyncStream<Element>
+  func broadcast(_ element: Element)
+  func finishAll()  // closes current subscribers; allows resubscribe
+  func terminate()  // closes current + auto-finishes future subscribes
 }
 ```
 
@@ -545,7 +545,7 @@ flowchart TB
 
 1. **Timebase sync.** Creates a `CMTimebase` and keeps it aligned with the player's state (playing, paused, or rate-shifted).
 2. **Duration reporting.** Invalidates the PiP controller once the duration becomes known, which is required before the controls can render.
-3. **Playback delegation.** Implements `AVPictureInPictureSampleBufferPlaybackDelegate` so the play, pause, and seek buttons on the PiP window route into the ``Player``.
+3. **Playback delegation.** Owns a `PiPPlaybackDelegateProxy` that implements `AVPictureInPictureSampleBufferPlaybackDelegate`, breaking AVKit's strong-retain cycle while routing PiP play, pause, and seek commands into the ``Player``.
 4. **State observation.** An observer task distinguishes VLC-initiated state changes from PiP-initiated ones.
 5. **Render-size tracking.** The iOS/direct sample-buffer path follows AVKit's render-size callbacks and emits target-sized buffers so live PiP resizing cannot display stale-size frames.
 6. **Deferred pause.** Skip-without-blink by deferring the pause via task cancellation.

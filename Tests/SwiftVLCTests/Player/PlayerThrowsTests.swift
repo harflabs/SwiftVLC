@@ -88,6 +88,17 @@ extension Integration {
       }
     }
 
+    @Test
+    func `setDeinterlace rejects undefined state values`() throws {
+      let player = Player(instance: TestInstance.shared)
+      #expect(throws: VLCError.invalidInput("state must be -1 (auto), 0 (off), or 1 (on)")) {
+        try player.setDeinterlace(state: 2)
+      }
+      #expect(throws: VLCError.invalidInput("state must be -1 (auto), 0 (off), or 1 (on)")) {
+        try player.setDeinterlace(state: -2)
+      }
+    }
+
     #if os(macOS)
     @Test
     func `setDeinterlace rejects active macOS hardware decoded playback`() throws {
@@ -121,6 +132,37 @@ extension Integration {
       #expect(throws: VLCError.self) {
         try player.takeSnapshot(to: "/tmp/swiftvlc-invalid-snapshot.png", width: -1)
       }
+    }
+
+    // MARK: - teletext
+
+    @Test
+    func `setTeletextPage rejects values outside libVLC page domain`() throws {
+      let player = Player(instance: TestInstance.shared)
+      #expect(throws: VLCError.invalidInput("teletext page must be 0 or in 1...999")) {
+        try player.setTeletextPage(-1)
+      }
+      #expect(throws: VLCError.invalidInput("teletext page must be 0 or in 1...999")) {
+        try player.setTeletextPage(1000)
+      }
+    }
+
+    @Test
+    func `setTeletextPage accepts disable and valid pages`() throws {
+      let player = Player(instance: TestInstance.shared)
+      try player.setTeletextPage(0)
+      try player.setTeletextPage(100)
+      try player.setTeletextPage(999)
+    }
+
+    @Test
+    func `sendTeletextKey accepts typed keys`() {
+      let player = Player(instance: TestInstance.shared)
+      player.sendTeletextKey(.red)
+      player.sendTeletextKey(.green)
+      player.sendTeletextKey(.yellow)
+      player.sendTeletextKey(.blue)
+      player.sendTeletextKey(.index)
     }
 
     // MARK: - setRate

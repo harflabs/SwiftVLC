@@ -1,6 +1,25 @@
 import CLibVLC
 import Darwin
 
+/// Teletext color/action keys accepted by libVLC's teletext input API.
+public enum TeletextKey: Sendable, Hashable {
+  case red
+  case green
+  case yellow
+  case blue
+  case index
+
+  var cValue: Int32 {
+    switch self {
+    case .red: Int32(libvlc_teletext_key_red.rawValue)
+    case .green: Int32(libvlc_teletext_key_green.rawValue)
+    case .yellow: Int32(libvlc_teletext_key_yellow.rawValue)
+    case .blue: Int32(libvlc_teletext_key_blue.rawValue)
+    case .index: Int32(libvlc_teletext_key_index.rawValue)
+    }
+  }
+}
+
 /// Video overlay accessors and the 360°/VR viewpoint API.
 extension Player {
   // MARK: - Video Adjustments
@@ -105,14 +124,26 @@ extension Player {
 
   /// Sets the current teletext page.
   ///
-  /// - Throws: ``VLCError/invalidInput(_:)`` if `page` cannot be
-  ///   represented by libVLC's `Int32` page parameter.
+  /// Pass `0` to disable teletext, or a page in `1...999`.
+  ///
+  /// - Throws: ``VLCError/invalidInput(_:)`` if `page` is outside
+  ///   libVLC's page domain.
   public func setTeletextPage(_ page: Int) throws(VLCError) {
+    guard (0...999).contains(page) else {
+      throw .invalidInput("teletext page must be 0 or in 1...999")
+    }
     guard let page = Int32(exactly: page) else {
       throw .invalidInput("teletext page must fit in Int32")
     }
     withMutation(keyPath: \.teletextPage) {
       libvlc_video_set_teletext(pointer, page)
+    }
+  }
+
+  /// Sends a teletext color/action key.
+  public func sendTeletextKey(_ key: TeletextKey) {
+    withMutation(keyPath: \.teletextPage) {
+      libvlc_video_set_teletext(pointer, key.cValue)
     }
   }
 }

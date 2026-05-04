@@ -41,10 +41,11 @@ extension Player {
 
   /// Sets a renderer for output (e.g. Chromecast).
   ///
-  /// Pass `nil` to revert to local playback. libVLC rejects renderer
-  /// changes while media is active; this is only valid when the player
-  /// is `.idle`, `.stopped`, or `.error`. Call `stop()` first to
-  /// reconfigure casting mid-session.
+  /// Pass `nil` to revert to local playback. libVLC only applies renderer
+  /// selection before the first `play()` call on a native media player.
+  /// SwiftVLC preserves the higher-level `Player` contract by recreating
+  /// the native media player when a stopped player has already been used.
+  /// Active playback still cannot be retargeted; call ``stop()`` first.
   ///
   /// - Parameter renderer: A ``RendererItem`` discovered by ``RendererDiscoverer``, or `nil`.
   /// - Throws: `VLCError.operationFailed` if the renderer cannot be set,
@@ -55,6 +56,10 @@ extension Player {
       break
     default:
       throw .operationFailed("Set renderer while player is \(state)")
+    }
+    selectedRenderer = renderer
+    if nativePlayerHasStartedPlayback {
+      replaceNativePlayerForRendererSelection()
     }
     let result = libvlc_media_player_set_renderer(pointer, renderer?.pointer)
     guard result == 0 else { throw .operationFailed("Set renderer") }
@@ -78,6 +83,9 @@ extension Player {
   ///   hardware-decoded instance, or ``VLCError/operationFailed(_:)``
   ///   if the filter cannot be applied.
   public func setDeinterlace(state: Int = -1, mode: String? = nil) throws(VLCError) {
+    guard [-1, 0, 1].contains(state) else {
+      throw .invalidInput("state must be -1 (auto), 0 (off), or 1 (on)")
+    }
     let state = try checkedInt32(state, parameter: "state")
     #if os(macOS)
     switch self.state {

@@ -90,6 +90,7 @@ struct MacVideoPanel: View {
 struct MacPlaybackControls: View {
   let player: Player
   var showsVolume = true
+  var playPauseAccessibilityID: String?
 
   var body: some View {
     @Bindable var bindable = player
@@ -104,7 +105,7 @@ struct MacPlaybackControls: View {
             systemImage: player.isPlaybackRequestedActive ? "pause.fill" : "play.fill"
           )
         }
-        .accessibilityIdentifier(AccessibilityID.MusicPlayer.playPauseButton)
+        .optionalAccessibilityIdentifier(playPauseAccessibilityID)
         .accessibilityLabel(player.isPlaybackRequestedActive ? "Pause" : "Play")
         .keyboardShortcut(.space, modifiers: [])
 
@@ -142,6 +143,24 @@ struct MacPlaybackControls: View {
       }
     }
     .controlSize(.regular)
+  }
+}
+
+private struct OptionalAccessibilityIdentifier: ViewModifier {
+  let identifier: String?
+
+  func body(content: Content) -> some View {
+    if let identifier {
+      content.accessibilityIdentifier(identifier)
+    } else {
+      content
+    }
+  }
+}
+
+extension View {
+  fileprivate func optionalAccessibilityIdentifier(_ identifier: String?) -> some View {
+    modifier(OptionalAccessibilityIdentifier(identifier: identifier))
   }
 }
 

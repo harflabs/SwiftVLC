@@ -2,7 +2,7 @@
 set -euo pipefail
 
 build_root="${SWIFT_BUILD_ROOT:-.build}"
-output="${SWIFT_LCOV_OUTPUT:-coverage/lcov.info}"
+output="${SWIFT_LCOV_OUTPUT:-.build/local-quality/coverage/lcov.info}"
 
 profdata="${SWIFT_COVERAGE_PROFDATA:-}"
 if [[ -z "$profdata" ]]; then

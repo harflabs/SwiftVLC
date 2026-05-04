@@ -360,6 +360,8 @@ public final class Player {
   private var nativePlayerHasHostedDrawable = false
   private var nativePlayerNeedsReplacementBeforePlayback = false
   private var retainedDrawablesUntilNativePlayerRelease: [AnyObject] = []
+  var selectedRenderer: RendererItem?
+  var nativePlayerHasStartedPlayback = false
   let instance: VLCInstance
 
   // MARK: - Lifecycle
@@ -535,6 +537,7 @@ public final class Player {
     if let currentMedia {
       libvlc_media_player_set_media(newPointer, currentMedia.pointer)
     }
+    _ = libvlc_media_player_set_renderer(newPointer, selectedRenderer?.pointer)
     _ = libvlc_audio_set_volume(newPointer, Int32(_volume * 100))
     libvlc_audio_set_mute(newPointer, _isMuted ? 1 : 0)
     _ = libvlc_media_player_set_rate(newPointer, playbackRate)
@@ -556,6 +559,7 @@ public final class Player {
     nativePlayerNeedsReplacementBeforePlayback = false
     needsDrawableRebindForPlayback = false
     nativePlayerHasHostedDrawable = target != nil
+    nativePlayerHasStartedPlayback = false
 
     releaseNativePlayer(
       oldPointer,
@@ -563,6 +567,10 @@ public final class Player {
       resumeBeforeStop: resumeBeforeRelease
     )
     notifyMediaDependentObservables()
+  }
+
+  func replaceNativePlayerForRendererSelection() {
+    replaceNativePlayerForDrawablePlayback(target: drawable)
   }
 
   // MARK: - Media Loading
@@ -623,6 +631,7 @@ public final class Player {
       let reason = libvlc_errmsg().map { String(cString: $0) } ?? "unknown"
       throw .playbackFailed(reason: reason)
     }
+    nativePlayerHasStartedPlayback = true
     publishPlaybackIntent(true)
   }
 

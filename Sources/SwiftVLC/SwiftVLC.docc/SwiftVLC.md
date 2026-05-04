@@ -113,6 +113,7 @@ audio and video overlay APIs.
 - ``OverlayPosition``
 - ``VideoAdjustments``
 - ``Viewpoint``
+- ``TeletextKey``
 
 ### Audio
 

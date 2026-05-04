@@ -27,7 +27,10 @@ struct MacMusicPlayerApp: View {
       HStack(alignment: .top, spacing: 20) {
         VStack(spacing: 16) {
           artwork
-          MacPlaybackControls(player: player)
+          MacPlaybackControls(
+            player: player,
+            playPauseAccessibilityID: AccessibilityID.MusicPlayer.playPauseButton
+          )
         }
         .frame(minWidth: 360)
 

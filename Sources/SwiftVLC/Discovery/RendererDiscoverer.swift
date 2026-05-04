@@ -103,9 +103,9 @@ public final class RendererDiscoverer: Sendable {
 /// Holds a reference to the underlying `libvlc_renderer_item_t`.
 /// Pass to ``Player/setRenderer(_:)`` to start casting.
 ///
-/// Identity is ``type``-then-``name``, so two `RendererItem`s for the
-/// same physical device compare equal even when they wrap distinct C
-/// pointers from independent discovery runs.
+/// Identity is the retained libVLC renderer-item pointer. Friendly names
+/// are not unique on a local network, so equality intentionally avoids
+/// collapsing two devices that advertise the same ``type`` and ``name``.
 public final class RendererItem: Sendable, Identifiable, Hashable {
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_renderer_item_t*
 
@@ -128,10 +128,10 @@ public final class RendererItem: Sendable, Identifiable, Hashable {
     String(cString: libvlc_renderer_item_type(pointer))
   }
 
-  /// Stable identifier composed of ``type`` and ``name``. Suitable as
-  /// the `id:` argument to SwiftUI's `ForEach` / `List`.
+  /// Stable identifier for this discovered renderer item while the
+  /// underlying libVLC item is alive.
   public var id: String {
-    "\(type)|\(name)"
+    "renderer:\(UInt(bitPattern: UnsafeRawPointer(pointer)))"
   }
 
   /// URI of the renderer's icon, if available.

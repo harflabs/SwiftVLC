@@ -15,8 +15,7 @@ on:
     paths:
       - 'Sources/SwiftVLC/Player/**'
       - 'Sources/SwiftVLC/PiP/**'
-      - 'Sources/SwiftVLC/Core/Logging.swift'
-      - 'Sources/SwiftVLC/Core/DialogHandler.swift'
+      - 'Sources/SwiftVLC/Core/**'
       - 'Sources/SwiftVLC/Media/Media.swift'
       - 'Sources/SwiftVLC/Media/ThumbnailRequest.swift'
       - 'Sources/SwiftVLC/Discovery/**'

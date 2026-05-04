@@ -101,7 +101,7 @@ with open(path, "r") as f:
 local_block = """/* Begin XCLocalSwiftPackageReference section */
 \t\tBA000001 /* XCLocalSwiftPackageReference \"..\" */ = {
 \t\t\tisa = XCLocalSwiftPackageReference;
-\t\t\trelativePath = ..;
+\t\t\trelativePath = \"..\";
 \t\t};
 /* End XCLocalSwiftPackageReference section */"""
 

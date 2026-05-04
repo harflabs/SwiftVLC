@@ -50,14 +50,20 @@ for await event in discoverer.events {
     switch event {
     case .itemAdded(let renderer):
         print("Found", renderer.name, renderer.type)
+        player.stop()
         try? player.setRenderer(renderer)
+        try? player.play(url: mediaURL)
     case .itemDeleted(let renderer):
         print("Lost", renderer.name)
     }
 }
 ```
 
-Pass `nil` to ``Player/setRenderer(_:)`` to revert to local playback.
+libVLC applies renderer selection before a native media player's first
+play. SwiftVLC recreates the native handle when needed for a stopped
+``Player``, but active playback still cannot be retargeted; stop first,
+set the renderer, then start playback again. Pass `nil` to
+``Player/setRenderer(_:)`` to revert to local playback.
 
 ## Inspecting a renderer
 

@@ -5,7 +5,6 @@ struct MacDeinterlacingCase: View {
   @State private var player = Player(instance: Self.playerInstance)
   @State private var state: Deinterlace = .auto
   @State private var mode: Mode = .yadif
-  @State private var didRunUITestToggleSequence = false
 
   var body: some View {
     MacShowcaseContent(
@@ -19,10 +18,13 @@ struct MacDeinterlacingCase: View {
         MacSection(title: "Filter") {
           Picker("State", selection: $state) {
             ForEach(Deinterlace.allCases) { state in
-              Text(state.label).tag(state)
+              Text(state.label)
+                .tag(state)
+                .accessibilityIdentifier(state.accessibilityIdentifier)
             }
           }
           .pickerStyle(.segmented)
+          .accessibilityIdentifier(AccessibilityID.MacDeinterlace.statePicker)
           .onChange(of: state) { applyDeinterlace() }
 
           Picker("Mode", selection: $mode) {
@@ -30,6 +32,7 @@ struct MacDeinterlacingCase: View {
               Text(mode.rawValue).tag(mode)
             }
           }
+          .accessibilityIdentifier(AccessibilityID.MacDeinterlace.modePicker)
           .onChange(of: mode) { applyDeinterlace() }
         }
       }
@@ -39,12 +42,12 @@ struct MacDeinterlacingCase: View {
           MacMetricRow(
             title: "State",
             value: state.label,
-            valueIdentifier: "macos.deinterlace.state.value"
+            valueIdentifier: AccessibilityID.MacDeinterlace.stateValue
           )
           MacMetricRow(
             title: "Mode",
             value: mode.rawValue,
-            valueIdentifier: "macos.deinterlace.mode.value"
+            valueIdentifier: AccessibilityID.MacDeinterlace.modeValue
           )
         }
       }
@@ -58,25 +61,10 @@ struct MacDeinterlacingCase: View {
   private func task() async {
     try? player.play(url: MacTestMedia.demo)
     applyDeinterlace()
-    await runUITestToggleSequenceIfNeeded()
   }
 
   private func applyDeinterlace() {
     try? player.setDeinterlace(state: state.rawValue, mode: mode.rawValue)
-  }
-
-  @MainActor
-  private func runUITestToggleSequenceIfNeeded() async {
-    guard LaunchArguments.isUITestMode, !didRunUITestToggleSequence else { return }
-    didRunUITestToggleSequence = true
-
-    try? await Task.sleep(for: .milliseconds(500))
-    state = .on
-    applyDeinterlace()
-
-    try? await Task.sleep(for: .milliseconds(500))
-    state = .off
-    applyDeinterlace()
   }
 
   private static let playerInstance = try! VLCInstance(
@@ -100,6 +88,14 @@ private enum Deinterlace: Int, CaseIterable, Identifiable {
     case .off: "Off"
     case .on: "On"
     case .auto: "Auto"
+    }
+  }
+
+  var accessibilityIdentifier: String {
+    switch self {
+    case .off: AccessibilityID.MacDeinterlace.stateOffSegment
+    case .on: AccessibilityID.MacDeinterlace.stateOnSegment
+    case .auto: AccessibilityID.MacDeinterlace.stateAutoSegment
     }
   }
 }
