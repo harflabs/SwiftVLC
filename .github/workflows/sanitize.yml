@@ -56,7 +56,7 @@ jobs:
         with:
           xcode-version: latest-stable
 
-      - uses: SwiftyLab/setup-swift@v1.13.0
+      - uses: SwiftyLab/setup-swift@v1.14.0
         timeout-minutes: 8
         with:
           swift-version: "6.3.1"
