@@ -1,5 +1,5 @@
 #if os(iOS) || os(macOS)
-@testable import SwiftVLC
+@_spi(PrivateMacOSPiP) @testable import SwiftVLC
 import AVFoundation
 import SwiftUI
 import Testing
@@ -236,6 +236,79 @@ extension Integration {
       #expect(mediaController.isMediaPlaying() == true)
 
       player.setPlaybackIntentFromExternalControl(false)
+      #expect(mediaController.isMediaPlaying() == false)
+    }
+
+    @Test
+    func `macOS native PiP backend start stop without media are safe no-ops`() {
+      let initialAllowsPrivateAPI = PiPController.allowsPrivateMacOSAPI
+      defer { PiPController.allowsPrivateMacOSAPI = initialAllowsPrivateAPI }
+      PiPController.allowsPrivateMacOSAPI = false
+
+      let player = Player(instance: TestInstance.shared)
+      let backend = MacNativePiPBackend()
+
+      backend.attach(to: player)
+      backend.start()
+      backend.invalidatePlaybackState()
+      backend.stop()
+
+      #expect(backend.isPossible == false)
+      #expect(backend.isActive == false)
+
+      backend.detach()
+
+      #expect(backend.isPossible == false)
+      #expect(backend.isActive == false)
+    }
+
+    @Test
+    func `macOS native PiP media controller defaults without player`() async {
+      let mediaController = MacNativePiPMediaController()
+      let didComplete = Box(false)
+
+      mediaController.play()
+      mediaController.pause()
+      mediaController.seek(by: 250) {
+        didComplete.value = true
+      }
+
+      await Task.yield()
+
+      #expect(didComplete.value)
+      #expect(mediaController.mediaLength() == 0)
+      #expect(mediaController.mediaTime() == 0)
+      #expect(mediaController.isMediaSeekable() == false)
+      #expect(mediaController.isMediaPlaying() == false)
+    }
+
+    @Test
+    func `macOS native PiP media controller reads player defaults and completes seek`() async {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(
+        currentTime: .seconds(5),
+        duration: .seconds(10),
+        isSeekable: true
+      )
+
+      let mediaController = MacNativePiPMediaController()
+      mediaController.player = player
+      let didComplete = Box(false)
+
+      mediaController.play()
+      mediaController.pause()
+      mediaController.seek(by: -10_000) {
+        didComplete.value = true
+      }
+
+      await Task.yield()
+      player.setPlaybackIntentFromExternalControl(false)
+
+      #expect(didComplete.value)
+      #expect(player.currentTime == .zero)
+      #expect(mediaController.mediaLength() >= 0)
+      #expect(mediaController.mediaTime() >= 0)
+      _ = mediaController.isMediaSeekable()
       #expect(mediaController.isMediaPlaying() == false)
     }
     #endif
