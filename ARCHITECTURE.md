@@ -48,7 +48,7 @@ flowchart TB
         subgraph Bottom["Supporting Modules"]
             Playlist["Playlist<br/>MediaList · ListPlayer"]
             Discovery["Discovery<br/>LAN/UPnP · Renderer"]
-            PiP["PiP<br/>iOS sample buffers · macOS native drawable"]
+            PiP["PiP<br/>iOS public sample buffers · macOS SPI native drawable"]
             EventBridge["EventBridge<br/>C → AsyncStream"]
         end
     end
@@ -71,7 +71,7 @@ flowchart TB
 
 - **Swift-first**: Direct C → Swift bindings, no Objective-C intermediary (unlike VLCKit)
 - **Observable state**: `@Observable` `@MainActor` Player drives SwiftUI updates automatically
-- **Typed concurrency**: Swift 6 strict concurrency. Every public type is `Sendable`, and async APIs use `AsyncStream`.
+- **Typed concurrency**: Swift 6 strict concurrency. Main-actor types own UI-adjacent C resources, and cross-actor resource/value types are `Sendable`.
 - **One-liner rendering**: `VideoView(player)` covers the setup, delegate wiring, and callbacks in one call.
 - **Typed errors**: `throws(VLCError)` for compile-time error handling
 
@@ -86,7 +86,7 @@ flowchart TB
 | **State** | `@Observable` / `@MainActor` | Automatic SwiftUI integration, thread safety |
 | **Events** | `AsyncStream<PlayerEvent>` | Native structured concurrency, multi-consumer |
 | **Video** | `UIView` / `NSView` via `set_nsobject` | Platform-native rendering, zero-copy |
-| **PiP** | iOS: vmem → `AVSampleBufferDisplayLayer`; macOS: native drawable PiP | Platform-appropriate PiP control |
+| **PiP** | iOS: vmem → `AVSampleBufferDisplayLayer`; macOS: native drawable backend behind SPI | Public iOS PiP plus explicit private-API macOS opt-in |
 | **Thread Safety** | `Mutex<T>`, `Sendable`, `nonisolated(unsafe)` | Compile-time data race prevention |
 | **Testing** | Swift Testing framework | Modern `@Test`, `#expect`, tags, traits |
 | **Platforms** | iOS 18+, macOS 15+, tvOS 18+, visionOS 2+, Mac Catalyst | Unified SwiftUI minimum |
@@ -109,7 +109,7 @@ Foundation types shared across all modules.
 | `Signposts.swift` | `enum Signposts` | Process-wide `OSSignposter` for `org.swiftvlc` subsystem. Hot paths (`Broadcaster.broadcast`, `Player.handleEvent`, `EventBridge.callback`, `PixelBufferRenderer.outputPixelBuffer`) emit signposts visible in Instruments. Zero cost when no profiler is attached. |
 | `Duration+Extensions.swift` | Extensions on `Duration` | `milliseconds`, `microseconds` properties and `formatted` display string |
 
-**Default VLC arguments:** `["--no-video-title-show", "--no-snapshot-preview"]`. `--no-stats` is *not* in the defaults — leaving it on would silently zero every `Media.statistics()` read, which is almost never what a caller wants. On macOS the default keeps VLC's Apple sample-buffer display available for inline playback, including its paired subtitle layer. ``PiPVideoView`` owns a native drawable container and moves that whole container into the system PiP presenter.
+**Default VLC arguments:** `["--no-video-title-show", "--no-snapshot-preview"]`. `--no-stats` is *not* in the defaults — leaving it on would silently zero every `Media.statistics()` read, which is almost never what a caller wants. On macOS the default keeps VLC's Apple sample-buffer display available for inline playback, including its paired subtitle layer. The private native-drawable PiP backend is present for explicitly opted-in non-App-Store builds, but it is SPI and disabled by default.
 
 ### Player
 
@@ -121,11 +121,11 @@ The central observable type that drives all playback.
 | `Player+Events.swift` | `extension Player` | The libVLC event-consumer task and `handleEvent(_:)` dispatch — pause-transition state machine, deferred-pause command, native-state probing, media-derived state reset. |
 | `Player+Audio.swift` | `extension Player` | Audio-output device selection, role, mix mode, stereo mode. |
 | `Player+Chapters.swift` | `extension Player` | Title/chapter navigation, DVD menu actions. |
-| `Player+ABLoop.swift` | `extension Player` | A-B loop state and time setters. |
+| `Player+ABLoop.swift` | `extension Player` | A-B loop state plus checked time/position mutations. |
 | `Player+Programs.swift` | `extension Player` | DVB/MPEG-TS program selection and scrambled-state polling. |
 | `Player+Recording.swift` | `extension Player` | Snapshot capture and recording start/stop. |
 | `Player+Overlays.swift` | `extension Player` | Scoped `withMarquee`/`withLogo`/`withAdjustments` accessors for the `~Copyable ~Escapable` overlay types. |
-| `Player+Typed.swift` | `extension Player` | Typed accessors that wrap raw `position`/`volume`/`rate`/`subtitleTextScale` setters in `PlaybackPosition`/`Volume`/`PlaybackRate`/`SubtitleScale`, plus the throwing `setPlaybackRate(_:)` variant. |
+| `Player+Typed.swift` | `extension Player` | Typed read-only accessors for raw `position`/`volume`/`rate`/`subtitleTextScale`, plus explicit checked mutation methods such as `setPlaybackRate(_:)`. |
 | `PlaybackValues.swift` | 5 typed wrapper structs | `PlaybackPosition`, `Volume`, `PlaybackRate`, `SubtitleScale`, `EqualizerGain`. Each is `Sendable, Hashable, Comparable, ExpressibleByFloatLiteral` and clamps to its valid range on construction. |
 | `EventBridge.swift` | `internal class` | C callbacks → `Broadcaster<PlayerEvent>` multi-consumer broadcaster. |
 | `PlayerState.swift` | `enum PlayerState` | `.idle`, `.opening`, `.buffering`, `.playing`, `.paused`, `.stopped`, `.stopping`, `.error`. Buffer fill is exposed separately as `Player.bufferFill` so `.paused` players still publish progress. |
@@ -149,31 +149,41 @@ player.audioTracks        // [Track]
 player.videoTracks        // [Track]
 player.subtitleTracks     // [Track]
 
-// Bindable properties (two-way binding)
-player.position           // Double (0.0–1.0), seeks on set
-player.volume             // Float (0.0–1.25)
+// Playback observations
+player.position           // Double (0.0–1.0), read-only
+player.volume             // Float (0.0–1.25), read-only requested volume shadow
+player.rate               // Float (current libVLC rate), read-only
+player.audioDelay         // Duration, read-only
+player.subtitleDelay      // Duration, read-only
+player.subtitleTextScale  // Float, read-only
+
+// Mutable properties
 player.isMuted            // Bool
-player.rate               // Float (0.25–4.0)
 player.selectedAudioTrack // Track?
 player.selectedSubtitleTrack // Track?
 player.aspectRatio        // AspectRatio
-player.audioDelay         // Duration
-player.subtitleDelay      // Duration
-player.subtitleTextScale  // Float
+
+// Checked mutations for formerly writable playback observations
+try player.seek(to: PlaybackPosition(0.5))
+try player.setAudioVolume(0.8)
+try player.setPlaybackRate(1.5)
+try player.setAudioDelay(.milliseconds(30))
+try player.setSubtitleDelay(.milliseconds(-100))
+player.setSubtitleScale(1.25)
 
 // Playback control
 try player.play(url: someURL)
 player.pause()
 player.resume()
-player.seek(to: .seconds(30))
-player.seek(by: .seconds(-10))
+try player.seek(to: .seconds(30))
+try player.seek(by: .seconds(-10))
 player.stop()
 
 // Advanced
-player.setABLoop(a: .seconds(10), b: .seconds(20))
-player.takeSnapshot(to: path, width: 320, height: 240)
+try player.setABLoop(a: .seconds(10), b: .seconds(20))
+try player.takeSnapshot(to: path, width: 320, height: 240)
 player.startRecording(to: directoryPath)
-player.updateViewpoint(Viewpoint(yaw: 90, pitch: 0, roll: 0, fieldOfView: 80))
+try player.updateViewpoint(Viewpoint(yaw: 90, pitch: 0, roll: 0, fieldOfView: 80))
 ```
 
 ### Media
@@ -253,15 +263,18 @@ Network service and renderer discovery.
 ### PiP (iOS/macOS only)
 
 Picture-in-Picture uses the platform path that best matches libVLC's
-video output. The module is split into 5 focused files; none carries a
-`swiftlint:disable` directive.
+video output. iOS uses public AVKit sample-buffer PiP. macOS has a
+native-drawable backend behind `PrivateMacOSPiP` SPI because the public
+sample-buffer mirror crops incorrectly on supported macOS releases. The
+module is split into 5 focused files; none carries a `swiftlint:disable`
+directive.
 
 | File | Type | Purpose |
 |---|---|---|
 | `PiPController.swift` | `@MainActor class PiPController` | PiP lifecycle, timebase sync, deferred-pause state machine, native-state observer task. |
 | `PiPController+Delegate.swift` | extension + private `PiPPlaybackDelegateProxy` | `AVPictureInPictureControllerDelegate` conformance plus the sample-buffer playback delegate proxy that breaks AVKit's strong-retain cycle (AVKit captures the playback delegate strongly even though the header declares it `weak`). Also hosts the `pipMainActorSync` helper for non-main AVKit callbacks that need synchronous main-actor answers. |
-| `PiPVideoView.swift` | SwiftUI representable | `PiPVideoView(player, controller: $binding)` — iOS hosts an `AVSampleBufferDisplayLayer`; macOS hosts the `MacNativePiPHostView` / `MacNativePiPDrawableView` containers. |
-| `PiPVideoView+MacPrivate.swift` | macOS-only private API plumbing | `MacNativePiPBackend` orchestrates `MacPrivatePiPPresenter` (dynamic loader for `PIPViewController` from `PIP.framework`), `MacPrivatePiPDelegate`, and `MacNativePiPMediaController`. All private-framework symbol references live in this one file for security/audit review. Gated by `PiPController.allowsPrivateMacOSAPI`. |
+| `PiPVideoView.swift` | SwiftUI representable | `PiPVideoView(player, controller: $binding)` — iOS hosts an `AVSampleBufferDisplayLayer`; macOS hosts native drawable containers whose PiP start path is unavailable unless the SPI opt-in is enabled. |
+| `PiPVideoView+MacPrivate.swift` | macOS-only private API plumbing | `MacNativePiPBackend` orchestrates `MacPrivatePiPPresenter` (dynamic loader for `PIPViewController` from `PIP.framework`), `MacPrivatePiPDelegate`, and `MacNativePiPMediaController`. All private-framework symbol references live in this one file for security/audit review. Gated by `PiPController.allowsPrivateMacOSAPI` SPI. |
 | `PixelBufferRenderer.swift` | `class PixelBufferRenderer: Sendable` | iOS/direct sample-buffer path: format → lock → unlock → display. `CVPixelBufferPool` → `CMSampleBuffer` → layer. |
 
 ---
@@ -503,7 +516,7 @@ PiP rendering depends on the platform:
 |---|---|
 | **VideoView** | `set_nsobject` → VLC renders directly into the view |
 | **PiP on iOS** | vmem callbacks → `CVPixelBuffer` → `CMSampleBuffer` → `AVSampleBufferDisplayLayer` → PiP |
-| **PiP on macOS** | `set_nsobject` drawable → same VLC-owned `NSView` is moved into the system PiP presenter |
+| **PiP on macOS** | SPI opt-in: `set_nsobject` drawable → same VLC-owned `NSView` is moved into the system PiP presenter |
 
 ### iOS/Direct vmem Callback Pipeline
 
@@ -537,14 +550,15 @@ flowchart TB
 5. **Render-size tracking.** The iOS/direct sample-buffer path follows AVKit's render-size callbacks and emits target-sized buffers so live PiP resizing cannot display stale-size frames.
 6. **Deferred pause.** Skip-without-blink by deferring the pause via task cancellation.
 
-On macOS, ``PiPVideoView`` intentionally bypasses SwiftVLC's vmem
+On macOS, the SPI native backend intentionally bypasses SwiftVLC's vmem
 renderer. It gives libVLC a normal `NSView` drawable and deliberately does
-not conform that view to VLC's sample-buffer PiP protocols. Entering PiP
-loads macOS's PiP presenter at runtime and reparents the exact VLC drawable
-view into the floating PiP controller. That keeps video, audio, play/pause
-intent, and time on one VLC timeline while avoiding the macOS AVKit
-sample-buffer `CALayerHost` mirror that can crop at 1:1 layer size instead
-of scaling into the PiP panel.
+not conform that view to VLC's sample-buffer PiP protocols. When the
+`PrivateMacOSPiP` SPI opt-in is enabled, entering PiP loads macOS's PiP
+presenter at runtime and reparents the exact VLC drawable view into the
+floating PiP controller. That keeps video, audio, play/pause intent, and
+time on one VLC timeline while avoiding the macOS AVKit sample-buffer
+`CALayerHost` mirror that can crop at 1:1 layer size instead of scaling
+into the PiP panel.
 
 ### Mutually Exclusive
 
@@ -559,7 +573,7 @@ the most recently attached drawable owns VLC's native video output.
 
 ### Typed Throws
 
-All fallible operations use `throws(VLCError)`:
+All throwing operations use `throws(VLCError)`:
 
 ```swift
 func play() throws(VLCError) {
@@ -595,9 +609,9 @@ All errors conform to `LocalizedError` and `CustomStringConvertible` for logging
 
 ### Overview
 
-A comprehensive **Swift Testing** suite (not XCTest) covers every
-public API. Every test is an integration test that exercises the real
-libVLC binary.
+A comprehensive **Swift Testing** suite targets the public API surface.
+Package tests are integration tests against the real libVLC binary.
+Showcase UI tests use XCTest separately.
 
 ```
 Tests/SwiftVLCTests/

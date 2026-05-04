@@ -1,59 +1,49 @@
-/// Typed-value accessors that wrap `Player`'s raw `Double`/`Float`
-/// properties in `PlaybackPosition`, `Volume`, `PlaybackRate`, and
-/// `SubtitleScale` — each clamps to its valid range on construction.
+/// Typed-value accessors that expose `Player`'s raw `Double`/`Float`
+/// observations as `PlaybackPosition`, `Volume`, `PlaybackRate`, and
+/// `SubtitleScale`. Mutations go through explicit methods so libVLC
+/// rejection and invalid state are not silently discarded by property
+/// writes.
 ///
 /// ```swift
-/// player.playbackPosition = .end       // clearer than `player.position = 1.0`
-/// player.audioVolume = .muted          // clearer than `player.volume = 0`
-/// player.playbackRate = .double        // clearer than `player.rate = 2.0`
+/// try player.seek(to: .end)
+/// try player.setAudioVolume(.muted)
+/// try player.setPlaybackRate(.double)
 /// ```
 extension Player {
   /// Fractional playback position, clamped to `0.0 ... 1.0`.
   ///
-  /// Setting this seeks. Prefer this over the raw ``position`` property
-  /// when you want compile-time clamping and the `.zero` / `.end`
-  /// shorthands.
+  /// Use ``seek(to:)-(PlaybackPosition)`` to change the position with validation.
   public var playbackPosition: PlaybackPosition {
-    get { PlaybackPosition(position) }
-    set { position = newValue.rawValue }
+    PlaybackPosition(position)
   }
 
   /// Audio output volume, clamped to `0.0 ... 1.25`.
   ///
-  /// Prefer this over the raw ``volume`` property when you want
-  /// compile-time clamping and the `.muted` / `.unity` shorthands.
+  /// Use ``setAudioVolume(_:)`` to change volume.
   public var audioVolume: Volume {
-    get { Volume(volume) }
-    set { volume = newValue.rawValue }
+    Volume(volume)
   }
 
   /// Playback rate, clamped to `0.25 ... 4.0`.
   ///
-  /// Prefer this over the raw ``rate`` property when you want
-  /// compile-time clamping and the `.normal` / `.half` / `.double`
-  /// shorthands. For rejection-aware rate changes use ``setRate(_:)``.
+  /// Use ``setPlaybackRate(_:)`` to request a new rate.
   public var playbackRate: PlaybackRate {
-    get { PlaybackRate(rate) }
-    set { rate = newValue.rawValue }
+    PlaybackRate(rate)
   }
 
   /// Subtitle text scale, clamped to `0.1 ... 5.0`.
   ///
-  /// Prefer this over the raw ``subtitleTextScale`` property when you
-  /// want compile-time clamping and the `.normal` / `.halfSize` /
-  /// `.doubleSize` shorthands.
+  /// Use ``setSubtitleScale(_:)`` to change scale.
   public var subtitleScale: SubtitleScale {
-    get { SubtitleScale(subtitleTextScale) }
-    set { subtitleTextScale = newValue.rawValue }
+    SubtitleScale(subtitleTextScale)
   }
 
   /// Sets the playback rate with rejection awareness.
   ///
   /// libVLC may reject rate changes for some media (e.g. live streams).
   /// The throwing variant lets callers distinguish "rejected" from
-  /// "applied", whereas assigning to ``playbackRate`` silently no-ops on
-  /// rejection.
+  /// "applied".
   public func setPlaybackRate(_ newRate: PlaybackRate) throws(VLCError) {
-    try setRate(newRate.rawValue)
+    try setRate(newRate)
   }
 }

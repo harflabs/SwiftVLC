@@ -37,10 +37,10 @@ struct TVSubtitlesDelayCase: View {
           TVMetricRow(title: "Subtitles", value: "\(player.subtitleTracks.count)")
         }
       }
-      TVLibrarySurface(symbols: ["player.subtitleDelay"])
+      TVLibrarySurface(symbols: ["player.setSubtitleDelay(_:)"])
     }
     .task { try? player.play(url: TVTestMedia.demo) }
-    .onChange(of: delayMs) { player.subtitleDelay = .milliseconds(Int(delayMs)) }
+    .onChange(of: delayMs) { try? player.setSubtitleDelay(.milliseconds(Int(delayMs))) }
     .onDisappear { player.stop() }
   }
 }

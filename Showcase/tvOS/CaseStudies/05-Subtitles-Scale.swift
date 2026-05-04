@@ -5,11 +5,9 @@ struct TVSubtitlesScaleCase: View {
   @State private var player = Player()
 
   var body: some View {
-    @Bindable var bindable = player
-
     TVShowcaseContent(
       title: "Subtitle Scale",
-      summary: "Adjust libVLC's rendered subtitle text scale from a simple SwiftUI binding.",
+      summary: "Adjust libVLC's rendered subtitle text scale through the typed method.",
       usage: "Step the scale up or down to resize rendered subtitle text while playback continues."
     ) {
       VStack(spacing: 16) {
@@ -18,7 +16,10 @@ struct TVSubtitlesScaleCase: View {
         TVSection(title: "Scale") {
           TVSlider(
             "Scale",
-            value: $bindable.subtitleTextScale,
+            value: Binding(
+              get: { player.subtitleTextScale },
+              set: { player.setSubtitleScale(SubtitleScale($0)) }
+            ),
             in: 0.1...5.0,
             step: 0.1
           ) { String(format: "%.1fx", $0) }
@@ -34,7 +35,7 @@ struct TVSubtitlesScaleCase: View {
           TVMetricRow(title: "Subtitles", value: "\(player.subtitleTracks.count)")
         }
       }
-      TVLibrarySurface(symbols: ["player.subtitleTextScale"])
+      TVLibrarySurface(symbols: ["player.setSubtitleScale(_:)"])
     }
     .task { try? player.play(url: TVTestMedia.demo) }
     .onDisappear { player.stop() }

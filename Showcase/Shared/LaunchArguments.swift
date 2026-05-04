@@ -17,6 +17,11 @@ enum LaunchArguments {
   /// as JSONL records (one entry per line).
   static let logPath = "-UITestLogPath"
 
+  /// Pipe-separated absolute paths used by Music Player UI tests to
+  /// exercise distinct local media swaps without depending on network
+  /// streams.
+  static let musicFixtureURLs = "-UITestMusicFixtureURLs"
+
   /// Name of a showcase to deep-link to on launch (e.g. `"SimplePlayback"`).
   /// When unset, the showcase opens its normal navigation tree.
   static let route = "-UITestRoute"
@@ -31,6 +36,13 @@ enum LaunchArguments {
 
   static var logPathValue: String? {
     UserDefaults.standard.string(forKey: key(logPath))
+  }
+
+  static var musicFixtureURLValues: [URL] {
+    UserDefaults.standard.string(forKey: key(musicFixtureURLs))?
+      .split(separator: "|")
+      .map { URL(fileURLWithPath: String($0)) }
+      ?? []
   }
 
   static var routeValue: String? {

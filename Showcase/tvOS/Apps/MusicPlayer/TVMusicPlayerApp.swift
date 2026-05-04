@@ -2,11 +2,12 @@ import SwiftUI
 import SwiftVLC
 
 struct TVMusicPlayerApp: View {
-  @State private var player = Player()
+  @State private var player = Player(instance: Self.audioOnlyInstance)
   @State private var selectedSongID: Song.ID? = Song.demo.id
   @State private var metadata: Metadata?
 
   private let songs = Song.all
+  private static let audioOnlyInstance = try! VLCInstance(arguments: VLCInstance.defaultArguments + ["--no-video"])
 
   var body: some View {
     TVShowcaseContent(
@@ -72,8 +73,9 @@ struct TVMusicPlayerApp: View {
 
   private func selectedSongChanged() async {
     guard let song = currentSong else { return }
-    try? player.play(url: song.url)
     metadata = nil
+    player.role = .music
+    try? player.play(url: song.url)
     if let media = try? Media(url: song.url) {
       let parsedMetadata = try? await media.parse()
       guard !Task.isCancelled, selectedSongID == song.id else { return }

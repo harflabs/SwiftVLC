@@ -52,7 +52,7 @@ struct TVEqualizerCase: View {
 }
 
 private struct TVEqualizerControls: View {
-  @Bindable var equalizer: Equalizer
+  let equalizer: Equalizer
   @Binding var preset: Int
   let presetButtonTapped: () -> Void
 
@@ -75,7 +75,10 @@ private struct TVEqualizerControls: View {
 
       TVSlider(
         "Preamp",
-        value: $equalizer.preamp,
+        value: Binding(
+          get: { equalizer.preamp },
+          set: { equalizer.preampGain = EqualizerGain($0) }
+        ),
         in: -20...20,
         step: 0.5
       ) { String(format: "%+.1f dB", $0) }
@@ -83,9 +86,9 @@ private struct TVEqualizerControls: View {
       VStack(spacing: 8) {
         ForEach(0..<Equalizer.bandCount, id: \.self) { band in
           bandSlider(
-            value: $equalizer.bands[band],
+            value: bandBinding(band),
             label: frequencyLabel(for: band),
-            currentValue: equalizer.bands[band]
+            currentValue: bandValue(band)
           )
         }
       }
@@ -94,10 +97,21 @@ private struct TVEqualizerControls: View {
   }
 
   private func frequencyLabel(for band: Int) -> String {
-    let frequency = Equalizer.bandFrequency(at: band)
+    guard let frequency = Equalizer.bandFrequency(at: band) else { return "B\(band + 1)" }
     return frequency >= 1000
       ? String(format: "%.0fk", frequency / 1000)
       : String(format: "%.0f", frequency)
+  }
+
+  private func bandValue(_ band: Int) -> Float {
+    equalizer.amplification(forBand: band) ?? 0
+  }
+
+  private func bandBinding(_ band: Int) -> Binding<Float> {
+    Binding(
+      get: { bandValue(band) },
+      set: { try? equalizer.setAmplification($0, forBand: band) }
+    )
   }
 
   private func bandSlider(

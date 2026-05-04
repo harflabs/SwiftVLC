@@ -86,7 +86,7 @@ extension Integration {
       let media = try Media(url: TestMedia.twosecURL)
       player.load(media)
 
-      player.audioDelay = .milliseconds(100)
+      try player.setAudioDelay(.milliseconds(100))
       #expect(player.audioDelay == .milliseconds(100))
     }
 
@@ -97,7 +97,7 @@ extension Integration {
       let media = try Media(url: TestMedia.twosecURL)
       player.load(media)
 
-      player.subtitleDelay = .milliseconds(-200)
+      try player.setSubtitleDelay(.milliseconds(-200))
       #expect(player.subtitleDelay == .milliseconds(-200))
     }
 

@@ -78,12 +78,11 @@ final class MacNativePiPBackend: NSObject, @unchecked Sendable {
   }
 
   private func refreshPossible() {
-    // `allowsPrivateMacOSAPI` is a global opt-in (default `false`). When
-    // a consumer leaves it disabled, macOS PiP remains unavailable
-    // outright: `isPossible` returns `false` and `start()` is a no-op.
-    // The check happens here (rather than at PiPController init) so the
-    // flag can be flipped at runtime and take effect on the next attach
-    // or start.
+    // `allowsPrivateMacOSAPI` is an SPI opt-in (default `false`). When it
+    // is disabled, the native macOS PiP backend remains unavailable:
+    // `isPossible` returns `false` and `start()` is a no-op. The check happens here
+    // (rather than at PiPController init) so the flag can be flipped at
+    // runtime and take effect on the next attach or start.
     guard PiPController.allowsPrivateMacOSAPI else {
       setPossible(false)
       return
@@ -488,7 +487,7 @@ final class MacNativePiPMediaController: NSObject, @unchecked Sendable {
 
       let duration = player.duration?.milliseconds ?? Int64.max
       let target = max(0, min(player.currentTime.milliseconds + offset, duration))
-      player.seek(to: .milliseconds(target))
+      try? player.seek(to: .milliseconds(target))
       completion?()
     }
   }

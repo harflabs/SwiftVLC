@@ -28,8 +28,15 @@ struct VolumeCase: View {
       Section("Volume") {
         Toggle("Muted", isOn: $bindable.isMuted)
           .accessibilityIdentifier(AccessibilityID.Volume.muteToggle)
-        CompatSlider(value: $bindable.volume, range: 0...1.25, step: 0.05)
-          .accessibilityIdentifier(AccessibilityID.Volume.slider)
+        CompatSlider(
+          value: Binding(
+            get: { player.volume },
+            set: { try? player.setAudioVolume(Volume($0)) }
+          ),
+          range: 0...1.25,
+          step: 0.05
+        )
+        .accessibilityIdentifier(AccessibilityID.Volume.slider)
         HStack {
           Text("Level")
           Spacer()

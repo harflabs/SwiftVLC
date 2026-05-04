@@ -108,8 +108,9 @@ means writing your own `UIViewRepresentable`, coordinating lifetime,
 and re-publishing state yourself.
 
 SwiftVLC ships ``VideoView``, ``PiPVideoView``, and a ``PiPController``
-that handle the view bridge, the drawable attachment, and the
-platform PiP pipeline. See
+that handle the view bridge and drawable attachment. iOS PiP uses the
+public AVKit sample-buffer pipeline; macOS native PiP is a private-API
+SPI opt-in rather than stable public API. See
 <doc:DisplayingVideo> and <doc:PictureInPicture>.
 
 ## Distribution

@@ -1,5 +1,5 @@
 #if os(iOS) || os(macOS)
-@testable import SwiftVLC
+@_spi(PrivateMacOSPiP) @testable import SwiftVLC
 import AVFoundation
 import AVKit
 import Dispatch

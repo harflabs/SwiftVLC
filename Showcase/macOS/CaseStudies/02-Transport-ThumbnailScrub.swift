@@ -46,7 +46,7 @@ struct MacThumbnailScrubCase: View {
         Button("Regenerate", systemImage: "arrow.clockwise") { Task { await regenerateButtonTapped() } }
           .disabled(isPreparing)
       }
-      MacLibrarySurface(symbols: ["Media.thumbnail(at:)", "player.position"])
+      MacLibrarySurface(symbols: ["Media.thumbnail(at:)", "player.seek(to:)"])
     }
     .task { await task() }
     .onDisappear { player.stop() }
@@ -68,7 +68,7 @@ struct MacThumbnailScrubCase: View {
 
   private func scrubEditingChanged(_ editing: Bool) {
     guard !editing else { return }
-    player.position = previewPosition
+    try? player.seek(to: PlaybackPosition(previewPosition))
   }
 
   private func generateTiles() async {

@@ -61,6 +61,14 @@ extension Duration {
     return Int32(value)
   }
 
+  func checkedMicroseconds(parameter: String) throws(VLCError) -> Int64 {
+    let conversion = converted(toUnitsPerSecond: 1_000_000)
+    guard !conversion.overflow else {
+      throw .invalidInput("\(parameter) is outside the supported microsecond range")
+    }
+    return conversion.value
+  }
+
   private func converted(toUnitsPerSecond unitsPerSecond: Int64) -> (value: Int64, overflow: Bool) {
     let (seconds, attoseconds) = components
     let attosecondsPerSecond: Int64 = 1_000_000_000_000_000_000

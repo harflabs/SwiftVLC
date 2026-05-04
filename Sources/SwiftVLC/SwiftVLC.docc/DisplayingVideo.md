@@ -36,18 +36,16 @@ player.aspectRatio = .fill              // cover the display; may crop
 
 ## When to use PiPVideoView instead
 
-For Picture-in-Picture on iOS or macOS, use ``PiPVideoView`` in place
-of ``VideoView``. The two should not share a player. iOS routes frames
-through SwiftVLC's sample-buffer pipeline; macOS hands libVLC a native
-drawable and moves that same view into the system PiP presenter, so PiP
-controls and timing stay attached to VLC's own video output without the
-AVKit sample-buffer mirror cropping path.
+For Picture-in-Picture on iOS, use ``PiPVideoView`` in place of
+``VideoView``. The two should not share a player. iOS routes frames
+through SwiftVLC's public sample-buffer pipeline so AVKit controls and
+timing stay attached to VLC playback.
 
-On macOS, keep the default ``VLCInstance`` arguments for players that
-use PiP. The default keeps VLC's Apple sample-buffer display available
-for inline playback, while ``PiPVideoView`` moves the full native
-drawable container into the system PiP presenter so video and subtitles
-stay together.
+On macOS, SwiftVLC's stable public API does not promise working PiP.
+``PiPVideoView`` hosts a native drawable container for inline playback,
+but its native PiP start path is unavailable unless a build opts into the
+`PrivateMacOSPiP` SPI. That SPI uses private Apple framework symbols and
+is outside the public compatibility contract.
 
 See <doc:PictureInPicture> for the complete setup.
 

@@ -7,7 +7,7 @@ struct TVSeekingCase: View {
   var body: some View {
     TVShowcaseContent(
       title: "Seeking",
-      summary: "Drive absolute and relative seeks with Player.position, seek(to:), and seek(by:).",
+      summary: "Drive checked absolute and relative seeks with seek(to:) and seek(by:).",
       usage: "Use the focused position controls or jump buttons to exercise absolute and relative seeking from SwiftUI."
     ) {
       VStack(spacing: 16) {
@@ -31,10 +31,10 @@ struct TVSeekingCase: View {
   private var skipControls: some View {
     TVSection(title: "Jump") {
       TVControlGrid {
-        Button("Back 30", systemImage: "gobackward.30") { player.seek(by: .seconds(-30)) }
-        Button("Back 10", systemImage: "gobackward.10") { player.seek(by: .seconds(-10)) }
-        Button("Forward 10", systemImage: "goforward.10") { player.seek(by: .seconds(10)) }
-        Button("Forward 30", systemImage: "goforward.30") { player.seek(by: .seconds(30)) }
+        Button("Back 30", systemImage: "gobackward.30") { try? player.seek(by: .seconds(-30)) }
+        Button("Back 10", systemImage: "gobackward.10") { try? player.seek(by: .seconds(-10)) }
+        Button("Forward 10", systemImage: "goforward.10") { try? player.seek(by: .seconds(10)) }
+        Button("Forward 30", systemImage: "goforward.30") { try? player.seek(by: .seconds(30)) }
       }
       .disabled(!player.isSeekable)
     }

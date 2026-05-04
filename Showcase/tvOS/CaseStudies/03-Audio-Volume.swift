@@ -9,7 +9,7 @@ struct TVVolumeCase: View {
 
     TVShowcaseContent(
       title: "Volume",
-      summary: "Use Player.volume and Player.isMuted as regular SwiftUI bindings.",
+      summary: "Use checked volume updates alongside regular mute bindings.",
       usage: "Adjust volume or mute from SwiftUI controls and verify the Player.volume and Player.isMuted values stay in sync."
     ) {
       VStack(spacing: 16) {
@@ -21,7 +21,10 @@ struct TVVolumeCase: View {
               .foregroundStyle(.secondary)
             TVSlider(
               "Volume",
-              value: $bindable.volume,
+              value: Binding(
+                get: { player.volume },
+                set: { try? player.setAudioVolume(Volume($0)) }
+              ),
               in: 0...1.25,
               step: 0.05
             ) { "\(Int($0 * 100))%" }

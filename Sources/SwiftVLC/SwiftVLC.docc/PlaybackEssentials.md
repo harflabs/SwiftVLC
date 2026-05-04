@@ -51,46 +51,49 @@ binds to them directly, without a publisher or Combine adapter.
 - ``Player/state`` is the strict libVLC lifecycle state. It can lag
   transport intent briefly during PiP and other asynchronous transitions.
 
-## Bindable state
+## Observable state and checked mutations
 
-The following properties are read-write and mirror their values back
-to libVLC on set. Because they're observed, SwiftUI can bind controls
-to them directly:
+SwiftVLC keeps raw playback observations read-only. Mutations go through
+explicit methods so invalid state and libVLC rejection are visible instead
+of being hidden in writable properties:
 
 ```swift
-Slider(value: $player.position)   // 0.0 ... 1.0
-Slider(value: $player.volume)     // 0.0 ... 1.25 (values above 1.0 amplify)
+Slider(
+    value: Binding(
+        get: { player.playbackPosition.rawValue },
+        set: { try? player.seek(to: PlaybackPosition($0)) }
+    )
+)
+
+Slider(
+    value: Binding(
+        get: { Double(player.audioVolume.rawValue) },
+        set: { try? player.setAudioVolume(Volume(Float($0))) }
+    ),
+    in: 0...1.25
+)
 ```
 
 | Property | Range | Notes |
 |---|---|---|
-| ``Player/position`` | `0.0 ... 1.0` | Fractional playback position |
-| ``Player/volume`` | `0.0 ... 1.25` | `1.0` is 100%; above 1.0 amplifies |
+| ``Player/position`` | `0.0 ... 1.0` | Read-only fractional playback position |
+| ``Player/volume`` | `0.0 ... 1.25` | Read-only requested volume shadow |
 | ``Player/isMuted`` | — | Independent of volume |
-| ``Player/rate`` | any positive | `1.0` is normal; practical range `0.25 ... 4.0` |
+| ``Player/rate`` | `0.25 ... 4.0` via ``PlaybackRate`` | Read-only current rate |
 | ``Player/aspectRatio`` | ``AspectRatio`` | See <doc:DisplayingVideo> |
-| ``Player/audioDelay`` / ``Player/subtitleDelay`` | `Duration` | Positive values delay the channel |
-| ``Player/subtitleTextScale`` | `0.1 ... 5.0` | Clamped by libVLC |
+| ``Player/audioDelay`` / ``Player/subtitleDelay`` | `Duration` | Read-only; positive values delay the channel |
+| ``Player/subtitleTextScale`` | `0.1 ... 5.0` | Read-only current scale |
 
 ### Typed equivalents
 
-For new code, prefer the typed accessors that mirror these raw
-properties. Each accessor wraps its value in a struct that clamps to
-the valid range on construction and exposes named constants:
+Each typed value clamps to its valid range on construction and exposes
+named constants. Use the explicit mutation methods for changes:
 
 ```swift
-player.playbackPosition = .end          // == player.position = 1.0
-player.audioVolume = .muted             // == player.volume = 0.0
-player.playbackRate = .double           // == player.rate = 2.0
-player.subtitleScale = .doubleSize      // == player.subtitleTextScale = 2.0
-```
-
-Assigning to ``Player/playbackRate`` silently no-ops if libVLC rejects
-the change (as it does for some live streams). For rejection-aware
-control, use the throwing variant:
-
-```swift
-try player.setPlaybackRate(.normal)     // throws VLCError on rejection
+try player.seek(to: PlaybackPosition.end)
+try player.setAudioVolume(.muted)
+try player.setPlaybackRate(.double)
+player.setSubtitleScale(.doubleSize)
 ```
 
 The typed wrappers — ``PlaybackPosition``, ``Volume``, ``PlaybackRate``,
@@ -106,13 +109,15 @@ player.pause()                 // pause current playback
 player.resume()                // unpause
 player.togglePlayPause()       // flip between pause/resume
 player.stop()                  // async stop
-player.seek(to: .seconds(30))  // absolute seek
-player.seek(by: .seconds(-10)) // relative seek
+try player.seek(to: .seconds(30))  // absolute seek
+try player.seek(by: .seconds(-10)) // relative seek
 player.nextFrame()             // pause + step one frame
 ```
 
-Seeks are asynchronous. Observe ``Player/currentTime`` (or the
-``PlayerEvent/timeChanged(_:)`` event) to detect completion.
+Seeks throw when the current media is not seekable or the requested time
+is outside the known playable range. Native completion is asynchronous;
+observe ``Player/currentTime`` or ``PlayerEvent/timeChanged(_:)`` for
+the final libVLC timestamp.
 
 ## The raw event stream
 
@@ -167,11 +172,12 @@ See <doc:ConcurrencyModel> for the full isolation story.
 - ``Player/pause()``
 - ``Player/resume()``
 - ``Player/stop()``
-- ``Player/seek(to:)``
+- ``Player/seek(to:)-(Duration)``
+- ``Player/seek(to:)-(PlaybackPosition)``
 - ``Player/seek(by:)``
 - ``Player/nextFrame()``
 
-### Bindable properties
+### Observable properties
 - ``Player/position``
 - ``Player/volume``
 - ``Player/isMuted``
@@ -182,4 +188,6 @@ See <doc:ConcurrencyModel> for the full isolation story.
 - ``Player/audioVolume``
 - ``Player/playbackRate``
 - ``Player/subtitleScale``
+- ``Player/setAudioVolume(_:)``
 - ``Player/setPlaybackRate(_:)``
+- ``Player/setSubtitleScale(_:)``

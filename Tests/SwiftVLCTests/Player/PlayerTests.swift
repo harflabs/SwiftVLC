@@ -65,6 +65,49 @@ extension Integration {
     }
 
     @Test
+    func `Play while active replaces native player before loading new media`() throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let first = try Media(url: TestMedia.testMP4URL)
+      let second = try Media(url: TestMedia.twosecURL)
+
+      player.load(first)
+      player._setStateForTesting(state: .playing, isPlaybackRequestedActive: true)
+      let oldPointer = player.pointer
+
+      do {
+        try player.play(second)
+      } catch {
+        _ = error
+      }
+
+      #expect(player.currentMedia === second)
+      #expect(player.pointer != oldPointer)
+      player.stop()
+    }
+
+    @Test
+    func `Stale terminal event from replaced native player does not clear playback intent`() throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let first = try Media(url: TestMedia.testMP4URL)
+      let second = try Media(url: TestMedia.twosecURL)
+
+      player.load(first)
+      player._setStateForTesting(state: .playing, isPlaybackRequestedActive: true)
+      let oldPointer = player.pointer
+
+      do {
+        try player.play(second)
+      } catch {
+        _ = error
+      }
+
+      #expect(player.isPlaybackRequestedActive)
+      player._handleEventForTesting(.stateChanged(.stopped), source: oldPointer)
+      #expect(player.isPlaybackRequestedActive)
+      player.stop()
+    }
+
+    @Test
     func `mediaChanged resyncs currentMedia and clears timeline state`() throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let initial = try Media(url: TestMedia.testMP4URL)
@@ -160,7 +203,8 @@ extension Integration {
       let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
-      player.seek(to: .seconds(1))
+      try #require(await poll(until: { player.isSeekable }), "Waiting for: player.isSeekable")
+      try player.seek(to: .seconds(1))
       try await Task.sleep(for: .milliseconds(100))
       player.stop()
     }
@@ -170,7 +214,8 @@ extension Integration {
       let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
-      player.seek(by: .milliseconds(500))
+      try #require(await poll(until: { player.isSeekable }), "Waiting for: player.isSeekable")
+      try player.seek(by: .milliseconds(500))
       try await Task.sleep(for: .milliseconds(100))
       player.stop()
     }
@@ -178,7 +223,7 @@ extension Integration {
     @Test
     func `Volume get and set`() {
       let player = Player(instance: TestInstance.shared)
-      player.volume = 0.5
+      try? player.setAudioVolume(Volume(0.5))
       let vol = player.volume
       #expect(vol >= 0.4 && vol <= 0.6)
     }
@@ -186,7 +231,7 @@ extension Integration {
     @Test
     func `Volume clamping`() {
       let player = Player(instance: TestInstance.shared)
-      player.volume = -1.0
+      try? player.setAudioVolume(Volume(-1.0))
       #expect(player.volume >= 0)
     }
 
@@ -200,37 +245,39 @@ extension Integration {
     }
 
     @Test
-    func `Rate get and set`() {
+    func `Rate get and set`() throws {
       let player = Player(instance: TestInstance.shared)
-      player.rate = 2.0
+      try player.setPlaybackRate(PlaybackRate(2.0))
       #expect(player.rate == 2.0)
-      player.rate = 1.0
+      try player.setPlaybackRate(PlaybackRate(1.0))
     }
 
     @Test
-    func `Position get and set`() {
+    func `Position seek validates seekable state`() {
       let player = Player(instance: TestInstance.shared)
-      player.position = 0.5
+      #expect(throws: VLCError.self) {
+        try player.seek(to: PlaybackPosition(0.5))
+      }
     }
 
     @Test
     func `Audio delay get and set`() {
       let player = Player(instance: TestInstance.shared)
-      player.audioDelay = .milliseconds(500)
+      try? player.setAudioDelay(.milliseconds(500))
       _ = player.audioDelay
     }
 
     @Test
     func `Subtitle delay get and set`() {
       let player = Player(instance: TestInstance.shared)
-      player.subtitleDelay = .milliseconds(200)
+      try? player.setSubtitleDelay(.milliseconds(200))
       _ = player.subtitleDelay
     }
 
     @Test
     func `Subtitle text scale get and set`() {
       let player = Player(instance: TestInstance.shared)
-      player.subtitleTextScale = 1.5
+      player.setSubtitleScale(SubtitleScale(1.5))
       let scale = player.subtitleTextScale
       #expect(scale > 0)
     }
@@ -564,7 +611,7 @@ extension Integration {
     func `Teletext page get and set`() {
       let player = Player(instance: TestInstance.shared)
       _ = player.teletextPage
-      player.teletextPage = 100
+      try? player.setTeletextPage(100)
     }
 
     @Test

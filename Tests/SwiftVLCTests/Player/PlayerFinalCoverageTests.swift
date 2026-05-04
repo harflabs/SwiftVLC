@@ -66,22 +66,22 @@ extension Integration {
       _ = player.titles; _ = player.chapters(); _ = player.chapters(forTitle: 0)
       _ = player.chapters(forTitle: -1); _ = player.abLoopState; _ = player.isProgramScrambled
 
-      // Position get/set (line 62)
+      // Position read and checked seek.
       #expect(player.position >= 0.0 && player.position <= 1.0)
       if player.isSeekable {
-        player.position = 0.5
+        try player.seek(to: PlaybackPosition(0.5))
         try await Task.sleep(for: .milliseconds(100))
         _ = player.position
       }
 
-      // Seek (lines 332, 338)
+      // Absolute and relative seek paths.
       if player.isSeekable {
-        player.seek(to: .milliseconds(500))
-        player.seek(by: .milliseconds(200))
-        player.seek(by: .milliseconds(-100))
+        try player.seek(to: .milliseconds(500))
+        try player.seek(by: .milliseconds(200))
+        try player.seek(by: .milliseconds(-100))
       }
 
-      // Aspect ratio (line 793 applyAspectRatio)
+      // Aspect-ratio mutations.
       player.aspectRatio = .ratio(4, 3)
       _ = player.aspectRatio
       player.aspectRatio = .fill
@@ -98,24 +98,24 @@ extension Integration {
       try player.play(Media(url: TestMedia.twosecURL))
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       try #require(await poll(until: { !player.audioTracks.isEmpty }), "Waiting for: !player.audioTracks.isEmpty")
-      // selectedAudioTrack getter (line 118)
+      // selectedAudioTrack read path.
       _ = player.selectedAudioTrack
 
-      // Select track via setter (line 754 selectTrack with real Track)
+      // Select a concrete audio track.
       let tracks = player.audioTracks
       player.selectedAudioTrack = tracks[0]
       try await Task.sleep(for: .milliseconds(100))
       _ = player.selectedAudioTrack
 
-      // Unselect then reselect (line 761 unselect_track_type)
+      // Unselect then reselect audio.
       player.selectedAudioTrack = nil
       try await Task.sleep(for: .milliseconds(50))
       player.selectedAudioTrack = tracks[0]
 
-      // selectedSubtitleTrack (line 131)
+      // selectedSubtitleTrack read path.
       _ = player.selectedSubtitleTrack
 
-      // Audio devices (lines 640-657)
+      // Audio-device enumeration and selection.
       let devices = player.audioDevices()
       _ = devices
       do { try player.setAudioDevice("nonexistent") } catch { _ = error }
@@ -123,7 +123,7 @@ extension Integration {
         do { try player.setAudioDevice(dev.deviceId) } catch { _ = error }
       }
 
-      // Audio output error path (line 634)
+      // Audio output error path.
       do { try player.setAudioOutput("nonexistent_xyz") } catch { _ = error }
 
       player.stop()
@@ -136,22 +136,22 @@ extension Integration {
       let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
 
-      // Event consumer (line 814) - state changes prove it's running
+      // State changes prove the event consumer is running.
       try #require(await poll(until: { player.state != .idle }), "Waiting for: player.state != .idle")
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       // isActive true during playing
       _ = player.isActive
 
-      // Buffering suppression (line 857) - state may still be .playing
+      // State may still be .playing during brief buffering suppression.
       try await Task.sleep(for: .milliseconds(200))
       _ = player.state
 
-      // Pause (line 312)
+      // Pause.
       player.pause()
       try #require(await poll(until: { player.state == .paused }), "Waiting for: player.state == .paused")
-      _ = player.isActive // isActive default case (line 208)
+      _ = player.isActive
 
-      // Resume (line 317)
+      // Resume.
       player.resume()
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       // Stop and verify reset
@@ -167,18 +167,18 @@ extension Integration {
       let player = Player(instance: TestInstance.makePlayback())
       try player.play(Media(url: TestMedia.twosecURL))
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
-      // Titles (lines 452-460)
+      // Titles.
       _ = player.titles
 
-      // Chapters (lines 474-483)
+      // Chapters.
       _ = player.chapters(forTitle: 0)
       _ = player.chapters()
 
-      // Programs (lines 699-710)
+      // Programs.
       _ = player.programs
       _ = player.selectedProgram
 
-      // AB loop (lines 495-511)
+      // AB loop.
       if player.isSeekable {
         do {
           try player.setABLoop(a: .milliseconds(100), b: .milliseconds(500))
@@ -191,11 +191,11 @@ extension Integration {
         } catch { _ = error }
       }
 
-      // Snapshot (line 373)
+      // Snapshot.
       try await Task.sleep(for: .milliseconds(200))
       do { try player.takeSnapshot(to: "/nonexistent_dir/snap.png") } catch { _ = error }
 
-      // External track (lines 356-360)
+      // External track.
       do {
         try player.addExternalTrack(from: TestMedia.subtitleURL, type: .subtitle, select: true)
         try await Task.sleep(for: .milliseconds(200))

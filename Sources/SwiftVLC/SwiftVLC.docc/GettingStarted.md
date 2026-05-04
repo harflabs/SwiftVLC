@@ -100,7 +100,7 @@ Button(player.isPlaying ? "Pause" : "Play") {
 
 ## Handle errors as typed throws
 
-Every failable API throws ``VLCError`` specifically, so `catch`
+Every throwing API throws ``VLCError`` specifically, so `catch`
 clauses can match individual cases:
 
 ```swift

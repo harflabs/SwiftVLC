@@ -104,10 +104,18 @@ struct MacPlaybackControls: View {
             systemImage: player.isPlaybackRequestedActive ? "pause.fill" : "play.fill"
           )
         }
+        .accessibilityIdentifier(AccessibilityID.MusicPlayer.playPauseButton)
+        .accessibilityLabel(player.isPlaybackRequestedActive ? "Pause" : "Play")
         .keyboardShortcut(.space, modifiers: [])
 
-        Slider(value: $bindable.position, in: 0...1)
-          .disabled(!player.isSeekable)
+        Slider(
+          value: Binding(
+            get: { player.position },
+            set: { try? player.seek(to: PlaybackPosition($0)) }
+          ),
+          in: 0...1
+        )
+        .disabled(!player.isSeekable)
 
         Text(durationLabel(player.currentTime))
           .monospacedDigit()
@@ -119,7 +127,13 @@ struct MacPlaybackControls: View {
         HStack(spacing: 12) {
           Toggle("Muted", isOn: $bindable.isMuted)
             .toggleStyle(.checkbox)
-          Slider(value: $bindable.volume, in: 0...1.25)
+          Slider(
+            value: Binding(
+              get: { player.volume },
+              set: { try? player.setAudioVolume(Volume($0)) }
+            ),
+            in: 0...1.25
+          )
           Text("\(Int(player.volume * 100))%")
             .monospacedDigit()
             .foregroundStyle(.secondary)

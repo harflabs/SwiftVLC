@@ -41,3 +41,123 @@ final class MacOSPiPUITests: XCTestCase {
       .appendingPathComponent("iOS/Fixtures/test.mp4")
   }
 }
+
+@MainActor
+final class MacOSDeinterlacingUITests: XCTestCase {
+  func test_filterStateCanToggleOnThenOffWithoutCrashing() {
+    let app = XCUIApplication()
+    app.launchArguments += [
+      "-UITestMode", "YES",
+      "-UITestRoute", "Deinterlacing",
+      "-UITestFixtureURL", Self.fixtureURL.path
+    ]
+    app.launch()
+    defer { app.terminate() }
+
+    let stateValue = app.staticTexts["macos.deinterlace.state.value"]
+    XCTAssertTrue(stateValue.waitForExistence(timeout: 10), "Deinterlace state never appeared.")
+
+    let toggledBackOff = NSPredicate(format: "value == %@", "Off")
+    expectation(for: toggledBackOff, evaluatedWith: stateValue)
+    waitForExpectations(timeout: 10)
+  }
+
+  private static var fixtureURL: URL {
+    URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .appendingPathComponent("iOS/Fixtures/test.mp4")
+  }
+}
+
+@MainActor
+final class MacOSMusicPlayerUITests: XCTestCase {
+  func test_switchingTracksKeepsTransportStateAndDoesNotCrash() throws {
+    let fixtures = try makeDistinctMusicFixtures()
+    let app = XCUIApplication()
+    app.launchArguments += [
+      "-UITestMode", "YES",
+      "-UITestRoute", "MusicPlayer",
+      "-UITestMusicFixtureURLs", fixtures.map(\.path).joined(separator: "|")
+    ]
+    app.launch()
+    defer { app.terminate() }
+
+    let playPauseButton = app.buttons["music.playPause"]
+    let timeValue = app.staticTexts["music.currentTime"]
+    XCTAssertTrue(timeValue.waitForExistence(timeout: 10), "Music player time never appeared.")
+    XCTAssertTrue(playPauseButton.waitForExistence(timeout: 10), "Music player transport never appeared.")
+
+    for title in ["Demo reel", "Big Buck Bunny", "HLS Stream", "Demo reel"] {
+      let songTitle = app.staticTexts[title]
+      XCTAssertTrue(songTitle.waitForExistence(timeout: 5), "Missing song row: \(title)")
+      songTitle.click()
+
+      waitForText(playPauseButton, equals: "Pause", timeout: 10)
+      waitForText(timeValue, notEqual: "0:00", timeout: 10)
+      XCTAssertEqual(accessibleText(of: playPauseButton), "Pause")
+    }
+  }
+
+  private static var fixtureURL: URL {
+    URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .appendingPathComponent("iOS/Fixtures/test.mp4")
+  }
+
+  private func makeDistinctMusicFixtures() throws -> [URL] {
+    let source = Self.fixtureURL
+    let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+      .appendingPathComponent("music-player-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return try ["one", "two", "three"].map { name in
+      let destination = directory.appendingPathComponent("\(name).mp4")
+      try FileManager.default.copyItem(at: source, to: destination)
+      return destination
+    }
+  }
+
+  private func waitForText(
+    _ element: XCUIElement,
+    equals expected: String,
+    timeout: TimeInterval,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) {
+    let predicate = NSPredicate { _, _ in self.accessibleText(of: element) == expected }
+    let exp = expectation(for: predicate, evaluatedWith: NSObject())
+    if XCTWaiter.wait(for: [exp], timeout: timeout) != .completed {
+      XCTFail(
+        "Expected text '\(expected)' but found '\(accessibleText(of: element))' after \(timeout)s",
+        file: file,
+        line: line
+      )
+    }
+  }
+
+  private func waitForText(
+    _ element: XCUIElement,
+    notEqual unexpected: String,
+    timeout: TimeInterval,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) {
+    let predicate = NSPredicate { _, _ in self.accessibleText(of: element) != unexpected }
+    let exp = expectation(for: predicate, evaluatedWith: NSObject())
+    if XCTWaiter.wait(for: [exp], timeout: timeout) != .completed {
+      XCTFail(
+        "Text still '\(unexpected)' after \(timeout)s",
+        file: file,
+        line: line
+      )
+    }
+  }
+
+  private func accessibleText(of element: XCUIElement) -> String {
+    if let value = element.value as? String, !value.isEmpty {
+      return value
+    }
+    return element.label
+  }
+}

@@ -9,22 +9,22 @@ import Testing
 /// Computed properties like `volume`, `isMuted`, `currentChapter`, and
 /// `currentTitle` read fresh values from libVLC in their getters. Their
 /// `access(keyPath:)` call alone does not cause SwiftUI to re-render
-/// when the underlying C state changes; the setter (and the event
-/// consumer, for VLC-initiated changes) must call
+/// when the underlying C state changes; the explicit mutation path
+/// (and the event consumer, for VLC-initiated changes) must call
 /// `withMutation(keyPath:)`.
 ///
 /// Observation's `willSet` / `didSet` run synchronously, so we don't
 /// need to poll or sleep — the `onChange` closure has either fired or
-/// conclusively not by the time the setter returns.
+/// conclusively not by the time the mutating call returns.
 extension Integration {
   @Suite(.tags(.mainActor, .async), .serialized)
   @MainActor struct ObservationTests {
-    // MARK: - Setter path
+    // MARK: - Mutation paths
 
-    // Setter → withMutation → didSet → onChange, all synchronous.
+    // Mutation → withMutation → didSet → onChange, all synchronous.
 
     @Test
-    func `Volume setter invalidates volume observation`() {
+    func `volume mutation invalidates volume observation`() {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let fired = Mutex(false)
       withObservationTracking {
@@ -32,7 +32,7 @@ extension Integration {
       } onChange: {
         fired.withLock { $0 = true }
       }
-      player.volume = 0.5
+      try? player.setAudioVolume(Volume(0.5))
       #expect(fired.withLock { $0 })
     }
 
@@ -50,7 +50,7 @@ extension Integration {
     }
 
     @Test
-    func `rate setter invalidates rate observation`() {
+    func `rate mutation invalidates rate observation`() {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let fired = Mutex(false)
       withObservationTracking {
@@ -58,12 +58,12 @@ extension Integration {
       } onChange: {
         fired.withLock { $0 = true }
       }
-      player.rate = 1.25
+      try? player.setPlaybackRate(PlaybackRate(1.25))
       #expect(fired.withLock { $0 })
     }
 
     @Test
-    func `audioDelay setter invalidates observation`() {
+    func `audioDelay mutation invalidates observation`() {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let fired = Mutex(false)
       withObservationTracking {
@@ -71,12 +71,12 @@ extension Integration {
       } onChange: {
         fired.withLock { $0 = true }
       }
-      player.audioDelay = .milliseconds(100)
+      try? player.setAudioDelay(.milliseconds(100))
       #expect(fired.withLock { $0 })
     }
 
     @Test
-    func `subtitleTextScale setter invalidates observation`() {
+    func `subtitleTextScale mutation invalidates observation`() {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let fired = Mutex(false)
       withObservationTracking {
@@ -84,7 +84,7 @@ extension Integration {
       } onChange: {
         fired.withLock { $0 = true }
       }
-      player.subtitleTextScale = 1.5
+      player.setSubtitleScale(SubtitleScale(1.5))
       #expect(fired.withLock { $0 })
     }
 
@@ -250,7 +250,7 @@ extension Integration {
       } onChange: {
         muteFired.withLock { $0 = true }
       }
-      player.volume = 0.3
+      try? player.setAudioVolume(Volume(0.3))
       #expect(!muteFired.withLock { $0 }, "isMuted observer fired for a volume-only mutation")
     }
 

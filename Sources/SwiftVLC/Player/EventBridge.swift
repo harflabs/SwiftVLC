@@ -6,30 +6,30 @@ import Synchronization
 ///
 /// Multi-consumer fan-out built on `Broadcaster<PlayerEvent>`. Each call
 /// to `makeStream()` returns an independent `AsyncStream`. The C callback
-/// reaches the broadcaster through an `Unmanaged.passRetained` pointer
+/// reaches a retained callback context through an `Unmanaged` pointer
 /// passed to libVLC's `event_attach`, then calls `broadcast(_:)` which
 /// snapshots subscribers under a Mutex and yields outside the lock.
 final class EventBridge: Sendable {
   private nonisolated(unsafe) var eventManager: OpaquePointer
-  private let broadcaster: Broadcaster<PlayerEvent>
-  private nonisolated(unsafe) let broadcasterOpaque: UnsafeMutableRawPointer
+  private let context: EventBridgeCallbackContext
+  private nonisolated(unsafe) let contextOpaque: UnsafeMutableRawPointer
   private nonisolated(unsafe) var attachedEventTypes: [Int32]
   private let invalidated = Mutex(false)
 
   init(eventManager: OpaquePointer) {
     self.eventManager = eventManager
 
-    let broadcaster = Broadcaster<PlayerEvent>(defaultBufferSize: 64)
-    self.broadcaster = broadcaster
-    let opaque = Unmanaged.passRetained(broadcaster).toOpaque()
-    broadcasterOpaque = opaque
+    let context = EventBridgeCallbackContext()
+    self.context = context
+    let opaque = Unmanaged.passRetained(context).toOpaque()
+    contextOpaque = opaque
 
     attachedEventTypes = Self.attachEvents(to: eventManager, opaque: opaque)
   }
 
   deinit {
     invalidate()
-    Unmanaged<Broadcaster<PlayerEvent>>.fromOpaque(broadcasterOpaque).release()
+    Unmanaged<EventBridgeCallbackContext>.fromOpaque(contextOpaque).release()
   }
 
   /// Detaches all event listeners and finishes all streams.
@@ -43,9 +43,9 @@ final class EventBridge: Sendable {
     }
     guard shouldCleanUp else { return }
 
-    Self.detachEvents(attachedEventTypes, from: eventManager, opaque: broadcasterOpaque)
+    Self.detachEvents(attachedEventTypes, from: eventManager, opaque: contextOpaque)
     attachedEventTypes = []
-    broadcaster.finishAll()
+    context.finishAll()
   }
 
   /// Moves the existing streams to a replacement native media player.
@@ -59,15 +59,19 @@ final class EventBridge: Sendable {
     let isInvalidated = invalidated.withLock { $0 }
     guard !isInvalidated else { return }
 
-    Self.detachEvents(attachedEventTypes, from: eventManager, opaque: broadcasterOpaque)
+    Self.detachEvents(attachedEventTypes, from: eventManager, opaque: contextOpaque)
     eventManager = newEventManager
-    attachedEventTypes = Self.attachEvents(to: newEventManager, opaque: broadcasterOpaque)
+    attachedEventTypes = Self.attachEvents(to: newEventManager, opaque: contextOpaque)
   }
 
   /// Creates a new independent `AsyncStream` for consuming player events.
   /// Each stream receives all events broadcast after creation.
   func makeStream() -> AsyncStream<PlayerEvent> {
-    broadcaster.subscribe()
+    context.makeStream()
+  }
+
+  func makeSourcedStream() -> AsyncStream<SourcedPlayerEvent> {
+    context.makeSourcedStream()
   }
 
   static let playerEventTypes: [Int32] = [
@@ -131,6 +135,34 @@ final class EventBridge: Sendable {
   }
 }
 
+struct SourcedPlayerEvent {
+  let source: UInt
+  let event: PlayerEvent
+}
+
+private final class EventBridgeCallbackContext: Sendable {
+  private let events = Broadcaster<PlayerEvent>(defaultBufferSize: 64)
+  private let sourcedEvents = Broadcaster<SourcedPlayerEvent>(defaultBufferSize: 64)
+
+  func makeStream() -> AsyncStream<PlayerEvent> {
+    events.subscribe()
+  }
+
+  func makeSourcedStream() -> AsyncStream<SourcedPlayerEvent> {
+    sourcedEvents.subscribe()
+  }
+
+  func broadcast(_ event: PlayerEvent, source: UInt) {
+    events.broadcast(event)
+    sourcedEvents.broadcast(SourcedPlayerEvent(source: source, event: event))
+  }
+
+  func finishAll() {
+    events.finishAll()
+    sourcedEvents.finishAll()
+  }
+}
+
 // MARK: - C Callback (free function)
 
 /// Free function invoked on libVLC's internal event thread.
@@ -144,11 +176,15 @@ private func playerEventCallback(
   let interval = Signposts.signposter.beginInterval("EventBridge.callback")
   defer { Signposts.signposter.endInterval("EventBridge.callback", interval) }
 
-  let broadcaster = Unmanaged<Broadcaster<PlayerEvent>>.fromOpaque(opaque).takeUnretainedValue()
+  let context = Unmanaged<EventBridgeCallbackContext>.fromOpaque(opaque).takeUnretainedValue()
 
   if let mapped = mapEvent(event.pointee) {
-    broadcaster.broadcast(mapped)
+    context.broadcast(mapped, source: sourceIdentifier(for: event.pointee))
   }
+}
+
+func sourceIdentifier(for event: libvlc_event_t) -> UInt {
+  event.p_obj.map { UInt(bitPattern: $0) } ?? 0
 }
 
 /// Maps a single libVLC `libvlc_event_t` to a typed `PlayerEvent`.

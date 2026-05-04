@@ -3,9 +3,9 @@
 How ``VLCError`` shapes the error surface, and how typed throws let
 you match on its cases exhaustively.
 
-## One error type for the whole library
+## One error type for throwing APIs
 
-Every failable SwiftVLC API uses Swift's typed throws form, with
+Every throwing SwiftVLC API uses Swift's typed throws form, with
 ``VLCError`` as the only error it can produce:
 
 ```swift
@@ -31,6 +31,10 @@ do {
     print("libVLC call failed: \(op)")
 }
 ```
+
+APIs whose invalid case is naturally absence still use optionals, such
+as ``Equalizer/init(preset:)`` and lookup helpers that return `nil` for
+an unknown index.
 
 ## The cases at a glance
 

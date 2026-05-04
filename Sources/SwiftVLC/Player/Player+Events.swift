@@ -36,11 +36,11 @@ extension Player {
   /// `self` weakly to avoid the retain cycle Player → eventTask → Player.
   func startEventConsumer() {
     let bridge = eventBridge
-    let stream = bridge.makeStream()
+    let stream = bridge.makeSourcedStream()
     eventTask = Task { [weak self] in
-      for await event in stream {
+      for await sourcedEvent in stream {
         guard !Task.isCancelled else { return }
-        self?.handleEvent(event)
+        self?.handleSourcedEvent(sourcedEvent)
         // Yield after each event so other main-actor work (UI updates,
         // tests, etc.) isn't starved when VLC produces events rapidly.
         await Task.yield()
@@ -49,6 +49,11 @@ extension Player {
   }
 
   // MARK: - handleEvent dispatch
+
+  func handleSourcedEvent(_ sourcedEvent: SourcedPlayerEvent) {
+    guard sourcedEvent.source == Self.sourceIdentifier(for: pointer) else { return }
+    handleEvent(sourcedEvent.event)
+  }
 
   /// Maps a single `PlayerEvent` to the observable-property updates and
   /// state-machine transitions it implies. Called from
@@ -341,5 +346,54 @@ extension Player {
       return
     }
     currentMedia = Media(retaining: media)
+  }
+
+  static func sourceIdentifier(for pointer: OpaquePointer) -> UInt {
+    UInt(bitPattern: UnsafeRawPointer(pointer))
+  }
+
+  func _handleEventForTesting(_ event: PlayerEvent) {
+    handleEvent(event)
+  }
+
+  func _handleEventForTesting(_ event: PlayerEvent, source: OpaquePointer) {
+    handleSourcedEvent(SourcedPlayerEvent(source: Self.sourceIdentifier(for: source), event: event))
+  }
+
+  func _hasDeferredPauseForTesting() -> Bool {
+    deferredPauseCommand == .pause
+  }
+
+  func _setStateForTesting(
+    state: PlayerState? = nil,
+    isPlaybackRequestedActive: Bool? = nil,
+    currentTime: Duration? = nil,
+    duration: Duration? = nil,
+    position: Double? = nil,
+    isSeekable: Bool? = nil,
+    isPausable: Bool? = nil
+  ) {
+    if let state {
+      self.state = state
+      publishPlaybackIntent(state.isActive)
+    }
+    if let isPlaybackRequestedActive {
+      publishPlaybackIntent(isPlaybackRequestedActive)
+    }
+    if let currentTime {
+      self.currentTime = currentTime
+    }
+    if let duration {
+      self.duration = duration
+    }
+    if let position {
+      _position = position
+    }
+    if let isSeekable {
+      self.isSeekable = isSeekable
+    }
+    if let isPausable {
+      self.isPausable = isPausable
+    }
   }
 }

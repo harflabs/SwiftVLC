@@ -9,7 +9,7 @@ struct MacVolumeCase: View {
 
     MacShowcaseContent(
       title: "Volume",
-      summary: "Use Player.volume and Player.isMuted as regular SwiftUI bindings.",
+      summary: "Use checked volume updates alongside regular mute bindings.",
       usage: "Adjust volume or mute from SwiftUI controls and verify the Player.volume and Player.isMuted values stay in sync."
     ) {
       VStack(spacing: 16) {
@@ -19,7 +19,13 @@ struct MacVolumeCase: View {
           HStack {
             Image(systemName: "speaker.fill")
               .foregroundStyle(.secondary)
-            Slider(value: $bindable.volume, in: 0...1.25)
+            Slider(
+              value: Binding(
+                get: { player.volume },
+                set: { try? player.setAudioVolume(Volume($0)) }
+              ),
+              in: 0...1.25
+            )
             Image(systemName: "speaker.wave.3.fill")
               .foregroundStyle(.secondary)
           }

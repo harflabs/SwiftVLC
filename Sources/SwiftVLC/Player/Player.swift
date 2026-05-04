@@ -8,20 +8,6 @@ import Observation
 /// `@MainActor`, so SwiftUI views update in response to libVLC state
 /// without a publisher adapter.
 ///
-/// ```swift
-/// struct PlayerView: View {
-///     @State private var player = Player()
-///
-///     var body: some View {
-///         VideoView(player)
-///         Text(player.state.description)
-///         Button(player.isPlaying ? "Pause" : "Play") {
-///             player.togglePlayPause()
-///         }
-///     }
-/// }
-/// ```
-///
 /// The observable properties (`state`, `currentTime`, `duration`,
 /// and the track lists) are fed by an internal event consumer. No
 /// delegate protocols, Combine publishers, or manual bridging are
@@ -76,32 +62,19 @@ public final class Player {
   /// Available subtitle tracks.
   public internal(set) var subtitleTracks: [Track] = []
 
-  // MARK: - Bindable Properties
+  // MARK: - Observable Playback Values
 
-  /// Fractional playback position (0.0...1.0). Setting this seeks.
+  /// Fractional playback position reported by libVLC, in `0.0 ... 1.0`.
+  ///
+  /// Use ``seek(to:)-(PlaybackPosition)`` for checked position-based seeking. This
+  /// property is read-only so callers cannot accidentally issue an
+  /// unchecked seek request through a raw `Double` write.
   public var position: Double {
-    get {
-      access(keyPath: \.position)
-      return _position
-    }
-    set {
-      withMutation(keyPath: \.position) {
-        _position = newValue
-        libvlc_media_player_set_position(pointer, newValue, /* fast */ false)
-      }
-      // libVLC doesn't reliably emit `MediaPlayerTimeChanged` after a
-      // `set_position`, especially while paused, so `currentTime` appears
-      // stuck at its pre-seek value. Update optimistically when duration
-      // is known; the subsequent timeChanged event refines the estimate
-      // with libVLC's post-seek frame timestamp.
-      if let dur = duration {
-        currentTime = dur * newValue
-      }
-    }
+    access(keyPath: \.position)
+    return _position
   }
 
-  /// Volume level, normalized. `0.0` is silent, `1.0` is 100%. Values
-  /// above `1.0` amplify, up to `1.25` (125%).
+  /// Current volume level, normalized. `0.0` is silent, `1.0` is 100%.
   ///
   /// Backed by a shadow `_volume` instead of a live libVLC read.
   /// Before the audio output is initialized `libvlc_audio_get_volume`
@@ -110,16 +83,34 @@ public final class Player {
   /// at the default level. The shadow starts at `1.0` and is refreshed
   /// from the native player on each state transition, once libVLC's
   /// audio output can be trusted.
+  /// Use ``setAudioVolume(_:)`` to change volume through the typed
+  /// ``Volume`` range.
   public var volume: Float {
-    get {
-      access(keyPath: \.volume)
-      return _volume
+    access(keyPath: \.volume)
+    return _volume
+  }
+
+  /// Sets audio output volume through the typed ``Volume`` range.
+  ///
+  /// Before playback starts, libVLC may reject the native update because
+  /// there is no initialized audio output yet; SwiftVLC still records the
+  /// requested volume and re-applies it when playback creates or replaces
+  /// the native player.
+  ///
+  /// - Throws: ``VLCError/operationFailed(_:)`` if playback is active and
+  ///   libVLC rejects the native volume update.
+  public func setAudioVolume(_ newVolume: Volume) throws(VLCError) {
+    let nativeVolume = Int32((newVolume.rawValue * 100).rounded())
+    let previousVolume = _volume
+    let rc = withMutation(keyPath: \.volume) {
+      _volume = newVolume.rawValue
+      return libvlc_audio_set_volume(pointer, nativeVolume)
     }
-    set {
+    if rc != 0, currentMedia != nil, state.isActive {
       withMutation(keyPath: \.volume) {
-        _volume = max(0, newValue)
-        libvlc_audio_set_volume(pointer, Int32(_volume * 100))
+        _volume = previousVolume
       }
+      throw .operationFailed("Set audio volume to \(newVolume.rawValue)")
     }
   }
 
@@ -140,23 +131,14 @@ public final class Player {
     }
   }
 
-  /// Playback rate. `1.0` is normal speed, `0.5` is half, `2.0` is
-  /// double. Any positive rate is accepted; the practical range is
-  /// `0.25` to `4.0` before audio/video sync degrades.
+  /// Current playback rate. `1.0` is normal speed.
   ///
-  /// This setter discards libVLC's rejection signal so a slider binding
-  /// never throws. Call ``setRate(_:)`` instead when the UI needs to
-  /// react to rejection. Live HLS and RTSP streams often reject
-  /// non-`1.0` rates, and `setRate(_:)` throws
-  /// ``VLCError/operationFailed(_:)`` in that case.
+  /// Use ``setPlaybackRate(_:)`` to request a new rate through the typed
+  /// ``PlaybackRate`` range and receive libVLC rejection as
+  /// ``VLCError/operationFailed(_:)``.
   public var rate: Float {
-    get {
-      access(keyPath: \.rate)
-      return libvlc_media_player_get_rate(pointer)
-    }
-    set {
-      try? setRate(newValue)
-    }
+    access(keyPath: \.rate)
+    return libvlc_media_player_get_rate(pointer)
   }
 
   /// Sets the playback rate, throwing if libVLC rejects the value.
@@ -169,12 +151,12 @@ public final class Player {
   ///
   /// - Parameter newRate: Target rate. `1.0` is normal speed.
   /// - Throws: ``VLCError/operationFailed(_:)`` if libVLC rejects the rate.
-  public func setRate(_ newRate: Float) throws(VLCError) {
+  public func setRate(_ newRate: PlaybackRate) throws(VLCError) {
     let rc = withMutation(keyPath: \.rate) {
-      libvlc_media_player_set_rate(pointer, newRate)
+      libvlc_media_player_set_rate(pointer, newRate.rawValue)
     }
     if rc != 0 {
-      throw .operationFailed("Set rate to \(newRate)")
+      throw .operationFailed("Set rate to \(newRate.rawValue)")
     }
   }
 
@@ -215,42 +197,66 @@ public final class Player {
   }
 
   /// Audio delay relative to video. Positive values delay audio (make it play later).
+  ///
+  /// Use ``setAudioDelay(_:)`` to mutate this value with checked duration
+  /// conversion.
   public var audioDelay: Duration {
-    get {
-      access(keyPath: \.audioDelay)
-      return .microseconds(libvlc_audio_get_delay(pointer))
+    access(keyPath: \.audioDelay)
+    return .microseconds(libvlc_audio_get_delay(pointer))
+  }
+
+  /// Sets the audio delay relative to video.
+  ///
+  /// - Throws: ``VLCError/invalidInput(_:)`` if the duration cannot be
+  ///   represented in libVLC's microsecond unit, or
+  ///   ``VLCError/operationFailed(_:)`` if libVLC rejects the update.
+  public func setAudioDelay(_ newDelay: Duration) throws(VLCError) {
+    let microseconds = try newDelay.checkedMicroseconds(parameter: "audioDelay")
+    let rc = withMutation(keyPath: \.audioDelay) {
+      libvlc_audio_set_delay(pointer, microseconds)
     }
-    set {
-      _ = withMutation(keyPath: \.audioDelay) {
-        libvlc_audio_set_delay(pointer, newValue.microseconds)
-      }
+    if rc != 0 {
+      throw .operationFailed("Set audio delay")
     }
   }
 
   /// Subtitle delay relative to video. Positive values delay subtitles (make them appear later).
+  ///
+  /// Use ``setSubtitleDelay(_:)`` to mutate this value with checked
+  /// duration conversion.
   public var subtitleDelay: Duration {
-    get {
-      access(keyPath: \.subtitleDelay)
-      return .microseconds(libvlc_video_get_spu_delay(pointer))
+    access(keyPath: \.subtitleDelay)
+    return .microseconds(libvlc_video_get_spu_delay(pointer))
+  }
+
+  /// Sets the subtitle delay relative to video.
+  ///
+  /// - Throws: ``VLCError/invalidInput(_:)`` if the duration cannot be
+  ///   represented in libVLC's microsecond unit, or
+  ///   ``VLCError/operationFailed(_:)`` if libVLC rejects the update.
+  public func setSubtitleDelay(_ newDelay: Duration) throws(VLCError) {
+    let microseconds = try newDelay.checkedMicroseconds(parameter: "subtitleDelay")
+    let rc = withMutation(keyPath: \.subtitleDelay) {
+      libvlc_video_set_spu_delay(pointer, microseconds)
     }
-    set {
-      _ = withMutation(keyPath: \.subtitleDelay) {
-        libvlc_video_set_spu_delay(pointer, newValue.microseconds)
-      }
+    if rc != 0 {
+      throw .operationFailed("Set subtitle delay")
     }
   }
 
   /// Subtitle text scale factor (1.0 = 100%, 0.5 = 50%, 2.0 = 200%).
-  /// Clamped to [0.1, 5.0] by libVLC.
+  ///
+  /// Use ``setSubtitleScale(_:)`` to mutate this value through the typed
+  /// ``SubtitleScale`` range.
   public var subtitleTextScale: Float {
-    get {
-      access(keyPath: \.subtitleTextScale)
-      return libvlc_video_get_spu_text_scale(pointer)
-    }
-    set {
-      withMutation(keyPath: \.subtitleTextScale) {
-        libvlc_video_set_spu_text_scale(pointer, newValue)
-      }
+    access(keyPath: \.subtitleTextScale)
+    return libvlc_video_get_spu_text_scale(pointer)
+  }
+
+  /// Sets subtitle text scale through the typed ``SubtitleScale`` range.
+  public func setSubtitleScale(_ newScale: SubtitleScale) {
+    withMutation(keyPath: \.subtitleTextScale) {
+      libvlc_video_set_spu_text_scale(pointer, newScale.rawValue)
     }
   }
 
@@ -413,9 +419,10 @@ public final class Player {
       drawable.map { retainedDrawablesUntilNativePlayerRelease + [$0] }
         ?? retainedDrawablesUntilNativePlayerRelease
     nonisolated(unsafe) let p = pointer
+    let resumeBeforeRelease = pauseTransition == .pausing || nativePlaybackState == .paused
     DispatchQueue.global(qos: .utility).async {
       bridge.invalidate()
-      libvlc_media_player_stop_async(p)
+      Self.stopNativePlayerBeforeRelease(p, resumeBeforeStop: resumeBeforeRelease)
       libvlc_media_player_release(p)
       _ = drawables
     }
@@ -507,7 +514,10 @@ public final class Player {
     needsDrawableRebindForPlayback = false
   }
 
-  private func replaceNativePlayerForDrawablePlayback(target: AnyObject?) {
+  private func replaceNativePlayerForDrawablePlayback(
+    target: AnyObject?,
+    resumeBeforeRelease: Bool = false
+  ) {
     let oldPointer = pointer
     let newPointer = Self.makeNativePlayer(instance: instance)
     guard let newEventManager = libvlc_media_player_event_manager(newPointer) else {
@@ -547,22 +557,12 @@ public final class Player {
     needsDrawableRebindForPlayback = false
     nativePlayerHasHostedDrawable = target != nil
 
-    releaseNativePlayer(oldPointer, retaining: retainedDrawables)
+    releaseNativePlayer(
+      oldPointer,
+      retaining: retainedDrawables,
+      resumeBeforeStop: resumeBeforeRelease
+    )
     notifyMediaDependentObservables()
-  }
-
-  private func releaseNativePlayer(
-    _ nativePlayer: OpaquePointer,
-    retaining drawables: [AnyObject] = []
-  ) {
-    nonisolated(unsafe) let nativePlayer = nativePlayer
-    nonisolated(unsafe) let drawables = drawables
-    DispatchQueue.global(qos: .utility).async {
-      libvlc_media_player_set_nsobject(nativePlayer, nil)
-      libvlc_media_player_stop_async(nativePlayer)
-      libvlc_media_player_release(nativePlayer)
-      _ = drawables
-    }
   }
 
   // MARK: - Media Loading
@@ -589,7 +589,17 @@ public final class Player {
   /// Loads media and starts playback in one step.
   /// - Throws: `VLCError.playbackFailed` if playback cannot start.
   public func play(_ media: sending Media) throws(VLCError) {
-    load(media)
+    if shouldReplaceNativePlayerBeforePlaybackLoad {
+      let resumeBeforeRelease = pauseTransition == .pausing || nativePlaybackState == .paused
+      currentMedia = media
+      resetMediaDerivedState()
+      replaceNativePlayerForDrawablePlayback(
+        target: drawable,
+        resumeBeforeRelease: resumeBeforeRelease
+      )
+    } else {
+      load(media)
+    }
     try play()
   }
 
@@ -765,36 +775,88 @@ public final class Player {
 
   /// Seeks to an absolute time in the current media.
   ///
-  /// No-op when the media is not seekable; observe ``isSeekable``
-  /// before exposing scrub controls. The seek is asynchronous. Watch
-  /// ``currentTime`` or the ``PlayerEvent/timeChanged(_:)`` event for
-  /// completion.
-  public func seek(to time: Duration) {
-    libvlc_media_player_set_time(pointer, time.milliseconds, /* fast */ false)
-    // Same optimistic update as the `position` setter: libVLC doesn't
-    // always emit `MediaPlayerTimeChanged` after a seek (especially
-    // while paused), so the published `currentTime` would appear stuck.
-    // The subsequent timeChanged event refines this with libVLC's
-    // post-seek frame timestamp.
-    currentTime = time
+  /// Throws instead of silently ignoring invalid requests. Check
+  /// ``isSeekable`` before exposing scrub controls. The native seek is
+  /// asynchronous; SwiftVLC publishes the requested time immediately after
+  /// validation so paused players update their UI even if libVLC does not
+  /// emit a follow-up `timeChanged` event.
+  ///
+  /// - Throws: ``VLCError/invalidState(_:)`` if the current media is not
+  ///   seekable, or ``VLCError/invalidInput(_:)`` if `time` is negative,
+  ///   outside libVLC's millisecond range, or beyond known duration.
+  public func seek(to time: Duration) throws(VLCError) {
+    let milliseconds = try checkedSeekMilliseconds(for: time, parameter: "time")
+    libvlc_media_player_set_time(pointer, milliseconds, /* fast */ false)
+    currentTime = .milliseconds(milliseconds)
+  }
+
+  /// Seeks to a fractional position in the current media.
+  ///
+  /// `PlaybackPosition` clamps to `0.0 ... 1.0` on construction. This
+  /// method still throws if the player does not yet know media duration or
+  /// if the current media is not seekable.
+  public func seek(to position: PlaybackPosition) throws(VLCError) {
+    guard let duration else {
+      throw .invalidState("duration is not known")
+    }
+    let durationMs = try duration.checkedNonnegativeMilliseconds(parameter: "duration")
+    let target = checkedMilliseconds(for: position, durationMs: durationMs)
+    try seek(to: .milliseconds(target))
   }
 
   /// Seeks by a relative offset from the current position.
   ///
-  /// Negative offsets rewind, positive offsets fast-forward. Has no effect
-  /// if the media is not seekable.
-  public func seek(by offset: Duration) {
-    libvlc_media_player_jump_time(pointer, offset.milliseconds)
-    // Optimistic `currentTime` update for the same reason as `seek(to:)`.
-    // Clamp to [0, duration] so the published value can never go
-    // negative or past the end while libVLC catches up.
-    var target = currentTime + offset
-    if target < .zero {
-      target = .zero
-    } else if let dur = duration, target > dur {
-      target = dur
+  /// Negative offsets rewind, positive offsets fast-forward. The target is
+  /// clamped to the known playable range after validating the offset.
+  ///
+  /// - Throws: ``VLCError/invalidState(_:)`` if the current media is not
+  ///   seekable, or ``VLCError/invalidInput(_:)`` if the offset/current
+  ///   time cannot be represented in libVLC's millisecond unit.
+  public func seek(by offset: Duration) throws(VLCError) {
+    guard isSeekable else {
+      throw .invalidState("current media is not seekable")
     }
-    currentTime = target
+
+    let currentMs = try currentTime.checkedMilliseconds(parameter: "currentTime")
+    let offsetMs = try offset.checkedMilliseconds(parameter: "offset")
+    let targetResult = currentMs.addingReportingOverflow(offsetMs)
+    guard !targetResult.overflow else {
+      throw .invalidInput("offset is outside the supported millisecond range")
+    }
+
+    var targetMs = Swift.max(0, targetResult.partialValue)
+    if let duration {
+      let durationMs = try duration.checkedNonnegativeMilliseconds(parameter: "duration")
+      targetMs = Swift.min(targetMs, durationMs)
+    }
+
+    libvlc_media_player_set_time(pointer, targetMs, /* fast */ false)
+    currentTime = .milliseconds(targetMs)
+  }
+
+  private func checkedSeekMilliseconds(for time: Duration, parameter: String) throws(VLCError) -> Int64 {
+    guard isSeekable else {
+      throw .invalidState("current media is not seekable")
+    }
+
+    let milliseconds = try time.checkedNonnegativeMilliseconds(parameter: parameter)
+    if let duration {
+      let durationMs = try duration.checkedNonnegativeMilliseconds(parameter: "duration")
+      guard milliseconds <= durationMs else {
+        throw .invalidInput("\(parameter) must not exceed current media duration")
+      }
+    }
+    return milliseconds
+  }
+
+  private func checkedMilliseconds(for position: PlaybackPosition, durationMs: Int64) -> Int64 {
+    guard position.rawValue > 0 else { return 0 }
+    guard position.rawValue < 1 else { return durationMs }
+
+    let scaled = (Double(durationMs) * position.rawValue).rounded()
+    guard scaled.isFinite, scaled > 0 else { return 0 }
+    guard scaled < Double(Int64.max) else { return durationMs }
+    return Swift.min(Int64(scaled), durationMs)
   }
 
   /// Pauses playback and advances one video frame.
@@ -891,47 +953,6 @@ public final class Player {
     let count = libvlc_media_tracklist_count(tracklist)
     return (0..<count).compactMap { i in
       libvlc_media_tracklist_at(tracklist, i).map { Track(from: $0) }
-    }
-  }
-
-  func _handleEventForTesting(_ event: PlayerEvent) {
-    handleEvent(event)
-  }
-
-  func _hasDeferredPauseForTesting() -> Bool {
-    deferredPauseCommand == .pause
-  }
-
-  func _setStateForTesting(
-    state: PlayerState? = nil,
-    isPlaybackRequestedActive: Bool? = nil,
-    currentTime: Duration? = nil,
-    duration: Duration? = nil,
-    position: Double? = nil,
-    isSeekable: Bool? = nil,
-    isPausable: Bool? = nil
-  ) {
-    if let state {
-      self.state = state
-      publishPlaybackIntent(state.isActive)
-    }
-    if let isPlaybackRequestedActive {
-      publishPlaybackIntent(isPlaybackRequestedActive)
-    }
-    if let currentTime {
-      self.currentTime = currentTime
-    }
-    if let duration {
-      self.duration = duration
-    }
-    if let position {
-      _position = position
-    }
-    if let isSeekable {
-      self.isSeekable = isSeekable
-    }
-    if let isPausable {
-      self.isPausable = isPausable
     }
   }
 }

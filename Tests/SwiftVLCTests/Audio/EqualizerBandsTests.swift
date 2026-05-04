@@ -1,7 +1,7 @@
 @testable import SwiftVLC
 import Testing
 
-/// Covers `Equalizer.bands` getter/setter and `setAmplification` error
+/// Covers `Equalizer.bands`, `setBands`, and `setAmplification` error
 /// paths. These exist in the existing `EqualizerTests` only at the
 /// preamp level; this file drives the per-band machinery directly.
 extension Integration {
@@ -18,23 +18,23 @@ extension Integration {
     }
 
     @Test
-    func `amplification(forBand:) reads the flat 0 dB default`() {
+    func `amplification(forBand:) reads the flat 0 dB default`() throws {
       let eq = Equalizer()
       for index in 0..<Equalizer.bandCount {
-        #expect(eq.amplification(forBand: index) == 0)
+        #expect(try #require(eq.amplification(forBand: index)) == 0)
       }
     }
 
     // MARK: - Write
 
-    /// Assigning a new bands array must round-trip through libVLC and
+    /// Setting a new bands array must round-trip through libVLC and
     /// reflect on the next read.
     @Test
-    func `bands setter applies each band through to libVLC`() {
+    func `setBands applies each band through to libVLC`() throws {
       let eq = Equalizer()
       let target = (0..<Equalizer.bandCount).map { Float($0) - 5 }
 
-      eq.bands = target
+      try eq.setBands(target)
 
       let readBack = eq.bands
       for (index, value) in target.enumerated() {
@@ -42,30 +42,30 @@ extension Integration {
       }
     }
 
-    /// Assigning an equal array is a no-op that skips the write path —
+    /// Setting an equal array is a no-op that skips the write path —
     /// `onChange` must NOT fire and libVLC isn't touched. Observable with
     /// a change counter.
     @Test
-    func `bands setter skips re-apply when values are unchanged`() {
+    func `setBands skips re-apply when values are unchanged`() throws {
       let eq = Equalizer()
       var changeCount = 0
       eq.onChange = { changeCount += 1 }
 
       let same = eq.bands
-      eq.bands = same
+      try eq.setBands(same)
 
       #expect(changeCount == 0, "Equal assignment should not trigger onChange")
     }
 
     @Test
-    func `bands setter fires onChange when values differ`() {
+    func `setBands fires onChange when values differ`() throws {
       let eq = Equalizer()
       var changeCount = 0
       eq.onChange = { changeCount += 1 }
 
       var modified = eq.bands
       modified[0] = 3.0
-      eq.bands = modified
+      try eq.setBands(modified)
 
       #expect(changeCount == 1, "Delta assignment should fire onChange exactly once")
     }
@@ -76,7 +76,7 @@ extension Integration {
     func `setAmplification on a valid band succeeds and round-trips`() throws {
       let eq = Equalizer()
       try eq.setAmplification(5.5, forBand: 0)
-      #expect(abs(eq.amplification(forBand: 0) - 5.5) < 0.01)
+      #expect(try abs(#require(eq.amplification(forBand: 0)) - 5.5) < 0.01)
     }
 
     @Test
@@ -135,11 +135,11 @@ extension Integration {
     }
 
     @Test
-    func `invalid read accessors return sentinel values instead of trapping`() {
+    func `invalid read accessors return nil instead of trapping`() {
       let eq = Equalizer()
-      #expect(Equalizer.bandFrequency(at: -1) == -1)
-      #expect(eq.amplification(forBand: -1).isNaN)
-      #expect(eq.gain(forBand: -1) == .flat)
+      #expect(Equalizer.bandFrequency(at: -1) == nil)
+      #expect(eq.amplification(forBand: -1) == nil)
+      #expect(eq.gain(forBand: -1) == nil)
     }
 
     /// `presetName(at:)` must return a non-nil string for every valid
@@ -164,8 +164,10 @@ extension Integration {
     // MARK: - bandFrequency static accessor
 
     @Test
-    func `bandFrequency returns distinct increasing frequencies`() {
-      let frequencies = (0..<Equalizer.bandCount).map { Equalizer.bandFrequency(at: $0) }
+    func `bandFrequency returns distinct increasing frequencies`() throws {
+      let frequencies = try (0..<Equalizer.bandCount).map {
+        try #require(Equalizer.bandFrequency(at: $0))
+      }
       #expect(frequencies.allSatisfy { $0 > 0 })
       for i in 1..<frequencies.count {
         #expect(frequencies[i] > frequencies[i - 1], "Band frequencies must be monotonically increasing")

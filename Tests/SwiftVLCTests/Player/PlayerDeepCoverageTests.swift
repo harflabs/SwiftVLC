@@ -72,28 +72,30 @@ extension Integration {
 
       // Multiple seeks
       if player.isSeekable {
-        player.seek(to: .milliseconds(200))
-        player.seek(to: .milliseconds(800))
-        player.seek(by: .milliseconds(100))
-        player.seek(by: .milliseconds(-50))
+        try player.seek(to: .milliseconds(200))
+        try player.seek(to: .milliseconds(800))
+        try player.seek(by: .milliseconds(100))
+        try player.seek(by: .milliseconds(-50))
       }
 
       // Rate (may not take effect immediately on all platforms)
-      player.rate = 2.0
-      player.rate = 0.5
-      player.rate = 1.0
+      try? player.setPlaybackRate(PlaybackRate(2.0))
+      try? player.setPlaybackRate(PlaybackRate(0.5))
+      try? player.setPlaybackRate(PlaybackRate(1.0))
 
       // Volume
-      player.volume = 0.3; _ = player.volume
-      player.volume = 0.8; _ = player.volume
-      player.volume = 1.0
+      try? player.setAudioVolume(Volume(0.3)); _ = player.volume
+      try? player.setAudioVolume(Volume(0.8)); _ = player.volume
+      try? player.setAudioVolume(Volume(1.0))
 
       // Mute
       player.isMuted = true; _ = player.isMuted
       player.isMuted = false; _ = player.isMuted
 
       // Position
-      player.position = 0.5
+      if player.isSeekable {
+        try player.seek(to: PlaybackPosition(0.5))
+      }
       try await Task.sleep(for: .milliseconds(100))
       #expect(player.position >= 0.0 && player.position <= 1.0)
 
@@ -142,20 +144,20 @@ extension Integration {
       player.resume()
       try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       // Audio/subtitle delay (may not persist on all platforms/simulators)
-      player.audioDelay = .milliseconds(500)
+      try? player.setAudioDelay(.milliseconds(500))
       _ = player.audioDelay
-      player.audioDelay = .zero
+      try? player.setAudioDelay(.zero)
 
-      player.subtitleDelay = .milliseconds(300)
+      try? player.setSubtitleDelay(.milliseconds(300))
       _ = player.subtitleDelay
-      player.subtitleDelay = .zero
+      try? player.setSubtitleDelay(.zero)
 
       // Role (may not persist on all platforms)
       player.role = .music; _ = player.role
       player.role = .none
 
       // Subtitle text scale (may not persist on all platforms)
-      player.subtitleTextScale = 2.0
+      player.setSubtitleScale(SubtitleScale(2.0))
       _ = player.subtitleTextScale
 
       // Next frame
@@ -224,7 +226,9 @@ extension Integration {
       _ = player.audioTracks
 
       // Stop resets
-      player.seek(to: .milliseconds(500))
+      if player.isSeekable {
+        try player.seek(to: .milliseconds(500))
+      }
       try await Task.sleep(for: .milliseconds(100))
       player.stop()
       try #require(await poll(until: { player.state == .stopped }), "Waiting for: player.state == .stopped")

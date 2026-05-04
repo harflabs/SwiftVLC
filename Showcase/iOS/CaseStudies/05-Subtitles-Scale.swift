@@ -9,8 +9,6 @@ struct SubtitlesScaleCase: View {
   @State private var player = Player()
 
   var body: some View {
-    @Bindable var bindable = player
-
     Form {
       Section { AboutView(readMe: readMe) }
 
@@ -25,12 +23,19 @@ struct SubtitlesScaleCase: View {
       }
 
       Section("Scale") {
-        CompatSlider(value: $bindable.subtitleTextScale, range: 0.1...5.0, step: 0.1)
-          .accessibilityIdentifier(AccessibilityID.SubtitlesScale.slider)
+        CompatSlider(
+          value: Binding(
+            get: { player.subtitleTextScale },
+            set: { player.setSubtitleScale(SubtitleScale($0)) }
+          ),
+          range: 0.1...5.0,
+          step: 0.1
+        )
+        .accessibilityIdentifier(AccessibilityID.SubtitlesScale.slider)
         HStack {
           Text("Scale")
           Spacer()
-          Text(String(format: "%.1f×", bindable.subtitleTextScale)).foregroundStyle(.secondary)
+          Text(String(format: "%.1f×", player.subtitleTextScale)).foregroundStyle(.secondary)
         }
       }
     }

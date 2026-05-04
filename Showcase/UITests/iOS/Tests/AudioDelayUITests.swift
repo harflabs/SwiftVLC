@@ -1,6 +1,6 @@
 import XCTest
 
-/// AudioDelay writes to `player.audioDelay` on every slider tick.
+/// AudioDelay calls `player.setAudioDelay(_:)` on every slider tick.
 /// Rapid churn exercises libVLC's audio-output timing adjustment path.
 final class AudioDelayUITests: ShowcaseIOSTestCase {
   // Inherits `@MainActor` from `ShowcaseIOSTestCase`.

@@ -278,7 +278,7 @@ extension Integration {
         task.cancel()
         return
       }
-      player.volume = 0.5
+      try? player.setAudioVolume(Volume(0.5))
       guard try await poll(until: { receivedVolumeChanged.withLock { $0 } }) else {
         player.stop()
         task.cancel()

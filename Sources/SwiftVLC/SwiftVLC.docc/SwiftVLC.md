@@ -13,7 +13,7 @@ model does.
 - **Observable state.** ``Player`` is `@Observable` and `@MainActor`.
   SwiftUI views track `state`, `currentTime`, `duration`, and the
   track lists without manual bridging.
-- **Typed errors.** Every failable API uses `throws(VLCError)`, so
+- **Typed errors.** Every throwing API uses `throws(VLCError)`, so
   the compiler sees the full error surface and a general `catch` is
   never needed.
 - **Structured events.** Playback, discovery, logging, and dialog

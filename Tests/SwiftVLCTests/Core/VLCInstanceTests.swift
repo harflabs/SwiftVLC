@@ -108,6 +108,28 @@ extension Integration {
       let instance = try VLCInstance(arguments: ["--force-darwin-legacy-display", "--vout=caopengllayer"])
       #expect(!instance.usesPiPSafeDarwinDisplay)
     }
+
+    @Test
+    func `Default macOS instance does not support dynamic deinterlace changes`() throws {
+      let instance = try VLCInstance(arguments: VLCInstance.defaultArguments)
+      #expect(!instance.supportsDynamicDeinterlaceChanges)
+    }
+
+    @Test
+    func `Software decoded macOS instance supports dynamic deinterlace changes`() throws {
+      let instance = try VLCInstance(
+        arguments: VLCInstance.defaultArguments + [
+          "--codec=avcodec"
+        ]
+      )
+      #expect(instance.supportsDynamicDeinterlaceChanges)
+    }
+
+    @Test
+    func `No-video macOS instance supports deinterlace setter tests`() throws {
+      let instance = try VLCInstance(arguments: VLCInstance.defaultArguments + ["--no-video"])
+      #expect(instance.supportsDynamicDeinterlaceChanges)
+    }
     #endif
 
     @Test

@@ -40,7 +40,7 @@ struct AudioDelayCase: View {
     .navigationTitle("Audio delay")
     .task { try? player.play(url: TestMedia.demo) }
     .onChange(of: delayMs) {
-      player.audioDelay = .milliseconds(Int(delayMs))
+      try? player.setAudioDelay(.milliseconds(Int(delayMs)))
     }
     .onDisappear { player.stop() }
   }

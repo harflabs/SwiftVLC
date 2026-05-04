@@ -32,10 +32,10 @@ struct MacAudioDelayCase: View {
           MacMetricRow(title: "Current", value: durationLabel(player.currentTime))
         }
       }
-      MacLibrarySurface(symbols: ["player.audioDelay"])
+      MacLibrarySurface(symbols: ["player.setAudioDelay(_:)"])
     }
     .task { try? player.play(url: MacTestMedia.demo) }
-    .onChange(of: delayMs) { player.audioDelay = .milliseconds(Int(delayMs)) }
+    .onChange(of: delayMs) { try? player.setAudioDelay(.milliseconds(Int(delayMs))) }
     .onDisappear { player.stop() }
   }
 }

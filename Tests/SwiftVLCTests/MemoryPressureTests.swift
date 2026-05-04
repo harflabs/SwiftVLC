@@ -363,11 +363,11 @@ extension Integration {
           let eq = Equalizer()
           probes.add(eq)
           player.equalizer = eq
-          eq.preamp = Float.random(in: -5...5)
+          eq.preampGain = EqualizerGain(Float.random(in: -5...5))
           var bands = eq.bands
           if !bands.isEmpty {
             bands[0] = Float.random(in: -10...10)
-            eq.bands = bands
+            try? eq.setBands(bands)
           }
           player.equalizer = nil
         }
@@ -621,7 +621,7 @@ extension Integration {
 
       try player.play(url: TestMedia.twosecURL)
       for i in 0..<50 {
-        player.volume = Float(i % 100) / 100
+        try? player.setAudioVolume(Volume(Float(i % 100) / 100))
         if i % 5 == 0 {
           player.pause()
           player.resume()

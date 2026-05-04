@@ -11,10 +11,15 @@ struct SeekBar: View {
   let player: Player
 
   var body: some View {
-    @Bindable var bindable = player
     Group {
-      CompatSlider(value: $bindable.position, range: 0...1)
-        .accessibilityIdentifier(AccessibilityID.SeekBar.slider)
+      CompatSlider(
+        value: Binding(
+          get: { player.position },
+          set: { try? player.seek(to: PlaybackPosition($0)) }
+        ),
+        range: 0...1
+      )
+      .accessibilityIdentifier(AccessibilityID.SeekBar.slider)
 
       timeRow("Current", value: format(player.currentTime), identifier: AccessibilityID.SeekBar.currentTime)
       timeRow("Duration", value: format(player.duration ?? .zero), identifier: AccessibilityID.SeekBar.duration)

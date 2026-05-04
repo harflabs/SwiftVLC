@@ -120,25 +120,23 @@ extension Logic {
 
 extension Integration {
   @MainActor struct PlayerTypedAccessorsTests {
-    @Test func `playbackPosition round-trips via typed accessor`() {
+    @Test func `playbackPosition reflects raw observed position`() {
       let player = Player(instance: TestInstance.shared)
-      player.playbackPosition = 0.4
-      // Player.position is set unconditionally; libVLC's actual seek is
-      // a no-op without media, but the shadow `_position` updates.
+      player._setStateForTesting(position: 0.4)
       #expect(player.playbackPosition.rawValue == 0.4)
     }
 
-    @Test func `audioVolume typed accessor clamps then updates raw volume`() {
+    @Test func `setAudioVolume clamps then updates raw volume`() throws {
       let player = Player(instance: TestInstance.shared)
-      player.audioVolume = .unity
+      try player.setAudioVolume(.unity)
       #expect(player.volume == 1.0)
-      player.audioVolume = Volume(2.0) // clamps to 1.25
+      try player.setAudioVolume(Volume(2.0)) // clamps to 1.25
       #expect(player.volume == 1.25)
     }
 
-    @Test func `playbackRate typed accessor passes through to libVLC`() {
+    @Test func `setPlaybackRate typed accessor passes through to libVLC`() throws {
       let player = Player(instance: TestInstance.shared)
-      player.playbackRate = .double
+      try player.setPlaybackRate(.double)
       // libVLC's get_rate may return cached or actual; both 1.0 and 2.0
       // are observed depending on whether media is loaded. Don't assert
       // the round-trip here; only that the call didn't crash.
@@ -147,9 +145,9 @@ extension Integration {
 
     @Test func `subtitleScale typed accessor round-trips through libVLC`() {
       let player = Player(instance: TestInstance.shared)
-      player.subtitleScale = .doubleSize
+      player.setSubtitleScale(.doubleSize)
       #expect(player.subtitleScale == .doubleSize)
-      player.subtitleScale = .halfSize
+      player.setSubtitleScale(.halfSize)
       #expect(player.subtitleScale == .halfSize)
     }
 
@@ -175,13 +173,13 @@ extension Integration {
       #expect(eq.preampGain.rawValue == 6.0)
     }
 
-    @Test func `bandGains round-trips through Equalizer`() {
+    @Test func `bandGains round-trips through Equalizer`() throws {
       let eq = Equalizer()
       let count = Equalizer.bandCount
       let gains: [EqualizerGain] = (0..<count).map { i in
         EqualizerGain(Float(i - count / 2))
       }
-      eq.bandGains = gains
+      try eq.setBandGains(gains)
       // Round-trip — libVLC stores the values exactly.
       #expect(eq.bandGains == gains)
     }
@@ -197,7 +195,7 @@ extension Integration {
     @Test func `gain forBand reads back what setGain wrote`() throws {
       let eq = Equalizer()
       try eq.setGain(EqualizerGain(7.5), forBand: 0)
-      #expect(eq.gain(forBand: 0).rawValue == 7.5)
+      #expect(try #require(eq.gain(forBand: 0)).rawValue == 7.5)
     }
   }
 }

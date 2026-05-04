@@ -10,8 +10,6 @@ struct RateCase: View {
   @State private var player = Player()
 
   var body: some View {
-    @Bindable var bindable = player
-
     Form {
       Section { AboutView(readMe: readMe) }
 
@@ -29,12 +27,19 @@ struct RateCase: View {
         HStack {
           Text("Current")
           Spacer()
-          Text(String(format: "%.2f×", bindable.rate))
+          Text(String(format: "%.2f×", player.rate))
             .foregroundStyle(.secondary)
             .accessibilityIdentifier(AccessibilityID.Rate.currentLabel)
         }
-        CompatSlider(value: $bindable.rate, range: 0.25...4.0, step: 0.25)
-          .accessibilityIdentifier(AccessibilityID.Rate.slider)
+        CompatSlider(
+          value: Binding(
+            get: { player.rate },
+            set: { try? player.setPlaybackRate(PlaybackRate($0)) }
+          ),
+          range: 0.25...4.0,
+          step: 0.25
+        )
+        .accessibilityIdentifier(AccessibilityID.Rate.slider)
       }
     }
     .showcaseFormStyle()

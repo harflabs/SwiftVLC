@@ -4,10 +4,19 @@ import SwiftVLC
 struct MusicPlayerApp: View {
   @State private var presented: Song?
 
-  private let library: [Song] = [
-    Song(title: "Showcase Reel", artist: "SwiftVLC", url: TestMedia.demo),
-    Song(title: "Big Buck Bunny", artist: "Blender Foundation", url: TestMedia.bigBuckBunny),
-    Song(title: "HLS test stream", artist: "Mux", url: TestMedia.hls)
+  private var library: [Song] {
+    if LaunchArguments.isUITestMode, LaunchArguments.musicFixtureURLValues.count >= 3 {
+      return zip(Self.defaultLibrary, LaunchArguments.musicFixtureURLValues).map { song, url in
+        Song(id: song.id, title: song.title, artist: song.artist, url: url)
+      }
+    }
+    return Self.defaultLibrary
+  }
+
+  private static let defaultLibrary: [Song] = [
+    Song(id: "showcase-reel", title: "Showcase Reel", artist: "SwiftVLC", url: TestMedia.demo),
+    Song(id: "big-buck-bunny", title: "Big Buck Bunny", artist: "Blender Foundation", url: TestMedia.bigBuckBunny),
+    Song(id: "hls-test-stream", title: "HLS test stream", artist: "Mux", url: TestMedia.hls)
   ]
 
   var body: some View {
@@ -16,6 +25,7 @@ struct MusicPlayerApp: View {
         SongRow(song: song)
       }
       .buttonStyle(.plain)
+      .accessibilityIdentifier(AccessibilityID.MusicPlayer.songButton(song.title))
     }
     .navigationTitle("Music Player")
     .fullScreenCover(item: $presented) { song in
@@ -25,10 +35,7 @@ struct MusicPlayerApp: View {
 }
 
 struct Song: Identifiable, Hashable {
-  var id: URL {
-    url
-  }
-
+  let id: String
   let title: String
   let artist: String
   let url: URL

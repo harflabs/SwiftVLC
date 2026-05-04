@@ -115,17 +115,11 @@ extension Integration {
 
     // MARK: - e) togglePlayPause from multiple tasks
 
-    /// Hypothesis probe: confirms that 200 rapid `togglePlayPause`
-    /// calls race against libVLC's aout state machine. The assertion
-    /// `stream->timing.pause_date == VLC_TICK_INVALID` in
-    /// `src/audio_output/dec.c:876` is an upstream debug-build guard
-    /// and the test reliably trips it after enough accumulated
-    /// per-instance aout state. Disabled because fixing the race
-    /// requires a libVLC patch (it's a known upstream issue documented
-    /// in ``TestInstance``), and keeping the probe enabled would crash
-    /// every CI run. Re-enable when investigating the race directly
-    /// against a patched libVLC build.
-    @Test(.disabled("Upstream libVLC debug-assert race; see test doc and TestInstance.swift"))
+    /// Regression probe for rapid `togglePlayPause` calls against a real
+    /// audio output. `Player.togglePlayPause` must coalesce intent while a
+    /// native pause/resume transition is pending so the upstream aout
+    /// assertion is not reached.
+    @Test(.enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(2)))
     func `concurrent togglePlayPause from multiple tasks`() async throws {
       let instance = Self.makeAudioInstance()
       let player = Player(instance: instance)

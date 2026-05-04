@@ -38,7 +38,7 @@ struct SubtitlesDelayCase: View {
     .navigationTitle("Subtitle delay")
     .task { try? player.play(url: TestMedia.demo) }
     .onChange(of: delayMs) {
-      player.subtitleDelay = .milliseconds(Int(delayMs))
+      try? player.setSubtitleDelay(.milliseconds(Int(delayMs)))
     }
     .onDisappear { player.stop() }
   }

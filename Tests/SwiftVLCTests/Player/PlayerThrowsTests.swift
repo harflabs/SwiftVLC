@@ -88,6 +88,31 @@ extension Integration {
       }
     }
 
+    #if os(macOS)
+    @Test
+    func `setDeinterlace rejects active macOS hardware decoded playback`() throws {
+      let player = try Player(instance: VLCInstance(arguments: VLCInstance.defaultArguments))
+      player._setStateForTesting(state: .playing)
+
+      #expect(throws: VLCError.self) {
+        try player.setDeinterlace(state: 1, mode: "yadif")
+      }
+    }
+
+    @Test
+    func `setDeinterlace allows active macOS software decoded playback`() throws {
+      let instance = try VLCInstance(
+        arguments: VLCInstance.defaultArguments + [
+          "--codec=avcodec"
+        ]
+      )
+      let player = Player(instance: instance)
+      player._setStateForTesting(state: .playing)
+
+      try player.setDeinterlace(state: 1, mode: "blend")
+    }
+    #endif
+
     // MARK: - snapshot
 
     @Test
@@ -108,15 +133,13 @@ extension Integration {
       try player.setRate(2.0)
     }
 
-    /// Documents an observed libVLC quirk: `set_rate(0)` returns 0
-    /// (success) even though 0 is not a meaningful playback rate — it's
-    /// equivalent to a pause. This test pins the behavior so a future
-    /// libVLC that starts rejecting 0 is caught as a surprise rather
-    /// than masked.
+    /// SwiftVLC no longer exposes libVLC's raw `set_rate(0)` quirk. The
+    /// typed rate clamps invalid low values before they reach libVLC.
     @Test
-    func `setRate zero is accepted by libVLC (documents the quirk)`() throws {
+    func `setRate zero is clamped by typed PlaybackRate`() throws {
       let player = Player(instance: TestInstance.shared)
-      try player.setRate(0)
+      try player.setRate(PlaybackRate(0))
+      #expect(player.playbackRate == .slowest)
     }
 
     // MARK: - setAudioOutput

@@ -33,7 +33,7 @@ final class EqualizerUITests: ShowcaseIOSTestCase {
   }
 
   /// Rapid preamp drags re-attach the equalizer on each value change
-  /// — `Equalizer.preamp` writes through to libVLC and pings the
+  /// — `Equalizer.preampGain` updates libVLC and pings the
   /// installed onChange handler, which re-applies to the player.
   /// libVLC's audio output must remain coherent across the churn.
   func test_stress_rapidPreampChanges() {

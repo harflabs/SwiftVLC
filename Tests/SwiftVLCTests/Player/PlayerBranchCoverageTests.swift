@@ -146,7 +146,7 @@ extension Integration {
     /// Negative seek when near the start must clamp currentTime to
     /// zero, not underflow.
     @Test
-    func `seek by negative offset clamps currentTime to zero`() {
+    func `seek by negative offset clamps currentTime to zero`() throws {
       let player = Player(instance: TestInstance.shared)
       player._setStateForTesting(
         currentTime: .seconds(1),
@@ -154,14 +154,14 @@ extension Integration {
         isSeekable: true
       )
 
-      player.seek(by: .seconds(-100))
+      try player.seek(by: .seconds(-100))
 
       #expect(player.currentTime == .zero, "seek(by:) must clamp to zero when going past the start")
     }
 
     /// Forward seek beyond duration must clamp currentTime to the end.
     @Test
-    func `seek by offset past duration clamps to duration`() {
+    func `seek by offset past duration clamps to duration`() throws {
       let player = Player(instance: TestInstance.shared)
       player._setStateForTesting(
         currentTime: .seconds(59),
@@ -169,7 +169,7 @@ extension Integration {
         isSeekable: true
       )
 
-      player.seek(by: .seconds(100))
+      try player.seek(by: .seconds(100))
 
       #expect(player.currentTime == .seconds(60), "seek(by:) must clamp at duration")
     }
@@ -177,7 +177,7 @@ extension Integration {
     /// Mid-range seek with neither clamp leaves the published time at
     /// the optimistic target.
     @Test
-    func `seek by offset within bounds advances optimistically`() {
+    func `seek by offset within bounds advances optimistically`() throws {
       let player = Player(instance: TestInstance.shared)
       player._setStateForTesting(
         currentTime: .seconds(10),
@@ -185,34 +185,52 @@ extension Integration {
         isSeekable: true
       )
 
-      player.seek(by: .seconds(5))
+      try player.seek(by: .seconds(5))
 
       #expect(player.currentTime == .seconds(15))
     }
 
-    // MARK: - position setter with known duration
+    // MARK: - checked position seek
 
-    /// Setting `position` when a duration is known must optimistically
+    /// Seeking to a typed position when duration is known must optimistically
     /// update `currentTime` to the position-implied time, before the
     /// eventual timeChanged event refines it.
     @Test
-    func `setting position with known duration updates currentTime optimistically`() {
+    func `typed position seek with known duration updates currentTime optimistically`() throws {
       let player = Player(instance: TestInstance.shared)
-      player._setStateForTesting(duration: .seconds(100))
+      player._setStateForTesting(duration: .seconds(100), isSeekable: true)
 
-      player.position = 0.25
+      try player.seek(to: PlaybackPosition(0.25))
 
       #expect(player.currentTime == .seconds(25))
     }
 
-    /// Setting `position` with no known duration leaves currentTime
-    /// alone (the `if let dur` branch short-circuits).
+    /// The position path scales a floating-point fraction by media
+    /// duration. Very large but representable durations must not overflow
+    /// or trap while converting the scaled value back to libVLC's
+    /// millisecond unit.
     @Test
-    func `setting position without duration does not touch currentTime`() {
+    func `typed position seek near Int64 max duration does not overflow`() throws {
       let player = Player(instance: TestInstance.shared)
-      player._setStateForTesting(currentTime: .seconds(7))
+      player._setStateForTesting(duration: .milliseconds(Int64.max), isSeekable: true)
 
-      player.position = 0.5
+      try player.seek(to: PlaybackPosition(0.999_999_999_999_999_9))
+
+      #expect(player.currentTime >= .zero)
+      #expect(player.currentTime <= .milliseconds(Int64.max))
+    }
+
+    /// Position-based seeking needs known duration. Without it, SwiftVLC
+    /// throws and leaves `currentTime` alone instead of silently publishing
+    /// a fake position.
+    @Test
+    func `typed position seek without duration throws and does not touch currentTime`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(currentTime: .seconds(7), isSeekable: true)
+
+      #expect(throws: VLCError.self) {
+        try player.seek(to: PlaybackPosition(0.5))
+      }
 
       #expect(player.currentTime == .seconds(7))
     }
@@ -223,13 +241,25 @@ extension Integration {
     /// the new value even if libVLC never emits `timeChanged`
     /// (happens during `.paused`).
     @Test
-    func `seek(to:) updates currentTime optimistically`() {
+    func `seek(to:) updates currentTime optimistically`() throws {
       let player = Player(instance: TestInstance.shared)
-      player._setStateForTesting(currentTime: .seconds(2), duration: .seconds(60))
+      player._setStateForTesting(currentTime: .seconds(2), duration: .seconds(60), isSeekable: true)
 
-      player.seek(to: .seconds(42))
+      try player.seek(to: .seconds(42))
 
       #expect(player.currentTime == .seconds(42))
+    }
+
+    @Test
+    func `seek(to:) throws when media is not seekable`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(currentTime: .seconds(2), duration: .seconds(60), isSeekable: false)
+
+      #expect(throws: VLCError.self) {
+        try player.seek(to: .seconds(42))
+      }
+
+      #expect(player.currentTime == .seconds(2))
     }
 
     // MARK: - selectedAudioTrack/Subtitle setter
@@ -308,24 +338,24 @@ extension Integration {
       player.previousChapter()
     }
 
-    // MARK: - Audio delay / subtitle delay / text scale setters
+    // MARK: - Audio delay / subtitle delay / text scale mutations
 
-    /// Setters must not crash when no media is loaded — libVLC will
+    /// Explicit mutation methods must not crash when no media is loaded — libVLC will
     /// silently no-op until there's an active stream to adjust. The
     /// getter returning `0` in that case is expected and pinned by
     /// the ``subtitleTextScale`` test below which uses a libVLC
     /// global that's always active.
     @Test
-    func `audioDelay setter without media is safe`() {
+    func `audioDelay mutation without media is safe`() {
       let player = Player(instance: TestInstance.shared)
-      player.audioDelay = .milliseconds(250)
+      try? player.setAudioDelay(.milliseconds(250))
       _ = player.audioDelay
     }
 
     @Test
-    func `subtitleDelay setter without media is safe`() {
+    func `subtitleDelay mutation without media is safe`() {
       let player = Player(instance: TestInstance.shared)
-      player.subtitleDelay = .milliseconds(-500)
+      try? player.setSubtitleDelay(.milliseconds(-500))
       _ = player.subtitleDelay
     }
 
@@ -334,7 +364,7 @@ extension Integration {
     @Test
     func `subtitleTextScale round trip`() {
       let player = Player(instance: TestInstance.shared)
-      player.subtitleTextScale = 1.5
+      player.setSubtitleScale(SubtitleScale(1.5))
       #expect(abs(player.subtitleTextScale - 1.5) < 0.01)
     }
 
@@ -424,9 +454,9 @@ extension Integration {
     @Test
     func `teletextPage round trip`() {
       let player = Player(instance: TestInstance.shared)
-      player.teletextPage = 100
+      try? player.setTeletextPage(100)
       // libVLC without a decoder may not actually accept teletext, but
-      // we still exercise the setter/getter path.
+      // we still exercise the explicit set/read path.
       _ = player.teletextPage
     }
 

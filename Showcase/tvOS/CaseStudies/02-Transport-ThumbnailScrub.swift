@@ -51,10 +51,10 @@ struct TVThumbnailScrubCase: View {
         Button("Regenerate", systemImage: "arrow.clockwise") { Task { await regenerateButtonTapped() } }
           .disabled(isPreparing)
       }
-      TVLibrarySurface(symbols: ["Media.thumbnail(at:)", "player.position"])
+      TVLibrarySurface(symbols: ["Media.thumbnail(at:)", "player.seek(to:)"])
     }
     .task { await task() }
-    .onChange(of: previewPosition) { player.position = previewPosition }
+    .onChange(of: previewPosition) { try? player.seek(to: PlaybackPosition(previewPosition)) }
     .onDisappear { player.stop() }
   }
 

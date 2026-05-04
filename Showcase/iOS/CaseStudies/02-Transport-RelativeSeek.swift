@@ -48,7 +48,7 @@ struct RelativeSeekCase: View {
 
   private func skip(_ seconds: Int, identifier: String) -> some View {
     Button {
-      player.seek(by: .seconds(seconds))
+      try? player.seek(by: .seconds(seconds))
     } label: {
       Text(seconds > 0 ? "+\(seconds)s" : "\(seconds)s")
         .frame(maxWidth: .infinity)

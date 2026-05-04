@@ -52,7 +52,7 @@ struct MacEqualizerCase: View {
 }
 
 private struct MacEqualizerControls: View {
-  @Bindable var equalizer: Equalizer
+  let equalizer: Equalizer
   @Binding var preset: Int
   let presetPickerChanged: () -> Void
 
@@ -67,7 +67,14 @@ private struct MacEqualizerControls: View {
 
       HStack(spacing: 8) {
         Text("Preamp")
-        Slider(value: $equalizer.preamp, in: -20...20, step: 0.5)
+        Slider(
+          value: Binding(
+            get: { equalizer.preamp },
+            set: { equalizer.preampGain = EqualizerGain($0) }
+          ),
+          in: -20...20,
+          step: 0.5
+        )
         Text(String(format: "%+.1f dB", equalizer.preamp))
           .font(.callout.monospacedDigit())
           .foregroundStyle(.secondary)
@@ -77,9 +84,9 @@ private struct MacEqualizerControls: View {
       VStack(spacing: 8) {
         ForEach(0..<Equalizer.bandCount, id: \.self) { band in
           bandSlider(
-            value: $equalizer.bands[band],
+            value: bandBinding(band),
             label: frequencyLabel(for: band),
-            currentValue: equalizer.bands[band]
+            currentValue: bandValue(band)
           )
         }
       }
@@ -88,10 +95,21 @@ private struct MacEqualizerControls: View {
   }
 
   private func frequencyLabel(for band: Int) -> String {
-    let frequency = Equalizer.bandFrequency(at: band)
+    guard let frequency = Equalizer.bandFrequency(at: band) else { return "B\(band + 1)" }
     return frequency >= 1000
       ? String(format: "%.0fk", frequency / 1000)
       : String(format: "%.0f", frequency)
+  }
+
+  private func bandValue(_ band: Int) -> Float {
+    equalizer.amplification(forBand: band) ?? 0
+  }
+
+  private func bandBinding(_ band: Int) -> Binding<Float> {
+    Binding(
+      get: { bandValue(band) },
+      set: { try? equalizer.setAmplification($0, forBand: band) }
+    )
   }
 
   private func bandSlider(

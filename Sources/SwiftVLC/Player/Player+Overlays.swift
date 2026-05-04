@@ -96,17 +96,23 @@ extension Player {
   /// regardless of whether the current media has a teletext track. To
   /// check whether teletext is actually available, inspect
   /// ``currentMedia`` and its tracks. Reading this value before any
-  /// media is loaded returns `100`.
+  /// media is loaded returns `100`. Use ``setTeletextPage(_:)`` to change
+  /// the page with integer range validation.
   public var teletextPage: Int {
-    get {
-      access(keyPath: \.teletextPage)
-      return Int(libvlc_video_get_teletext(pointer))
+    access(keyPath: \.teletextPage)
+    return Int(libvlc_video_get_teletext(pointer))
+  }
+
+  /// Sets the current teletext page.
+  ///
+  /// - Throws: ``VLCError/invalidInput(_:)`` if `page` cannot be
+  ///   represented by libVLC's `Int32` page parameter.
+  public func setTeletextPage(_ page: Int) throws(VLCError) {
+    guard let page = Int32(exactly: page) else {
+      throw .invalidInput("teletext page must fit in Int32")
     }
-    set {
-      withMutation(keyPath: \.teletextPage) {
-        guard let page = Int32(exactly: newValue) else { return }
-        libvlc_video_set_teletext(pointer, page)
-      }
+    withMutation(keyPath: \.teletextPage) {
+      libvlc_video_set_teletext(pointer, page)
     }
   }
 }

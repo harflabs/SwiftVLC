@@ -2,9 +2,10 @@ import SwiftUI
 import SwiftVLC
 
 struct MacDeinterlacingCase: View {
-  @State private var player = Player()
+  @State private var player = Player(instance: Self.playerInstance)
   @State private var state: Deinterlace = .auto
   @State private var mode: Mode = .yadif
+  @State private var didRunUITestToggleSequence = false
 
   var body: some View {
     MacShowcaseContent(
@@ -35,24 +36,54 @@ struct MacDeinterlacingCase: View {
     } sidebar: {
       MacSection(title: "Current") {
         MacMetricGrid {
-          MacMetricRow(title: "State", value: state.label)
-          MacMetricRow(title: "Mode", value: mode.rawValue)
+          MacMetricRow(
+            title: "State",
+            value: state.label,
+            valueIdentifier: "macos.deinterlace.state.value"
+          )
+          MacMetricRow(
+            title: "Mode",
+            value: mode.rawValue,
+            valueIdentifier: "macos.deinterlace.mode.value"
+          )
         }
       }
       MacLibrarySurface(symbols: ["player.setDeinterlace(state:mode:)"])
     }
-    .task { task() }
+    .task { await task() }
     .onDisappear { player.stop() }
   }
 
-  private func task() {
+  @MainActor
+  private func task() async {
     try? player.play(url: MacTestMedia.demo)
     applyDeinterlace()
+    await runUITestToggleSequenceIfNeeded()
   }
 
   private func applyDeinterlace() {
     try? player.setDeinterlace(state: state.rawValue, mode: mode.rawValue)
   }
+
+  @MainActor
+  private func runUITestToggleSequenceIfNeeded() async {
+    guard LaunchArguments.isUITestMode, !didRunUITestToggleSequence else { return }
+    didRunUITestToggleSequence = true
+
+    try? await Task.sleep(for: .milliseconds(500))
+    state = .on
+    applyDeinterlace()
+
+    try? await Task.sleep(for: .milliseconds(500))
+    state = .off
+    applyDeinterlace()
+  }
+
+  private static let playerInstance = try! VLCInstance(
+    arguments: VLCInstance.defaultArguments + [
+      "--codec=avcodec"
+    ]
+  )
 }
 
 private enum Deinterlace: Int, CaseIterable, Identifiable {

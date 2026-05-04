@@ -4,7 +4,7 @@ import SwiftVLC
 struct NowPlayingView: View {
   let song: Song
 
-  @State private var player = Player()
+  @State private var player = Player(instance: Self.makeAudioOnlyInstance())
   @State private var metadata: Metadata?
   @Environment(\.dismiss) private var dismiss
 
@@ -18,6 +18,8 @@ struct NowPlayingView: View {
             .background(.secondary.opacity(0.2), in: .circle)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(AccessibilityID.MusicPlayer.dismissButton)
+        .accessibilityLabel("Close")
 
         Spacer()
       }
@@ -46,10 +48,15 @@ struct NowPlayingView: View {
   }
 
   private func task() async {
+    player.role = .music
     try? player.play(url: song.url)
     if let media = try? Media(url: song.url) {
       metadata = try? await media.parse()
     }
+  }
+
+  private static func makeAudioOnlyInstance() -> VLCInstance {
+    try! VLCInstance(arguments: VLCInstance.defaultArguments + ["--no-video"])
   }
 }
 

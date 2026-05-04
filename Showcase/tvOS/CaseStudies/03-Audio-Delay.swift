@@ -37,10 +37,10 @@ struct TVAudioDelayCase: View {
           TVMetricRow(title: "Current", value: durationLabel(player.currentTime))
         }
       }
-      TVLibrarySurface(symbols: ["player.audioDelay"])
+      TVLibrarySurface(symbols: ["player.setAudioDelay(_:)"])
     }
     .task { try? player.play(url: TVTestMedia.demo) }
-    .onChange(of: delayMs) { player.audioDelay = .milliseconds(Int(delayMs)) }
+    .onChange(of: delayMs) { try? player.setAudioDelay(.milliseconds(Int(delayMs))) }
     .onDisappear { player.stop() }
   }
 }

@@ -17,12 +17,18 @@ private struct SeekRow: View {
   let player: Player
 
   var body: some View {
-    @Bindable var bindable = player
     VStack(spacing: 6) {
-      Slider(value: $bindable.position, in: 0...1)
+      Slider(
+        value: Binding(
+          get: { player.position },
+          set: { try? player.seek(to: PlaybackPosition($0)) }
+        ),
+        in: 0...1
+      )
 
       HStack {
         Text(format(player.currentTime))
+          .accessibilityIdentifier(AccessibilityID.MusicPlayer.currentTime)
         Spacer()
         Text(format(player.duration ?? .zero))
       }
@@ -43,7 +49,7 @@ private struct TransportRow: View {
   var body: some View {
     HStack(spacing: 40) {
       Button {
-        player.seek(by: .seconds(-15))
+        try? player.seek(by: .seconds(-15))
       } label: {
         Image(systemName: "gobackward.15").font(.title)
       }
@@ -54,16 +60,18 @@ private struct TransportRow: View {
       Button {
         player.togglePlayPause()
       } label: {
-        Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+        Image(systemName: player.isPlaybackRequestedActive ? "pause.circle.fill" : "play.circle.fill")
           .font(.system(size: 64))
           .contentTransition(.symbolEffect(.replace))
       }
+      .accessibilityIdentifier(AccessibilityID.MusicPlayer.playPauseButton)
+      .accessibilityLabel(player.isPlaybackRequestedActive ? "Pause" : "Play")
       #if targetEnvironment(macCatalyst)
-      .keyboardShortcut(.space, modifiers: [])
+        .keyboardShortcut(.space, modifiers: [])
       #endif
 
       Button {
-        player.seek(by: .seconds(15))
+        try? player.seek(by: .seconds(15))
       } label: {
         Image(systemName: "goforward.15").font(.title)
       }
@@ -79,12 +87,17 @@ private struct VolumeRow: View {
   let player: Player
 
   var body: some View {
-    @Bindable var bindable = player
     HStack(spacing: 12) {
       Image(systemName: "speaker.fill")
         .foregroundStyle(.secondary)
 
-      Slider(value: $bindable.volume, in: 0...1.25)
+      Slider(
+        value: Binding(
+          get: { player.volume },
+          set: { try? player.setAudioVolume(Volume($0)) }
+        ),
+        in: 0...1.25
+      )
 
       Image(systemName: "speaker.wave.3.fill")
         .foregroundStyle(.secondary)

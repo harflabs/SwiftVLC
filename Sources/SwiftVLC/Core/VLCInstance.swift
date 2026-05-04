@@ -76,6 +76,16 @@ public final class VLCInstance: Sendable {
     #endif
   }
 
+  var supportsDynamicDeinterlaceChanges: Bool {
+    #if os(macOS)
+    guard !Self.containsOption(named: "no-video", in: arguments) else { return true }
+    let codecs = Self.optionValues(named: "codec", in: arguments)
+    return codecs.contains("avcodec") && !codecs.contains("videotoolbox")
+    #else
+    true
+    #endif
+  }
+
   private static func containsOption(named name: String, in arguments: [String]) -> Bool {
     let longName = "--\(name)"
     let assignmentPrefix = "\(longName)="
@@ -99,6 +109,16 @@ public final class VLCInstance: Sendable {
     }
 
     return value
+  }
+
+  private static func optionValues(named name: String, in arguments: [String]) -> Set<String> {
+    guard let value = lastOptionValue(named: name, in: arguments) else { return [] }
+    return Set(
+      value
+        .split(separator: ",")
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+    )
   }
 
   /// Multiplexes the single libVLC log callback to any number of Swift

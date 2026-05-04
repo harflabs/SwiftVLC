@@ -36,8 +36,15 @@ struct EqualizerCase: View {
       }
 
       Section("Preamp") {
-        CompatSlider(value: $equalizer.preamp, range: -20...20, step: 0.5)
-          .accessibilityIdentifier(AccessibilityID.Equalizer.preampSlider)
+        CompatSlider(
+          value: Binding(
+            get: { equalizer.preamp },
+            set: { equalizer.preampGain = EqualizerGain($0) }
+          ),
+          range: -20...20,
+          step: 0.5
+        )
+        .accessibilityIdentifier(AccessibilityID.Equalizer.preampSlider)
         HStack {
           Text("Gain")
           Spacer()
@@ -51,10 +58,10 @@ struct EqualizerCase: View {
         ForEach(0..<Equalizer.bandCount, id: \.self) { band in
           VStack(alignment: .leading) {
             LabeledContent(frequencyLabel(band)) {
-              Text(String(format: "%+.1f dB", equalizer.bands[band]))
+              Text(String(format: "%+.1f dB", bandValue(band)))
                 .monospacedDigit()
             }
-            CompatSlider(value: $equalizer.bands[band], range: -20...20, step: 0.5)
+            CompatSlider(value: bandBinding(band), range: -20...20, step: 0.5)
           }
         }
       }
@@ -77,9 +84,20 @@ struct EqualizerCase: View {
   }
 
   private func frequencyLabel(_ band: Int) -> String {
-    let frequency = Equalizer.bandFrequency(at: band)
+    guard let frequency = Equalizer.bandFrequency(at: band) else { return "Band \(band + 1)" }
     return frequency >= 1000
       ? String(format: "%.1f kHz", frequency / 1000)
       : "\(Int(frequency)) Hz"
+  }
+
+  private func bandValue(_ band: Int) -> Float {
+    equalizer.amplification(forBand: band) ?? 0
+  }
+
+  private func bandBinding(_ band: Int) -> Binding<Float> {
+    Binding(
+      get: { bandValue(band) },
+      set: { try? equalizer.setAmplification($0, forBand: band) }
+    )
   }
 }

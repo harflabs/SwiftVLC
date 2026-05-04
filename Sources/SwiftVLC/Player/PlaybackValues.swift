@@ -2,14 +2,13 @@
 
 /// A fractional position in the current media, in `0.0 ... 1.0`.
 ///
-/// Assigning through `Player.playbackPosition` clamps values outside
-/// this range to the nearest endpoint rather than silently
-/// misbehaving.
+/// Passing this to `Player.seek(to:)` clamps values outside this range to
+/// the nearest endpoint before the checked seek request is made.
 ///
 /// ```swift
-/// player.playbackPosition = .end          // 1.0
-/// player.playbackPosition = 0.5           // half-way
-/// player.playbackPosition = .init(2.0)    // clamped to 1.0
+/// try player.seek(to: .end)               // 1.0
+/// try player.seek(to: 0.5)                // half-way
+/// try player.seek(to: .init(2.0))         // clamped to 1.0
 /// ```
 public struct PlaybackPosition: Sendable, Hashable, Comparable, ExpressibleByFloatLiteral {
   /// The clamped value, in `0.0 ... 1.0`.
@@ -20,7 +19,7 @@ public struct PlaybackPosition: Sendable, Hashable, Comparable, ExpressibleByFlo
     rawValue = Swift.max(0.0, Swift.min(1.0, value))
   }
 
-  /// `ExpressibleByFloatLiteral` conformance — `player.playbackPosition = 0.5`.
+  /// `ExpressibleByFloatLiteral` conformance — `try player.seek(to: 0.5)`.
   public init(floatLiteral value: Double) {
     self.init(value)
   }
@@ -44,10 +43,10 @@ public struct PlaybackPosition: Sendable, Hashable, Comparable, ExpressibleByFlo
 /// audio clipping becomes audible on most outputs.
 ///
 /// ```swift
-/// player.audioVolume = .muted          // 0.0
-/// player.audioVolume = .unity          // 1.0 (default)
-/// player.audioVolume = 0.8             // 80 %
-/// player.audioVolume = .init(2.0)      // clamped to 1.25
+/// try player.setAudioVolume(.muted)       // 0.0
+/// try player.setAudioVolume(.unity)       // 1.0 (default)
+/// try player.setAudioVolume(0.8)          // 80 %
+/// try player.setAudioVolume(.init(2.0))   // clamped to 1.25
 /// ```
 public struct Volume: Sendable, Hashable, Comparable, ExpressibleByFloatLiteral {
   /// The clamped value, in `0.0 ... 1.25`.
@@ -58,7 +57,7 @@ public struct Volume: Sendable, Hashable, Comparable, ExpressibleByFloatLiteral 
     rawValue = Swift.max(0.0, Swift.min(1.25, value))
   }
 
-  /// `ExpressibleByFloatLiteral` conformance — `player.audioVolume = 0.8`.
+  /// `ExpressibleByFloatLiteral` conformance — `try player.setAudioVolume(0.8)`.
   public init(floatLiteral value: Double) {
     self.init(Float(value))
   }
@@ -84,14 +83,13 @@ public struct Volume: Sendable, Hashable, Comparable, ExpressibleByFloatLiteral 
 /// keep observable behavior predictable.
 ///
 /// Live streams (HLS, RTSP) often reject any rate other than `1.0`.
-/// Use `Player.setRate(_:)` instead of this property when the UI must
-/// react to that rejection.
+/// Use `Player.setPlaybackRate(_:)` so the UI can react to rejection.
 ///
 /// ```swift
-/// player.playbackRate = .normal           // 1.0
-/// player.playbackRate = .double           // 2.0
-/// player.playbackRate = .half             // 0.5
-/// player.playbackRate = 1.25              // any value in 0.25 ... 4.0
+/// try player.setPlaybackRate(.normal)     // 1.0
+/// try player.setPlaybackRate(.double)     // 2.0
+/// try player.setPlaybackRate(.half)       // 0.5
+/// try player.setPlaybackRate(1.25)        // any value in 0.25 ... 4.0
 /// ```
 public struct PlaybackRate: Sendable, Hashable, Comparable, ExpressibleByFloatLiteral {
   /// The clamped value, in `0.25 ... 4.0`.
@@ -102,7 +100,7 @@ public struct PlaybackRate: Sendable, Hashable, Comparable, ExpressibleByFloatLi
     rawValue = Swift.max(0.25, Swift.min(4.0, value))
   }
 
-  /// `ExpressibleByFloatLiteral` conformance — `player.playbackRate = 1.5`.
+  /// `ExpressibleByFloatLiteral` conformance — `try player.setPlaybackRate(1.5)`.
   public init(floatLiteral value: Double) {
     self.init(Float(value))
   }
@@ -132,9 +130,9 @@ public struct PlaybackRate: Sendable, Hashable, Comparable, ExpressibleByFloatLi
 /// pass `0` (invisible subtitles) or a negative value.
 ///
 /// ```swift
-/// player.subtitleScale = .normal            // 1.0 (default)
-/// player.subtitleScale = .doubleSize        // 2.0
-/// player.subtitleScale = 1.5                // any value in 0.1 ... 5.0
+/// player.setSubtitleScale(.normal)          // 1.0 (default)
+/// player.setSubtitleScale(.doubleSize)      // 2.0
+/// player.setSubtitleScale(1.5)              // any value in 0.1 ... 5.0
 /// ```
 public struct SubtitleScale: Sendable, Hashable, Comparable, ExpressibleByFloatLiteral {
   /// The clamped value, in `0.1 ... 5.0`.
@@ -145,7 +143,7 @@ public struct SubtitleScale: Sendable, Hashable, Comparable, ExpressibleByFloatL
     rawValue = Swift.max(0.1, Swift.min(5.0, value))
   }
 
-  /// `ExpressibleByFloatLiteral` conformance — `player.subtitleScale = 1.5`.
+  /// `ExpressibleByFloatLiteral` conformance — `player.setSubtitleScale(1.5)`.
   public init(floatLiteral value: Double) {
     self.init(Float(value))
   }

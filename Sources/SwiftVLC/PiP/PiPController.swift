@@ -15,8 +15,9 @@ import Synchronization
 ///
 /// Most apps should prefer ``PiPVideoView``, which creates and owns a
 /// `PiPController` behind a single SwiftUI view. On macOS that view owns
-/// VLC's native drawable container and moves the whole container into the
-/// system PiP presenter, avoiding AVKit's sample-buffer mirror path.
+/// VLC's native drawable container for inline playback; its native PiP
+/// start path is disabled unless the `PrivateMacOSPiP` SPI opt-in is
+/// enabled.
 ///
 /// ```swift
 /// let controller = PiPController(player: player)
@@ -33,17 +34,23 @@ public final class PiPController: NSObject {
   /// **Default: `false`.** The public AVKit sample-buffer PiP path on
   /// macOS mirrors video through a `CALayerHost` that, on the macOS
   /// releases SwiftVLC supports, crops to 1:1 instead of scaling into
-  /// the PiP panel. SwiftVLC therefore disables macOS PiP by default
-  /// instead of loading a private framework implicitly.
+  /// the PiP panel. SwiftVLC therefore disables the native macOS PiP
+  /// backend by default instead of loading a private framework implicitly.
   ///
   /// Set this to `true` only when your distribution channel accepts
-  /// private API use. With the flag `false`, `PiPController.isPossible`
-  /// returns `false` on macOS and `start()` is a no-op. iOS PiP is
-  /// unaffected (it uses only public AVKit).
+  /// private API use. With the flag `false`, the native macOS backend
+  /// used by ``PiPVideoView`` reports `PiPController.isPossible == false`
+  /// and `start()` is a no-op. iOS PiP is unaffected (it uses only
+  /// public AVKit).
+  ///
+  /// This is intentionally SPI, not stable public API. It exists for
+  /// non-App-Store distributions that deliberately accept private
+  /// framework risk, and it may change or disappear outside SwiftVLC's
+  /// public semantic-versioning contract.
   ///
   /// Read-write at any time; takes effect on the next backend
-  /// `refreshPossible()` (each `attach`/`start` call). For most apps,
-  /// set this once at app launch and leave it.
+  /// `refreshPossible()` (each `attach`/`start` call).
+  @_spi(PrivateMacOSPiP)
   public nonisolated static var allowsPrivateMacOSAPI: Bool {
     get { allowsPrivateMacOSAPIStorage.load(ordering: .acquiring) }
     set { allowsPrivateMacOSAPIStorage.store(newValue, ordering: .releasing) }
@@ -67,7 +74,7 @@ public final class PiPController: NSObject {
         resume: { player.issueResume() },
         cancelPendingPause: { player.cancelPendingPause() },
         shouldResume: { player.shouldResumeForExternalPlayRequest },
-        seek: { player.seek(to: $0) }
+        seek: { try? player.seek(to: $0) }
       )
     }
   }

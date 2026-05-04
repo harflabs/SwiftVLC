@@ -2,11 +2,21 @@ import SwiftUI
 import SwiftVLC
 
 struct MacMusicPlayerApp: View {
-  @State private var player = Player()
+  @State private var player = Player(instance: Self.audioOnlyInstance)
   @State private var selectedSongID: Song.ID? = Song.demo.id
   @State private var metadata: Metadata?
 
-  private let songs = Song.all
+  private var songs: [Song] {
+    if LaunchArguments.isUITestMode, LaunchArguments.musicFixtureURLValues.count >= 3 {
+      return zip(Self.defaultSongs, LaunchArguments.musicFixtureURLValues).map { song, url in
+        Song(id: song.id, title: song.title, artist: song.artist, url: url)
+      }
+    }
+    return Self.defaultSongs
+  }
+
+  private static let defaultSongs = Song.all
+  private static let audioOnlyInstance = try! VLCInstance(arguments: VLCInstance.defaultArguments + ["--no-video"])
 
   var body: some View {
     MacShowcaseContent(
@@ -29,6 +39,7 @@ struct MacMusicPlayerApp: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
+            .accessibilityIdentifier(AccessibilityID.MusicPlayer.songButton(song.title))
             .tag(song.id)
           }
           .frame(minHeight: 260)
@@ -39,8 +50,16 @@ struct MacMusicPlayerApp: View {
         MacMetricGrid {
           MacMetricRow(title: "Title", value: metadata?.title ?? currentSong?.title ?? "--")
           MacMetricRow(title: "Artist", value: metadata?.artist ?? currentSong?.artist ?? "--")
-          MacMetricRow(title: "State", value: player.state.description)
-          MacMetricRow(title: "Time", value: durationLabel(player.currentTime))
+          MacMetricRow(
+            title: "State",
+            value: player.state.description,
+            valueIdentifier: AccessibilityID.MusicPlayer.stateLabel
+          )
+          MacMetricRow(
+            title: "Time",
+            value: durationLabel(player.currentTime),
+            valueIdentifier: AccessibilityID.MusicPlayer.currentTime
+          )
         }
       }
       MacLibrarySurface(symbols: ["Media(url:)", "media.parse()", "Player.volume", "Player.isMuted"])
@@ -70,8 +89,9 @@ struct MacMusicPlayerApp: View {
 
   private func selectedSongChanged() async {
     guard let song = currentSong else { return }
-    try? player.play(url: song.url)
     metadata = nil
+    player.role = .music
+    try? player.play(url: song.url)
     if let media = try? Media(url: song.url) {
       let parsedMetadata = try? await media.parse()
       guard !Task.isCancelled, selectedSongID == song.id else { return }

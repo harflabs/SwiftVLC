@@ -143,7 +143,12 @@ import CLibVLC
 import SwiftUI
 
 /// A SwiftUI view that renders video through libVLC's native drawable
-/// output and moves that drawable into macOS Picture-in-Picture.
+/// output on macOS.
+///
+/// The native Picture-in-Picture start path is unavailable by default.
+/// Non-App-Store builds can opt into it through SwiftVLC's
+/// `PrivateMacOSPiP` SPI, which uses private Apple framework symbols and
+/// is outside the public compatibility contract.
 public struct PiPVideoView: NSViewRepresentable {
   private let player: Player
   private let controllerBinding: Binding<PiPController?>?

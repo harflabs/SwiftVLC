@@ -22,7 +22,7 @@ extension Integration {
     // MARK: - Idle-safe API coverage
 
     // These don't need real playback; they assert that the C wrapper calls
-    // execute cleanly and the state machine observes the setters.
+    // execute cleanly and the state machine observes explicit mutations.
 
     @Test
     func `pause resume togglePlayPause on idle do not crash`() {
@@ -35,10 +35,14 @@ extension Integration {
     }
 
     @Test
-    func `seek on idle player is a no-op`() {
+    func `seek on idle player throws invalid state`() {
       let player = Player(instance: TestInstance.makeAudioOnly())
-      player.seek(to: .milliseconds(500))
-      player.seek(by: .milliseconds(200))
+      #expect(throws: VLCError.self) {
+        try player.seek(to: .milliseconds(500))
+      }
+      #expect(throws: VLCError.self) {
+        try player.seek(by: .milliseconds(200))
+      }
       #expect(player.state == .idle)
     }
 
@@ -88,7 +92,7 @@ extension Integration {
     func `Equalizer attach and detach on idle player`() {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let eq = Equalizer()
-      eq.preamp = 3.0
+      eq.preampGain = EqualizerGain(3.0)
       player.equalizer = eq
       #expect(player.equalizer != nil)
       player.equalizer = nil
@@ -96,9 +100,9 @@ extension Integration {
     }
 
     @Test
-    func `rate setter updates libVLC state`() {
+    func `setPlaybackRate updates libVLC state`() throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
-      player.rate = 1.5
+      try player.setPlaybackRate(PlaybackRate(1.5))
       // Rate is read back via libvlc_media_player_get_rate — no playback
       // needed for the C call itself to work.
       #expect(player.rate == 1.5)

@@ -9,7 +9,7 @@ import Observation
 ///
 /// ```swift
 /// let eq = Equalizer()
-/// eq.preamp = 5.0
+/// eq.preampGain = 5.0
 /// try eq.setAmplification(10.0, forBand: 0)
 /// player.equalizer = eq
 /// ```
@@ -56,20 +56,11 @@ public final class Equalizer {
 
   /// Preamp gain applied ahead of the per-band amplification, in dB.
   ///
-  /// Valid range is `-20.0` to `+20.0`; libVLC clamps values outside
-  /// that window.
+  /// Use ``preampGain`` to mutate this value through the typed
+  /// ``EqualizerGain`` range.
   public var preamp: Float {
-    get {
-      access(keyPath: \.preamp)
-      return libvlc_audio_equalizer_get_preamp(pointer)
-    }
-    set {
-      guard libvlc_audio_equalizer_get_preamp(pointer) != newValue else { return }
-      _ = withMutation(keyPath: \.preamp) {
-        libvlc_audio_equalizer_set_preamp(pointer, newValue)
-      }
-      onChange?()
-    }
+    access(keyPath: \.preamp)
+    return libvlc_audio_equalizer_get_preamp(pointer)
   }
 
   // MARK: - Bands
@@ -81,10 +72,10 @@ public final class Equalizer {
 
   /// Returns the center frequency (Hz) for a band.
   /// - Parameter index: Band index (0 ..< ``bandCount``).
-  /// - Returns: The band frequency, or `-1` if `index` is invalid.
-  public static func bandFrequency(at index: Int) -> Float {
+  /// - Returns: The band frequency, or `nil` if `index` is invalid.
+  public static func bandFrequency(at index: Int) -> Float? {
     guard index >= 0 && index < bandCount, let index = UInt32(exactly: index) else {
-      return -1
+      return nil
     }
     return libvlc_audio_equalizer_get_band_frequency(index)
   }
@@ -92,20 +83,12 @@ public final class Equalizer {
   /// Per-band amplification in dB, in frequency order. The array length
   /// always equals ``bandCount``.
   ///
-  /// Reading takes a snapshot of the current band values. Assigning a
-  /// new array writes each element through to libVLC and triggers
-  /// re-application on the attached player. Assigning an array of the
-  /// wrong length is ignored; use ``setBands(_:)`` when you need a
-  /// typed validation error.
+  /// Reading takes a snapshot of the current band values. Use
+  /// ``setBands(_:)`` to write values with length validation.
   public var bands: [Float] {
-    get {
-      access(keyPath: \.bands)
-      return (0..<Self.bandCount).map {
-        libvlc_audio_equalizer_get_amp_at_index(pointer, UInt32($0))
-      }
-    }
-    set {
-      try? setBands(newValue)
+    access(keyPath: \.bands)
+    return (0..<Self.bandCount).map {
+      libvlc_audio_equalizer_get_amp_at_index(pointer, UInt32($0))
     }
   }
 
@@ -132,11 +115,11 @@ public final class Equalizer {
 
   /// Returns the amplification (dB) for a specific band.
   /// - Parameter band: Band index (0 ..< ``bandCount``).
-  /// - Returns: The amplification value, or `Float.nan` if `band` is invalid.
-  public func amplification(forBand band: Int) -> Float {
+  /// - Returns: The amplification value, or `nil` if `band` is invalid.
+  public func amplification(forBand band: Int) -> Float? {
     access(keyPath: \.bands)
     guard band >= 0 && band < Self.bandCount, let band = UInt32(exactly: band) else {
-      return .nan
+      return nil
     }
     return libvlc_audio_equalizer_get_amp_at_index(pointer, band)
   }
@@ -184,24 +167,24 @@ public final class Equalizer {
 ///
 /// ```swift
 /// equalizer.preampGain = .flat
-/// equalizer.bandGains = [+3.0, +2.0, .flat, -1.0, -2.0, -2.0, -1.0, .flat, +1.0, +2.0]
+/// try equalizer.setBandGains([+3.0, +2.0, .flat, -1.0, -2.0, -2.0, -1.0, .flat, +1.0, +2.0])
 /// try equalizer.setGain(+6.0, forBand: 3)
 /// ```
 extension Equalizer {
-  /// Preamp gain, clamped to `-20.0 ... +20.0` dB. Prefer this over
-  /// the raw ``preamp`` property when you want compile-time clamping
-  /// and the `.flat` shorthand.
+  /// Preamp gain, clamped to `-20.0 ... +20.0` dB.
+  ///
+  /// Assign to this property to mutate the preamp through the typed
+  /// ``EqualizerGain`` range. Read ``preamp`` when you need the raw
+  /// `Float` value libVLC currently reports.
   public var preampGain: EqualizerGain {
     get { EqualizerGain(preamp) }
-    set { preamp = newValue.rawValue }
+    set { applyPreamp(newValue.rawValue) }
   }
 
   /// Per-band amplification, each clamped to `-20.0 ... +20.0` dB.
-  /// Assignments whose length does not equal ``bandCount`` are ignored;
-  /// use ``setBandGains(_:)`` when you need a typed validation error.
+  /// Use ``setBandGains(_:)`` to write values with length validation.
   public var bandGains: [EqualizerGain] {
-    get { bands.map(EqualizerGain.init) }
-    set { try? setBandGains(newValue) }
+    bands.map(EqualizerGain.init)
   }
 
   /// Sets all typed per-band gain values.
@@ -214,10 +197,9 @@ extension Equalizer {
 
   /// Returns the typed gain for a specific band.
   /// - Parameter band: Band index (0 ..< ``bandCount``).
-  /// - Returns: The band gain, or `.flat` if `band` is invalid.
-  public func gain(forBand band: Int) -> EqualizerGain {
-    guard band >= 0 && band < Self.bandCount else { return .flat }
-    return EqualizerGain(amplification(forBand: band))
+  /// - Returns: The band gain, or `nil` if `band` is invalid.
+  public func gain(forBand band: Int) -> EqualizerGain? {
+    amplification(forBand: band).map(EqualizerGain.init)
   }
 
   /// Sets the typed gain for a specific band.
@@ -225,5 +207,13 @@ extension Equalizer {
   ///   or ``VLCError/operationFailed(_:)`` if libVLC rejects the value.
   public func setGain(_ gain: EqualizerGain, forBand band: Int) throws(VLCError) {
     try setAmplification(gain.rawValue, forBand: band)
+  }
+
+  private func applyPreamp(_ newValue: Float) {
+    guard libvlc_audio_equalizer_get_preamp(pointer) != newValue else { return }
+    _ = withMutation(keyPath: \.preamp) {
+      libvlc_audio_equalizer_set_preamp(pointer, newValue)
+    }
+    onChange?()
   }
 }

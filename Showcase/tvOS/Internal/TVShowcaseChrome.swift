@@ -176,7 +176,10 @@ struct TVPlaybackControls: View {
 
       TVSlider(
         "Position",
-        value: $bindable.position,
+        value: Binding(
+          get: { player.position },
+          set: { try? player.seek(to: PlaybackPosition($0)) }
+        ),
         in: 0...1,
         step: 0.05
       ) { _ in durationLabel(player.currentTime) }
@@ -188,7 +191,10 @@ struct TVPlaybackControls: View {
 
           TVSlider(
             "Volume",
-            value: $bindable.volume,
+            value: Binding(
+              get: { player.volume },
+              set: { try? player.setAudioVolume(Volume($0)) }
+            ),
             in: 0...1.25,
             step: 0.05
           ) { "\(Int($0 * 100))%" }

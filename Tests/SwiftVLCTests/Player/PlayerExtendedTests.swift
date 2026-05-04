@@ -112,7 +112,7 @@ extension Integration {
     @Test
     func `Volume amplification up to 1_25`() {
       let player = Player(instance: TestInstance.shared)
-      player.volume = 1.25
+      try? player.setAudioVolume(Volume(1.25))
       // Volume may not persist exactly without active pipeline
       _ = player.volume
     }
@@ -120,7 +120,7 @@ extension Integration {
     @Test
     func `Volume at exact 1_0`() {
       let player = Player(instance: TestInstance.shared)
-      player.volume = 1.0
+      try? player.setAudioVolume(Volume(1.0))
       // Volume may not persist exactly without active pipeline
       _ = player.volume
     }
@@ -130,7 +130,7 @@ extension Integration {
     @Test
     func `Rate minimum boundary 0_25`() {
       let player = Player(instance: TestInstance.shared)
-      player.rate = 0.25
+      try? player.setPlaybackRate(PlaybackRate(0.25))
       // Rate may not persist without active pipeline
       _ = player.rate
     }
@@ -138,7 +138,7 @@ extension Integration {
     @Test
     func `Rate maximum boundary 4_0`() {
       let player = Player(instance: TestInstance.shared)
-      player.rate = 4.0
+      try? player.setPlaybackRate(PlaybackRate(4.0))
       // Rate may not persist without active pipeline
       _ = player.rate
     }
@@ -235,12 +235,12 @@ extension Integration {
     func `Audio delay set does not crash`() {
       let player = Player(instance: TestInstance.shared)
       // Audio delay may not persist without active playback pipeline,
-      // but the setter should not crash
-      player.audioDelay = .microseconds(1500)
+      // but the mutation should not crash.
+      try? player.setAudioDelay(.microseconds(1500))
       _ = player.audioDelay
-      player.audioDelay = .milliseconds(-250)
+      try? player.setAudioDelay(.milliseconds(-250))
       _ = player.audioDelay
-      player.audioDelay = .zero
+      try? player.setAudioDelay(.zero)
       _ = player.audioDelay
     }
 
@@ -250,12 +250,12 @@ extension Integration {
     func `Subtitle delay set does not crash`() {
       let player = Player(instance: TestInstance.shared)
       // Subtitle delay may not persist without active playback pipeline,
-      // but the setter should not crash
-      player.subtitleDelay = .milliseconds(300)
+      // but the mutation should not crash.
+      try? player.setSubtitleDelay(.milliseconds(300))
       _ = player.subtitleDelay
-      player.subtitleDelay = .milliseconds(-150)
+      try? player.setSubtitleDelay(.milliseconds(-150))
       _ = player.subtitleDelay
-      player.subtitleDelay = .zero
+      try? player.setSubtitleDelay(.zero)
       _ = player.subtitleDelay
     }
 
@@ -424,9 +424,9 @@ extension Integration {
       #expect(player2.state == .idle)
       #expect(player3.state == .idle)
 
-      player1.volume = 0.5
-      player2.volume = 0.8
-      player3.volume = 0.3
+      try? player1.setAudioVolume(0.5)
+      try? player2.setAudioVolume(0.8)
+      try? player3.setAudioVolume(0.3)
 
       // Volume may not persist exactly without active pipeline
       _ = player1.volume
@@ -461,8 +461,8 @@ extension Integration {
       _ = player1.isMuted
       _ = player2.isMuted
 
-      player1.rate = 2.0
-      player2.rate = 0.5
+      try? player1.setPlaybackRate(2.0)
+      try? player2.setPlaybackRate(0.5)
 
       _ = player1.rate
       _ = player2.rate

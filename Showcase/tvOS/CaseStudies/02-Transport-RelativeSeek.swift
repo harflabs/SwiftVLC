@@ -18,7 +18,7 @@ struct TVRelativeSeekCase: View {
         TVSection(title: "Jumps") {
           TVControlGrid {
             ForEach(offsets, id: \.self) { offset in
-              Button(label(for: offset)) { player.seek(by: .seconds(offset)) }
+              Button(label(for: offset)) { try? player.seek(by: .seconds(offset)) }
             }
           }
           .disabled(!player.isSeekable)

@@ -32,10 +32,10 @@ struct MacSubtitlesDelayCase: View {
           MacMetricRow(title: "Subtitles", value: "\(player.subtitleTracks.count)")
         }
       }
-      MacLibrarySurface(symbols: ["player.subtitleDelay"])
+      MacLibrarySurface(symbols: ["player.setSubtitleDelay(_:)"])
     }
     .task { try? player.play(url: MacTestMedia.demo) }
-    .onChange(of: delayMs) { player.subtitleDelay = .milliseconds(Int(delayMs)) }
+    .onChange(of: delayMs) { try? player.setSubtitleDelay(.milliseconds(Int(delayMs))) }
     .onDisappear { player.stop() }
   }
 }

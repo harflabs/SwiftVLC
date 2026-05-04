@@ -218,7 +218,7 @@ extension Integration {
         let player = Player(instance: TestInstance.makeAudioOnly())
         let eq = Equalizer()
         player.equalizer = eq
-        eq.preamp = 5
+        eq.preampGain = 5.0
         weakPlayer = player
         weakEQ = eq
       }
@@ -407,7 +407,7 @@ extension Integration {
           let eq = Equalizer()
           probes.add(eq)
           player.equalizer = eq
-          eq.preamp = Float.random(in: -10...10)
+          eq.preampGain = EqualizerGain(Float.random(in: -10...10))
           player.equalizer = nil
         }
       }

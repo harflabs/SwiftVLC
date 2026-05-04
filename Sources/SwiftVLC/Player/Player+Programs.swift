@@ -64,13 +64,33 @@ extension Player {
 
   /// Enables, disables, or sets deinterlacing.
   ///
+  /// On macOS, libVLC's VideoToolbox path can assert inside its
+  /// CVPixelBuffer converter when this filter graph is changed during
+  /// active playback. Use a software-decoding ``VLCInstance`` (for
+  /// example `--codec=avcodec`) when an app needs interactive
+  /// deinterlace controls.
+  ///
   /// - Parameters:
   ///   - state: `-1` for auto, `0` to disable, `1` to enable.
   ///   - mode: Deinterlace filter name (e.g. "blend", "bob", "x", "yadif"), or `nil` for default.
   /// - Throws: ``VLCError/invalidInput(_:)`` if `state` cannot be passed to libVLC,
-  ///   or ``VLCError/operationFailed(_:)`` if the filter cannot be applied.
+  ///   ``VLCError/invalidState(_:)`` if macOS playback is active on a
+  ///   hardware-decoded instance, or ``VLCError/operationFailed(_:)``
+  ///   if the filter cannot be applied.
   public func setDeinterlace(state: Int = -1, mode: String? = nil) throws(VLCError) {
     let state = try checkedInt32(state, parameter: "state")
+    #if os(macOS)
+    switch self.state {
+    case .idle, .stopped, .error:
+      break
+    case .opening, .buffering, .playing, .paused, .stopping:
+      guard instance.supportsDynamicDeinterlaceChanges else {
+        throw .invalidState(
+          "Changing deinterlace during active macOS playback requires a software-decoding VLCInstance."
+        )
+      }
+    }
+    #endif
     guard libvlc_video_set_deinterlace(pointer, state, mode) == 0 else {
       throw .operationFailed("Set deinterlace")
     }

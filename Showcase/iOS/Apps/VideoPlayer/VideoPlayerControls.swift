@@ -57,7 +57,13 @@ private struct TopBar: View {
             }
           }
         }
-        Picker("Speed", selection: $bindable.rate) {
+        Picker(
+          "Speed",
+          selection: Binding(
+            get: { player.rate },
+            set: { try? player.setPlaybackRate(PlaybackRate($0)) }
+          )
+        ) {
           ForEach(rates, id: \.self) { rate in
             Text(String(format: "%.2f×", rate)).tag(rate)
           }
@@ -101,12 +107,17 @@ private struct SeekRow: View {
   let player: Player
 
   var body: some View {
-    @Bindable var bindable = player
     HStack(spacing: 12) {
       Text(format(player.currentTime))
         .font(.caption.monospacedDigit())
 
-      Slider(value: $bindable.position, in: 0...1)
+      Slider(
+        value: Binding(
+          get: { player.position },
+          set: { try? player.seek(to: PlaybackPosition($0)) }
+        ),
+        in: 0...1
+      )
 
       Text(format(player.duration ?? .zero))
         .font(.caption.monospacedDigit())
@@ -130,7 +141,7 @@ private struct TransportRow: View {
   var body: some View {
     HStack(spacing: 48) {
       Button {
-        player.seek(by: .seconds(-10))
+        try? player.seek(by: .seconds(-10))
       } label: {
         Image(systemName: "gobackward.10").font(.title)
       }
@@ -150,7 +161,7 @@ private struct TransportRow: View {
       #endif
 
       Button {
-        player.seek(by: .seconds(10))
+        try? player.seek(by: .seconds(10))
       } label: {
         Image(systemName: "goforward.10").font(.title)
       }

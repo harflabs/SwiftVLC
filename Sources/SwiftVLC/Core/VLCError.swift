@@ -1,6 +1,6 @@
 import Foundation
 
-/// The single error type thrown by every failable SwiftVLC API.
+/// The single error type thrown by every throwing SwiftVLC API.
 ///
 /// All throwing functions in SwiftVLC use Swift's typed throws form
 /// `throws(VLCError)`, so the cases below are exhaustive. A general
