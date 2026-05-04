@@ -209,8 +209,9 @@ extension Integration {
 
     @Test
     func `setAudioOutput accepts an available module`() {
-      let player = Player(instance: TestInstance.shared)
-      let outputs = TestInstance.shared.audioOutputs()
+      let instance = TestInstance.makePlayback()
+      let player = Player(instance: instance)
+      let outputs = instance.audioOutputs()
       var didSetOutput = false
 
       for output in outputs where (try? player.setAudioOutput(output.name)) != nil {

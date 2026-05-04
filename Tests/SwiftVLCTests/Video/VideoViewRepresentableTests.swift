@@ -87,24 +87,8 @@ extension Integration {
       #expect(firstPlayer.drawable == nil)
       #expect(secondPlayer.drawable === surface)
       #else
-      #expect(Bool(true))
+      #expect(true)
       #endif
     }
   }
 }
-
-#if canImport(AppKit)
-extension NSView {
-  fileprivate func firstDescendant<T: NSView>(ofType type: T.Type) -> T? {
-    if let match = self as? T {
-      return match
-    }
-    for subview in subviews {
-      if let match = subview.firstDescendant(ofType: type) {
-        return match
-      }
-    }
-    return nil
-  }
-}
-#endif

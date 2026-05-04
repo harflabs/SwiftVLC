@@ -447,21 +447,6 @@ private final class Box<T> {
   }
 }
 
-#if canImport(AppKit)
-extension NSView {
-  fileprivate func firstDescendant<T: NSView>(ofType type: T.Type) -> T? {
-    if let match = self as? T {
-      return match
-    }
-    for subview in subviews {
-      if let match = subview.firstDescendant(ofType: type) {
-        return match
-      }
-    }
-    return nil
-  }
-}
-
 @MainActor
 private final class PiPReshapeProbeView: NSView {
   var reshapeCount = 0
@@ -471,5 +456,4 @@ private final class PiPReshapeProbeView: NSView {
     reshapeCount += 1
   }
 }
-#endif
 #endif
