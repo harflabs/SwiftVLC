@@ -289,6 +289,28 @@ extension Integration {
     }
 
     @Test
+    func `macOS PiP controller delegates to native backend`() {
+      let initialAllowsPrivateAPI = PiPController.allowsPrivateMacOSAPI
+      defer { PiPController.allowsPrivateMacOSAPI = initialAllowsPrivateAPI }
+      PiPController.allowsPrivateMacOSAPI = false
+
+      let player = Player(instance: TestInstance.shared)
+      let backend = MacNativePiPBackend()
+      let controller = PiPController(player: player, nativeBackend: backend)
+
+      controller.start()
+      controller.invalidatePictureInPicturePlaybackState()
+      controller.stop()
+      controller.handleNativePictureInPictureReady()
+      controller.handleNativePictureInPictureActiveChanged(true)
+      #expect(controller.isActive == true)
+      controller.handleNativePictureInPictureActiveChanged(false)
+      #expect(controller.isActive == false)
+      controller.handleNativePictureInPictureSetPlaying(true)
+      #expect(controller._pipPlaybackActiveForTesting() == true)
+    }
+
+    @Test
     func `macOS native PiP media controller defaults without player`() async {
       let mediaController = MacNativePiPMediaController()
       let didComplete = Box(false)

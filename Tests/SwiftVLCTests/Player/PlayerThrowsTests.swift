@@ -207,6 +207,20 @@ extension Integration {
       }
     }
 
+    @Test
+    func `setAudioOutput accepts an available module`() throws {
+      let player = Player(instance: TestInstance.shared)
+      let outputs = TestInstance.shared.audioOutputs()
+      var didSetOutput = false
+
+      for output in outputs where (try? player.setAudioOutput(output.name)) != nil {
+        didSetOutput = true
+        break
+      }
+
+      #expect(didSetOutput || outputs.isEmpty)
+    }
+
     // MARK: - A-B loop error paths
 
     /// A-B loop requires the player to have a loaded media with a known
@@ -225,6 +239,22 @@ extension Integration {
       let player = Player(instance: TestInstance.shared)
       #expect(throws: VLCError.self) {
         try player.setABLoop(aPosition: 0.1, bPosition: 0.2)
+      }
+    }
+
+    @Test
+    func `setABLoop by time rejects non-increasing bounds before libVLC`() {
+      let player = Player(instance: TestInstance.shared)
+      #expect(throws: VLCError.invalidInput("A-B loop requires a < b")) {
+        try player.setABLoop(a: .seconds(2), b: .seconds(2))
+      }
+    }
+
+    @Test
+    func `setABLoop by position rejects non-increasing bounds before libVLC`() {
+      let player = Player(instance: TestInstance.shared)
+      #expect(throws: VLCError.invalidInput("A-B loop requires aPosition < bPosition")) {
+        try player.setABLoop(aPosition: 0.5, bPosition: 0.5)
       }
     }
 

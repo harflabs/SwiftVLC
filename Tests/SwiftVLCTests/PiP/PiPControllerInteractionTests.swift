@@ -4,6 +4,7 @@ import AVFoundation
 import AVKit
 import CoreMedia
 import CustomDump
+import Synchronization
 import Testing
 
 /// Complements `PiPControllerTests` by exercising the delegate /
@@ -40,6 +41,17 @@ extension Integration {
           seek: { self.seekTargets.append($0.milliseconds) }
         )
       }
+    }
+
+    private func makePictureInPictureController(
+      for controller: PiPController
+    ) -> AVPictureInPictureController? {
+      guard AVPictureInPictureController.isPictureInPictureSupported() else { return nil }
+      let contentSource = AVPictureInPictureController.ContentSource(
+        sampleBufferDisplayLayer: controller.layer,
+        playbackDelegate: controller._playbackDelegateForTesting
+      )
+      return AVPictureInPictureController(contentSource: contentSource)
     }
 
     // MARK: - handleSetPlaying
@@ -451,6 +463,69 @@ extension Integration {
       expectNoDifference(recorder.seekTargets, [8000])
     }
 
+    @Test
+    func `playback delegate proxy forwards setPlaying to owner`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .playing)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: PlaybackRecorder().driver,
+        pauseDebounce: .milliseconds(250)
+      )
+      guard let pip = makePictureInPictureController(for: controller) else { return }
+
+      controller._playbackDelegateForTesting.pictureInPictureController(pip, setPlaying: false)
+
+      #expect(controller._pipPlaybackActiveForTesting() == false)
+      #expect(controller._pendingPiPPlaybackStateForTesting() == false)
+    }
+
+    @Test
+    func `playback delegate proxy forwards skip to owner`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(currentTime: .seconds(5), duration: .seconds(20))
+      let recorder = PlaybackRecorder()
+      let controller = PiPController(
+        player: player,
+        playbackDriver: recorder.driver,
+        pauseDebounce: .milliseconds(250)
+      )
+      guard let pip = makePictureInPictureController(for: controller) else { return }
+      let didComplete = Mutex(false)
+
+      controller._playbackDelegateForTesting.pictureInPictureController(
+        pip,
+        skipByInterval: CMTime(seconds: 2, preferredTimescale: 1000)
+      ) {
+        didComplete.withLock { $0 = true }
+      }
+
+      expectNoDifference(recorder.seekTargets, [7000])
+      #expect(didComplete.withLock { $0 })
+    }
+
+    @Test
+    func `playback delegate proxy completes skip when owner is gone`() {
+      let proxy = PiPPlaybackDelegateProxy()
+      let layer = AVSampleBufferDisplayLayer()
+      guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
+      let contentSource = AVPictureInPictureController.ContentSource(
+        sampleBufferDisplayLayer: layer,
+        playbackDelegate: proxy
+      )
+      let pip = AVPictureInPictureController(contentSource: contentSource)
+      let didComplete = Mutex(false)
+
+      proxy.pictureInPictureController(
+        pip,
+        skipByInterval: CMTime(seconds: 10, preferredTimescale: 1000)
+      ) {
+        didComplete.withLock { $0 = true }
+      }
+
+      #expect(didComplete.withLock { $0 })
+    }
+
     // MARK: - Delegate TimeRangeForPlayback
 
     /// Without a known duration, the delegate must report a 24-hour
@@ -459,13 +534,7 @@ extension Integration {
     func `timeRangeForPlayback reports sentinel when duration is unknown`() {
       let player = Player(instance: TestInstance.shared)
       let controller = PiPController(player: player)
-      guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
-
-      let contentSource = AVPictureInPictureController.ContentSource(
-        sampleBufferDisplayLayer: controller.layer,
-        playbackDelegate: controller._playbackDelegateForTesting
-      )
-      let pip = AVPictureInPictureController(contentSource: contentSource)
+      guard let pip = makePictureInPictureController(for: controller) else { return }
 
       let range = controller._timeRangeForPlaybackForTesting(pip)
 
@@ -479,13 +548,7 @@ extension Integration {
       let player = Player(instance: TestInstance.shared)
       player._setStateForTesting(duration: .seconds(120))
       let controller = PiPController(player: player)
-      guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
-
-      let contentSource = AVPictureInPictureController.ContentSource(
-        sampleBufferDisplayLayer: controller.layer,
-        playbackDelegate: controller._playbackDelegateForTesting
-      )
-      let pip = AVPictureInPictureController(contentSource: contentSource)
+      guard let pip = makePictureInPictureController(for: controller) else { return }
 
       let range = controller._timeRangeForPlaybackForTesting(pip)
 
@@ -502,13 +565,7 @@ extension Integration {
     func `didTransitionToRenderSize does not crash`() {
       let player = Player(instance: TestInstance.shared)
       let controller = PiPController(player: player)
-      guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
-
-      let contentSource = AVPictureInPictureController.ContentSource(
-        sampleBufferDisplayLayer: controller.layer,
-        playbackDelegate: controller._playbackDelegateForTesting
-      )
-      let pip = AVPictureInPictureController(contentSource: contentSource)
+      guard let pip = makePictureInPictureController(for: controller) else { return }
 
       controller._didTransitionToRenderSizeForTesting(
         pip,
@@ -520,13 +577,7 @@ extension Integration {
     func `didTransitionToRenderSize updates renderer target size only on sample resizing platforms`() {
       let player = Player(instance: TestInstance.shared)
       let controller = PiPController(player: player)
-      guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
-
-      let contentSource = AVPictureInPictureController.ContentSource(
-        sampleBufferDisplayLayer: controller.layer,
-        playbackDelegate: controller._playbackDelegateForTesting
-      )
-      let pip = AVPictureInPictureController(contentSource: contentSource)
+      guard let pip = makePictureInPictureController(for: controller) else { return }
 
       controller._didTransitionToRenderSizeForTesting(
         pip,
@@ -552,13 +603,7 @@ extension Integration {
     func `didStartPictureInPicture sets isActive`() {
       let player = Player(instance: TestInstance.shared)
       let controller = PiPController(player: player)
-      guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
-
-      let contentSource = AVPictureInPictureController.ContentSource(
-        sampleBufferDisplayLayer: controller.layer,
-        playbackDelegate: controller._playbackDelegateForTesting
-      )
-      let pip = AVPictureInPictureController(contentSource: contentSource)
+      guard let pip = makePictureInPictureController(for: controller) else { return }
 
       #expect(controller.isActive == false)
       controller.pictureInPictureControllerDidStartPictureInPicture(pip)
@@ -566,17 +611,23 @@ extension Integration {
     }
 
     @Test
+    func `willStartPictureInPicture syncs playback state`() {
+      let player = Player(instance: TestInstance.shared)
+      let controller = PiPController(player: player)
+      guard let pip = makePictureInPictureController(for: controller) else { return }
+
+      player._setStateForTesting(isPlaybackRequestedActive: true)
+      controller.pictureInPictureControllerWillStartPictureInPicture(pip)
+
+      #expect(controller._pipPlaybackActiveForTesting() == true)
+    }
+
+    @Test
     func `didStopPictureInPicture clears isActive`() {
       let player = Player(instance: TestInstance.shared)
       let controller = PiPController(player: player)
       controller._setStateForTesting(isActive: true)
-      guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
-
-      let contentSource = AVPictureInPictureController.ContentSource(
-        sampleBufferDisplayLayer: controller.layer,
-        playbackDelegate: controller._playbackDelegateForTesting
-      )
-      let pip = AVPictureInPictureController(contentSource: contentSource)
+      guard let pip = makePictureInPictureController(for: controller) else { return }
 
       #expect(controller.isActive == true)
       controller.pictureInPictureControllerDidStopPictureInPicture(pip)
@@ -590,17 +641,29 @@ extension Integration {
       let player = Player(instance: TestInstance.shared)
       let controller = PiPController(player: player)
       controller._setStateForTesting(isActive: true)
-      guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
-
-      let contentSource = AVPictureInPictureController.ContentSource(
-        sampleBufferDisplayLayer: controller.layer,
-        playbackDelegate: controller._playbackDelegateForTesting
-      )
-      let pip = AVPictureInPictureController(contentSource: contentSource)
+      guard let pip = makePictureInPictureController(for: controller) else { return }
 
       let fakeError = NSError(domain: "swiftvlc.test", code: 42)
       controller.pictureInPictureController(pip, failedToStartPictureInPictureWithError: fakeError)
       #expect(controller.isActive == false)
+    }
+
+    @Test
+    func `terminal observed state clears stale pending PiP play request`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .paused)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: PlaybackRecorder().driver,
+        pauseDebounce: .milliseconds(250)
+      )
+
+      controller._setPlayingForTesting(true)
+      player._setStateForTesting(state: .error)
+      controller._handleObservedPlaybackActivityForTesting(false)
+
+      #expect(controller._pipPlaybackActiveForTesting() == false)
+      #expect(controller._pendingPiPPlaybackStateForTesting() == nil)
     }
   }
 }
