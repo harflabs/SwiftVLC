@@ -86,6 +86,9 @@ struct MacDiscoveryRenderersCase: View {
       case .itemAdded(let renderer):
         renderers.append(renderer)
       case .itemDeleted(let renderer):
+        if selectedRendererID == renderer.id {
+          selectedRendererID = nil
+        }
         renderers.removeAll { $0 == renderer }
       }
     }

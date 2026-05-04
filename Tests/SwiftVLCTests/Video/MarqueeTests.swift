@@ -107,7 +107,7 @@ extension Integration {
     ///   2. After the dust settles, `_marqueeText` matches the final
     ///      explicit `setText` call.
     @Test
-    func `Rapid style writes coalesce into a single restore`() async {
+    func `Rapid style writes coalesce into a single restore`() async throws {
       let player = Player(instance: TestInstance.shared)
       player.marquee.isEnabled = true
 
@@ -120,8 +120,10 @@ extension Integration {
 
       player.marquee.setText("final")
 
-      // Wait past the 50ms restore window plus a margin.
-      try? await Task.sleep(for: .milliseconds(150))
+      try #require(
+        await poll(until: { player._marqueeRestoreTask == nil }),
+        "Waiting for marquee restore task to finish"
+      )
 
       #expect(player._marqueeText == "final")
       #expect(player._marqueeRestoreTask == nil)
@@ -131,7 +133,7 @@ extension Integration {
     /// pending must not crash and must leave the player in a consistent
     /// state.
     @Test
-    func `Disable during pending restore is safe`() async {
+    func `Disable during pending restore is safe`() async throws {
       let player = Player(instance: TestInstance.shared)
       player.marquee.isEnabled = true
       player.marquee.setText("hello")
@@ -140,7 +142,10 @@ extension Integration {
       // Disable before the restore fires.
       player.marquee.isEnabled = false
 
-      try? await Task.sleep(for: .milliseconds(150))
+      try #require(
+        await poll(until: { player._marqueeRestoreTask == nil }),
+        "Waiting for marquee restore task to finish"
+      )
 
       // Restore task either ran (and wrote text into a disabled filter,
       // harmless) or got cancelled by deinit. Either way, no crash.
