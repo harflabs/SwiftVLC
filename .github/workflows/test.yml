@@ -87,6 +87,10 @@ jobs:
         with:
           swift-version: "6.3.1"
 
+      - name: Print toolchain
+        timeout-minutes: 1
+        run: xcrun --toolchain "$TOOLCHAINS" swift --version
+
       # The libvlc xcframework dominates the artifact cache.
       - name: Cache libvlc xcframework
         uses: actions/cache@v4
@@ -110,6 +114,7 @@ jobs:
           xcodebuild build \
             -project Showcase/SwiftVLCShowcase.xcodeproj \
             -scheme "${{ matrix.scheme }}" \
+            -toolchain "$TOOLCHAINS" \
             -destination "${{ matrix.destination }}" \
             -configuration Debug \
             -skipPackagePluginValidation \
