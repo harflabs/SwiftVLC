@@ -351,6 +351,31 @@ extension Integration {
       player.selectedSubtitleTrack = nil
     }
 
+    @Test
+    func `selectedAudioTrack ignores a stale track id`() {
+      let player = Player(instance: TestInstance.shared)
+      let staleTrack = Track(
+        id: "swiftvlc-stale-audio-track",
+        type: .audio,
+        name: "Stale audio",
+        codec: 0,
+        language: nil,
+        trackDescription: nil,
+        isSelected: false,
+        bitrate: 0,
+        channels: 2,
+        sampleRate: 44100,
+        width: nil,
+        height: nil,
+        frameRate: nil,
+        encoding: nil
+      )
+
+      player.selectedAudioTrack = staleTrack
+
+      #expect(player.selectedAudioTrack == nil)
+    }
+
     // MARK: - isActive across states
 
     /// `isActive` is true for `.playing`, `.opening`, `.buffering` and

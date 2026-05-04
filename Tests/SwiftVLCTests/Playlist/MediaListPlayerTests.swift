@@ -186,6 +186,28 @@ extension Integration {
     }
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+    func `Toggle pause dispatches from active list player states`() async throws {
+      let instance = TestInstance.makePlayback()
+      let listPlayer = MediaListPlayer(instance: instance)
+      let player = Player(instance: instance)
+      listPlayer.mediaPlayer = player
+      let list = MediaList()
+      try list.append(Media(url: TestMedia.twosecURL))
+      listPlayer.mediaList = list
+
+      listPlayer.play()
+      try #require(await poll(until: { listPlayer.isPlaying }), "Waiting for: listPlayer.isPlaying")
+
+      listPlayer.togglePause()
+      if try await poll(timeout: .seconds(3), until: { listPlayer.state == .paused }) {
+        listPlayer.togglePause()
+        _ = try await poll(timeout: .seconds(3), until: { listPlayer.isPlaying })
+      }
+
+      listPlayer.stop()
+    }
+
+    @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `State during playback`() async throws {
       let instance = TestInstance.makePlayback()
       let listPlayer = MediaListPlayer(instance: instance)
