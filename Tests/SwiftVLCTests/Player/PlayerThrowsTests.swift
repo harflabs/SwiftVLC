@@ -13,13 +13,14 @@ extension Integration {
     // MARK: - setRenderer
 
     /// `setRenderer` is defended at the Swift layer against being called
-    /// while the player is active — the operation would corrupt libVLC's
-    /// internal state. The guard throws before libVLC is even reached.
+    /// after playback has started. libVLC only applies renderer selection
+    /// before the native media player's first play, so SwiftVLC rejects
+    /// unsupported retargeting before libVLC is reached.
     @Test
     func `setRenderer while buffering throws before reaching libVLC`() throws {
       let player = Player(instance: TestInstance.shared)
       player._setStateForTesting(state: .buffering)
-      #expect(throws: VLCError.self) {
+      #expect(throws: VLCError.invalidState("setRenderer requires idle, stopped, or error state; current state is buffering")) {
         try player.setRenderer(nil)
       }
     }
@@ -28,7 +29,7 @@ extension Integration {
     func `setRenderer while playing throws`() throws {
       let player = Player(instance: TestInstance.shared)
       player._setStateForTesting(state: .playing)
-      #expect(throws: VLCError.self) {
+      #expect(throws: VLCError.invalidState("setRenderer requires idle, stopped, or error state; current state is playing")) {
         try player.setRenderer(nil)
       }
     }
@@ -37,7 +38,7 @@ extension Integration {
     func `setRenderer while paused throws`() throws {
       let player = Player(instance: TestInstance.shared)
       player._setStateForTesting(state: .paused)
-      #expect(throws: VLCError.self) {
+      #expect(throws: VLCError.invalidState("setRenderer requires idle, stopped, or error state; current state is paused")) {
         try player.setRenderer(nil)
       }
     }
@@ -57,14 +58,14 @@ extension Integration {
     }
 
     @Test
-    func `setRenderer while stopped replaces previously used native player`() throws {
+    func `setRenderer while stopped after playback started throws`() throws {
       let player = Player(instance: TestInstance.shared)
       player._setStateForTesting(state: .stopped)
       player.nativePlayerHasStartedPlayback = true
 
-      try player.setRenderer(nil)
-
-      #expect(!player.nativePlayerHasStartedPlayback)
+      #expect(throws: VLCError.invalidState("setRenderer must be called before the first play() on this Player")) {
+        try player.setRenderer(nil)
+      }
     }
 
     // MARK: - setDeinterlace

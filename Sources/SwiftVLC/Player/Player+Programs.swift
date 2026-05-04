@@ -43,30 +43,27 @@ extension Player {
   ///
   /// Pass `nil` to revert to local playback. libVLC only applies renderer
   /// selection before the first `play()` call on a native media player.
-  /// SwiftVLC preserves the higher-level `Player` contract by recreating
-  /// the native media player when a stopped player has already been used.
-  /// Active playback still cannot be retargeted; call ``stop()`` and wait
-  /// until ``state`` is `.stopped`, or create a fresh ``Player``, before
-  /// setting a renderer.
+  /// Set the renderer before starting playback on this ``Player``. To
+  /// retarget after local playback has already started, create a fresh
+  /// ``Player``, set its renderer, then start playback there.
   ///
   /// - Parameter renderer: A ``RendererItem`` discovered by ``RendererDiscoverer``, or `nil`.
   /// - Throws: `VLCError.operationFailed` if the renderer cannot be set,
-  ///   or if the player isn't in an idle-like state.
+  ///   or ``VLCError/invalidState(_:)`` if the player has already started
+  ///   playback or isn't in an idle-like state.
   public func setRenderer(_ renderer: RendererItem?) throws(VLCError) {
     switch state {
     case .idle, .stopped, .error:
       break
     default:
-      throw .operationFailed("Set renderer while player is \(state)")
+      throw .invalidState("setRenderer requires idle, stopped, or error state; current state is \(state)")
     }
-    if nativePlayerHasStartedPlayback {
-      try replaceNativePlayerForRendererSelection(renderer)
-      selectedRenderer = renderer
-    } else {
-      let result = libvlc_media_player_set_renderer(pointer, renderer?.pointer)
-      guard result == 0 else { throw .operationFailed("Set renderer") }
-      selectedRenderer = renderer
+    guard !nativePlayerHasStartedPlayback else {
+      throw .invalidState("setRenderer must be called before the first play() on this Player")
     }
+    let result = libvlc_media_player_set_renderer(pointer, renderer?.pointer)
+    guard result == 0 else { throw .operationFailed("Set renderer") }
+    selectedRenderer = renderer
   }
 
   // MARK: - Deinterlacing

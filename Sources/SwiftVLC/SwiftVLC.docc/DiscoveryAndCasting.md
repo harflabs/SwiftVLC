@@ -67,12 +67,11 @@ for await event in discoverer.events {
 ```
 
 libVLC applies renderer selection before a native media player's first
-play. SwiftVLC recreates the native handle when needed for a stopped
-``Player``, but active playback still cannot be retargeted. Stop and wait
-for ``Player/state`` to become `.stopped`, or create a fresh ``Player`` as
-shown above, before setting the renderer. Pass `nil` to
-``Player/setRenderer(_:)`` before playback starts to revert to local
-playback.
+play. SwiftVLC preserves that rule at the public API boundary: set the
+renderer before starting playback on a ``Player``. To retarget after
+local playback has already started, create a fresh ``Player`` as shown
+above. Pass `nil` to ``Player/setRenderer(_:)`` before playback starts
+to revert to local playback.
 
 ## Inspecting a renderer
 

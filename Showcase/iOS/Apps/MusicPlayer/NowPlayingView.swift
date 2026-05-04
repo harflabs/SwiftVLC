@@ -4,7 +4,7 @@ import SwiftVLC
 struct NowPlayingView: View {
   let song: Song
 
-  @State private var player = Player(instance: Self.makeAudioOnlyInstance())
+  @State private var player = Player(instance: Self.audioOnlyInstance)
   @State private var metadata: Metadata?
   @Environment(\.dismiss) private var dismiss
 
@@ -55,9 +55,7 @@ struct NowPlayingView: View {
     }
   }
 
-  private static func makeAudioOnlyInstance() -> VLCInstance {
-    try! VLCInstance(arguments: VLCInstance.defaultArguments + ["--no-video"])
-  }
+  private static let audioOnlyInstance = try! VLCInstance(arguments: VLCInstance.defaultArguments + ["--no-video"])
 }
 
 private struct Artwork: View {

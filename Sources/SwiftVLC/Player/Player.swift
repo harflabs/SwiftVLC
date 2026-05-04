@@ -518,9 +518,7 @@ public final class Player {
 
   private func replaceNativePlayerForDrawablePlayback(
     target: AnyObject?,
-    resumeBeforeRelease: Bool = false,
-    renderer: RendererItem? = nil,
-    usesRendererOverride: Bool = false
+    resumeBeforeRelease: Bool = false
   )
     throws(VLCError) {
     let oldPointer = pointer
@@ -540,8 +538,7 @@ public final class Player {
     if let currentMedia {
       libvlc_media_player_set_media(newPointer, currentMedia.pointer)
     }
-    let rendererToApply = usesRendererOverride ? renderer : selectedRenderer
-    guard libvlc_media_player_set_renderer(newPointer, rendererToApply?.pointer) == 0 else {
+    guard libvlc_media_player_set_renderer(newPointer, selectedRenderer?.pointer) == 0 else {
       libvlc_media_player_release(newPointer)
       throw .operationFailed("Set renderer")
     }
@@ -574,14 +571,6 @@ public final class Player {
       resumeBeforeStop: resumeBeforeRelease
     )
     notifyMediaDependentObservables()
-  }
-
-  func replaceNativePlayerForRendererSelection(_ renderer: RendererItem?) throws(VLCError) {
-    try replaceNativePlayerForDrawablePlayback(
-      target: drawable,
-      renderer: renderer,
-      usesRendererOverride: true
-    )
   }
 
   // MARK: - Media Loading

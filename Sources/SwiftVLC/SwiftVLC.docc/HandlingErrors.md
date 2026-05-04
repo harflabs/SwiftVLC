@@ -19,10 +19,18 @@ might see. Pattern matching can be exhaustive, with no residual
 ```swift
 do {
     try player.play(url: url)
+} catch .instanceCreationFailed {
+    print("libVLC could not be initialized")
 } catch .mediaCreationFailed(let source) {
     print("Couldn't build media for: \(source)")
 } catch .playbackFailed(let reason) {
     print("Playback refused: \(reason)")
+} catch .parseFailed(let reason) {
+    print("Parsing failed: \(reason)")
+} catch .parseTimeout {
+    print("Parsing timed out")
+} catch .trackNotFound(let id) {
+    print("No track matched: \(id)")
 } catch .invalidState(let message) {
     print("Player wasn't ready: \(message)")
 } catch .invalidInput(let message) {
