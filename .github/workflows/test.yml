@@ -58,7 +58,11 @@ jobs:
   # checkout so the Showcase compiles against the in-PR code rather
   # than the last release.
   showcase:
-    runs-on: macos-latest
+    # Xcode's package graph resolver checks Package.swift's tools-version
+    # with Xcode's built-in SwiftPM, not the open-source toolchain passed
+    # through `-toolchain`. SwiftVLC's manifest requires Swift 6.3, so the
+    # Showcase matrix must run on an image with Xcode 26.4+.
+    runs-on: macos-26
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -80,7 +84,7 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@v1
         timeout-minutes: 5
         with:
-          xcode-version: latest-stable
+          xcode-version: "26.4"
 
       - uses: SwiftyLab/setup-swift@v1.14.0
         timeout-minutes: 8
@@ -89,7 +93,10 @@ jobs:
 
       - name: Print toolchain
         timeout-minutes: 1
-        run: xcrun --toolchain "$TOOLCHAINS" swift --version
+        run: |
+          xcodebuild -version
+          xcrun swift --version
+          xcrun --toolchain "$TOOLCHAINS" swift --version
 
       # The libvlc xcframework dominates the artifact cache.
       - name: Cache libvlc xcframework
