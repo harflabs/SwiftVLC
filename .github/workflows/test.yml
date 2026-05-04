@@ -241,7 +241,20 @@ jobs:
         # Xcode-provided SDKs/simulators.
         run: |
           ./scripts/ci-run-with-timeouts.py 600 180 \
-            xcrun --toolchain "$TOOLCHAINS" swift test --no-parallel
+            xcrun --toolchain "$TOOLCHAINS" swift test --no-parallel --enable-code-coverage
+
+      - name: Export coverage report
+        timeout-minutes: 1
+        run: ./scripts/export-lcov.sh
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/lcov.info
+          disable_search: true
+          flags: swiftpm
+          name: swiftvlc-swiftpm
 
       - name: Doc coverage
         timeout-minutes: 3
