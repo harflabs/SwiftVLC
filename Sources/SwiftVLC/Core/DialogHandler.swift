@@ -49,20 +49,21 @@ public final class DialogHandler: Sendable {
 
     let box = Unmanaged.passRetained(broadcaster).toOpaque()
 
-    if let token = instance.claimDialogRegistration(
-      box: box,
-      installCallbacks: { pointer, box in
-        var callbacks = libvlc_dialog_cbs(
-          pf_display_login: dialogLoginCallback,
-          pf_display_question: dialogQuestionCallback,
-          pf_display_progress: dialogProgressCallback,
-          pf_cancel: dialogCancelCallback,
-          pf_update_progress: dialogUpdateProgressCallback
-        )
-        libvlc_dialog_set_callbacks(pointer, &callbacks, box)
-        libvlc_dialog_set_error_callback(pointer, dialogErrorCallback, box)
-      }
-    ) {
+    if
+      let token = instance.claimDialogRegistration(
+        box: box,
+        installCallbacks: { pointer, box in
+          var callbacks = libvlc_dialog_cbs(
+            pf_display_login: dialogLoginCallback,
+            pf_display_question: dialogQuestionCallback,
+            pf_display_progress: dialogProgressCallback,
+            pf_cancel: dialogCancelCallback,
+            pf_update_progress: dialogUpdateProgressCallback
+          )
+          libvlc_dialog_set_callbacks(pointer, &callbacks, box)
+          libvlc_dialog_set_error_callback(pointer, dialogErrorCallback, box)
+        }
+      ) {
       registrationToken = token
     } else {
       // Another handler already owns this instance's dialog slot.
@@ -86,13 +87,14 @@ public final class DialogHandler: Sendable {
     // `releaseDialogRegistration` clears the native callbacks while the
     // instance slot is still locked, so a replacement handler cannot
     // install callbacks that this teardown then wipes out.
-    if let box = instance.releaseDialogRegistration(
-      token: token,
-      clearCallbacks: { pointer in
-        libvlc_dialog_set_callbacks(pointer, nil, nil)
-        libvlc_dialog_set_error_callback(pointer, nil, nil)
-      }
-    ) {
+    if
+      let box = instance.releaseDialogRegistration(
+        token: token,
+        clearCallbacks: { pointer in
+          libvlc_dialog_set_callbacks(pointer, nil, nil)
+          libvlc_dialog_set_error_callback(pointer, nil, nil)
+        }
+      ) {
       Unmanaged<Broadcaster<DialogEvent>>.fromOpaque(box).release()
     }
     broadcaster.terminate()
