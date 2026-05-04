@@ -63,6 +63,11 @@ extension Logic {
       #expect(v.rawValue == 0.8)
     }
 
+    @Test func `Volume is Comparable`() {
+      #expect(Volume.muted < Volume.unity)
+      #expect(Volume.unity < Volume.max)
+    }
+
     // MARK: - PlaybackRate
 
     @Test func `PlaybackRate clamps below 0.25`() {
@@ -111,6 +116,11 @@ extension Logic {
       #expect(SubtitleScale(.nan) == .normal)
     }
 
+    @Test func `SubtitleScale is Comparable`() {
+      #expect(SubtitleScale.halfSize < SubtitleScale.normal)
+      #expect(SubtitleScale.normal < SubtitleScale.doubleSize)
+    }
+
     // MARK: - EqualizerGain
 
     @Test func `EqualizerGain clamps below -20`() {
@@ -135,6 +145,11 @@ extension Logic {
       let g: EqualizerGain = 6.0
       #expect(g.rawValue == 6.0)
     }
+
+    @Test func `EqualizerGain is Comparable`() {
+      #expect(EqualizerGain.minimum < EqualizerGain.flat)
+      #expect(EqualizerGain.flat < EqualizerGain.maximum)
+    }
   }
 }
 
@@ -150,8 +165,10 @@ extension Integration {
       let player = Player(instance: TestInstance.shared)
       try player.setAudioVolume(.unity)
       #expect(player.volume == 1.0)
+      #expect(player.audioVolume == .unity)
       try player.setAudioVolume(Volume(2.0)) // clamps to 1.25
       #expect(player.volume == 1.25)
+      #expect(player.audioVolume == .max)
     }
 
     @Test func `setPlaybackRate typed accessor passes through to libVLC`() throws {

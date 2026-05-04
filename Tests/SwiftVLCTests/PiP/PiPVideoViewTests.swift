@@ -181,6 +181,32 @@ extension Integration {
     }
 
     @Test
+    func `macOS native PiP drawable removes VLC subviews only when owned`() {
+      let view = MacNativePiPDrawableView()
+      let ownedSubview = NSView()
+      let externalSubview = NSView()
+
+      view.addVoutSubview(ownedSubview)
+      view.removeVoutSubview(externalSubview)
+      #expect(ownedSubview.superview === view)
+
+      view.removeVoutSubview(ownedSubview)
+      #expect(ownedSubview.superview == nil)
+    }
+
+    @Test
+    func `macOS native PiP drawable lays out direct sublayers`() {
+      let view = MacNativePiPDrawableView()
+      view.frame = CGRect(x: 0, y: 0, width: 320, height: 180)
+      let sublayer = CALayer()
+
+      view.layer?.addSublayer(sublayer)
+      view.restoreVLCContentLayout()
+
+      #expect(sublayer.frame.size == CGSize(width: 320, height: 180))
+    }
+
+    @Test
     func `macOS native PiP restore repeats full-size VLC content layout`() async {
       let host = MacNativePiPHostView(frame: CGRect(x: 0, y: 0, width: 960, height: 540))
       let drawable = host.drawableView

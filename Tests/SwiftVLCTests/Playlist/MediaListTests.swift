@@ -131,5 +131,50 @@ extension Integration {
       try list.remove(at: 0) // Remove remaining
       #expect(list.isEmpty)
     }
+
+    @Test
+    func `Retaining existing pointer exposes the same underlying list`() throws {
+      let original = MediaList()
+      try original.append(Media(url: TestMedia.testMP4URL))
+
+      let retained = MediaList(retaining: original.pointer)
+      #expect(retained.count == 1)
+
+      try retained.append(Media(url: TestMedia.twosecURL))
+
+      #expect(original.count == 2)
+      #expect(retained.count == 2)
+    }
+
+    @Test
+    func `Media lookup returns nil outside list bounds`() throws {
+      let list = MediaList()
+      try list.append(Media(url: TestMedia.testMP4URL))
+
+      #expect(list.media(at: -1) == nil)
+      #expect(list.media(at: 1) == nil)
+      #expect(list[Int.max] == nil)
+    }
+
+    @Test
+    func `Locked view exposes a consistent snapshot`() throws {
+      let list = MediaList()
+      try list.append(Media(url: TestMedia.testMP4URL))
+      try list.append(Media(url: TestMedia.twosecURL))
+
+      let mrls = list.withLocked { view in
+        #expect(view.count == 2)
+        #expect(view.isEmpty == false)
+        #expect(view.media(at: -1) == nil)
+        #expect(view[2] == nil)
+        return [
+          view[0]?.mrl,
+          view.media(at: 1)?.mrl
+        ]
+      }
+
+      #expect(mrls[0]?.contains("test.mp4") == true)
+      #expect(mrls[1]?.contains("twosec.mp4") == true)
+    }
   }
 }

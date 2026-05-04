@@ -228,6 +228,49 @@ extension Integration {
       #expect(listPlayer.mediaList == nil)
     }
 
+    @Test
+    func `Clearing media player rebuilds native list player without dropping media list`() throws {
+      let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.shared)
+      let list = MediaList()
+      try list.append(Media(url: TestMedia.testMP4URL))
+
+      listPlayer.mediaPlayer = player
+      listPlayer.mediaList = list
+      listPlayer.mediaPlayer = nil
+
+      #expect(listPlayer.mediaPlayer == nil)
+      #expect(listPlayer.mediaList === list)
+      let nativePlayer = libvlc_media_list_player_get_media_player(listPlayer.pointer)
+      defer {
+        if let nativePlayer {
+          libvlc_media_player_release(nativePlayer)
+        }
+      }
+      #expect(nativePlayer != player.pointer)
+    }
+
+    @Test
+    func `Clearing media list rebuilds native list player without dropping media player`() {
+      let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.shared)
+      let list = MediaList()
+
+      listPlayer.mediaPlayer = player
+      listPlayer.mediaList = list
+      listPlayer.mediaList = nil
+
+      #expect(listPlayer.mediaPlayer === player)
+      #expect(listPlayer.mediaList == nil)
+      let nativePlayer = libvlc_media_list_player_get_media_player(listPlayer.pointer)
+      defer {
+        if let nativePlayer {
+          libvlc_media_player_release(nativePlayer)
+        }
+      }
+      #expect(nativePlayer == player.pointer)
+    }
+
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Clearing media list removes stale native playback state`() async throws {
       let instance = TestInstance.makePlayback()
