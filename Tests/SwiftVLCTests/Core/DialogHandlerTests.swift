@@ -185,13 +185,9 @@ extension Integration {
     func `Releasing the first handler frees the instance slot`() async throws {
       let instance = try VLCInstance()
 
-      do {
-        let first = DialogHandler(instance: instance)
-        _ = first.dialogs
-      }
-      // First is deallocated. Its deinit offloads the release to a
-      // utility queue; give that a moment to drain.
-      try? await Task.sleep(for: .milliseconds(150))
+      var first: DialogHandler? = DialogHandler(instance: instance)
+      _ = first?.dialogs
+      first = nil
 
       // A fresh handler on the same instance should claim the slot now.
       // We verify by spawning a SECOND fresh handler — if the slot was

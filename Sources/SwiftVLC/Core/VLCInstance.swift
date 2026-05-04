@@ -138,35 +138,43 @@ public final class VLCInstance: Sendable {
     var box: UnsafeMutableRawPointer?
   }
 
-  /// Attempts to claim this instance's single dialog-callback slot.
+  /// Attempts to claim this instance's single dialog-callback slot and
+  /// install the corresponding native callbacks.
   ///
   /// On success, returns the token the caller stores and later passes
-  /// to ``releaseDialogRegistration(token:)``. The caller is then
-  /// responsible for installing the libVLC dialog callbacks and
-  /// keeping the box pointer alive until release.
+  /// to ``releaseDialogRegistration(token:clearCallbacks:)``. The caller
+  /// is responsible for keeping the box pointer alive until release.
   ///
   /// Returns `nil` when another `DialogHandler` already holds the
   /// slot — the caller must release the box themselves and finish
   /// their stream.
-  func claimDialogRegistration(box: UnsafeMutableRawPointer) -> UUID? {
+  func claimDialogRegistration(
+    box: UnsafeMutableRawPointer,
+    installCallbacks: (OpaquePointer, UnsafeMutableRawPointer) -> Void
+  ) -> UUID? {
     dialogRegistration.withLock { state -> UUID? in
       guard state.token == nil else { return nil }
       let token = UUID()
+      installCallbacks(pointer, box)
       state.token = token
       state.box = box
       return token
     }
   }
 
-  /// Releases the dialog-callback slot. Returns the box pointer the
-  /// caller passed to `claimDialogRegistration` so it can be balanced
-  /// with `Unmanaged.release()`. Returns `nil` if the token doesn't
-  /// match the current registration (defensive: e.g. teardown order
-  /// where another handler already reclaimed the slot).
-  func releaseDialogRegistration(token: UUID) -> UnsafeMutableRawPointer? {
+  /// Clears the native callbacks and releases the dialog-callback slot.
+  /// Returns the box pointer the caller passed to
+  /// `claimDialogRegistration` so it can be balanced with
+  /// `Unmanaged.release()`. Returns `nil` if the token doesn't match the
+  /// current registration.
+  func releaseDialogRegistration(
+    token: UUID,
+    clearCallbacks: (OpaquePointer) -> Void
+  ) -> UnsafeMutableRawPointer? {
     dialogRegistration.withLock { state -> UnsafeMutableRawPointer? in
       guard state.token == token else { return nil }
       let box = state.box
+      clearCallbacks(pointer)
       state.token = nil
       state.box = nil
       return box

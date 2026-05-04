@@ -62,10 +62,9 @@ extension Integration {
 
     @Test
     func `Rapid DialogHandler create destroy`() {
-      // DialogHandler.deinit offloads `libvlc_dialog_set_callbacks(nil,
-      // nil)` off the calling thread while strong-capturing the
-      // `VLCInstance`. 100 iterations stress the cleanup ordering:
-      // clear callbacks → finish stream → release retained box.
+      // DialogHandler.deinit clears native callbacks before freeing the
+      // instance registration slot. 100 iterations stress the cleanup ordering:
+      // clear callbacks → release retained box → finish stream.
       for _ in 0..<100 {
         let handler = DialogHandler(instance: TestInstance.shared)
         _ = handler.dialogs
@@ -73,18 +72,17 @@ extension Integration {
     }
 
     /// Captures the stream, drops the handler, then asserts the stream
-    /// finishes deterministically via `continuation.finish()` in the
-    /// offloaded deinit. The enclosing `withTaskGroup` races the drain
-    /// against a 2-second ceiling; on success the drain wins and we
-    /// return immediately, on regression the ceiling wins and the
-    /// `#expect` fails with a clear message.
+    /// finishes deterministically. The enclosing `withTaskGroup` races the
+    /// drain against a 2-second ceiling; on success the drain wins and we
+    /// return immediately, on regression the ceiling wins and the `#expect`
+    /// fails with a clear message.
     @Test
     func `DialogHandler stream finishes after handler deinit`() async {
       let stream: AsyncStream<DialogEvent>
       do {
         let handler = DialogHandler(instance: TestInstance.shared)
         stream = handler.dialogs
-      } // handler dropped — offloaded deinit must eventually finish the stream
+      } // handler dropped — deinit must finish the stream
 
       let drained = Mutex(false)
       await withTaskGroup(of: Void.self) { group in
