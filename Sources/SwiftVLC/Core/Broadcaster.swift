@@ -162,9 +162,8 @@ final class Broadcaster<Element: Sendable>: Sendable {
     }
   }
 
-  /// Returns `true` if there is at least one subscriber, regardless of
-  /// any filters. Cheaper than ``hasSubscriber(matching:)`` when you
-  /// only need to know whether anyone is listening.
+  /// Returns `true` when there are no active subscribers, regardless of
+  /// any filters.
   var isEmpty: Bool {
     state.withLock { $0.subscribers.isEmpty }
   }

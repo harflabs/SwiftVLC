@@ -45,7 +45,9 @@ extension Player {
   /// selection before the first `play()` call on a native media player.
   /// SwiftVLC preserves the higher-level `Player` contract by recreating
   /// the native media player when a stopped player has already been used.
-  /// Active playback still cannot be retargeted; call ``stop()`` first.
+  /// Active playback still cannot be retargeted; call ``stop()`` and wait
+  /// until ``state`` is `.stopped`, or create a fresh ``Player``, before
+  /// setting a renderer.
   ///
   /// - Parameter renderer: A ``RendererItem`` discovered by ``RendererDiscoverer``, or `nil`.
   /// - Throws: `VLCError.operationFailed` if the renderer cannot be set,
@@ -57,12 +59,14 @@ extension Player {
     default:
       throw .operationFailed("Set renderer while player is \(state)")
     }
-    selectedRenderer = renderer
     if nativePlayerHasStartedPlayback {
-      replaceNativePlayerForRendererSelection()
+      try replaceNativePlayerForRendererSelection(renderer)
+      selectedRenderer = renderer
+    } else {
+      let result = libvlc_media_player_set_renderer(pointer, renderer?.pointer)
+      guard result == 0 else { throw .operationFailed("Set renderer") }
+      selectedRenderer = renderer
     }
-    let result = libvlc_media_player_set_renderer(pointer, renderer?.pointer)
-    guard result == 0 else { throw .operationFailed("Set renderer") }
   }
 
   // MARK: - Deinterlacing

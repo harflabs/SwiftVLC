@@ -136,7 +136,7 @@ extension Integration {
     }
 
     @Test
-    func `playback after stop rebinds a retained drawable`() {
+    func `playback after stop rebinds a retained drawable`() throws {
       let player = Player(instance: TestInstance.shared)
       let surface = sizedSurface()
       let surfacePtr = Unmanaged.passUnretained(surface).toOpaque()
@@ -146,7 +146,7 @@ extension Integration {
       #expect(player.needsDrawableRebindForPlayback)
 
       let stoppedNativePlayer = player.pointer
-      player.prepareDrawableForPlayback()
+      try player.prepareDrawableForPlayback()
       #expect(player.pointer != stoppedNativePlayer)
       #expect(drawable(of: player) == surfacePtr)
       #expect(!player.needsDrawableRebindForPlayback)
@@ -155,7 +155,7 @@ extension Integration {
     }
 
     @Test
-    func `stop requires drawable rebind across surface detach and reattach`() {
+    func `stop requires drawable rebind across surface detach and reattach`() throws {
       let player = Player(instance: TestInstance.shared)
       let surface = sizedSurface()
       let surfacePtr = Unmanaged.passUnretained(surface).toOpaque()
@@ -171,7 +171,7 @@ extension Integration {
       #expect(player.needsDrawableRebindForPlayback)
 
       let stoppedNativePlayer = player.pointer
-      player.prepareDrawableForPlayback()
+      try player.prepareDrawableForPlayback()
       #expect(player.pointer != stoppedNativePlayer)
       #expect(drawable(of: player) == surfacePtr)
       #expect(!player.needsDrawableRebindForPlayback)
@@ -180,7 +180,7 @@ extension Integration {
     }
 
     @Test
-    func `playback after stop replaces native player even before surface reattaches`() {
+    func `playback after stop replaces native player even before surface reattaches`() throws {
       let player = Player(instance: TestInstance.shared)
       let surface = sizedSurface()
       let surfacePtr = Unmanaged.passUnretained(surface).toOpaque()
@@ -190,7 +190,7 @@ extension Integration {
       surface.detach()
 
       let stoppedNativePlayer = player.pointer
-      player.prepareDrawableForPlayback()
+      try player.prepareDrawableForPlayback()
       #expect(player.pointer != stoppedNativePlayer)
       #expect(drawable(of: player) == nil)
       #expect(!player.needsDrawableRebindForPlayback)

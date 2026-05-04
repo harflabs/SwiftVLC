@@ -502,9 +502,9 @@ public final class Player {
     _ = previous
   }
 
-  func prepareDrawableForPlayback() {
+  func prepareDrawableForPlayback() throws(VLCError) {
     if nativePlayerNeedsReplacementBeforePlayback {
-      replaceNativePlayerForDrawablePlayback(target: drawable)
+      try replaceNativePlayerForDrawablePlayback(target: drawable)
       return
     }
     guard let target = drawable else { return }
@@ -518,8 +518,11 @@ public final class Player {
 
   private func replaceNativePlayerForDrawablePlayback(
     target: AnyObject?,
-    resumeBeforeRelease: Bool = false
-  ) {
+    resumeBeforeRelease: Bool = false,
+    renderer: RendererItem? = nil,
+    usesRendererOverride: Bool = false
+  )
+    throws(VLCError) {
     let oldPointer = pointer
     let newPointer = Self.makeNativePlayer(instance: instance)
     guard let newEventManager = libvlc_media_player_event_manager(newPointer) else {
@@ -537,7 +540,11 @@ public final class Player {
     if let currentMedia {
       libvlc_media_player_set_media(newPointer, currentMedia.pointer)
     }
-    _ = libvlc_media_player_set_renderer(newPointer, selectedRenderer?.pointer)
+    let rendererToApply = usesRendererOverride ? renderer : selectedRenderer
+    guard libvlc_media_player_set_renderer(newPointer, rendererToApply?.pointer) == 0 else {
+      libvlc_media_player_release(newPointer)
+      throw .operationFailed("Set renderer")
+    }
     _ = libvlc_audio_set_volume(newPointer, Int32(_volume * 100))
     libvlc_audio_set_mute(newPointer, _isMuted ? 1 : 0)
     _ = libvlc_media_player_set_rate(newPointer, playbackRate)
@@ -569,8 +576,12 @@ public final class Player {
     notifyMediaDependentObservables()
   }
 
-  func replaceNativePlayerForRendererSelection() {
-    replaceNativePlayerForDrawablePlayback(target: drawable)
+  func replaceNativePlayerForRendererSelection(_ renderer: RendererItem?) throws(VLCError) {
+    try replaceNativePlayerForDrawablePlayback(
+      target: drawable,
+      renderer: renderer,
+      usesRendererOverride: true
+    )
   }
 
   // MARK: - Media Loading
@@ -595,13 +606,15 @@ public final class Player {
   // MARK: - Playback Control
 
   /// Loads media and starts playback in one step.
-  /// - Throws: `VLCError.playbackFailed` if playback cannot start.
+  /// - Throws: ``VLCError/playbackFailed(reason:)`` if playback cannot
+  ///   start, or ``VLCError/operationFailed(_:)`` if a selected renderer
+  ///   cannot be applied to a replacement native player.
   public func play(_ media: sending Media) throws(VLCError) {
     if shouldReplaceNativePlayerBeforePlaybackLoad {
       let resumeBeforeRelease = pauseTransition == .pausing || nativePlaybackState == .paused
       currentMedia = media
       resetMediaDerivedState()
-      replaceNativePlayerForDrawablePlayback(
+      try replaceNativePlayerForDrawablePlayback(
         target: drawable,
         resumeBeforeRelease: resumeBeforeRelease
       )
@@ -617,15 +630,20 @@ public final class Player {
   /// classic `.m3u`; use ``MediaListPlayer`` or resolve those files to
   /// an inner stream URL first. HLS `.m3u8` URLs are valid here because
   /// they are streaming manifests.
-  /// - Throws: `VLCError.mediaCreationFailed` or `VLCError.playbackFailed`.
+  /// - Throws: ``VLCError/mediaCreationFailed(source:)``,
+  ///   ``VLCError/playbackFailed(reason:)``, or
+  ///   ``VLCError/operationFailed(_:)`` if a selected renderer cannot be
+  ///   applied to a replacement native player.
   public func play(url: URL) throws(VLCError) {
     try play(Media(url: url))
   }
 
   /// Starts playback.
-  /// - Throws: `VLCError.playbackFailed` if playback cannot start.
+  /// - Throws: ``VLCError/playbackFailed(reason:)`` if playback cannot
+  ///   start, or ``VLCError/operationFailed(_:)`` if a selected renderer
+  ///   cannot be applied to a replacement native player.
   public func play() throws(VLCError) {
-    prepareDrawableForPlayback()
+    try prepareDrawableForPlayback()
     if libvlc_media_player_play(pointer) == -1 {
       publishPlaybackIntent(false)
       let reason = libvlc_errmsg().map { String(cString: $0) } ?? "unknown"

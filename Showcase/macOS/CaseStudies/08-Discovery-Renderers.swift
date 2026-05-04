@@ -93,9 +93,16 @@ struct MacDiscoveryRenderersCase: View {
 
   private func selectedRendererChanged() {
     guard let renderer = renderers.first(where: { $0.id == selectedRendererID }) else { return }
-    player.stop()
-    try? player.setRenderer(renderer)
-    try? player.play(url: MacTestMedia.demo)
+    let previousPlayer = player
+    let nextPlayer = Player()
+    do {
+      try nextPlayer.setRenderer(renderer)
+      try nextPlayer.play(url: MacTestMedia.demo)
+      player = nextPlayer
+      previousPlayer.stop()
+    } catch {
+      selectedRendererID = nil
+    }
   }
 
   private func viewDisappeared() {

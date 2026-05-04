@@ -16,7 +16,7 @@ extension Integration {
     /// while the player is active — the operation would corrupt libVLC's
     /// internal state. The guard throws before libVLC is even reached.
     @Test
-    func `setRenderer while buffering throws invalidState-shaped error`() throws {
+    func `setRenderer while buffering throws before reaching libVLC`() throws {
       let player = Player(instance: TestInstance.shared)
       player._setStateForTesting(state: .buffering)
       #expect(throws: VLCError.self) {
@@ -54,6 +54,17 @@ extension Integration {
       let player = Player(instance: TestInstance.shared)
       player._setStateForTesting(state: .stopped)
       try player.setRenderer(nil)
+    }
+
+    @Test
+    func `setRenderer while stopped replaces previously used native player`() throws {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .stopped)
+      player.nativePlayerHasStartedPlayback = true
+
+      try player.setRenderer(nil)
+
+      #expect(!player.nativePlayerHasStartedPlayback)
     }
 
     // MARK: - setDeinterlace

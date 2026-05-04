@@ -86,8 +86,9 @@ Slider(
 
 ### Typed equivalents
 
-Each typed value clamps to its valid range on construction and exposes
-named constants. Use the explicit mutation methods for changes:
+Each typed value clamps finite input to its valid range, maps `NaN` to a
+safe named default, and exposes named constants. Use the explicit
+mutation methods for changes:
 
 ```swift
 try player.seek(to: PlaybackPosition.end)

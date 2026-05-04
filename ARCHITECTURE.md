@@ -126,7 +126,7 @@ The central observable type that drives all playback.
 | `Player+Recording.swift` | `extension Player` | Snapshot capture and recording start/stop. |
 | `Player+Overlays.swift` | `extension Player` | Scoped `withMarquee`/`withLogo`/`withAdjustments` accessors for the `~Copyable ~Escapable` overlay types. |
 | `Player+Typed.swift` | `extension Player` | Typed read-only accessors for raw `position`/`volume`/`rate`/`subtitleTextScale`, plus explicit checked mutation methods such as `setPlaybackRate(_:)`. |
-| `PlaybackValues.swift` | 5 typed wrapper structs | `PlaybackPosition`, `Volume`, `PlaybackRate`, `SubtitleScale`, `EqualizerGain`. Each is `Sendable, Hashable, Comparable, ExpressibleByFloatLiteral` and clamps to its valid range on construction. |
+| `PlaybackValues.swift` | 5 typed wrapper structs | `PlaybackPosition`, `Volume`, `PlaybackRate`, `SubtitleScale`, `EqualizerGain`. Each is `Sendable, Hashable, Comparable, ExpressibleByFloatLiteral`, clamps finite input to its valid range, and maps `NaN` to a safe named default. |
 | `EventBridge.swift` | `internal class` | C callbacks → `Broadcaster<PlayerEvent>` multi-consumer broadcaster. |
 | `PlayerState.swift` | `enum PlayerState` | `.idle`, `.opening`, `.buffering`, `.playing`, `.paused`, `.stopped`, `.stopping`, `.error`. Buffer fill is exposed separately as `Player.bufferFill` so `.paused` players still publish progress. |
 | `PlayerEvent.swift` | `enum PlayerEvent` | Typed Swift cases mapped from libVLC's player event types. Hand-rolled per-case accessors (`event.stateChanged`, `event.timeChanged`, …). |
@@ -578,7 +578,7 @@ All throwing operations use `throws(VLCError)`:
 ```swift
 func play() throws(VLCError) {
   guard libvlc_media_player_play(pointer) == 0 else {
-    throw .playbackFailed
+    throw .playbackFailed(reason: "libVLC refused to start playback")
   }
 }
 
@@ -599,6 +599,7 @@ func parse(timeout: Duration) async throws(VLCError) -> Metadata {
 | `parseTimeout` | Parsing exceeds specified timeout |
 | `trackNotFound` | Track selection fails (invalid track ID) |
 | `invalidState` | Operation attempted in wrong state |
+| `invalidInput` | Public API argument is outside its documented range |
 | `operationFailed` | Generic libVLC operation failure |
 
 All errors conform to `LocalizedError` and `CustomStringConvertible` for logging and user-facing messages.

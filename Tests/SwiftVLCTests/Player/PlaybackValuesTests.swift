@@ -17,6 +17,10 @@ extension Logic {
       #expect(PlaybackPosition(0.42).rawValue == 0.42)
     }
 
+    @Test func `PlaybackPosition maps NaN to zero`() {
+      #expect(PlaybackPosition(.nan) == .zero)
+    }
+
     @Test func `PlaybackPosition float literal initializes via clamping`() {
       let p: PlaybackPosition = 0.75
       #expect(p.rawValue == 0.75)
@@ -50,6 +54,10 @@ extension Logic {
       #expect(Volume.max.rawValue == 1.25)
     }
 
+    @Test func `Volume maps NaN to unity`() {
+      #expect(Volume(.nan) == .unity)
+    }
+
     @Test func `Volume float literal works`() {
       let v: Volume = 0.8
       #expect(v.rawValue == 0.8)
@@ -78,6 +86,10 @@ extension Logic {
       #expect(PlaybackRate.normal < PlaybackRate.double)
     }
 
+    @Test func `PlaybackRate maps NaN to normal`() {
+      #expect(PlaybackRate(.nan) == .normal)
+    }
+
     // MARK: - SubtitleScale
 
     @Test func `SubtitleScale clamps below 0.1`() {
@@ -95,6 +107,10 @@ extension Logic {
       #expect(SubtitleScale.doubleSize.rawValue == 2.0)
     }
 
+    @Test func `SubtitleScale maps NaN to normal`() {
+      #expect(SubtitleScale(.nan) == .normal)
+    }
+
     // MARK: - EqualizerGain
 
     @Test func `EqualizerGain clamps below -20`() {
@@ -109,6 +125,10 @@ extension Logic {
       #expect(EqualizerGain.minimum.rawValue == -20.0)
       #expect(EqualizerGain.flat.rawValue == 0.0)
       #expect(EqualizerGain.maximum.rawValue == 20.0)
+    }
+
+    @Test func `EqualizerGain maps NaN to flat`() {
+      #expect(EqualizerGain(.nan) == .flat)
     }
 
     @Test func `EqualizerGain literal init from float`() {

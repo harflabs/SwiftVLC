@@ -10,6 +10,7 @@ import Dispatch
 /// ```swift
 /// let services = RendererDiscoverer.availableServices()
 /// guard let service = services.first else { return }
+/// var player = Player()
 ///
 /// let discoverer = try RendererDiscoverer(name: service.name)
 /// try discoverer.start()
@@ -17,7 +18,15 @@ import Dispatch
 /// for await event in discoverer.events {
 ///     switch event {
 ///     case let .itemAdded(renderer):
-///         try? player.setRenderer(renderer)
+///         let castPlayer = Player()
+///         do {
+///             try castPlayer.setRenderer(renderer)
+///             try castPlayer.play(url: mediaURL)
+///             player.stop()
+///             player = castPlayer
+///         } catch {
+///             print("Cast failed:", error)
+///         }
 ///     case let .itemDeleted(renderer):
 ///         print("Lost: \(renderer.name)")
 ///     }

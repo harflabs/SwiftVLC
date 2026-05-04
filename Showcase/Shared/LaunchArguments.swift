@@ -6,7 +6,8 @@ import Foundation
 /// dash-prefixed string here is the launch-arg name and the un-prefixed
 /// version is the `UserDefaults` key.
 enum LaunchArguments {
-  /// `YES` when running under XCUITest. Gates every test-mode behavior.
+  /// `YES` when running under XCUITest. Gates showcase behavior that should
+  /// only run in UI tests.
   static let uiTestMode = "-UITestMode"
 
   /// Absolute path to a media file. When set, showcase media helpers resolve

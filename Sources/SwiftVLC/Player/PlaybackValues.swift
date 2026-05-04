@@ -14,8 +14,13 @@ public struct PlaybackPosition: Sendable, Hashable, Comparable, ExpressibleByFlo
   /// The clamped value, in `0.0 ... 1.0`.
   public let rawValue: Double
 
-  /// Creates a position, clamping to `0.0 ... 1.0`.
+  /// Creates a position, clamping finite values to `0.0 ... 1.0`.
+  /// `NaN` becomes `.zero`.
   public init(_ value: Double) {
+    guard !value.isNaN else {
+      rawValue = 0.0
+      return
+    }
     rawValue = Swift.max(0.0, Swift.min(1.0, value))
   }
 
@@ -52,8 +57,13 @@ public struct Volume: Sendable, Hashable, Comparable, ExpressibleByFloatLiteral 
   /// The clamped value, in `0.0 ... 1.25`.
   public let rawValue: Float
 
-  /// Creates a volume, clamping to `0.0 ... 1.25`.
+  /// Creates a volume, clamping finite values to `0.0 ... 1.25`.
+  /// `NaN` becomes `.unity`.
   public init(_ value: Float) {
+    guard !value.isNaN else {
+      rawValue = 1.0
+      return
+    }
     rawValue = Swift.max(0.0, Swift.min(1.25, value))
   }
 
@@ -95,8 +105,13 @@ public struct PlaybackRate: Sendable, Hashable, Comparable, ExpressibleByFloatLi
   /// The clamped value, in `0.25 ... 4.0`.
   public let rawValue: Float
 
-  /// Creates a rate, clamping to `0.25 ... 4.0`.
+  /// Creates a rate, clamping finite values to `0.25 ... 4.0`.
+  /// `NaN` becomes `.normal`.
   public init(_ value: Float) {
+    guard !value.isNaN else {
+      rawValue = 1.0
+      return
+    }
     rawValue = Swift.max(0.25, Swift.min(4.0, value))
   }
 
@@ -138,8 +153,13 @@ public struct SubtitleScale: Sendable, Hashable, Comparable, ExpressibleByFloatL
   /// The clamped value, in `0.1 ... 5.0`.
   public let rawValue: Float
 
-  /// Creates a scale, clamping to `0.1 ... 5.0`.
+  /// Creates a scale, clamping finite values to `0.1 ... 5.0`.
+  /// `NaN` becomes `.normal`.
   public init(_ value: Float) {
+    guard !value.isNaN else {
+      rawValue = 1.0
+      return
+    }
     rawValue = Swift.max(0.1, Swift.min(5.0, value))
   }
 
@@ -175,8 +195,13 @@ public struct EqualizerGain: Sendable, Hashable, Comparable, ExpressibleByFloatL
   /// The clamped value, in `-20.0 ... +20.0` dB.
   public let rawValue: Float
 
-  /// Creates a gain, clamping to `-20.0 ... +20.0`.
+  /// Creates a gain, clamping finite values to `-20.0 ... +20.0`.
+  /// `NaN` becomes `.flat`.
   public init(_ value: Float) {
+    guard !value.isNaN else {
+      rawValue = 0.0
+      return
+    }
     rawValue = Swift.max(-20.0, Swift.min(20.0, value))
   }
 
