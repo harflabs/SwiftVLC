@@ -7,9 +7,9 @@ extension Integration {
     // MARK: - Preset Initialization
 
     @Test
-    func `All presets create valid equalizers`() {
+    func `All presets create valid equalizers`() throws {
       for i in 0..<Equalizer.presetCount {
-        let eq = Equalizer(preset: i)
+        let eq = try #require(Equalizer(preset: i))
         // Access preamp and all bands without crashing
         _ = eq.preamp
         for band in 0..<Equalizer.bandCount {
@@ -19,20 +19,25 @@ extension Integration {
     }
 
     @Test
-    func `Some presets have non-zero band amplification`() {
-      let foundNonZero = (0..<Equalizer.presetCount).contains { i in
-        let eq = Equalizer(preset: i)
-        return (0..<Equalizer.bandCount).contains { band in
-          eq.amplification(forBand: band) != 0
+    func `Some presets have non-zero band amplification`() throws {
+      var foundNonZero = false
+      for i in 0..<Equalizer.presetCount {
+        let eq = try #require(Equalizer(preset: i))
+        if
+          (0..<Equalizer.bandCount).contains(where: { band in
+            eq.amplification(forBand: band) != 0
+          }) {
+          foundNonZero = true
+          break
         }
       }
       #expect(foundNonZero, "At least one preset should have non-zero band amplification")
     }
 
     @Test
-    func `Preset created from index has expected preamp value`() {
+    func `Preset created from index has expected preamp value`() throws {
       // Preset 0 (flat) typically has 0 preamp; verify the value is within valid range
-      let eq = Equalizer(preset: 0)
+      let eq = try #require(Equalizer(preset: 0))
       let preamp = eq.preamp
       #expect(preamp >= -20.0 && preamp <= 20.0)
     }

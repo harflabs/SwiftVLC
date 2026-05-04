@@ -104,7 +104,8 @@ extension Player {
     }
     set {
       withMutation(keyPath: \.teletextPage) {
-        libvlc_video_set_teletext(pointer, Int32(newValue))
+        guard let page = Int32(exactly: newValue) else { return }
+        libvlc_video_set_teletext(pointer, page)
       }
     }
   }

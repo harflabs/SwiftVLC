@@ -173,9 +173,11 @@ public final class VLCInstance: Sendable {
   /// - Parameter arguments: Command-line style arguments for libVLC configuration.
   ///   Common arguments include `"--no-video-title-show"`,
   ///   `"--no-snapshot-preview"`, `"--no-stats"`.
-  /// - Throws: `VLCError.instanceCreationFailed` if libVLC cannot be initialized.
+  /// - Throws: `VLCError.invalidInput` if too many arguments are supplied,
+  ///   or `VLCError.instanceCreationFailed` if libVLC cannot be initialized.
   public init(arguments: [String] = VLCInstance.defaultArguments) throws(VLCError) {
     self.arguments = arguments
+    let argumentCount = try checkedInt32(arguments.count, parameter: "arguments.count")
 
     // Convert Swift strings to C strings for libvlc_new.
     // strdup allocates; freed in defer after libvlc_new copies them.
@@ -185,7 +187,7 @@ public final class VLCInstance: Sendable {
     let instance = cArgs.withUnsafeBufferPointer { buf -> OpaquePointer? in
       // Cast through raw pointer to satisfy libvlc_new's parameter type
       var argv = buf.map { UnsafePointer($0) }
-      return libvlc_new(Int32(argv.count), &argv)
+      return libvlc_new(argumentCount, &argv)
     }
 
     guard let instance else {
@@ -194,7 +196,7 @@ public final class VLCInstance: Sendable {
 
     pointer = instance
     logBroadcaster = LogBroadcaster(instancePointer: instance)
-    libvlc_set_user_agent(instance, "SwiftVLC", "SwiftVLC/1.0")
+    libvlc_set_user_agent(instance, "SwiftVLC", "SwiftVLC")
   }
 
   /// Creates the default shared instance (fatalError on failure).

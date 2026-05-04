@@ -111,11 +111,35 @@ extension Integration {
     /// Every preset must construct a valid equalizer. If libVLC drops a
     /// preset in a future release, this catches it.
     @Test
-    func `Every preset index constructs a valid Equalizer`() {
+    func `Every preset index constructs a valid Equalizer`() throws {
       for index in 0..<Equalizer.presetCount {
-        let eq = Equalizer(preset: index)
+        let eq = try #require(Equalizer(preset: index))
         #expect(eq.bands.count == Equalizer.bandCount)
       }
+    }
+
+    @Test
+    func `setBands with wrong count throws instead of trapping`() {
+      let eq = Equalizer()
+      #expect(throws: VLCError.self) {
+        try eq.setBands([])
+      }
+    }
+
+    @Test
+    func `setBandGains with wrong count throws instead of trapping`() {
+      let eq = Equalizer()
+      #expect(throws: VLCError.self) {
+        try eq.setBandGains([])
+      }
+    }
+
+    @Test
+    func `invalid read accessors return sentinel values instead of trapping`() {
+      let eq = Equalizer()
+      #expect(Equalizer.bandFrequency(at: -1) == -1)
+      #expect(eq.amplification(forBand: -1).isNaN)
+      #expect(eq.gain(forBand: -1) == .flat)
     }
 
     /// `presetName(at:)` must return a non-nil string for every valid

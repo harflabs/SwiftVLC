@@ -78,5 +78,27 @@ extension Logic {
     func `Formatted large duration`() {
       #expect(Duration.seconds(86400).formatted == "24:00:00")
     }
+
+    @Test
+    func `Extreme conversions saturate instead of trapping`() {
+      #expect(Duration.seconds(Int64.max).milliseconds == Int64.max)
+      #expect(Duration.seconds(Int64.min).milliseconds == Int64.min)
+      #expect(Duration.seconds(Int64.max).microseconds == Int64.max)
+      #expect(Duration.seconds(Int64.min).microseconds == Int64.min)
+    }
+
+    @Test
+    func `Checked millisecond conversion rejects overflow and negative values`() {
+      #expect(throws: VLCError.self) {
+        _ = try Duration.seconds(Int64.max).checkedMilliseconds(parameter: "timeout")
+      }
+      #expect(throws: VLCError.self) {
+        _ = try Duration.milliseconds(-1).checkedNonnegativeMilliseconds(parameter: "timeout")
+      }
+      #expect(throws: VLCError.self) {
+        _ = try Duration.seconds(Int64(Int32.max) + 1)
+          .checkedNonnegativeInt32Milliseconds(parameter: "timeout")
+      }
+    }
   }
 }

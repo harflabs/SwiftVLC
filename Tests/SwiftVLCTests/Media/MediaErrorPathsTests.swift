@@ -21,6 +21,13 @@ extension Integration {
       #expect(b.mrl != nil)
     }
 
+    @Test
+    func `Media from unrepresentable file descriptor throws invalid input`() {
+      #expect(throws: VLCError.self) {
+        _ = try Media(fileDescriptor: Int.max)
+      }
+    }
+
     /// Adding a malformed slave URI reaches libvlc_media_slaves_add,
     /// which returns non-zero for unresolvable input.
     @Test
@@ -77,10 +84,8 @@ extension Integration {
       media.setMetadata(.title, value: "SwiftVLC Test")
     }
 
-    /// Slave priority is documented as 0...UInt32.max; out-of-range
-    /// values trap via `precondition`. We can't assert on the trap
-    /// itself (it tears down the process), but we can verify the
-    /// valid boundary case.
+    /// Slave priority is documented as 0...UInt32.max; this verifies the
+    /// lower valid boundary before the invalid-input coverage below.
     @Test
     func `addSlave with zero priority succeeds`() throws {
       let media = try Media(url: URL(fileURLWithPath: "/tmp/swiftvlc-test.mp4"))
@@ -90,6 +95,44 @@ extension Integration {
         priority: 0
       )
       #expect(media.slaves.first?.priority == 0)
+    }
+
+    @Test
+    func `addSlave rejects out of range priority instead of trapping`() throws {
+      let media = try Media(url: URL(fileURLWithPath: "/tmp/swiftvlc-test.mp4"))
+      #expect(throws: VLCError.self) {
+        try media.addSlave(
+          from: URL(fileURLWithPath: "/tmp/negative.srt"),
+          type: .subtitle,
+          priority: -1
+        )
+      }
+    }
+
+    @Test
+    func `parse rejects invalid timeout before starting request`() async throws {
+      let media = try Media(url: URL(fileURLWithPath: "/tmp/swiftvlc-test.mp4"))
+      do {
+        _ = try await media.parse(timeout: .milliseconds(-1))
+        Issue.record("Expected parse to reject a negative timeout")
+      } catch .invalidInput(let message) {
+        #expect(message.contains("timeout"))
+      } catch {
+        Issue.record("Expected invalidInput, got \(error)")
+      }
+    }
+
+    @Test
+    func `thumbnail rejects invalid public input before starting request`() async throws {
+      let media = try Media(url: URL(fileURLWithPath: "/tmp/swiftvlc-test.mp4"))
+      do {
+        _ = try await media.thumbnail(at: .zero, width: -1)
+        Issue.record("Expected thumbnail to reject a negative width")
+      } catch .invalidInput(let message) {
+        #expect(message.contains("width"))
+      } catch {
+        Issue.record("Expected invalidInput, got \(error)")
+      }
     }
 
     /// `Media.mrl` returns the URI libVLC normalized.

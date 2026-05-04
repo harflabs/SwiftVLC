@@ -69,6 +69,7 @@ public final class RendererDiscoverer: Sendable {
     // broadcaster is Sendable so it can be captured directly.
     nonisolated(unsafe) let discoverer = pointer
     nonisolated(unsafe) let box = opaque
+    let instance = self.instance
     let broadcaster = self.broadcaster
     DispatchQueue.global(qos: .utility).async {
       let em = libvlc_renderer_discoverer_event_manager(discoverer)!
@@ -77,6 +78,7 @@ public final class RendererDiscoverer: Sendable {
       broadcaster.terminate()
       Unmanaged<Broadcaster<RendererEvent>>.fromOpaque(box).release()
       libvlc_renderer_discoverer_release(discoverer)
+      _ = instance
     }
   }
 

@@ -57,21 +57,33 @@ public final class MediaList: Sendable {
   }
 
   /// Inserts a media item at the specified index.
-  /// - Throws: `VLCError.operationFailed` if the index is out of range or the list is read-only.
+  /// - Throws: ``VLCError/invalidInput(_:)`` if the index is out of range,
+  ///   or ``VLCError/operationFailed(_:)`` if the list is read-only.
   public func insert(_ media: borrowing Media, at index: Int) throws(VLCError) {
     libvlc_media_list_lock(pointer)
     defer { libvlc_media_list_unlock(pointer) }
-    guard libvlc_media_list_insert_media(pointer, media.pointer, Int32(index)) == 0 else {
+    let count = Int(libvlc_media_list_count(pointer))
+    guard index >= 0 && index <= count else {
+      throw .invalidInput("index must be in 0...\(count)")
+    }
+    let index = try checkedInt32(index, parameter: "index")
+    guard libvlc_media_list_insert_media(pointer, media.pointer, index) == 0 else {
       throw .operationFailed("Insert media at index \(index)")
     }
   }
 
   /// Removes the media item at the specified index.
-  /// - Throws: `VLCError.operationFailed` if the index is out of range or the list is read-only.
+  /// - Throws: ``VLCError/invalidInput(_:)`` if the index is out of range,
+  ///   or ``VLCError/operationFailed(_:)`` if the list is read-only.
   public func remove(at index: Int) throws(VLCError) {
     libvlc_media_list_lock(pointer)
     defer { libvlc_media_list_unlock(pointer) }
-    guard libvlc_media_list_remove_index(pointer, Int32(index)) == 0 else {
+    let count = Int(libvlc_media_list_count(pointer))
+    guard index >= 0 && index < count else {
+      throw .invalidInput("index must be in 0..<\(count)")
+    }
+    let index = try checkedInt32(index, parameter: "index")
+    guard libvlc_media_list_remove_index(pointer, index) == 0 else {
       throw .operationFailed("Remove media at index \(index)")
     }
   }
@@ -97,7 +109,11 @@ public final class MediaList: Sendable {
   public func media(at index: Int) -> Media? {
     libvlc_media_list_lock(pointer)
     defer { libvlc_media_list_unlock(pointer) }
-    guard let mediaPtr = libvlc_media_list_item_at_index(pointer, Int32(index)) else {
+    let count = Int(libvlc_media_list_count(pointer))
+    guard index >= 0, index < count, let index = Int32(exactly: index) else {
+      return nil
+    }
+    guard let mediaPtr = libvlc_media_list_item_at_index(pointer, index) else {
       return nil
     }
     return Media(retaining: mediaPtr)
@@ -155,7 +171,11 @@ public final class MediaList: Sendable {
     /// The returned `Media` is retained and safe to use after the
     /// locked scope ends.
     public func media(at index: Int) -> Media? {
-      guard let ptr = libvlc_media_list_item_at_index(pointer, Int32(index)) else {
+      let count = Int(libvlc_media_list_count(pointer))
+      guard index >= 0, index < count, let index = Int32(exactly: index) else {
+        return nil
+      }
+      guard let ptr = libvlc_media_list_item_at_index(pointer, index) else {
         return nil
       }
       return Media(retaining: ptr)

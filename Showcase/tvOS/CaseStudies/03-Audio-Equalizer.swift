@@ -45,7 +45,8 @@ struct TVEqualizerCase: View {
   }
 
   private func presetButtonTapped() {
-    equalizer = Equalizer(preset: preset)
+    guard let presetEqualizer = Equalizer(preset: preset) else { return }
+    equalizer = presetEqualizer
     player.equalizer = equalizer
   }
 }

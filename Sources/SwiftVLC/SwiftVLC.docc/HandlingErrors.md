@@ -25,6 +25,8 @@ do {
     print("Playback refused: \(reason)")
 } catch .invalidState(let message) {
     print("Player wasn't ready: \(message)")
+} catch .invalidInput(let message) {
+    print("Bad argument: \(message)")
 } catch .operationFailed(let op) {
     print("libVLC call failed: \(op)")
 }
@@ -41,6 +43,7 @@ do {
 | ``VLCError/parseTimeout-enum.case`` | ``Media/parse(timeout:instance:)`` hit the requested timeout |
 | ``VLCError/trackNotFound(id:)`` | No track matches the requested identifier |
 | ``VLCError/invalidState(_:)`` | Operation is valid but the player isn't in the right state |
+| ``VLCError/invalidInput(_:)`` | A public API argument is outside its documented range |
 | ``VLCError/operationFailed(_:)`` | A libVLC call returned non-zero; the string names the attempted op |
 
 ## When the failure mode doesn't matter

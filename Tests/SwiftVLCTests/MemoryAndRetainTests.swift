@@ -298,6 +298,22 @@ extension Integration {
       #expect(weakDisc == nil, "RendererDiscoverer leaked")
     }
 
+    @Test
+    func `RendererDiscoverer accepts a custom instance during async cleanup`() async throws {
+      let instance = try VLCInstance()
+      guard let service = RendererDiscoverer.availableServices(instance: instance).first else {
+        return
+      }
+
+      do {
+        let disc = try RendererDiscoverer(name: service.name, instance: instance)
+        _ = disc.events
+        try? disc.start()
+      }
+
+      try? await Task.sleep(for: .milliseconds(100))
+    }
+
     // MARK: - VLCInstance
 
     /// A bespoke `VLCInstance` should deinit when dropped. Guards the

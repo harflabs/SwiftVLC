@@ -102,13 +102,15 @@ public final class Media: Sendable {
   ///   - instance: The libVLC instance that performs the parse.
   /// - Returns: The parsed ``Metadata``. Call ``tracks()`` afterwards
   ///   to obtain the discovered tracks.
-  /// - Throws: ``VLCError/parseTimeout-enum.case`` if `timeout` expires, or
+  /// - Throws: ``VLCError/invalidInput(_:)`` if `timeout` is negative or too large,
+  ///   ``VLCError/parseTimeout-enum.case`` if `timeout` expires, or
   ///   ``VLCError/parseFailed(reason:)`` for any other failure.
   public func parse(
     timeout: Duration = .seconds(10),
     instance: VLCInstance = .shared
   )
     async throws(VLCError) -> Metadata {
+    let timeoutMs = try timeout.checkedNonnegativeInt32Milliseconds(parameter: "timeout")
     let media = pointer
     let em = libvlc_media_event_manager(media)!
     let instancePtr = instance.pointer
@@ -163,7 +165,6 @@ public final class Media: Sendable {
           return
         }
 
-        let timeoutMs = Int32(timeout.milliseconds)
         let flags = libvlc_media_parse_flag_t(
           rawValue: libvlc_media_parse_local.rawValue | libvlc_media_parse_network.rawValue
         )
@@ -246,20 +247,17 @@ public final class Media: Sendable {
   ///     `UInt32`. libVLC clamps the value to its user-slave ceiling
   ///     internally, so values above ~4 are normalized. Defaults to `4`
   ///     which matches libVLC's priority for user-added files.
-  /// - Precondition: `priority` is in `0...UInt32.max`.
-  /// - Throws: `VLCError.operationFailed` if the slave cannot be attached.
+  /// - Throws: ``VLCError/invalidInput(_:)`` if `priority` is negative or too large,
+  ///   or ``VLCError/operationFailed(_:)`` if the slave cannot be attached.
   public func addSlave(
     from url: URL,
     type: MediaSlaveType,
     priority: Int = 4
   )
     throws(VLCError) {
-    precondition(
-      priority >= 0 && priority <= Int(UInt32.max),
-      "Slave priority \(priority) is out of range (0 ... \(UInt32.max))"
-    )
+    let priority = try checkedUInt32(priority, parameter: "priority")
     let uri = url.absoluteString
-    guard libvlc_media_slaves_add(pointer, type.cValue, UInt32(priority), uri) == 0 else {
+    guard libvlc_media_slaves_add(pointer, type.cValue, priority, uri) == 0 else {
       throw .operationFailed("Add slave \(type) from \(uri)")
     }
   }
@@ -299,9 +297,11 @@ public final class Media: Sendable {
   ///
   /// The file descriptor must be open for reading. libVLC will **not** close it.
   /// - Parameter fd: An open file descriptor.
-  /// - Throws: `VLCError.mediaCreationFailed` if creation fails.
+  /// - Throws: ``VLCError/invalidInput(_:)`` if `fd` cannot be passed to libVLC,
+  ///   or ``VLCError/mediaCreationFailed(source:)`` if creation fails.
   public init(fileDescriptor fd: Int) throws(VLCError) {
-    guard let media = libvlc_media_new_fd(Int32(fd)) else {
+    let fd = try checkedInt32(fd, parameter: "fileDescriptor")
+    guard let media = libvlc_media_new_fd(fd) else {
       throw .mediaCreationFailed(source: "fd:\(fd)")
     }
     pointer = media

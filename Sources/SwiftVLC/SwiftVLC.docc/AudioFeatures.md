@@ -62,8 +62,9 @@ try eq.setGain(+6.0, forBand: 3)
 Use a built-in preset by index:
 
 ```swift
-let rock = Equalizer(preset: Equalizer.presetNames.firstIndex(of: "Rock") ?? 0)
-player.equalizer = rock
+if let rock = Equalizer(preset: Equalizer.presetNames.firstIndex(of: "Rock") ?? 0) {
+    player.equalizer = rock
+}
 ```
 
 Pass `nil` to disable: `player.equalizer = nil`.

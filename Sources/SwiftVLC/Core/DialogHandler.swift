@@ -190,8 +190,9 @@ public struct DialogID: Sendable {
 
   @discardableResult
   func postAction(_ action: Int) -> Bool {
-    consume { pointer in
-      libvlc_dialog_post_action(pointer, Int32(action)) == 0
+    guard let action = Int32(exactly: action) else { return false }
+    return consume { pointer in
+      libvlc_dialog_post_action(pointer, action) == 0
     }
   }
 
@@ -456,7 +457,7 @@ private final class DialogIDStorage: @unchecked Sendable {
 
   static func shared(for pointer: OpaquePointer) -> DialogIDStorage {
     registryQueue.sync {
-      if let storage = registry[pointer]?.value {
+      if let storage = registry[pointer]?.value, storage.currentPointer() != nil {
         return storage
       }
 
@@ -479,22 +480,21 @@ private final class DialogIDStorage: @unchecked Sendable {
   }
 
   func consumePointer() -> OpaquePointer? {
-    let pointer = state.withLock { state -> OpaquePointer? in
-      let pointer = state.pointer
-      state.pointer = nil
-      return pointer
-    }
+    Self.registryQueue.sync {
+      let pointer = state.withLock { state -> OpaquePointer? in
+        let pointer = state.pointer
+        state.pointer = nil
+        return pointer
+      }
 
-    if pointer != nil {
-      nonisolated(unsafe) let key = key
-      Self.registryQueue.async {
+      if pointer != nil {
         if Self.registry[key]?.value === self {
           Self.registry.removeValue(forKey: key)
         }
       }
-    }
 
-    return pointer
+      return pointer
+    }
   }
 
   deinit {

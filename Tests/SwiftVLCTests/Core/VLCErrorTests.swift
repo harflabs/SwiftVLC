@@ -13,6 +13,7 @@ extension Logic {
         (.parseTimeout, "Media parsing timed out"),
         (.trackNotFound(id: "audio-0"), "Track not found: audio-0"),
         (.invalidState("not playing"), "Invalid state: not playing"),
+        (.invalidInput("width must be non-negative"), "Invalid input: width must be non-negative"),
         (.operationFailed("Snapshot"), "Snapshot failed")
       ] as [(VLCError, String)]
     )
@@ -29,6 +30,7 @@ extension Logic {
         .parseTimeout,
         .trackNotFound(id: "t"),
         .invalidState("s"),
+        .invalidInput("i"),
         .operationFailed("o"),
       ]
     )
@@ -69,6 +71,8 @@ extension Logic {
       #expect(VLCError.mediaCreationFailed(source: "a.mp4") == .mediaCreationFailed(source: "a.mp4"))
       #expect(VLCError.mediaCreationFailed(source: "a.mp4") != .mediaCreationFailed(source: "b.mp4"))
       #expect(VLCError.trackNotFound(id: "0") != .invalidState("0"))
+      #expect(VLCError.invalidInput("width") == .invalidInput("width"))
+      #expect(VLCError.invalidInput("width") != .invalidInput("height"))
     }
 
     @Test

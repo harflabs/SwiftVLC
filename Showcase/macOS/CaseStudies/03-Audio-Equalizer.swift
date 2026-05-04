@@ -45,7 +45,8 @@ struct MacEqualizerCase: View {
   }
 
   private func presetPickerChanged() {
-    equalizer = Equalizer(preset: preset)
+    guard let presetEqualizer = Equalizer(preset: preset) else { return }
+    equalizer = presetEqualizer
     player.equalizer = equalizer
   }
 }

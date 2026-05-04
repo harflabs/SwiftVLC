@@ -80,6 +80,24 @@ extension Integration {
       try player.setDeinterlace(state: 1, mode: "blend")
     }
 
+    @Test
+    func `setDeinterlace rejects unrepresentable state instead of trapping`() throws {
+      let player = Player(instance: TestInstance.shared)
+      #expect(throws: VLCError.self) {
+        try player.setDeinterlace(state: Int.max)
+      }
+    }
+
+    // MARK: - snapshot
+
+    @Test
+    func `takeSnapshot rejects invalid dimensions before calling libVLC`() throws {
+      let player = Player(instance: TestInstance.shared)
+      #expect(throws: VLCError.self) {
+        try player.takeSnapshot(to: "/tmp/swiftvlc-invalid-snapshot.png", width: -1)
+      }
+    }
+
     // MARK: - setRate
 
     @Test

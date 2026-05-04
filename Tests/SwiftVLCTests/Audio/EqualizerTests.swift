@@ -14,10 +14,16 @@ extension Integration {
     }
 
     @Test
-    func `Preset init`() {
-      let eq = Equalizer(preset: 0)
+    func `Preset init`() throws {
+      let eq = try #require(Equalizer(preset: 0))
       // First preset may have non-zero values
       _ = eq.preamp
+    }
+
+    @Test
+    func `Invalid preset returns nil instead of trapping`() {
+      #expect(Equalizer(preset: -1) == nil)
+      #expect(Equalizer(preset: Equalizer.presetCount) == nil)
     }
 
     @Test
@@ -59,7 +65,7 @@ extension Integration {
     @Test
     func `Invalid band throws`() {
       let eq = Equalizer()
-      #expect(throws: VLCError.self) {
+      #expect(throws: VLCError.invalidInput("band must be in 0..<\(Equalizer.bandCount)")) {
         try eq.setAmplification(5.0, forBand: 999)
       }
     }

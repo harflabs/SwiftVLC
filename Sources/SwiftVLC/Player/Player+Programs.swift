@@ -27,7 +27,8 @@ extension Player {
 
   /// Selects a program by its group ID.
   public func selectProgram(id: Int) {
-    libvlc_media_player_select_program_id(pointer, Int32(id))
+    guard let id = Int32(exactly: id) else { return }
+    libvlc_media_player_select_program_id(pointer, id)
   }
 
   /// Whether the current program is scrambled (encrypted).
@@ -66,9 +67,11 @@ extension Player {
   /// - Parameters:
   ///   - state: `-1` for auto, `0` to disable, `1` to enable.
   ///   - mode: Deinterlace filter name (e.g. "blend", "bob", "x", "yadif"), or `nil` for default.
-  /// - Throws: `VLCError.operationFailed` if the filter cannot be applied.
+  /// - Throws: ``VLCError/invalidInput(_:)`` if `state` cannot be passed to libVLC,
+  ///   or ``VLCError/operationFailed(_:)`` if the filter cannot be applied.
   public func setDeinterlace(state: Int = -1, mode: String? = nil) throws(VLCError) {
-    guard libvlc_video_set_deinterlace(pointer, Int32(state), mode) == 0 else {
+    let state = try checkedInt32(state, parameter: "state")
+    guard libvlc_video_set_deinterlace(pointer, state, mode) == 0 else {
       throw .operationFailed("Set deinterlace")
     }
   }

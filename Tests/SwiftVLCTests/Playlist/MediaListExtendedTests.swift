@@ -16,9 +16,15 @@ extension Integration {
       #expect(item?.mrl != nil)
     }
 
-    // Note: Out-of-bounds and empty-list subscript/media(at:) tests are
-    // intentionally omitted. libVLC internally aborts (SIGABRT) for
-    // out-of-range indices rather than returning NULL.
+    @Test
+    func `Subscript and media at invalid indices return nil`() throws {
+      let list = MediaList()
+      try list.append(Media(url: TestMedia.testMP4URL))
+
+      #expect(list[-1] == nil)
+      #expect(list[1] == nil)
+      #expect(list.media(at: Int.max) == nil)
+    }
 
     // MARK: - media(at:) with valid indices
 
@@ -47,11 +53,6 @@ extension Integration {
       #expect(mrl1?.contains("twosec.mp4") == true)
       #expect(mrl2?.contains("silence.wav") == true)
     }
-
-    // MARK: - media(at:) with invalid indices
-
-    // Note: Out-of-bounds media(at:) tests are intentionally omitted.
-    // libVLC internally aborts (SIGABRT) for out-of-range indices.
 
     // MARK: - isEmpty transitions
 
@@ -155,8 +156,19 @@ extension Integration {
       #expect(mrl?.contains("test.mp4") == true)
     }
 
-    // Note: withLocked media(at:) with invalid index is intentionally omitted.
-    // libVLC internally aborts (SIGABRT) for out-of-range indices.
+    @Test
+    func `withLocked media at invalid index returns nil`() throws {
+      let list = MediaList()
+      try list.append(Media(url: TestMedia.testMP4URL))
+
+      let invalid = list.withLocked { view in
+        (view.media(at: -1), view.media(at: 1), view.media(at: Int.max))
+      }
+
+      #expect(invalid.0 == nil)
+      #expect(invalid.1 == nil)
+      #expect(invalid.2 == nil)
+    }
 
     @Test
     func `withLocked subscript access`() throws {
@@ -168,9 +180,6 @@ extension Integration {
       }
       #expect(mrl?.contains("twosec.mp4") == true)
     }
-
-    // Note: withLocked subscript with invalid index is intentionally omitted.
-    // libVLC internally aborts (SIGABRT) for out-of-range indices.
 
     @Test
     func `withLocked batch read of all MRLs`() throws {

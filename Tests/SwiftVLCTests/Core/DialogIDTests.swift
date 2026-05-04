@@ -76,6 +76,18 @@ extension Logic {
       #expect(!second._isValidForTesting, "Shared storage should have been consumed")
     }
 
+    @Test
+    func `Reused pointer after consume receives fresh storage`() {
+      let ptr = SyntheticDialogPointer.next()
+      let first = DialogID(pointer: ptr)
+      #expect(first._consumeForTesting() == ptr)
+
+      let second = DialogID(pointer: ptr)
+
+      #expect(second._isValidForTesting)
+      #expect(second._consumeForTesting() == ptr)
+    }
+
     /// Distinct pointers resolve to distinct storage entries — no
     /// cross-contamination in the registry.
     @Test

@@ -28,7 +28,8 @@ extension Player {
     }
     set {
       withMutation(keyPath: \.currentChapter) {
-        libvlc_media_player_set_chapter(pointer, Int32(newValue))
+        guard let chapter = Int32(exactly: newValue) else { return }
+        libvlc_media_player_set_chapter(pointer, chapter)
       }
     }
   }
@@ -63,7 +64,8 @@ extension Player {
     }
     set {
       withMutation(keyPath: \.currentTitle) {
-        libvlc_media_player_set_title(pointer, Int32(newValue))
+        guard let title = Int32(exactly: newValue) else { return }
+        libvlc_media_player_set_title(pointer, title)
       }
     }
   }
@@ -90,9 +92,10 @@ extension Player {
   /// Full chapter descriptions for a title.
   /// - Parameter titleIndex: Zero-based title index, or `-1` for the current title.
   public func chapters(forTitle titleIndex: Int = -1) -> [Chapter] {
+    guard let titleIndex = Int32(exactly: titleIndex) else { return [] }
     var cChapters: UnsafeMutablePointer<UnsafeMutablePointer<libvlc_chapter_description_t>?>?
     let count = libvlc_media_player_get_full_chapter_descriptions(
-      pointer, Int32(titleIndex), &cChapters
+      pointer, titleIndex, &cChapters
     )
     guard count > 0, let cChapters else { return [] }
     defer { libvlc_chapter_descriptions_release(cChapters, UInt32(count)) }

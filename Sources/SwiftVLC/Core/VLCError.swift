@@ -34,6 +34,11 @@ public enum VLCError: Error, Sendable, Equatable, Hashable, LocalizedError, Cust
   /// current state (e.g. setting an A-B loop before any media is
   /// loaded). The associated string names the constraint that failed.
   case invalidState(String)
+  /// A public API received an argument outside its documented range.
+  ///
+  /// The associated string names the invalid parameter and the accepted
+  /// range or constraint.
+  case invalidInput(String)
   /// A libVLC call returned a non-zero error code. The associated
   /// string names the operation that was attempted.
   case operationFailed(_ operation: String)
@@ -54,6 +59,8 @@ public enum VLCError: Error, Sendable, Equatable, Hashable, LocalizedError, Cust
       "Track not found: \(id)"
     case .invalidState(let message):
       "Invalid state: \(message)"
+    case .invalidInput(let message):
+      "Invalid input: \(message)"
     case .operationFailed(let operation):
       "\(operation) failed"
     }
@@ -100,6 +107,11 @@ extension VLCError {
   /// Constraint message if this error is `.invalidState`, otherwise `nil`.
   public var invalidState: String? {
     if case .invalidState(let value) = self { value } else { nil }
+  }
+
+  /// Validation message if this error is `.invalidInput`, otherwise `nil`.
+  public var invalidInput: String? {
+    if case .invalidInput(let value) = self { value } else { nil }
   }
 
   /// Operation name if this error is `.operationFailed`, otherwise `nil`.

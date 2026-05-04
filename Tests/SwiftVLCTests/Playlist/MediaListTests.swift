@@ -45,9 +45,17 @@ extension Integration {
       #expect(list.count == 1)
     }
 
-    // Note: "Insert/remove invalid index" tests are intentionally omitted.
-    // libVLC internally aborts (SIGABRT) for out-of-range indices rather
-    // than returning an error code, so these can't be tested safely.
+    @Test
+    func `Insert and remove invalid index throw before reaching libVLC`() throws {
+      let list = MediaList()
+      let media = try Media(url: TestMedia.testMP4URL)
+      #expect(throws: VLCError.self) {
+        try list.insert(media, at: 1)
+      }
+      #expect(throws: VLCError.self) {
+        try list.remove(at: 0)
+      }
+    }
 
     @Test
     func `isReadOnly is false`() {

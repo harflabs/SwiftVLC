@@ -15,10 +15,13 @@ extension Player {
   ///     and the aspect ratio.
   ///   - height: Desired height in pixels, or `0` to derive from `width`
   ///     and the aspect ratio.
-  /// - Throws: ``VLCError/operationFailed(_:)`` if no frame is available
+  /// - Throws: ``VLCError/invalidInput(_:)`` if `width` or `height` is negative
+  ///   or too large, or ``VLCError/operationFailed(_:)`` if no frame is available
   ///   (e.g. audio-only media) or the file cannot be written.
   public func takeSnapshot(to path: String, width: Int = 0, height: Int = 0) throws(VLCError) {
-    guard libvlc_video_take_snapshot(pointer, 0, path, UInt32(width), UInt32(height)) == 0 else {
+    let width = try checkedUInt32(width, parameter: "width")
+    let height = try checkedUInt32(height, parameter: "height")
+    guard libvlc_video_take_snapshot(pointer, 0, path, width, height) == 0 else {
       throw .operationFailed("Take snapshot")
     }
   }

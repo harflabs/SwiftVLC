@@ -168,7 +168,7 @@ public struct Marquee: ~Copyable, ~Escapable {
   }
 
   private func writeInt(_ option: libvlc_video_marquee_option_t, _ value: Int) {
-    libvlc_video_set_marquee_int(pointer, UInt32(option.rawValue), Int32(value))
+    libvlc_video_set_marquee_int(pointer, UInt32(option.rawValue), Int32(clamping: value))
   }
 
   /// Forces libVLC's text renderer to re-rasterize the marquee glyphs with

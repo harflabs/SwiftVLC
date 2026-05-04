@@ -48,7 +48,9 @@ extension Media {
   ///   - timeout: Maximum time to wait.
   ///   - instance: VLC instance.
   /// - Returns: The raw image data (PNG format).
-  /// - Throws: `VLCError.operationFailed` if thumbnail generation fails.
+  /// - Throws: ``VLCError/invalidInput(_:)`` if `time`, `timeout`, `width`,
+  ///   or `height` is outside libVLC's supported range, or
+  ///   ``VLCError/operationFailed(_:)`` if thumbnail generation fails.
   public func thumbnail(
     at time: Duration,
     width: Int = 320,
@@ -59,6 +61,11 @@ extension Media {
     instance: VLCInstance = .shared
   )
     async throws(VLCError) -> Data {
+    let timeMs = try time.checkedNonnegativeMilliseconds(parameter: "time")
+    let timeoutMs = try timeout.checkedNonnegativeMilliseconds(parameter: "timeout")
+    let width = try checkedUInt32(width, parameter: "width")
+    let height = try checkedUInt32(height, parameter: "height")
+
     try await thumbnailCoordinator.acquire()
     // Structured release: bind the coordinator into a local actor
     // reference so we can release synchronously at the end of this
@@ -133,13 +140,13 @@ extension Media {
           let request = libvlc_media_thumbnail_request_by_time(
             instancePtr,
             media,
-            time.milliseconds,
+            timeMs,
             seekMode.cValue,
-            UInt32(width),
-            UInt32(height),
+            width,
+            height,
             crop,
             libvlc_picture_Png,
-            timeout.milliseconds
+            timeoutMs
           ) else {
           if Task.isCancelled {
             operation.cancel()
