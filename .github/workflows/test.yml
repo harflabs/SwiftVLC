@@ -86,17 +86,11 @@ jobs:
         with:
           xcode-version: "26.4"
 
-      - uses: SwiftyLab/setup-swift@v1.14.0
-        timeout-minutes: 8
-        with:
-          swift-version: "6.3.1"
-
       - name: Print toolchain
         timeout-minutes: 1
         run: |
           xcodebuild -version
           xcrun swift --version
-          xcrun --toolchain "$TOOLCHAINS" swift --version
 
       # The libvlc xcframework dominates the artifact cache.
       - name: Cache libvlc xcframework
@@ -121,7 +115,6 @@ jobs:
           xcodebuild build \
             -project Showcase/SwiftVLCShowcase.xcodeproj \
             -scheme "${{ matrix.scheme }}" \
-            -toolchain "$TOOLCHAINS" \
             -destination "${{ matrix.destination }}" \
             -configuration Debug \
             -skipPackagePluginValidation \
