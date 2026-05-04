@@ -168,6 +168,25 @@ extension Integration {
     }
 
     @Test
+    func `Unknown C track maps through default type-specific branch`() {
+      var cTrack = libvlc_media_track_t()
+      cTrack.i_id = 42
+      cTrack.i_type = libvlc_track_unknown
+
+      let track = withUnsafePointer(to: cTrack) { Track(from: $0) }
+
+      #expect(track.id == "42")
+      #expect(track.type == .unknown)
+      #expect(track.name == "Track 42")
+      #expect(track.channels == nil)
+      #expect(track.sampleRate == nil)
+      #expect(track.width == nil)
+      #expect(track.height == nil)
+      #expect(track.frameRate == nil)
+      #expect(track.encoding == nil)
+    }
+
+    @Test
     func `Track with nil language and description`() {
       let track = makeTrack(id: "x-0", type: .audio)
       #expect(track.language == nil)

@@ -406,6 +406,24 @@ extension Integration {
       #expect(mediaController.isMediaPlaying() == false)
     }
 
+    @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+    func `macOS native PiP media controller play resumes paused playback`() async throws {
+      let player = Player(instance: TestInstance.makePlayback())
+      let mediaController = MacNativePiPMediaController()
+      mediaController.player = player
+
+      try player.play(Media(url: TestMedia.twosecURL))
+      try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
+
+      player.pause()
+      try #require(await poll(until: { player.state == .paused }), "Waiting for: player.state == .paused")
+
+      mediaController.play()
+      try #require(await poll(until: { mediaController.isMediaPlaying() }), "Waiting for: PiP media controller playback")
+
+      player.stop()
+    }
+
     @Test
     func `SwiftUI host creates and updates native PiP view`() async throws {
       let firstPlayer = Player(instance: TestInstance.shared)
