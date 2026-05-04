@@ -1,4 +1,5 @@
 @testable import SwiftVLC
+import SwiftUI
 import Testing
 
 #if canImport(UIKit)
@@ -60,5 +61,50 @@ extension Integration {
       VideoView.dismantleNSView(wrong, coordinator: ())
       #endif
     }
+
+    @Test
+    func `SwiftUI host creates and updates AppKit video surface`() async throws {
+      #if canImport(AppKit)
+      let firstPlayer = Player(instance: TestInstance.shared)
+      let secondPlayer = Player(instance: TestInstance.shared)
+      let host = NSHostingView(rootView: VideoView(firstPlayer))
+
+      host.frame = NSRect(x: 0, y: 0, width: 320, height: 180)
+      host.layoutSubtreeIfNeeded()
+      await Task.yield()
+
+      let surface = try #require(host.firstDescendant(ofType: VideoSurface.self))
+      #expect(surface.wantsLayer == true)
+      #expect(surface.layer?.backgroundColor == NSColor.black.cgColor)
+      #expect(surface.layer?.masksToBounds == true)
+      #expect(surface.autoresizesSubviews == true)
+      #expect(firstPlayer.drawable === surface)
+
+      host.rootView = VideoView(secondPlayer)
+      host.layoutSubtreeIfNeeded()
+      await Task.yield()
+
+      #expect(firstPlayer.drawable == nil)
+      #expect(secondPlayer.drawable === surface)
+      #else
+      #expect(Bool(true))
+      #endif
+    }
   }
 }
+
+#if canImport(AppKit)
+private extension NSView {
+  func firstDescendant<T: NSView>(ofType type: T.Type) -> T? {
+    if let match = self as? T {
+      return match
+    }
+    for subview in subviews {
+      if let match = subview.firstDescendant(ofType: type) {
+        return match
+      }
+    }
+    return nil
+  }
+}
+#endif

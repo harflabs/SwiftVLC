@@ -105,6 +105,28 @@ extension Integration {
       #expect(completed, "Queued acquire should stop waiting as soon as it is cancelled")
     }
 
+    @Test(.tags(.async))
+    func `Queued thumbnail coordinator acquire resumes on release`() async throws {
+      let coordinator = ThumbnailCoordinator()
+      try await coordinator.acquire()
+
+      let acquired = Task {
+        try await coordinator.acquire()
+        await coordinator.release()
+        return true
+      }
+
+      await Task.yield()
+      await coordinator.release()
+
+      #expect(try await acquired.value)
+
+      // The second task releases its slot, so a later acquire should
+      // not remain stuck behind stale waiter state.
+      try await coordinator.acquire()
+      await coordinator.release()
+    }
+
     @Test
     func `Audio-only returns error`() async {
       do {

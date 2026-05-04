@@ -359,6 +359,35 @@ extension Integration {
       _ = mediaController.isMediaSeekable()
       #expect(mediaController.isMediaPlaying() == false)
     }
+
+    @Test
+    func `SwiftUI host creates and updates native PiP view`() async throws {
+      let firstPlayer = Player(instance: TestInstance.shared)
+      let secondPlayer = Player(instance: TestInstance.shared)
+      let storage = Box<PiPController?>(nil)
+      let binding = Binding<PiPController?>(
+        get: { storage.value },
+        set: { storage.value = $0 }
+      )
+      let host = NSHostingView(rootView: PiPVideoView(firstPlayer, controller: binding))
+
+      host.frame = NSRect(x: 0, y: 0, width: 320, height: 180)
+      host.layoutSubtreeIfNeeded()
+      await Task.yield()
+
+      let initialContainer = try #require(host.firstDescendant(ofType: MacNativePiPHostView.self))
+      #expect(firstPlayer.drawable === initialContainer.drawableView)
+      #expect(storage.value != nil)
+
+      host.rootView = PiPVideoView(secondPlayer, controller: binding)
+      host.layoutSubtreeIfNeeded()
+      await Task.yield()
+
+      let updatedContainer = try #require(host.firstDescendant(ofType: MacNativePiPHostView.self))
+      #expect(firstPlayer.drawable == nil)
+      #expect(secondPlayer.drawable === updatedContainer.drawableView)
+      #expect(storage.value != nil)
+    }
     #endif
   }
 }
@@ -373,6 +402,20 @@ private final class Box<T> {
 }
 
 #if canImport(AppKit)
+private extension NSView {
+  func firstDescendant<T: NSView>(ofType type: T.Type) -> T? {
+    if let match = self as? T {
+      return match
+    }
+    for subview in subviews {
+      if let match = subview.firstDescendant(ofType: type) {
+        return match
+      }
+    }
+    return nil
+  }
+}
+
 @MainActor
 private final class PiPReshapeProbeView: NSView {
   var reshapeCount = 0
