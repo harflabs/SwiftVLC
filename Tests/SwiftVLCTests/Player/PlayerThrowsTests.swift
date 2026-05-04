@@ -208,7 +208,7 @@ extension Integration {
     }
 
     @Test
-    func `setAudioOutput accepts an available module`() throws {
+    func `setAudioOutput accepts an available module`() {
       let player = Player(instance: TestInstance.shared)
       let outputs = TestInstance.shared.audioOutputs()
       var didSetOutput = false

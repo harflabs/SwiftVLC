@@ -14,7 +14,7 @@ extension Logic {
         defaultUsername: "guest",
         askStore: true
       )
-      expectNoDifference(try #require(DialogEvent.login(login).login).title, "Login")
+      try expectNoDifference(#require(DialogEvent.login(login).login).title, "Login")
 
       let question = QuestionRequest(
         dialogId: DialogID(pointer: SyntheticDialogPointer.next()),
@@ -25,7 +25,7 @@ extension Logic {
         action1Text: "Allow",
         action2Text: "Deny"
       )
-      expectNoDifference(try #require(DialogEvent.question(question).question).type, .critical)
+      try expectNoDifference(#require(DialogEvent.question(question).question).type, .critical)
 
       let progress = ProgressInfo(
         dialogId: DialogID(pointer: SyntheticDialogPointer.next()),
@@ -35,14 +35,14 @@ extension Logic {
         position: 0.25,
         cancelText: "Stop"
       )
-      expectNoDifference(try #require(DialogEvent.progress(progress).progress).position, 0.25)
+      try expectNoDifference(#require(DialogEvent.progress(progress).progress).position, 0.25)
 
       let update = ProgressUpdate(
         dialogId: DialogID(pointer: SyntheticDialogPointer.next()),
         position: 0.5,
         text: "Halfway"
       )
-      expectNoDifference(try #require(DialogEvent.progressUpdated(update).progressUpdated).text, "Halfway")
+      try expectNoDifference(#require(DialogEvent.progressUpdated(update).progressUpdated).text, "Halfway")
 
       let cancel = DialogID(pointer: SyntheticDialogPointer.next())
       #expect(try #require(DialogEvent.cancel(cancel).cancel)._isValidForTesting)

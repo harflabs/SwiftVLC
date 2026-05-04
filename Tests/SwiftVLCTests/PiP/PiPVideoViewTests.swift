@@ -99,6 +99,34 @@ extension Integration {
       #endif
     }
 
+    @Test
+    func `dismantle fallback stops controller and clears binding`() async {
+      #if canImport(AppKit)
+      let player = Player(instance: TestInstance.shared)
+      let storage = Box<PiPController?>(nil)
+      let binding = Binding<PiPController?>(
+        get: { storage.value },
+        set: { storage.value = $0 }
+      )
+      let view = PiPVideoView(player, controller: binding)
+      let coordinator = view.makeCoordinator()
+      let controller = PiPController(player: player)
+
+      storage.value = controller
+      coordinator.pipController = controller
+      coordinator.controllerBinding = binding
+
+      PiPVideoView.dismantleNSView(NSView(), coordinator: coordinator)
+      await Task.yield()
+
+      #expect(coordinator.pipController == nil)
+      #expect(coordinator.controllerBinding == nil)
+      #expect(storage.value == nil)
+      #else
+      #expect(Bool(true))
+      #endif
+    }
+
     #if canImport(AppKit)
     @Test
     func `macOS native PiP host attaches drawable child`() {
@@ -204,6 +232,24 @@ extension Integration {
       view.restoreVLCContentLayout()
 
       #expect(sublayer.frame.size == CGSize(width: 320, height: 180))
+    }
+
+    @Test
+    func `macOS native PiP drawable rebinds stale drawable on first nonzero layout`() {
+      let player = Player(instance: TestInstance.shared)
+      let view = MacNativePiPDrawableView()
+      let staleDrawable = NSView()
+
+      view.attach(to: player)
+      player.setDrawable(staleDrawable, owner: view)
+      #expect(player.drawable === staleDrawable)
+
+      view.frame = NSRect(x: 0, y: 0, width: 320, height: 180)
+      view.layout()
+
+      #expect(player.drawable === view)
+
+      view.detach()
     }
 
     @Test
@@ -345,7 +391,7 @@ extension Integration {
 
       mediaController.play()
       mediaController.pause()
-      mediaController.seek(by: -10_000) {
+      mediaController.seek(by: -10000) {
         didComplete.value = true
       }
 
@@ -402,8 +448,8 @@ private final class Box<T> {
 }
 
 #if canImport(AppKit)
-private extension NSView {
-  func firstDescendant<T: NSView>(ofType type: T.Type) -> T? {
+extension NSView {
+  fileprivate func firstDescendant<T: NSView>(ofType type: T.Type) -> T? {
     if let match = self as? T {
       return match
     }

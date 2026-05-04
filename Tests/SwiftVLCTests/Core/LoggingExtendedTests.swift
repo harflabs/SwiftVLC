@@ -150,6 +150,18 @@ extension Integration {
       _ = stream
     }
 
+    @Test
+    func `LogBroadcaster exposes the instance pointer it was created with`() {
+      let broadcaster = LogBroadcaster(
+        instancePointer: VLCInstance.shared.pointer,
+        installBridge: { _, _ in nil },
+        uninstallBridge: { _, _ in }
+      )
+      defer { broadcaster.invalidate() }
+
+      #expect(broadcaster.instancePointer == VLCInstance.shared.pointer)
+    }
+
     @Test(.tags(.async))
     func `Failed log install retries only on later reconciles`() async {
       let attempts = Mutex(0)

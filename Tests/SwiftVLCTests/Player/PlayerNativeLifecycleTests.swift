@@ -27,9 +27,10 @@ extension Integration {
     )
     func `shouldReplaceNativePlayerBeforePlaybackLoad is true for active observed states`(
       state: PlayerState
-    ) throws {
+    )
+      throws {
       let player = Player(instance: TestInstance.shared)
-      player.load(try Media(url: TestMedia.twosecURL))
+      try player.load(Media(url: TestMedia.twosecURL))
 
       player._setStateForTesting(state: state)
 
@@ -39,9 +40,10 @@ extension Integration {
     @Test(arguments: [PlayerState.idle, .stopped])
     func `shouldReplaceNativePlayerBeforePlaybackLoad is false for inactive observed and native states`(
       state: PlayerState
-    ) throws {
+    )
+      throws {
       let player = Player(instance: TestInstance.shared)
-      player.load(try Media(url: TestMedia.twosecURL))
+      try player.load(Media(url: TestMedia.twosecURL))
 
       player._setStateForTesting(state: state)
 
@@ -112,9 +114,20 @@ extension Integration {
     }
 
     @Test
+    func `deferred resume commands are consumed when performed`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .paused)
+      player.deferredPauseCommand = .resume
+
+      player.performDeferredPauseCommandIfNeeded()
+
+      #expect(player.deferredPauseCommand == nil)
+    }
+
+    @Test
     func `syncCurrentMediaFromNative clears stale current media when native player has none`() throws {
       let player = Player(instance: TestInstance.shared)
-      player.load(try Media(url: TestMedia.twosecURL))
+      try player.load(Media(url: TestMedia.twosecURL))
       libvlc_media_player_set_media(player.pointer, nil)
 
       player.syncCurrentMediaFromNative()

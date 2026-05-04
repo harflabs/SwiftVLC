@@ -100,5 +100,22 @@ extension Logic {
           .checkedNonnegativeInt32Milliseconds(parameter: "timeout")
       }
     }
+
+    @Test
+    func `Checked microsecond conversion rejects overflow`() {
+      #expect(throws: VLCError.self) {
+        _ = try Duration.seconds(Int64.max).checkedMicroseconds(parameter: "audioDelay")
+      }
+    }
+
+    @Test
+    func `Subsecond addition overflow saturates instead of trapping`() {
+      let nearLimit = Duration(
+        secondsComponent: Int64.max / 1000,
+        attosecondsComponent: 999_000_000_000_000_000
+      )
+
+      #expect(nearLimit.milliseconds == Int64.max)
+    }
   }
 }

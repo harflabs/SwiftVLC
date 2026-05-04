@@ -202,6 +202,31 @@ extension Integration {
       #endif
     }
 
+    @Test
+    func `AppKit surface republishes drawable when moved into a window`() {
+      #if canImport(AppKit)
+      let player = Player(instance: TestInstance.shared)
+      let surface = VideoSurface(frame: NSRect(x: 0, y: 0, width: 320, height: 180))
+      let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+        styleMask: [],
+        backing: .buffered,
+        defer: false
+      )
+
+      surface.wantsLayer = true
+      surface.attach(to: player)
+      window.contentView?.addSubview(surface)
+
+      #expect(player.drawable === surface)
+      #expect(surface.needsLayout)
+
+      surface.detach()
+      #else
+      #expect(Bool(true))
+      #endif
+    }
+
     /// Layout with zero-width or zero-height bounds must be a no-op
     /// so we don't race with libVLC's own initial sizing.
     @Test

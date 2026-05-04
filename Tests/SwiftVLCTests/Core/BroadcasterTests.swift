@@ -1,4 +1,5 @@
 @testable import SwiftVLC
+import Dispatch
 import Synchronization
 import Testing
 
@@ -249,6 +250,45 @@ extension Logic {
       try? await Task.sleep(for: .milliseconds(100))
 
       #expect(firstCount.withLock { $0 } == 2)
+    }
+
+    @Test func `subscriber reattach while teardown runs schedules first callback again`() async {
+      let firstCount = Mutex(0)
+      let lastCount = Mutex(0)
+      let lastEntered = DispatchSemaphore(value: 0)
+      let allowLastToFinish = DispatchSemaphore(value: 0)
+      let broadcaster = Broadcaster<Int>(
+        onFirstSubscriber: {
+          firstCount.withLock { $0 += 1 }
+        },
+        onLastUnsubscribed: {
+          lastCount.withLock { $0 += 1 }
+          lastEntered.signal()
+          _ = allowLastToFinish.wait(timeout: .now() + .seconds(2))
+        }
+      )
+
+      var stream: AsyncStream<Int>? = broadcaster.subscribe()
+      try? await Task.sleep(for: .milliseconds(100))
+      #expect(firstCount.withLock { $0 } == 1)
+
+      stream = nil
+      let teardownStarted = await withCheckedContinuation { continuation in
+        DispatchQueue.global(qos: .utility).async {
+          continuation.resume(
+            returning: lastEntered.wait(timeout: .now() + .seconds(2)) == .success
+          )
+        }
+      }
+      #expect(teardownStarted)
+
+      let reattachedStream = broadcaster.subscribe()
+      allowLastToFinish.signal()
+      try? await Task.sleep(for: .milliseconds(200))
+
+      #expect(lastCount.withLock { $0 } == 1)
+      #expect(firstCount.withLock { $0 } == 2)
+      _ = (stream, reattachedStream)
     }
 
     // MARK: - Concurrency stress

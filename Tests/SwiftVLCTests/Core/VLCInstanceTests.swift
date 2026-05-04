@@ -92,6 +92,12 @@ extension Integration {
     }
 
     @Test
+    func `Custom instance accepts separated macOS vout option`() throws {
+      let instance = try VLCInstance(arguments: ["--force-darwin-legacy-display", "--vout", "macosx"])
+      #expect(instance.usesPiPSafeDarwinDisplay)
+    }
+
+    @Test
     func `Custom instance with no video is not PiP safe on macOS`() throws {
       let instance = try VLCInstance(arguments: ["--no-video-title-show", "--no-video"])
       #expect(!instance.usesPiPSafeDarwinDisplay)
@@ -123,6 +129,17 @@ extension Integration {
         ]
       )
       #expect(instance.supportsDynamicDeinterlaceChanges)
+    }
+
+    @Test
+    func `VideoToolbox in separated codec list disables dynamic deinterlace changes`() throws {
+      let instance = try VLCInstance(
+        arguments: VLCInstance.defaultArguments + [
+          "--codec",
+          " avcodec, videotoolbox, "
+        ]
+      )
+      #expect(!instance.supportsDynamicDeinterlaceChanges)
     }
 
     @Test

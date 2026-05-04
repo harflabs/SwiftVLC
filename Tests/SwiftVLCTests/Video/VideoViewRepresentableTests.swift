@@ -94,8 +94,8 @@ extension Integration {
 }
 
 #if canImport(AppKit)
-private extension NSView {
-  func firstDescendant<T: NSView>(ofType type: T.Type) -> T? {
+extension NSView {
+  fileprivate func firstDescendant<T: NSView>(ofType type: T.Type) -> T? {
     if let match = self as? T {
       return match
     }
