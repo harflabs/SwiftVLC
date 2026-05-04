@@ -92,6 +92,21 @@ media.addOption(":start-time=30")
 
 Options only affect media that has not yet started playing.
 
+For HTTP and HTTPS streams, libVLC's supported request options can be
+passed the same way:
+
+```swift
+media.addOption(":http-user-agent=CustomApp/1.0")
+media.addOption(":http-referrer=https://example.com")
+```
+
+Cookie forwarding is handled by libVLC's internal cookie jar and is
+enabled by default. The bundled libVLC build does not expose a string
+media option for injecting an initial `Cookie` header or arbitrary
+request headers such as `Authorization` or `Origin`. Use a presigned
+URL, proxy, or your own `URLSession` fetch/materialization step for
+streams that require those headers.
+
 ## Statistics
 
 Real-time counters for input, demux, decoders, and output are available

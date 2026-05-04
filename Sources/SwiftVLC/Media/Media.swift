@@ -312,8 +312,11 @@ public final class Media: Sendable {
   /// Options use libVLC's command-line syntax, with a leading `:` for
   /// input options. For example, `:network-caching=1000` sets a
   /// one-second network buffer; `:start-time=30` skips the first 30
-  /// seconds. Call this repeatedly to add multiple options. Options
-  /// have no effect once the media has begun playing.
+  /// seconds. HTTP options such as `:http-user-agent=App/1.0` and
+  /// `:http-referrer=https://example.com` are passed through when
+  /// supported by the bundled libVLC build. This does not add arbitrary
+  /// HTTP header injection. Call this repeatedly to add multiple
+  /// options. Options have no effect once the media has begun playing.
   public func addOption(_ option: String) {
     libvlc_media_add_option(pointer, option)
   }
