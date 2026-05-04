@@ -3,10 +3,15 @@ import Darwin
 
 /// Teletext color/action keys accepted by libVLC's teletext input API.
 public enum TeletextKey: Sendable, Hashable {
+  /// Selects the red teletext action.
   case red
+  /// Selects the green teletext action.
   case green
+  /// Selects the yellow teletext action.
   case yellow
+  /// Selects the blue teletext action.
   case blue
+  /// Requests the teletext index page.
   case index
 
   var cValue: Int32 {
