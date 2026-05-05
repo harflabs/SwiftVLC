@@ -27,11 +27,10 @@ public enum PlayerEvent: Sendable, CustomStringConvertible {
   case muted
   /// Audio was unmuted.
   case unmuted
-  /// Audio playback was suspended by the system (e.g. phone call, headphones
-  /// unplugged with mix-with-others disabled). The player is paused until
-  /// ``uncorked-enum.case`` fires.
+  /// Audio playback was suspended by the audio backend. The paired
+  /// ``uncorked-enum.case`` event reports that output resumed.
   case corked
-  /// Audio playback resumed after a cork (e.g. call ended).
+  /// Audio playback resumed after a cork.
   case uncorked
   /// The active audio output device changed. Value is the new device
   /// identifier, or `nil` if unknown.

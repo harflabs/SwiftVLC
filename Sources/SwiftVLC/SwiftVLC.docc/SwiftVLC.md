@@ -15,7 +15,7 @@ model does.
   track lists without manual bridging.
 - **Typed errors.** Every throwing API uses `throws(VLCError)`, so
   the compiler sees the full error surface and a general `catch` is
-  never needed.
+  not required for exhaustive handling.
 - **Structured events.** Playback, discovery, logging, and dialog
   prompts all surface through `AsyncStream`. Multiple consumers can
   subscribe concurrently.
@@ -24,8 +24,8 @@ model does.
   the player's lifetime, so the compiler rejects any code that would
   store a dangling pointer.
 - **Tested against real libVLC.** A comprehensive Swift Testing suite
-  exercises the full C bridge with no mocks or fakes, and CI runs it
-  on every push.
+  exercises the full C bridge with no mocks or fakes; CI runs it on
+  pull requests and on `main`.
 
 ### First play
 

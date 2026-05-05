@@ -3,8 +3,8 @@ import Foundation
 
 /// Immutable metadata parsed from a ``Media`` source.
 ///
-/// All metadata keys from libVLC are exposed as typed properties.
-/// Access any key programmatically via subscript:
+/// Common metadata keys are exposed as typed properties. Access any
+/// libVLC metadata key programmatically via subscript:
 /// ```swift
 /// let title = metadata[.title]
 /// ```

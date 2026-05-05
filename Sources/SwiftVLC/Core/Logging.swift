@@ -128,9 +128,9 @@ final class LogBroadcaster: Sendable {
     // The install closure needs to retain the broadcaster as the
     // userData pointer it passes to libVLC. We can't capture
     // `self.broadcaster` here because it isn't initialized yet, and
-    // capturing a `var` local by value only sees its initial nil. The
-    // workaround is a tiny `Box` reference that the closure captures
-    // by reference; we populate it after the broadcaster is built.
+    // capturing a `var` local by value only sees its initial nil. Use a
+    // tiny `Box` reference that the closure captures by reference; we
+    // populate it after the broadcaster is built.
     let broadcasterBox = BroadcasterBox()
     broadcaster = Broadcaster<LogEntry>(
       defaultBufferSize: 128,

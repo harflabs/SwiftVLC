@@ -77,9 +77,9 @@ let package = Package(
     ),
     .testTarget(
       name: "SwiftVLCTests",
-      // CLibVLC is available transitively through SwiftVLC — re-linking it
-      // here causes "Class X is implemented in both A and B" runtime warnings
-      // when a test binary ends up with two copies of the same symbol graph.
+      // CLibVLC is available transitively through SwiftVLC. Re-linking it
+      // here can load duplicate Objective-C runtime classes from libVLC's
+      // static dependencies.
       dependencies: [
         "SwiftVLC",
         .product(name: "CustomDump", package: "swift-custom-dump")

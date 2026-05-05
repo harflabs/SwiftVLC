@@ -5,9 +5,9 @@ import Synchronization
 /// How libVLC should locate the source frame when generating a thumbnail.
 public enum ThumbnailSeekMode: Sendable, Hashable {
   /// Snap to the nearest keyframe. Fast but imprecise: videos with
-  /// sparse keyframes (Big Buck Bunny is one example) can return the
-  /// same frame for every offset. Use for library cover art where the
-  /// exact frame doesn't matter.
+  /// sparse keyframes can return the same frame for nearby offsets.
+  /// Use for library cover art where exact frame selection does not
+  /// matter.
   case fast
 
   /// Decode intervening frames until the exact requested offset is
@@ -67,13 +67,8 @@ extension Media {
     let height = try checkedUInt32(height, parameter: "height")
 
     try await thumbnailCoordinator.acquire()
-    // Structured release: bind the coordinator into a local actor
-    // reference so we can release synchronously at the end of this
-    // function. The old `defer { Task { await release() } }` form
-    // deferred the release into an unstructured task; a second
-    // thumbnail on the same Media could then see the coordinator still
-    // "busy" and block even though the first caller had already
-    // returned, which looked like "thumbnails queue up."
+    // Hold a local actor reference so the media-wide thumbnail gate is
+    // released synchronously before this method returns.
     let coordinator = thumbnailCoordinator
 
     if Task.isCancelled {

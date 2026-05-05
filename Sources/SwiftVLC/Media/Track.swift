@@ -20,7 +20,7 @@ public struct Track: Sendable, Identifiable, Hashable {
   /// Human-readable track name.
   public let name: String
 
-  /// Codec identifier as a FourCC integer (e.g. `0x34363248` for "H264").
+  /// Codec identifier as libVLC's raw FourCC integer.
   public let codec: Int
 
   /// ISO 639 language code (e.g. `"eng"`, `"fra"`, `"ja"`) as declared

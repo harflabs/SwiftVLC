@@ -1,7 +1,7 @@
 import CLibVLC
 
-/// DVB/MPEG-TS program selection, renderer (Chromecast/AirPlay)
-/// targeting, and the deinterlace filter.
+/// DVB/MPEG-TS program selection, renderer targeting, and the
+/// deinterlace filter.
 extension Player {
   // MARK: - Programs (DVB/MPEG-TS)
 
@@ -37,9 +37,9 @@ extension Player {
     return libvlc_media_player_program_scrambled(pointer)
   }
 
-  // MARK: - Renderer (Chromecast / AirPlay)
+  // MARK: - Renderer
 
-  /// Sets a renderer for output (e.g. Chromecast).
+  /// Sets a renderer for output.
   ///
   /// Pass `nil` to revert to local playback. libVLC only applies renderer
   /// selection before the first `play()` call on a native media player.

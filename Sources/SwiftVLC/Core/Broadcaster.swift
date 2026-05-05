@@ -207,8 +207,8 @@ final class Broadcaster<Element: Sendable>: Sendable {
   /// fires on the reconciliation queue if there were active subscribers.
   ///
   /// Use when the broadcaster's underlying source is gone for good
-  /// (handler deinit, registration loss). For temporary teardown where
-  /// new subscribers might re-attach, use ``finishAll()`` instead.
+  /// (handler deinit, registration loss). If subscribers may re-attach,
+  /// use ``finishAll()`` instead.
   func terminate() {
     let (snapshot, becameEmpty) = state.withLock { state -> ([Subscriber], Bool) in
       state.terminated = true

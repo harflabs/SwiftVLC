@@ -38,7 +38,7 @@ public final class VLCInstance: Sendable {
 
   /// Initializes and returns ``shared`` from a background task.
   ///
-  /// Use this when an app has an explicit loading phase and wants to guarantee
+  /// Use this when an app has an explicit loading phase and wants to ensure
   /// the shared libVLC instance is ready before constructing a default
   /// ``Player``.
   public static func prepareShared(priority: TaskPriority = .utility) async -> VLCInstance {

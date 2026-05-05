@@ -52,8 +52,8 @@ final class EventBridge: Sendable {
   ///
   /// `Player` recreates its libVLC handle after a stopped drawable-backed
   /// playback because libVLC keeps a "free vout" whose iOS window provider
-  /// still points at the old UIView. The Swift `Player.events` stream must
-  /// survive that native-handle swap, so this detaches callbacks from the old
+  /// still points at the previous UIView. The Swift `Player.events` stream must
+  /// survive that native-handle swap, so this detaches callbacks from the previous
   /// event manager and attaches the same broadcaster to the new one.
   func reattach(to newEventManager: OpaquePointer) {
     let isInvalidated = invalidated.withLock { $0 }

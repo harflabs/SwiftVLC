@@ -35,15 +35,12 @@
 /// `scripts/build-libvlc.sh`, re-verify that those locations and message
 /// strings still apply; the unit tests catch wording drift.
 ///
-/// The right long-term home for these severity corrections is upstream VLC.
-/// Until those land, this filter is how SwiftVLC consumers get a clean
-/// error level.
 enum LogNoiseFilter {
   /// Returns the highest severity this filter can emit for a raw libVLC
   /// level, before the message string has been allocated.
   ///
-  /// The current rules only demote `.error` entries to `.warning`; they
-  /// never promote lower-severity entries. That invariant lets the log
+  /// Rules only demote `.error` entries to `.warning`; they never
+  /// promote lower-severity entries. That invariant lets the log
   /// callback skip String allocation when no subscriber is interested in
   /// the raw level.
   static func mostSeverePossibleResult(for level: LogLevel) -> LogLevel {

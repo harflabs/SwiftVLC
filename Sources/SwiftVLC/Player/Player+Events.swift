@@ -140,8 +140,8 @@ extension Player {
 
     // Computed properties read fresh state from libVLC in their getter.
     // An empty `withMutation` is what re-triggers SwiftUI when the
-    // underlying C state changes externally (hardware keys, AirPlay,
-    // CarPlay, renderer-initiated chapter/title moves). Without this
+    // underlying C state changes externally (hardware keys, system controls,
+    // renderer-initiated chapter/title moves). Without this
     // the observers stay pinned to their last read.
     case .volumeChanged:
       withMutation(keyPath: \.volume) {}

@@ -14,9 +14,9 @@ decorate its output.
 @State private var player = Player()
 ```
 
-Construction allocates the underlying libVLC resources. Release
-happens off the main actor in `deinit`, so tearing down a view never
-stalls the UI thread.
+Construction allocates the underlying libVLC resources. `deinit` moves
+blocking native release calls off the main actor, so view teardown does
+not perform that work on the UI thread.
 
 For the default shared instance, call
 ``VLCInstance/prewarmShared(priority:)`` during app launch when possible.

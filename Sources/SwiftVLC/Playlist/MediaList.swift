@@ -100,7 +100,7 @@ public final class MediaList: Sendable {
     media(at: index)
   }
 
-  /// Accesses a media item at the given index within a locked scope.
+  /// Accesses a media item at the given index.
   ///
   /// The returned `Media` is retained, and is safe to use after this
   /// call returns.

@@ -177,7 +177,7 @@ public struct Marquee: ~Copyable, ~Escapable {
   /// libVLC's `freetype` module caches rasterized text bitmaps keyed on the
   /// *text string*; a style-only write (color, opacity, or font size) updates
   /// the filter's internal state but still hits the cached bitmap, so the
-  /// overlay keeps the old look until the text itself changes. We bust the
+  /// overlay keeps the previous style until the text itself changes. We bust the
   /// cache by briefly writing a padded variant of the current text, then
   /// restoring the original after one render cycle. The intermediate write
   /// produces a cache miss that re-renders with the new style, and the

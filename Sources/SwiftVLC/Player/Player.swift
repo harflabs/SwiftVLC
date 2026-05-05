@@ -335,7 +335,7 @@ public final class Player {
   /// Shadow of the string last passed to `Marquee.setText`. libVLC's text
   /// renderer keys its glyph-bitmap cache on the text string, so a style-
   /// only write (color/opacity/fontSize) hits the cached entry and draws
-  /// with the old style. The `Marquee` setters briefly write a different
+  /// with the previous style. The `Marquee` setters briefly write a different
   /// text to bust the cache, then restore this value.
   var _marqueeText: String = ""
   /// In-flight task that restores `_marqueeText` after a cache-bust write.
@@ -481,8 +481,8 @@ public final class Player {
     // Bind the outgoing reference to a local so it outlives the libVLC
     // call. After the ivar is reassigned, ARC would otherwise release
     // the previous view immediately; the vout thread could still be
-    // mid-deref of the old `drawable-nsobject` pointer. `previous`
-    // keeps the old view alive until this function returns, by which
+    // mid-deref of that `drawable-nsobject` pointer. `previous`
+    // keeps the previous view alive until this function returns, by which
     // point libVLC has atomically swapped the variable.
     let previous = drawable
     if
@@ -580,7 +580,7 @@ public final class Player {
   /// `media` is declared `sending`, so callers can construct a ``Media``
   /// on any actor or task and hand it off to this main-actor method
   /// without a copy. The compiler enforces the transfer: the caller
-  /// cannot retain the original reference after the call.
+  /// cannot keep using the transferred reference after the call.
   public func load(_ media: sending Media) {
     currentMedia = media
     resetMediaDerivedState()
@@ -749,12 +749,12 @@ public final class Player {
   /// Dispatches through explicit pause/resume requests using the
   /// observed ``state`` and the current playback intent, rather than
   /// calling `libvlc_media_player_pause` (which is itself a toggle). The
-  /// naked toggle is unsafe mid-transition: interleaving a pause-toggle
+  /// raw toggle is unsafe mid-transition: interleaving a pause-toggle
   /// with the audio output's opening path corrupts
   /// `stream->timing.pause_date` and trips the upstream assertion
   /// `stream->timing.pause_date == VLC_TICK_INVALID` in
-  /// `src/audio_output/dec.c:876`, killing the process. The usual repro
-  /// is a user tapping Play/Pause immediately after a
+  /// `src/audio_output/dec.c:876`, killing the process. This can happen
+  /// when a user taps Play/Pause immediately after a
   /// `.task { try? player.play(url:) }` begins.
   public func togglePlayPause() {
     switch state {

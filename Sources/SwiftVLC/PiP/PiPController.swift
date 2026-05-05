@@ -132,7 +132,7 @@ public final class PiPController: NSObject {
   var pipPlaybackActive: Bool = false
   /// Desired playback state from the PiP controls while libVLC is still
   /// catching up. During this window player events can still report the
-  /// old state, so the event observer must not overwrite
+  /// previous state, so the event observer must not overwrite
   /// `pipPlaybackActive` until native playback reaches the requested
   /// state or exits playback entirely.
   @ObservationIgnored
@@ -515,11 +515,8 @@ public final class PiPController: NSObject {
           return
         }
 
-        // `guard let self` is placed *after* the suspension so the
-        // strong binding is scoped to this iteration body only. The
-        // prior shape pulled the guard above the while loop, which
-        // extends the binding across every `await`, pinning `self`
-        // for the full debounce window and delaying deinit.
+        // Bind `self` after the suspension so the observer only keeps the
+        // controller alive while it is deciding whether to issue the pause.
         guard let self else { return }
         guard !Task.isCancelled, currentDeferredPauseGeneration == generation, !pipPlaybackActive else { return }
 
@@ -872,10 +869,9 @@ public final class PiPController: NSObject {
     playbackDelegateProxy.pictureInPictureController(controller, didTransitionToRenderSize: size)
   }
 
-  /// Hands back the internal playback-delegate proxy so tests that need
-  /// to build an `AVPictureInPictureController.ContentSource` can pass
-  /// the proxy directly (the public type no longer conforms to
-  /// `AVPictureInPictureSampleBufferPlaybackDelegate`).
+  /// Hands back the internal playback-delegate proxy so tests that build
+  /// an `AVPictureInPictureController.ContentSource` can pass the object
+  /// that implements `AVPictureInPictureSampleBufferPlaybackDelegate`.
   nonisolated var _playbackDelegateForTesting: AVPictureInPictureSampleBufferPlaybackDelegate {
     playbackDelegateProxy
   }

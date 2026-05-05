@@ -27,9 +27,9 @@ public func load(_ media: sending Media)
 ```
 
 `sending` asks the compiler to transfer ownership of `media` across
-the isolation boundary. Because the caller cannot retain a reference
-after the call, there can never be a race between a background task
-still holding `media` and the main-actor player using it.
+the isolation boundary. After the call, the caller cannot keep using
+the transferred reference, which prevents a background task from racing
+the main-actor player through the same `Media` object.
 
 ```swift
 Task.detached {

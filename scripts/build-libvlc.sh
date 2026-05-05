@@ -705,7 +705,7 @@ if [ "$BUILD_CATALYST" = "yes" ]; then
 fi
 
 # --- Step 1e: Patch LDFLAGS to include -isysroot ---
-# On newer Xcode versions (26+), the linker requires an explicit -isysroot
+# On Xcode 26+, the linker requires an explicit -isysroot
 # to find system libraries (libSystem, etc.). VLC's build.sh omits this from
 # LDFLAGS, causing FFmpeg's configure (and others) to fail with:
 #   ld: library 'System' not found
@@ -1023,8 +1023,8 @@ PYEOF
 patch_vlc_objc_libtool
 
 # --- Step 1g: Disable Rust-based contribs ---
-# VLC contribs pin cargo-c 0.9.29, which transitively pulls time 0.3.31 — a
-# crate that no longer compiles on recent Rust (type inference for Box<_>).
+# VLC contribs pin cargo-c 0.9.29, which transitively pulls time 0.3.31 and
+# fails type inference for Box<_> under the supported Rust toolchain.
 # The only Rust contrib we'd get on Apple is rav1e (AV1 *encoder*); we already
 # have dav1d for AV1 *decoding*, which is what matters for playback. iOS and
 # tvOS already skip Rust (Tier 3 targets); this unifies macOS + Catalyst.
@@ -1045,8 +1045,9 @@ with open(path, 'r') as f:
     content = f.read()
 content = content.replace(
     'BUILD_RUST="1"',
-    '# SWIFTVLC_DISABLE_RUST: cargo-c 0.9.29 fails on recent Rust; rav1e is\n'
-    '# an encoder (dav1d handles AV1 decoding). Never set BUILD_RUST.\n'
+    '# SWIFTVLC_DISABLE_RUST: cargo-c 0.9.29 pulls time 0.3.31, which fails\n'
+    '# type inference for Box<_>; rav1e is an encoder and dav1d handles\n'
+    '# AV1 decoding. Never set BUILD_RUST.\n'
     '# BUILD_RUST="1"'
 )
 with open(path, 'w') as f:
@@ -1072,8 +1073,8 @@ cd "${BUILD_DIR}"
 # SDK 26+ exports dup3/pipe2 from libSystem (so autoconf's link test says
 # "yes"), but the iOS headers don't declare them — leading to
 # "use of undeclared identifier 'dup3'" during src/posix/filesystem.c.
-# Device builds correctly detect "no"; simulator (and newer Apple SDKs
-# generally) get confused. VLC's code has proper #else fallbacks.
+# Device builds correctly detect "no"; simulator SDKs that expose those
+# symbols get confused. VLC's code has proper #else fallbacks.
 export ac_cv_func_dup3=no
 export ac_cv_func_pipe2=no
 

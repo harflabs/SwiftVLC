@@ -2,8 +2,7 @@
 // mirrors video through a `CALayerHost` that, on the macOS releases
 // SwiftVLC supports, crops to 1:1 instead of scaling into the PiP
 // panel. The private `PIPViewController` (loaded dynamically from
-// `PIP.framework`) reparents the real VLC drawable instead, which
-// matches the approach used by native macOS players such as IINA.
+// `PIP.framework`) reparents the real VLC drawable instead.
 
 #if os(macOS)
 import AppKit

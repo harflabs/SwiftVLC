@@ -1,9 +1,10 @@
 import CLibVLC
 
-/// The role of a media player, used to hint the system about audio behavior.
+/// The media player's audio role hint.
 ///
-/// For example, setting `.music` may prevent system sounds from interrupting,
-/// while `.communication` enables voice call processing.
+/// libVLC forwards this to the active audio backend when supported, so
+/// the platform can choose routing, mixing, or ducking behavior that
+/// matches the playback use case.
 public enum PlayerRole: Sendable, Hashable, CustomStringConvertible {
   /// No specific role (system default behavior).
   case none

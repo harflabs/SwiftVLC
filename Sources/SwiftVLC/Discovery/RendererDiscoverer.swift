@@ -1,7 +1,7 @@
 import CLibVLC
 import Dispatch
 
-/// Discovers available renderers (Chromecast, AirPlay, etc.) on the local network.
+/// Discovers renderer devices exposed by libVLC renderer-discovery plugins.
 ///
 /// Start the discoverer, then observe ``events`` to be notified as renderers
 /// come and go. Cast to a discovered renderer by passing its
@@ -107,7 +107,7 @@ public final class RendererDiscoverer: Sendable {
 
 // MARK: - Renderer Item
 
-/// A discovered renderer (e.g. Chromecast).
+/// A discovered renderer device.
 ///
 /// Holds a reference to the underlying `libvlc_renderer_item_t`.
 /// Pass to ``Player/setRenderer(_:)`` to start casting.

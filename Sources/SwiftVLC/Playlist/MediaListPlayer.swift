@@ -95,7 +95,7 @@ public final class MediaListPlayer {
   ///
   /// Dispatches on the observed ``state`` rather than calling the raw
   /// `libvlc_media_list_player_pause` (which is itself a toggle). The
-  /// naked toggle is unsafe mid-transition: interleaving a pause-toggle
+  /// raw toggle is unsafe mid-transition: interleaving a pause-toggle
   /// with the audio output's opening path corrupts
   /// `stream->timing.pause_date` and trips the upstream assertion
   /// `stream->timing.pause_date == VLC_TICK_INVALID` in

@@ -1,13 +1,13 @@
 # Discovery and casting
 
-Find media on the local network, and cast to Chromecast or AirPlay
-receivers.
+Find media and renderer devices through libVLC discovery services.
 
 ## Discovering media sources
 
-``MediaDiscoverer`` wraps a named libVLC service, such as UPnP, SMB,
-local directories, or podcasts. List the available services, then
-start one:
+``MediaDiscoverer`` wraps a named libVLC service. Depending on the
+bundled plugins and host platform, services may include UPnP, SMB,
+local directories, or podcasts. List the available services, then start
+one:
 
 ```swift
 let services = MediaDiscoverer.availableServices(category: .lan)
@@ -29,15 +29,15 @@ Categories:
 | ``DiscoveryCategory`` | What it finds |
 |---|---|
 | `.devices` | Physical devices (portable music players, disc drives) |
-| `.lan` | UPnP, SMB, SAP, Bonjour |
+| `.lan` | LAN discoverers such as UPnP, SMB, SAP, or Bonjour when available |
 | `.podcasts` | Podcast directories |
 | `.localDirectories` | System Music/Video/Pictures folders |
 
 ## Casting to a renderer
 
-``RendererDiscoverer`` discovers Chromecast, AirPlay, and UPnP/DLNA
-renderers. It emits events through an `AsyncStream`, so apps can react
-as soon as a renderer appears or disappears:
+``RendererDiscoverer`` discovers renderer devices exposed by libVLC's
+renderer-discovery plugins. It emits events through an `AsyncStream`, so
+apps can react as soon as a renderer appears or disappears:
 
 ```swift
 let services = RendererDiscoverer.availableServices()

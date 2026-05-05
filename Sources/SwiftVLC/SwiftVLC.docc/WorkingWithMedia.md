@@ -35,8 +35,8 @@ print(metadata.duration ?? "—")
 print(metadata.artworkURL?.absoluteString ?? "no artwork")
 ```
 
-Every libVLC metadata key is typed on ``Metadata``. Access less-common
-keys through the subscript:
+Common metadata keys are exposed as typed properties on ``Metadata``.
+Access every libVLC metadata key through the subscript:
 
 ```swift
 let now = metadata[.nowPlaying]

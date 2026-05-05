@@ -39,8 +39,8 @@ system-initiated device changes (e.g. headphones connecting).
 
 ## Equalizer
 
-``Equalizer`` is a 10-band parametric EQ with a preamp and preset
-support. Build one, tune it, and attach it to a player:
+``Equalizer`` is a 10-band graphic EQ with preamp and preset support.
+Build one, tune it, and attach it to a player:
 
 ```swift
 let eq = Equalizer()
@@ -49,9 +49,8 @@ try eq.setAmplification(5.0, forBand: 0)     // bass lift
 player.equalizer = eq
 ```
 
-For new code, prefer the typed accessors that wrap raw `Float` gains
-in ``EqualizerGain`` — each value is clamped to libVLC's
-`-20.0 ... +20.0` dB range at the type level:
+Typed gain accessors wrap raw `Float` values in ``EqualizerGain``.
+Each value is clamped to libVLC's `-20.0 ... +20.0` dB range:
 
 ```swift
 eq.preampGain = .flat
@@ -86,12 +85,12 @@ player.mixMode = .binaural       // spatialize for headphones
 
 ## Role hints
 
-Tell the system what kind of audio you're playing so it can route and
-duck appropriately:
+Pass libVLC an audio-role hint. The effect depends on the platform and
+active output module:
 
 ```swift
 player.role = .music         // long-form listening
-player.role = .communication // voice chat; enables VoIP-style processing
+player.role = .communication // voice/video calls
 ```
 
 See ``PlayerRole`` for the full set.

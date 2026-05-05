@@ -13,11 +13,14 @@ A Swift wrapper around [libVLC](https://www.videolan.org/vlc/libvlc.html) for iO
 
 ## Why?
 
-Apple's AVFoundation covers a narrow slice of the media landscape. It cannot play MKV, FLAC, or most subtitle formats, and it does not support network protocols like RTSP, SMB, or UPnP. Codec support is limited to what Apple ships. Any app that needs to reach beyond MP4 and HLS eventually runs out of runway.
+AVFoundation is excellent for Apple's native media stack, but its
+container, codec, subtitle, and network-protocol support is limited to
+what Apple ships. Apps that need MKV, SSA/ASS subtitles, RTSP, SMB,
+UPnP, or other VLC-backed formats and protocols need a broader engine.
 
-[VLC](https://www.videolan.org/) plays virtually everything, and its engine, **libVLC**, is available as a C library you can embed in any app.
+[VLC](https://www.videolan.org/)'s engine, **libVLC**, supports a broad set of codecs, containers, subtitles, and network protocols through embeddable C APIs.
 
-The existing iOS wrapper, [VLCKit](https://code.videolan.org/videolan/VLCKit), is written in Objective-C. It uses delegates, KVO, `NSNotificationCenter`, and manual thread management, which is a faithful reflection of the era it was designed in.
+VideoLAN's Apple wrapper, [VLCKit](https://code.videolan.org/videolan/VLCKit), is written primarily in Objective-C. It uses delegates, KVO, `NSNotificationCenter`, and manual thread management, which is a faithful reflection of the era it was designed in.
 
 **SwiftVLC** wraps libVLC 4.0 directly in Swift, with no Objective-C layer in between. It is built for `@Observable`, `async/await`, and `VideoView(player)`.
 
@@ -29,11 +32,11 @@ The existing iOS wrapper, [VLCKit](https://code.videolan.org/videolan/VLCKit), i
 | **Bindings** | Direct C → Swift | C → Objective-C → Swift bridging |
 | **State management** | `@Observable`, drives SwiftUI directly | KVO, `NSNotificationCenter`, and delegates |
 | **Concurrency** | `@MainActor`, `Sendable`, `async/await` | Manual thread dispatch, no isolation |
-| **Video rendering** | `VideoView(player)` | Manual `UIView` setup plus drawable configuration |
+| **Video rendering** | `VideoView(player)` | App-supplied view setup plus drawable configuration |
 | **Errors** | `throws(VLCError)`, typed and exhaustive | `NSError` codes |
 | **Events** | `AsyncStream<PlayerEvent>` with multiple consumers | `NSNotificationCenter` |
-| **libVLC version** | 4.0 | 3.x |
-| **PiP** | iOS via public AVKit sample buffers; macOS private backend is SPI opt-in | Not included |
+| **libVLC generation** | 4.0 | 3.x stable line; 4.0 alpha packages exist |
+| **SwiftUI PiP** | iOS via public AVKit sample buffers; macOS private backend is SPI opt-in | App-supplied integration |
 | **Swift 6 safe** | Yes, with strict concurrency | No |
 
 ## Features
@@ -45,7 +48,7 @@ The existing iOS wrapper, [VLCKit](https://code.videolan.org/videolan/VLCKit), i
 - 10-band equalizer with libVLC's built-in presets.
 - A-B looping, playback rate control, and subtitle and audio delay.
 - Picture-in-Picture on iOS with full playback controls; macOS native PiP is available only through an explicit private-API SPI opt-in.
-- Network discovery for LAN, SMB, UPnP media sources, and Chromecast and AirPlay renderers.
+- Media discovery and renderer discovery through services exposed by the bundled libVLC plugins.
 - 360° video with full viewpoint control over yaw, pitch, roll, and field of view.
 - Asynchronous thumbnail generation at arbitrary timestamps.
 - `MediaListPlayer` for playlist playback with loop and repeat modes.
@@ -139,12 +142,15 @@ Full API reference is hosted on Swift Package Index:
 
 The `Showcase/` directory contains separate folders, targets, and schemes for each showcase lane:
 
-- **iOS.** The existing full-featured app target, also enabled for Mac Catalyst.
+- **iOS.** Full-featured app target, also enabled for Mac Catalyst.
 - **macOS.** Native macOS app target with the same showcase coverage, adapted into sidebar-driven Mac UI.
 - **tvOS.** Native tvOS showcase app target with TV-focused focus navigation and Siri Remote controls.
 - **visionOS.** Native visionOS app target with a focused simple playback showcase.
 
-Showcase UI tests live under `Showcase/UITests/`. `iOSUITests` covers the broad showcase flows, and `macOSUITests` now covers the release-critical PiP, deinterlacing, and music-player regressions. `tvOSUITests` is still an empty target shell, and the visionOS showcase does not have a UI-test target yet.
+Showcase UI tests live under `Showcase/UITests/`. `iOSUITests` covers
+the broad showcase flows, `macOSUITests` covers native macOS PiP, and
+`tvOSUITests` is a placeholder target. The visionOS showcase does not
+have a UI-test target.
 
 ## Testing
 
@@ -152,8 +158,8 @@ The core package uses a comprehensive
 [Swift Testing](https://developer.apple.com/xcode/swift-testing/) suite
 against the real libVLC binary, so regressions in the C bridge surface
 immediately rather than hiding behind a fake. Showcase UI tests use
-XCTest separately. CI runs the full suite on every push and every pull
-request.
+XCTest separately. CI runs package tests, lint, doc coverage, and
+Showcase builds on pull requests and on `main`.
 
 ```bash
 swift test
@@ -212,7 +218,7 @@ VLC master requires a few local patches for SwiftVLC's supported Apple toolchain
 2. **visionOS deployment target.** Adds the `xros` target triple so object files are stamped with visionOS 2.0 instead of the installed SDK version.
 3. **Xcode 26 LDFLAGS.** Adds `-isysroot` to linker invocations so libSystem resolves.
 4. **libtool 2.5 OBJC tag.** Adds `_LIBTOOLFLAGS = --tag=CC` to the `Makefile.am` files that contain `.m` sources. Older libtool versions inferred the tag; 2.5 refuses.
-5. **Rust contribs disabled.** `cargo-c 0.9.29` no longer compiles on recent Rust. The only Rust contrib on Apple is `rav1e` (AV1 *encoder*); `dav1d` handles decoding.
+5. **Rust contribs disabled.** VLC's contribs pin `cargo-c 0.9.29`, which pulls `time 0.3.31` and fails type inference under the supported Rust toolchain. The only Rust contrib on Apple is `rav1e` (AV1 *encoder*); `dav1d` handles decoding.
 6. **`dup3` / `pipe2`.** Forced unavailable via autoconf cache vars. iOS Simulator SDK 26 exports these Linux-only syscalls from libSystem, fooling configure into using them.
 
 `git reset --hard` only runs when HEAD is not at `VLC_HASH`, so the patches and per-platform build dirs survive repeated runs.
@@ -252,6 +258,6 @@ libVLC is licensed under [LGPLv2.1](https://www.gnu.org/licenses/old-licenses/lg
 
 ## Acknowledgments
 
-SwiftVLC stands on the work of the [VideoLAN](https://www.videolan.org/) community. The VLC media player and libVLC are among the most important open-source projects in media, representing decades of work by hundreds of contributors that made it possible to play virtually anything, anywhere.
+SwiftVLC stands on the work of the [VideoLAN](https://www.videolan.org/) community. VLC and libVLC represent decades of media playback work by hundreds of contributors.
 
-Thanks also to [VLCKit](https://code.videolan.org/videolan/VLCKit) for paving the way for libVLC on Apple platforms. VLCKit proved that embedding VLC in iOS and macOS apps was not only possible but practical, and it has powered countless apps over the years. SwiftVLC would not exist without the foundation VLCKit laid.
+Thanks also to [VLCKit](https://code.videolan.org/videolan/VLCKit) for establishing libVLC on Apple platforms.

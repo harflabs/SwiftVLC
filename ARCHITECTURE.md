@@ -105,7 +105,7 @@ Foundation types shared across all modules.
 | `VLCError.swift` | `enum VLCError: Error, Sendable, Equatable, Hashable, LocalizedError, CustomStringConvertible` | Typed errors with hand-rolled per-case accessors (`error.parseTimeout`, `error.mediaCreationFailed`, …). Auto-synthesized `Equatable`/`Hashable` over `String` payloads. |
 | `Broadcaster.swift` | `final class Broadcaster<Element: Sendable>` | Internal multi-consumer fan-out used by the dialog, renderer, log, player-event, and playback-intent streams. Exposes `subscribe`, `broadcast`, `finishAll` (allows resubscribe) and `terminate` (permanent — future `subscribe` calls return immediately-finished streams) inside the module. Lifecycle reconciliation runs on a private serial queue. |
 | `DialogHandler.swift` | `final class DialogHandler: Sendable` | Bridges libVLC's dialog callbacks (`login`, `question`, `progress`, `error`) onto a `Broadcaster<DialogEvent>`. `DialogID` carries the dialog handle through `DialogIDStorage` for safe `dismiss()` + post calls. |
-| `Logging.swift` | `AsyncStream<LogEntry>` via `LogBridge` | Filterable log stream backed by `Broadcaster<LogEntry>`. C shim formats `va_list` before Swift callback. `LogNoiseFilter` demotes known-noisy libVLC errors to warnings. |
+| `Logging.swift` | `AsyncStream<LogEntry>` via `LogBroadcaster` | Filterable log stream backed by `Broadcaster<LogEntry>`. C shim formats `va_list` before Swift callback. `LogNoiseFilter` demotes known-noisy libVLC errors to warnings. |
 | `Signposts.swift` | `enum Signposts` | Process-wide `OSSignposter` for `org.swiftvlc` subsystem. Hot paths (`Broadcaster.broadcast`, `Player.handleEvent`, `EventBridge.callback`, `PixelBufferRenderer.outputPixelBuffer`) emit signposts visible in Instruments. Zero cost when no profiler is attached. |
 | `Duration+Extensions.swift` | Extensions on `Duration` | `milliseconds`, `microseconds` properties and `formatted` display string |
 
@@ -117,7 +117,7 @@ The central observable type that drives all playback.
 
 | File | Type | Purpose |
 |---|---|---|
-| `Player.swift` | `@Observable @MainActor class` | Wraps `libvlc_media_player_t*`. Lifecycle, drawable management, media loading, and core playback control. The class body is split across 8 extensions in sibling files; the file itself contains no `swiftlint:disable` directives. |
+| `Player.swift` | `@Observable @MainActor class` | Wraps `libvlc_media_player_t*`. Lifecycle, drawable management, media loading, and core playback control. Extension files group audio, chapters, events, overlays, programs, recording, typed values, and native-lifecycle helpers. |
 | `Player+Events.swift` | `extension Player` | The libVLC event-consumer task and `handleEvent(_:)` dispatch — pause-transition state machine, deferred-pause command, native-state probing, media-derived state reset. |
 | `Player+Audio.swift` | `extension Player` | Audio-output device selection, role, mix mode, stereo mode. |
 | `Player+Chapters.swift` | `extension Player` | Title/chapter navigation, DVD menu actions. |
@@ -163,7 +163,7 @@ player.selectedAudioTrack // Track?
 player.selectedSubtitleTrack // Track?
 player.aspectRatio        // AspectRatio
 
-// Checked mutations for formerly writable playback observations
+// Checked mutations for read-only playback observations
 try player.seek(to: PlaybackPosition(0.5))
 try player.setAudioVolume(0.8)
 try player.setPlaybackRate(1.5)
@@ -258,7 +258,7 @@ Network service and renderer discovery.
 | File | Type | Purpose |
 |---|---|---|
 | `MediaDiscoverer.swift` | `final class MediaDiscoverer: Sendable` | Discovers media on LAN/SMB/UPnP/SAP. Returns `MediaList` of found items. |
-| `RendererDiscoverer.swift` | `final class RendererDiscoverer: Sendable` | Discovers Chromecast/AirPlay renderers. `AsyncStream<RendererEvent>` for add/remove. |
+| `RendererDiscoverer.swift` | `final class RendererDiscoverer: Sendable` | Discovers renderer devices exposed by libVLC plugins. `AsyncStream<RendererEvent>` for add/remove. |
 
 ### PiP (iOS/macOS only)
 
@@ -266,8 +266,7 @@ Picture-in-Picture uses the platform path that best matches libVLC's
 video output. iOS uses public AVKit sample-buffer PiP. macOS has a
 native-drawable backend behind `PrivateMacOSPiP` SPI because the public
 sample-buffer mirror crops incorrectly on supported macOS releases. The
-module is split into 5 focused files; none carries a `swiftlint:disable`
-directive.
+module is split into 5 focused files.
 
 | File | Type | Purpose |
 |---|---|---|
@@ -292,7 +291,7 @@ Sources/CLibVLC/
 │   ├── libvlc_media_player.h  # Player, tracks, events
 │   ├── libvlc_media_list.h    # Playlist
 │   ├── libvlc_media_discoverer.h  # Network discovery
-│   ├── libvlc_renderer_discoverer.h  # Chromecast/AirPlay
+│   ├── libvlc_renderer_discoverer.h  # Renderer discovery
 │   ├── libvlc_picture.h  # Thumbnail generation
 │   └── libvlc_events.h   # Event types
 └── shim.c                # C shim for va_list formatting
@@ -350,7 +349,7 @@ flowchart LR
 
 1. **`@MainActor` types** own mutable state that SwiftUI observes. All property access and mutation happens on the main actor.
 2. **`Sendable` types** are either immutable value types or use internal synchronization (`Mutex<T>`, libVLC's own locks).
-3. **C callbacks** fire on libVLC's internal threads. They yield values into `AsyncStream` continuations (which are thread-safe) or dispatch to main via `DispatchQueue.main.async`.
+3. **C callbacks** fire on libVLC's internal threads. They yield values into `AsyncStream` continuations (which are thread-safe) or hop to the main actor where UI-adjacent state must change.
 4. **`nonisolated(unsafe)`** is used for `OpaquePointer` fields that are only valid during the object's lifetime and accessed on the correct actor.
 
 ### Capturing C Pointers in `@Sendable` Closures
@@ -388,7 +387,7 @@ flowchart TB
     end
 
     subgraph L2["AsyncStream Broadcasting — any thread"]
-        Store["EventBridge · Mutex-protected continuation store<br/>Each makeStream() creates an independent consumer"]
+        Store["EventBridge · Broadcaster<PlayerEvent><br/>Each makeStream() creates an independent consumer"]
     end
 
     subgraph L3["Observable Properties — @MainActor"]
@@ -405,12 +404,12 @@ libVLC's player event types are attached to the event manager and mapped to type
 
 | Category | Swift Cases |
 |---|---|
-| **State** | `stateChanged(PlayerState)`, `encounteredError` |
+| **State** | `stateChanged(PlayerState)`, `mediaStopping`, `encounteredError` |
 | **Time** | `timeChanged(Duration)`, `positionChanged(Double)`, `lengthChanged(Duration)` |
 | **Capability** | `seekableChanged(Bool)`, `pausableChanged(Bool)` |
 | **Tracks** | `tracksChanged`, `mediaChanged` |
 | **Buffering** | `bufferingProgress(Float)` |
-| **Audio** | `volumeChanged(Float)`, `muted`, `unmuted` |
+| **Audio** | `volumeChanged(Float)`, `muted`, `unmuted`, `corked`, `uncorked`, `audioDeviceChanged(String?)` |
 | **Video** | `voutChanged(Int)`, `snapshotTaken(String)` |
 | **Chapters** | `chapterChanged(Int)`, `titleListChanged`, `titleSelectionChanged(Int)` |
 | **Recording** | `recordingChanged(isRecording:filePath:)` |
@@ -418,7 +417,7 @@ libVLC's player event types are attached to the event manager and mapped to type
 
 ### Multi-Consumer Broadcasting
 
-`Broadcaster<Element: Sendable>` (in [`Sources/SwiftVLC/Core/Broadcaster.swift`](Sources/SwiftVLC/Core/Broadcaster.swift)) consolidates this pattern across the 5 places that needed it: player events, log entries, dialog callbacks, renderer discovery events, and playback intent. Per-subscriber state (continuation, optional filter, lifecycle phase) lives under a single `Mutex<State>`, so registration is one lock acquisition. `broadcast` snapshots the matching subscribers under the lock and yields outside it. Yielding resumes a consumer task and acquires its status-record lock; a concurrent task cancellation holds that same lock and calls `onTermination → unsubscribe → acquire Mutex`, so yielding while holding the `Mutex` would produce an AB-BA deadlock.
+`Broadcaster<Element: Sendable>` (in [`Sources/SwiftVLC/Core/Broadcaster.swift`](Sources/SwiftVLC/Core/Broadcaster.swift)) consolidates this pattern for player events, log entries, dialog callbacks, renderer discovery events, and playback intent. Per-subscriber state (continuation, optional filter, lifecycle phase) lives under a single `Mutex<State>`, so registration is one lock acquisition. `broadcast` snapshots the matching subscribers under the lock and yields outside it. Yielding resumes a consumer task and acquires its status-record lock; a concurrent task cancellation holds that same lock and calls `onTermination → unsubscribe → acquire Mutex`, so yielding while holding the `Mutex` would produce an AB-BA deadlock.
 
 ```swift
 final class Broadcaster<Element: Sendable>: Sendable {
@@ -465,7 +464,7 @@ For C callback contexts that need to bridge to Swift objects:
 
 | Pattern | Use Case | Lifetime |
 |---|---|---|
-| `Unmanaged.passRetained` | Long-lived callback context (EventBridge store, LogContext, DialogHandler) | Explicitly released in cleanup/deinit |
+| `Unmanaged.passRetained` | Long-lived callback context or broadcaster box (EventBridge, logging, dialogs, renderer discovery) | Explicitly released in cleanup/deinit |
 | `Unmanaged.passUnretained` | Short-lived reference (VideoSurface in `set_nsobject`) | Object must outlive the call |
 
 ### Deinit Ordering
@@ -474,7 +473,7 @@ Ordering in `Player.deinit` is load-bearing: detaching the listeners **before** 
 
 1. Cancel event consumer task
 2. `EventBridge.invalidate()`
-   - Detach all 31 C event listeners
+   - Detach the C event listeners
    - Finish all `AsyncStream` continuations
    - Release retained store
 3. `libvlc_media_player_stop_async()`
@@ -650,7 +649,15 @@ func playAndWaitForState() async throws {
 }
 ```
 
-**CI execution.** GitHub Actions runs on `macos-latest` with Xcode pinned to `latest-stable` (currently 26.x) plus the Swift 6.3 open-source toolchain from swift.org, invoked via `xcrun --toolchain`. The test step is wrapped by `scripts/ci-run-with-timeouts.py`, which enforces a 10-minute wall clock and a 3-minute idle watchdog and sends SIGKILL to the process group when either fires. Three layered caches keep cold-start cost down: the libvlc xcframework (keyed on its SHA-256), compiled build products (keyed on `hashFiles` of sources and the manifest), and SPM dependency checkouts.
+**CI execution.** GitHub Actions runs package tests on `macos-latest`
+with Xcode `latest-stable` plus the Swift 6.3.1 open-source toolchain
+from swift.org, invoked via `xcrun --toolchain`. Showcase builds run on
+`macos-26` with Xcode 26.4 because Xcode's built-in SwiftPM must parse
+the Swift 6.3 manifest. The package test step is wrapped by
+`scripts/ci-run-with-timeouts.py`, which enforces a 10-minute wall
+clock and a 3-minute idle watchdog and sends SIGKILL to the process
+group when either fires. Caches cover the libvlc xcframework, compiled
+build products, and SPM dependency checkouts.
 
 ---
 
@@ -721,7 +728,8 @@ Preflight refuses releases from non-`main` branches, uncommitted changes in `Pac
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| `test.yml` | Push / PR | Runs full test suite against the last-released xcframework on `macos-latest` + Swift 6.3 toolchain. Xcframework cached by SHA-256. |
+| `test.yml` | Push to `main` / PR | Lints sources, builds all Showcase schemes, runs package tests with coverage, and checks public API doc coverage. |
+| `sanitize.yml` | Push to `main`, selected PR paths, weekly schedule | Runs race, stress, memory, and lifecycle tests under Thread Sanitizer and Address Sanitizer. |
 | `claude.yml` | Issue comment / PR mention | Claude Code bot integration. |
 
 ---
@@ -756,8 +764,8 @@ SwiftVLC/
 │   ├── tvOS/                       # Native tvOS target/scheme with TV-tailored showcases
 │   ├── visionOS/                   # Native visionOS target/scheme with focused playback coverage
 │   └── UITests/
-│       ├── iOS/                    # Existing UI tests for the iOS/Catalyst showcase
-│       ├── macOS/                  # Empty native macOS UI-test target shell
+│       ├── iOS/                    # UI tests for the iOS/Catalyst showcase
+│       ├── macOS/                  # Native macOS UI tests
 │       └── tvOS/                   # Empty tvOS UI-test target shell
 │
 ├── Vendor/                         # libvlc.xcframework (multi-GB unstripped; release zip a few hundred MB)
@@ -772,6 +780,7 @@ SwiftVLC/
 │
 ├── .github/workflows/
 │   ├── test.yml                   # CI test runner
+│   ├── sanitize.yml               # Sanitizer test runner
 │   └── claude.yml                 # Claude Code bot integration
 │
 ├── Package.swift                  # SPM manifest (Swift 6.3+)

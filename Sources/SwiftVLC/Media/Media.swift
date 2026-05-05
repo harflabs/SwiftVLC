@@ -226,8 +226,7 @@ public final class Media: Sendable {
   ///
   /// Useful for tailoring UI: show a network indicator for `.stream`,
   /// a disc icon for `.disc`, and so on. Reports `.unknown` until
-  /// libVLC has enough context to determine the type — immediately
-  /// after creation for local paths, after parse for network URLs.
+  /// libVLC has enough context to determine the type.
   public var mediaType: MediaType {
     MediaType(from: libvlc_media_get_type(pointer))
   }
@@ -243,10 +242,8 @@ public final class Media: Sendable {
   ///   - url: URL of the slave file (must be a valid URI, e.g. `file://`).
   ///   - type: Subtitle or audio.
   ///   - priority: Higher priorities are preferred when multiple slaves of
-  ///     the same type are present. Must be non-negative and fit in a
-  ///     `UInt32`. libVLC clamps the value to its user-slave ceiling
-  ///     internally, so values above ~4 are normalized. Defaults to `4`
-  ///     which matches libVLC's priority for user-added files.
+  ///     the same type are present. libVLC documents `0` as low priority
+  ///     and `4` as high priority. Defaults to `4`.
   /// - Throws: ``VLCError/invalidInput(_:)`` if `priority` is negative or too large,
   ///   or ``VLCError/operationFailed(_:)`` if the slave cannot be attached.
   public func addSlave(

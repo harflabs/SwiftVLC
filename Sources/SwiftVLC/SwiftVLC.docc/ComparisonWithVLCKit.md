@@ -8,36 +8,33 @@ to each.
 ## What they are
 
 **VLCKit** is VideoLAN's own wrapper around libVLC. It is written
-primarily in Objective-C and distributed for macOS, iOS, and tvOS. Its
-in-progress 4.0 line expands the platform surface to visionOS and
-watchOS. It has been the canonical answer for embedding VLC on Apple
-platforms for over a decade, and ships as three CocoaPods (`VLCKit`,
-`MobileVLCKit`, `TVVLCKit`) or as pre-built frameworks via Carthage.
+primarily in Objective-C and distributed for macOS, iOS, and tvOS. It
+has long been the established answer for embedding VLC on Apple
+platforms, and its README documents CocoaPods (`VLCKit`,
+`MobileVLCKit`, `TVVLCKit`) and pre-built Carthage frameworks.
 
 **SwiftVLC** is a Swift 6 binding to libVLC's C API, with no
-Objective-C layer in between. It targets only modern Apple platforms
-(iOS 18+, macOS 15+, tvOS 18+, visionOS 2+, macCatalyst 18+) and ships exclusively
+Objective-C layer in between. It targets modern Apple platforms (iOS
+18+, macOS 15+, tvOS 18+, visionOS 2+, macCatalyst 18+) and ships
 through Swift Package Manager.
 
 ## libVLC generation
 
 | | VLCKit | SwiftVLC |
 |---|---|---|
-| Stable line | libVLC 3.x | libVLC 4.0 |
-| libVLC 4.0 port | Still in alpha | Shipping as the stable line |
+| README installation examples | 3.3 CocoaPods/Carthage line | Swift Package Manager binary target |
+| libVLC 4.0 | Published as alpha CocoaPods packages | Used by published releases |
 
-VLCKit's stable 3.x branch tracks libVLC 3.0 and is actively
-maintained. Its 4.0 line has been in alpha since early 2025 and
-continues to iterate. SwiftVLC is already built against libVLC 4.0 on
-its stable line, which makes the newer libVLC features available on a
-non-prerelease today. Those features include subsecond seek precision,
-the new track-selection API, two simultaneous subtitle tracks, and a
-richer metadata surface.
+VLCKit's README examples target its 3.3 CocoaPods/Carthage line, while
+CocoaPods also lists 4.0 alpha packages. SwiftVLC's published releases
+are built against libVLC 4.0, which provides APIs SwiftVLC exposes for
+subsecond seek precision, track selection, thumbnail requests, and richer
+metadata.
 
 ## Language and integration surface
 
-VLCKit is Objective-C (roughly 85% by SLOC). Calling it from Swift
-routes through the C → Objective-C → Swift bridge: types are
+VLCKit is primarily Objective-C. Calling it from Swift routes through
+the C → Objective-C → Swift bridge: types are
 `NSObject` subclasses, events arrive via delegate protocols and
 `NSNotificationCenter`, and errors are `NSError` instances.
 
@@ -117,21 +114,20 @@ SPI opt-in rather than stable public API. See
 
 | | VLCKit | SwiftVLC |
 |---|---|---|
-| Swift Package Manager | Not officially supported (open since 2022) | Yes, and the only supported method |
-| CocoaPods | `VLCKit` / `MobileVLCKit` / `TVVLCKit` | No |
-| Carthage binaries | Yes | No |
-| Pre-built framework | Yes | xcframework distributed via the SPM `.binaryTarget` |
+| Swift Package Manager | Not documented in the VLCKit README | Yes |
+| CocoaPods | Documented: `VLCKit` / `MobileVLCKit` / `TVVLCKit` | No |
+| Carthage binaries | Documented in the VLCKit README | No |
+| Pre-built framework | Documented by VLCKit | xcframework distributed via the SPM `.binaryTarget` |
 
 ## Platforms and deployment targets
 
-| | VLCKit 3.x | VLCKit 4.0 (alpha) | SwiftVLC |
-|---|---|---|---|
-| iOS | 8.4+ | Supported in alpha | 18+ |
-| macOS | 10.9+ | Supported in alpha | 15+ |
-| tvOS | 10.2+ | Supported in alpha | 18+ |
-| visionOS | Not supported | Supported in alpha | 2+ |
-| watchOS | Not supported | Supported in alpha | Not supported |
-| macCatalyst | Not supported | Not supported | 18+ |
+| | VLCKit README | SwiftVLC |
+|---|---|---|
+| iOS | 8.4+ | 18+ |
+| macOS | 10.9+ | 15+ |
+| tvOS | 10.2+ | 18+ |
+| visionOS | Not listed | 2+ |
+| macCatalyst | Not listed | 18+ |
 
 ## License
 
@@ -150,11 +146,10 @@ requirements.
 **Pick VLCKit if:**
 
 - You need to support older OS versions (iOS 8.4+, macOS 10.9+).
-- You need watchOS today (via VLCKit 4.0 alpha).
 - You have an existing Objective-C codebase where the delegate /
   notification idioms fit naturally.
 - You prefer a long-established library with many years of production
-  use, even if the 4.0 port is still in alpha.
+  use and can stay on its stable 3.x line.
 
 **Pick SwiftVLC if:**
 
@@ -163,9 +158,9 @@ requirements.
   concurrency without writing bridging code.
 - You're building on SwiftUI and want `VideoView(player)` to be the
   whole video setup.
-- You want libVLC 4.0 features today on a stable release line.
-- You're integrating via Swift Package Manager only.
+- You want libVLC 4.0 APIs from a Swift package.
+- You're integrating through Swift Package Manager.
 
-Both libraries are actively maintained, and they coexist. SwiftVLC is
-not a fork of VLCKit or a replacement for it; it's a different set of
-trade-offs aimed at a different generation of Swift.
+The libraries coexist. SwiftVLC is not a fork of VLCKit or a replacement
+for it; it's a different set of trade-offs aimed at a different
+generation of Swift.
