@@ -1,4 +1,5 @@
 @testable import SwiftVLC
+import Foundation
 import Testing
 
 extension Integration {
@@ -52,6 +53,60 @@ extension Integration {
     func `Init with empty arguments succeeds`() throws {
       let instance = try VLCInstance(arguments: [])
       #expect(!instance.version.isEmpty)
+    }
+
+    @Test
+    func `Dialog registration claims exactly one slot until released`() throws {
+      let instance = try VLCInstance(arguments: ["--quiet"])
+      let firstBox = UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)
+      let secondBox = UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)
+      defer {
+        firstBox.deallocate()
+        secondBox.deallocate()
+      }
+
+      var installCount = 0
+      var clearCount = 0
+      let token = try #require(instance.claimDialogRegistration(box: firstBox) { _, box in
+        installCount += 1
+        #expect(box == firstBox)
+      })
+
+      let rejected = instance.claimDialogRegistration(box: secondBox) { _, _ in
+        Issue.record("Second dialog registration must not install callbacks")
+      }
+      #expect(rejected == nil)
+
+      let wrongRelease = instance.releaseDialogRegistration(token: UUID()) { _ in
+        Issue.record("Wrong token must not clear callbacks")
+      }
+      #expect(wrongRelease == nil)
+
+      let released = instance.releaseDialogRegistration(token: token) { _ in
+        clearCount += 1
+      }
+
+      #expect(released == firstBox)
+      #expect(installCount == 1)
+      #expect(clearCount == 1)
+    }
+
+    @Test
+    func `VLCInstance deinit clears an unreleased dialog registration`() throws {
+      let leakedBox = UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)
+      defer { leakedBox.deallocate() }
+      weak var weakInstance: VLCInstance?
+
+      do {
+        let instance = try VLCInstance(arguments: ["--quiet"])
+        weakInstance = instance
+        let token = instance.claimDialogRegistration(box: leakedBox) { _, box in
+          #expect(box == leakedBox)
+        }
+        #expect(token != nil)
+      }
+
+      #expect(weakInstance == nil)
     }
 
     @Test

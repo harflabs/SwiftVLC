@@ -17,6 +17,12 @@ extension Logic {
     }
 
     @Test
+    func `checkedNonnegativeInt32 accepts zero and positive values`() throws {
+      #expect(try checkedNonnegativeInt32(0, parameter: "index") == 0)
+      #expect(try checkedNonnegativeInt32(42, parameter: "index") == 42)
+    }
+
+    @Test
     func `checkedUInt32 accepts unsigned range endpoints`() throws {
       #expect(try checkedUInt32(0, parameter: "width") == 0)
       #expect(try checkedUInt32(Int(UInt32.max), parameter: "width") == UInt32.max)

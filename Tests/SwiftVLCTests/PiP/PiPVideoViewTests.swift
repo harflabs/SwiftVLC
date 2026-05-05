@@ -335,6 +335,38 @@ extension Integration {
     }
 
     @Test
+    func `macOS native PiP backend remains unavailable for no-video instances even when private API is enabled`() throws {
+      let initialAllowsPrivateAPI = PiPController.allowsPrivateMacOSAPI
+      defer { PiPController.allowsPrivateMacOSAPI = initialAllowsPrivateAPI }
+      PiPController.allowsPrivateMacOSAPI = true
+
+      let instance = try VLCInstance(arguments: ["--no-video-title-show", "--no-video", "--no-audio", "--quiet"])
+      let player = Player(instance: instance)
+      let backend = MacNativePiPBackend()
+
+      backend.attach(to: player)
+
+      #expect(backend.isPossible == false)
+    }
+
+    @Test
+    func `macOS native PiP backend start with media but unavailable host is a no-op`() throws {
+      let initialAllowsPrivateAPI = PiPController.allowsPrivateMacOSAPI
+      defer { PiPController.allowsPrivateMacOSAPI = initialAllowsPrivateAPI }
+      PiPController.allowsPrivateMacOSAPI = false
+
+      let player = Player(instance: TestInstance.shared)
+      try player.load(Media(url: TestMedia.twosecURL))
+      let backend = MacNativePiPBackend()
+
+      backend.attach(to: player)
+      backend.start()
+
+      #expect(backend.isPossible == false)
+      #expect(backend.isActive == false)
+    }
+
+    @Test
     func `macOS PiP controller delegates to native backend`() {
       let initialAllowsPrivateAPI = PiPController.allowsPrivateMacOSAPI
       defer { PiPController.allowsPrivateMacOSAPI = initialAllowsPrivateAPI }
@@ -404,6 +436,20 @@ extension Integration {
       #expect(mediaController.mediaTime() >= 0)
       _ = mediaController.isMediaSeekable()
       #expect(mediaController.isMediaPlaying() == false)
+    }
+
+    @Test
+    func `macOS native PiP media controller resumes active player state`() async {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .playing, isPlaybackRequestedActive: false)
+
+      let mediaController = MacNativePiPMediaController()
+      mediaController.player = player
+
+      mediaController.play()
+      await Task.yield()
+
+      #expect(player.isPlaybackRequestedActive)
     }
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))

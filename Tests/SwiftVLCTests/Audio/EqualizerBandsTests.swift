@@ -106,6 +106,15 @@ extension Integration {
       #expect(changeCount == 1)
     }
 
+    @Test
+    func `setAmplification rejects NaN values`() {
+      let eq = Equalizer()
+
+      #expect(throws: VLCError.self) {
+        try eq.setAmplification(.nan, forBand: 0)
+      }
+    }
+
     // MARK: - Presets
 
     /// Every preset must construct a valid equalizer. If libVLC drops a

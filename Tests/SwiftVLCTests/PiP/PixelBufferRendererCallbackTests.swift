@@ -459,6 +459,32 @@ extension Integration {
       try expectNoDifference(alphaBytes(in: pb), expectedAlphaBytes)
     }
 
+    @MainActor
+    @Test
+    func `Display callback uses configured timebase for presentation time`() throws {
+      let displayLayer = AVSampleBufferDisplayLayer()
+      let renderer = PixelBufferRenderer(displayLayer: displayLayer)
+      let retained = makeRetainedContext(renderer: renderer)
+      defer { retained.release() }
+
+      let clock = CMClockGetHostTimeClock()
+      var timebase: CMTimebase?
+      let status = CMTimebaseCreateWithSourceClock(
+        allocator: kCFAllocatorDefault,
+        sourceClock: clock,
+        timebaseOut: &timebase
+      )
+      #expect(status == noErr)
+      let tb = try #require(timebase)
+      CMTimebaseSetTime(tb, time: CMTime(seconds: 3, preferredTimescale: 1000))
+      renderer.setTimebase(tb)
+
+      let pb = try makeBGRAImageBuffer(width: 2, height: 2)
+      let pictureHandle = Unmanaged.passRetained(pb as AnyObject).toOpaque()
+
+      pixelBufferDisplayCallback(opaque: retained.toOpaque(), picture: pictureHandle)
+    }
+
     /// A nil `opaque` guards-out early.
     @Test
     func `Display callback with nil opaque is a no-op`() {

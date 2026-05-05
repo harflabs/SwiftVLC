@@ -78,6 +78,21 @@ extension Integration {
       #expect(player.currentMedia === second)
     }
 
+    @Test
+    func `play replacement path preserves media handoff when cached state is active`() throws {
+      let player = Player(instance: TestInstance.shared)
+      let first = try Media(url: TestMedia.testMP4URL)
+      player.load(first)
+      player._setStateForTesting(state: .playing)
+
+      let second = try Media(url: TestMedia.twosecURL)
+      try player.play(second)
+      defer { player.stop() }
+
+      #expect(player.currentMedia === second)
+      #expect(player.isPlaybackRequestedActive)
+    }
+
     /// Setting audioDelay on a player with media round-trips through
     /// libVLC and reflects on the next read.
     @Test

@@ -225,6 +225,56 @@ extension Integration {
     }
 
     @Test
+    func `setting the same render size keeps the current generation`() {
+      let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+
+      renderer.setRenderSize(CMVideoDimensions(width: 8, height: 8))
+      let firstGeneration = renderer.state.withLock { $0.renderGeneration }
+
+      renderer.setRenderSize(CMVideoDimensions(width: 8, height: 8))
+      let secondGeneration = renderer.state.withLock { $0.renderGeneration }
+
+      #expect(secondGeneration == firstGeneration)
+    }
+
+    @Test
+    func `matching render size returns original pixel buffer`() throws {
+      let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+      renderer.setRenderSize(CMVideoDimensions(width: 16, height: 16))
+
+      let sourceBuffer = try makeBGRAImageBuffer(width: 16, height: 16)
+      let output = try #require(renderer.outputPixelBuffer(from: sourceBuffer)?.buffer)
+
+      #expect(output === sourceBuffer)
+    }
+
+    @Test
+    func `repeated scaling reuses the render pool for unchanged dimensions`() throws {
+      let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+      renderer.setRenderSize(CMVideoDimensions(width: 8, height: 8))
+
+      let sourceBuffer = try makeBGRAImageBuffer(width: 16, height: 16)
+      _ = try #require(renderer.outputPixelBuffer(from: sourceBuffer))
+      let firstPool = renderer.state.withLock { $0.renderPool }
+
+      _ = try #require(renderer.outputPixelBuffer(from: sourceBuffer))
+      let secondPool = renderer.state.withLock { $0.renderPool }
+
+      #expect(firstPool != nil)
+      #expect(firstPool === secondPool)
+    }
+
+    @Test
+    func `unallocatable render size returns nil instead of enqueuing a frame`() throws {
+      let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+      renderer.setRenderSize(CMVideoDimensions(width: 1_000_000, height: 1_000_000))
+
+      let sourceBuffer = try makeBGRAImageBuffer(width: 2, height: 2)
+
+      #expect(renderer.outputPixelBuffer(from: sourceBuffer) == nil)
+    }
+
+    @Test
     func `Initial state has all fields at default values`() {
       let layer = AVSampleBufferDisplayLayer()
       let renderer = PixelBufferRenderer(displayLayer: layer)

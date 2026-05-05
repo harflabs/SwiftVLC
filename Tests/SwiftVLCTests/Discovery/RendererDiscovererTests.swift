@@ -52,6 +52,19 @@ extension Integration {
     }
 
     @Test
+    func `Init with empty name may throw VLCError`() {
+      do {
+        let discoverer = try RendererDiscoverer(name: "")
+        _ = discoverer
+      } catch {
+        guard case .instanceCreationFailed = error else {
+          Issue.record("Expected .instanceCreationFailed, got \(error)")
+          return
+        }
+      }
+    }
+
+    @Test
     func `Events stream accessible`() {
       let services = RendererDiscoverer.availableServices()
       guard let service = services.first else { return }

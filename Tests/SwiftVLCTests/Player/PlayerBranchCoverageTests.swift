@@ -537,6 +537,7 @@ extension Integration {
     func `selectProgram with unknown id does not crash`() {
       let player = Player(instance: TestInstance.shared)
       player.selectProgram(id: 999)
+      player.selectProgram(id: Int.max)
     }
 
     /// `isProgramScrambled` on a player without active programs must

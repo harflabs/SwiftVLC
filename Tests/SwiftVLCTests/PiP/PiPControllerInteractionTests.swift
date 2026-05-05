@@ -20,6 +20,7 @@ extension Integration {
       var pauseCount = 0
       var resumeCount = 0
       var cancelPendingPauseCount = 0
+      var pauseResult = true
       var shouldResume = false
       var resumeResult = true
       var seekTargets: [Int64] = []
@@ -28,7 +29,7 @@ extension Integration {
         .init(
           pause: {
             self.pauseCount += 1
-            return true
+            return self.pauseResult
           },
           resume: {
             self.resumeCount += 1
@@ -200,6 +201,78 @@ extension Integration {
       #expect(recorder.pauseCount == 0, "Buffering must not trigger a native pause")
     }
 
+    @Test
+    func `deferred PiP pause retries while native pause is rejected`() async throws {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .playing)
+      let recorder = PlaybackRecorder()
+      recorder.pauseResult = false
+      let controller = PiPController(
+        player: player,
+        playbackDriver: recorder.driver,
+        pauseDebounce: .milliseconds(10)
+      )
+
+      try? await Task.sleep(for: .milliseconds(20))
+      controller._setPlayingForTesting(false)
+
+      #expect(try await poll(every: .milliseconds(10), timeout: .milliseconds(250)) {
+        recorder.pauseCount >= 2
+      })
+
+      controller._setPlayingForTesting(true)
+    }
+
+    @Test
+    func `external play intent clears previously issued PiP pause`() async throws {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .playing)
+      let recorder = PlaybackRecorder()
+      let controller = PiPController(
+        player: player,
+        playbackDriver: recorder.driver,
+        pauseDebounce: .milliseconds(10)
+      )
+
+      try? await Task.sleep(for: .milliseconds(20))
+      controller._setPlayingForTesting(false)
+
+      #expect(try await poll(every: .milliseconds(10), timeout: .milliseconds(250)) {
+        recorder.pauseCount == 1
+      })
+
+      player.setPlaybackIntentFromExternalControl(true)
+
+      #expect(try await poll(every: .milliseconds(10), timeout: .milliseconds(250)) {
+        controller._pipPlaybackActiveForTesting()
+      })
+
+      controller._setPlayingForTesting(true)
+
+      #expect(recorder.resumeCount == 0)
+    }
+
+    @Test
+    func `external pause intent supersedes pending PiP play request`() async throws {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .paused)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: PlaybackRecorder().driver,
+        pauseDebounce: .milliseconds(250)
+      )
+
+      controller._setPlayingForTesting(true)
+      #expect(controller._pendingPiPPlaybackStateForTesting() == true)
+
+      player.setPlaybackIntentFromExternalControl(false)
+
+      #expect(try await poll(every: .milliseconds(10), timeout: .milliseconds(250)) {
+        controller._pendingPiPPlaybackStateForTesting() == false
+      })
+      #expect(controller._pipPlaybackActiveForTesting() == false)
+    }
+
     // MARK: - toggle branches
 
     /// `toggle()` while PiP is active dispatches to `stop()`. Real
@@ -238,6 +311,19 @@ extension Integration {
       // a dangling callback pointer, a subsequent operation would
       // crash here.
       #expect(player.state == .idle)
+    }
+
+    @Test
+    func `PiPController deinit defers renderer cleanup for an active cached player`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .playing, isPlaybackRequestedActive: true)
+
+      do {
+        let controller = PiPController(player: player)
+        _ = controller.layer
+      }
+
+      #expect(player.state == .playing)
     }
 
     /// `pictureInPictureControllerIsPlaybackPaused` must read from the
@@ -664,6 +750,22 @@ extension Integration {
 
       #expect(controller._pipPlaybackActiveForTesting() == false)
       #expect(controller._pendingPiPPlaybackStateForTesting() == nil)
+    }
+
+    @Test
+    func `observed playback activity mirrors external active changes without pending PiP state`() {
+      let player = Player(instance: TestInstance.shared)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: PlaybackRecorder().driver,
+        pauseDebounce: .milliseconds(250)
+      )
+
+      controller._handleObservedPlaybackActivityForTesting(true)
+      #expect(controller._pipPlaybackActiveForTesting() == true)
+
+      controller._handleObservedPlaybackActivityForTesting(false)
+      #expect(controller._pipPlaybackActiveForTesting() == false)
     }
   }
 }

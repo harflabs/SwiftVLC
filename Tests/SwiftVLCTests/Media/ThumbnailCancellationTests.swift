@@ -83,5 +83,86 @@ extension Integration {
         _ = await task.result
       }
     }
+
+    /// Audio-only media has no video frame to extract, but the request
+    /// should still run through libVLC's thumbnailer and return a typed
+    /// failure instead of hanging or requiring real video output.
+    @Test(.timeLimit(.minutes(1)))
+    func `Audio-only thumbnail request reports failure without video output`() async throws {
+      let media = try Media(url: TestMedia.silenceURL)
+
+      do {
+        _ = try await media.thumbnail(
+          at: .zero,
+          width: 64,
+          timeout: .milliseconds(500),
+          instance: TestInstance.shared
+        )
+        Issue.record("Expected audio-only media to fail thumbnail generation")
+      } catch .operationFailed(let reason) {
+        #expect(reason.contains("Generate thumbnail"))
+      } catch {
+        Issue.record("Expected operationFailed, got \(error)")
+      }
+    }
+
+    /// A video thumbnail request should always complete promptly even
+    /// on the no-video CI instance. Depending on libVLC's thumbnailer
+    /// availability it may produce a PNG or report an operation failure;
+    /// both outcomes are valid, but hanging is not.
+    @Test(.timeLimit(.minutes(1)))
+    func `Video thumbnail request completes without real video output`() async throws {
+      let media = try Media(url: TestMedia.testMP4URL)
+
+      do {
+        let data = try await media.thumbnail(
+          at: .zero,
+          width: 32,
+          timeout: .milliseconds(500),
+          instance: TestInstance.shared
+        )
+        #expect(!data.isEmpty)
+      } catch .operationFailed(let reason) {
+        #expect(reason.contains("Generate thumbnail"))
+      } catch {
+        Issue.record("Expected success or operationFailed, got \(error)")
+      }
+    }
+
+    @Test(.tags(.async, .media), .timeLimit(.minutes(1)))
+    func `Already cancelled thumbnail request returns promptly and releases its slot`() async throws {
+      let media = try Media(url: TestMedia.testMP4URL)
+
+      let task = Task {
+        withUnsafeCurrentTask { task in
+          task?.cancel()
+        }
+
+        return try await media.thumbnail(
+          at: .zero,
+          width: 64,
+          timeout: .seconds(5),
+          instance: TestInstance.shared
+        )
+      }
+
+      switch await task.result {
+      case .success:
+        Issue.record("Expected cancellation error")
+      case .failure(let error):
+        #expect(String(describing: error).contains("cancelled"))
+      }
+
+      do {
+        _ = try await media.thumbnail(
+          at: .zero,
+          width: 64,
+          timeout: .milliseconds(500),
+          instance: TestInstance.shared
+        )
+      } catch {
+        #expect(String(describing: error).contains("Generate thumbnail"))
+      }
+    }
   }
 }

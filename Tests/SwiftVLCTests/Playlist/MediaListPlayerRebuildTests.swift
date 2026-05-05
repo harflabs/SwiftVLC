@@ -76,6 +76,38 @@ extension Integration {
       }
     }
 
+    @Test
+    func `play at negative index rejects before reaching libVLC`() {
+      let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+
+      #expect(throws: VLCError.invalidInput("index must be non-negative")) {
+        try listPlayer.play(at: -1)
+      }
+    }
+
+    @Test
+    func `play at valid attached index reaches libVLC and can be stopped`() throws {
+      let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+      let list = MediaList()
+      try list.append(Media(url: TestMedia.twosecURL))
+      listPlayer.mediaList = list
+      defer { listPlayer.stop() }
+
+      try listPlayer.play(at: 0)
+    }
+
+    @Test
+    func `play attached media item reaches libVLC and can be stopped`() throws {
+      let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+      let list = MediaList()
+      let media = try Media(url: TestMedia.twosecURL)
+      try list.append(media)
+      listPlayer.mediaList = list
+      defer { listPlayer.stop() }
+
+      try listPlayer.play(media)
+    }
+
     /// `togglePause` / `pause` / `resume` / `stop` are all safe no-ops
     /// on an empty list player.
     @Test

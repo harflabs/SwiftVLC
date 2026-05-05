@@ -187,6 +187,33 @@ extension Integration {
     }
 
     @Test
+    func `C subtitle track maps encoding and clears audio video fields`() {
+      var subtitle = libvlc_subtitle_track_t()
+
+      let track = "UTF-8".withCString { encoding in
+        subtitle.psz_encoding = UnsafeMutablePointer(mutating: encoding)
+        var cTrack = libvlc_media_track_t()
+        cTrack.i_id = 7
+        cTrack.i_type = libvlc_track_text
+        cTrack.i_codec = 0x7372_7420
+
+        return withUnsafeMutablePointer(to: &subtitle) { subtitlePointer in
+          cTrack.subtitle = subtitlePointer
+          return withUnsafePointer(to: cTrack) { Track(from: $0) }
+        }
+      }
+
+      #expect(track.id == "7")
+      #expect(track.type == .subtitle)
+      #expect(track.encoding == "UTF-8")
+      #expect(track.channels == nil)
+      #expect(track.sampleRate == nil)
+      #expect(track.width == nil)
+      #expect(track.height == nil)
+      #expect(track.frameRate == nil)
+    }
+
+    @Test
     func `Track with nil language and description`() {
       let track = makeTrack(id: "x-0", type: .audio)
       #expect(track.language == nil)

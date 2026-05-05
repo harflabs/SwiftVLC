@@ -93,6 +93,14 @@ extension Integration {
     }
 
     @Test
+    func `setDeinterlace with unknown mode throws operation failed`() throws {
+      let player = Player(instance: TestInstance.shared)
+      #expect(throws: VLCError.self) {
+        try player.setDeinterlace(state: 1, mode: "__swiftvlc_unknown_deinterlace_mode__")
+      }
+    }
+
+    @Test
     func `setDeinterlace rejects unrepresentable state instead of trapping`() throws {
       let player = Player(instance: TestInstance.shared)
       #expect(throws: VLCError.self) {

@@ -1,4 +1,5 @@
 @testable import SwiftVLC
+import CLibVLC
 import Observation
 import Synchronization
 import Testing
@@ -107,6 +108,15 @@ extension Integration {
     }
 
     @Test
+    func `positionChanged updates observed position`() {
+      let player = Player(instance: TestInstance.shared)
+
+      player._handleEventForTesting(.positionChanged(0.25))
+
+      #expect(player.position == 0.25)
+    }
+
+    @Test
     func `lengthChanged updates duration`() {
       let player = Player(instance: TestInstance.shared)
 
@@ -144,6 +154,68 @@ extension Integration {
       #expect(player.state == .stopped)
       #expect(player.currentTime == .zero)
       #expect(player.bufferFill == 0)
+    }
+
+    @Test
+    func `stateChanged to paused clears playback intent when no resume is pending`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .playing)
+
+      player._handleEventForTesting(.stateChanged(.paused))
+
+      #expect(player.state == .paused)
+      #expect(player.isPlaying == false)
+    }
+
+    @Test
+    func `matching pause transition clears transition state`() {
+      let player = Player(instance: TestInstance.shared)
+      player.pauseTransition = .pausing
+
+      player.updatePauseTransition(for: .paused)
+
+      #expect(player.pauseTransition == nil)
+    }
+
+    @Test
+    func `canIssueNativePause is false before native playback has advanced`() {
+      let player = Player(instance: TestInstance.shared)
+
+      #expect(libvlc_media_player_get_time(player.pointer) <= 0)
+      #expect(player.canIssueNativePause == false)
+    }
+
+    @Test
+    func `issuePause defers when native player is not yet pausable`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .playing, isPausable: true)
+
+      #expect(player.issuePause() == false)
+      #expect(player._hasDeferredPauseForTesting())
+      #expect(player.isPlaying == false)
+      #expect(player.pauseTransition == nil)
+    }
+
+    @Test
+    func `stop clears in-flight pause transition`() {
+      let player = Player(instance: TestInstance.shared)
+      player.pauseTransition = .pausing
+
+      player.stop()
+
+      #expect(player.pauseTransition == nil)
+    }
+
+    @Test
+    func `refreshNativeState syncs native mute shadow when available`() {
+      let player = Player(instance: TestInstance.shared)
+      libvlc_audio_set_mute(player.pointer, 1)
+      guard libvlc_audio_get_mute(player.pointer) >= 0 else { return }
+      player._isMuted = false
+
+      player.refreshNativeStateIfNeeded()
+
+      #expect(player.isMuted == true)
     }
 
     // MARK: - Observation invalidation for external state changes
@@ -239,6 +311,17 @@ extension Integration {
       player._handleEventForTesting(.audioDeviceChanged("core-audio"))
 
       #expect(fired.withLock { $0 })
+    }
+
+    @Test
+    func `refreshTracks without media publishes empty track lists`() {
+      let player = Player(instance: TestInstance.shared)
+
+      player.refreshTracks()
+
+      #expect(player.audioTracks.isEmpty)
+      #expect(player.videoTracks.isEmpty)
+      #expect(player.subtitleTracks.isEmpty)
     }
 
     /// Program-related events fan out to `programs`, `selectedProgram`,

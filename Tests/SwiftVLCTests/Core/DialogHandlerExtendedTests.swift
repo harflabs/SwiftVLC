@@ -164,6 +164,25 @@ extension Integration {
     }
 
     @Test
+    func `QuestionRequest rejects unrepresentable action without consuming dialog`() {
+      let (ptr, raw) = Self.makeDummyPointer()
+      defer { raw.deallocate() }
+
+      let request = QuestionRequest(
+        dialogId: DialogID(pointer: ptr),
+        title: "Question",
+        text: "Choose an action",
+        type: .normal,
+        cancelText: "Cancel",
+        action1Text: "OK",
+        action2Text: nil
+      )
+
+      #expect(request.post(action: Int.max) == false)
+      #expect(request.dialogId.pointer == ptr)
+    }
+
+    @Test
     func `QuestionRequest is Sendable`() {
       let _: any Sendable.Type = QuestionRequest.self
       let (ptr, raw) = Self.makeDummyPointer()

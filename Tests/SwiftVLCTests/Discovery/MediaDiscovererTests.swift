@@ -81,6 +81,19 @@ extension Integration {
     }
 
     @Test
+    func `Init with empty name may throw VLCError`() {
+      do {
+        let discoverer = try MediaDiscoverer(name: "")
+        _ = discoverer
+      } catch {
+        guard case .instanceCreationFailed = error else {
+          Issue.record("Expected .instanceCreationFailed, got \(error)")
+          return
+        }
+      }
+    }
+
+    @Test
     func `Start and stop`() {
       let services = MediaDiscoverer.availableServices(category: .localDirectories)
       guard let service = services.first else { return }

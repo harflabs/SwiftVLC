@@ -379,6 +379,64 @@ extension Logic {
       #expect(device == nil)
     }
 
+    @Test
+    func `AudioDevice with device maps string payload`() {
+      "coreaudio-default".withCString { cDevice in
+        let e = event(type: libvlc_MediaPlayerAudioDevice.rawValue) { e in
+          e.u.media_player_audio_device.device = cDevice
+        }
+        guard case .audioDeviceChanged(let device) = mapEvent(e) else {
+          Issue.record("Expected .audioDeviceChanged")
+          return
+        }
+        #expect(device == "coreaudio-default")
+      }
+    }
+
+    @Test
+    func `RecordChanged maps recording flag and output path`() {
+      "/tmp/swiftvlc-record.ts".withCString { cPath in
+        let e = event(type: libvlc_MediaPlayerRecordChanged.rawValue) { e in
+          e.u.media_player_record_changed.recording = true
+          e.u.media_player_record_changed.recorded_file_path = cPath
+        }
+        guard case .recordingChanged(let isRecording, let filePath) = mapEvent(e) else {
+          Issue.record("Expected .recordingChanged")
+          return
+        }
+        #expect(isRecording)
+        #expect(filePath == "/tmp/swiftvlc-record.ts")
+      }
+    }
+
+    @Test
+    func `RecordChanged maps nil output path`() {
+      let e = event(type: libvlc_MediaPlayerRecordChanged.rawValue) { e in
+        e.u.media_player_record_changed.recording = false
+        e.u.media_player_record_changed.recorded_file_path = nil
+      }
+      guard case .recordingChanged(let isRecording, let filePath) = mapEvent(e) else {
+        Issue.record("Expected .recordingChanged")
+        return
+      }
+      #expect(isRecording == false)
+      #expect(filePath == nil)
+    }
+
+    @Test
+    func `SnapshotTaken maps file path`() {
+      "/tmp/swiftvlc-snapshot.png".withCString { cPath in
+        let e = event(type: libvlc_MediaPlayerSnapshotTaken.rawValue) { e in
+          e.u.media_player_snapshot_taken.psz_filename = UnsafeMutablePointer(mutating: cPath)
+        }
+        guard case .snapshotTaken(let path) = mapEvent(e) else {
+          Issue.record("Expected .snapshotTaken")
+          return
+        }
+        #expect(path == "/tmp/swiftvlc-snapshot.png")
+      }
+    }
+
     // MARK: - Unknown / default
 
     @Test

@@ -122,6 +122,29 @@ extension Integration {
       }
     }
 
+    @Test(.tags(.async, .media))
+    func `parse from an already cancelled task returns cancelled failure`() async throws {
+      let media = try Media(url: TestMedia.testMP4URL)
+
+      let task = Task {
+        withUnsafeCurrentTask { task in
+          task?.cancel()
+        }
+
+        do {
+          _ = try await media.parse(timeout: .seconds(5), instance: TestInstance.shared)
+          return false
+        } catch let error as VLCError {
+          guard case .parseFailed(let reason) = error else { return false }
+          return reason.contains("cancelled")
+        } catch {
+          return false
+        }
+      }
+
+      #expect(await task.value)
+    }
+
     @Test
     func `thumbnail rejects invalid public input before starting request`() async throws {
       let media = try Media(url: URL(fileURLWithPath: "/tmp/swiftvlc-test.mp4"))
