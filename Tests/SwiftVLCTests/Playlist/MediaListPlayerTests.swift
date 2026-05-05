@@ -74,6 +74,14 @@ extension Integration {
     }
 
     @Test
+    func `Play at index without attached list throws before reaching libVLC`() throws {
+      let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+      #expect(throws: VLCError.invalidState("mediaList must be set before playing by index")) {
+        try listPlayer.play(at: 0)
+      }
+    }
+
+    @Test
     func `Next without items throws`() throws {
       let listPlayer = MediaListPlayer(instance: TestInstance.shared)
       #expect(throws: VLCError.self) {
@@ -128,6 +136,15 @@ extension Integration {
       listPlayer.mediaList = list
       let media = try Media(url: TestMedia.testMP4URL)
       #expect(throws: VLCError.self) {
+        try listPlayer.play(media)
+      }
+    }
+
+    @Test
+    func `Play media item without attached list throws before reaching libVLC`() throws {
+      let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+      let media = try Media(url: TestMedia.testMP4URL)
+      #expect(throws: VLCError.invalidState("mediaList must be set before playing an item")) {
         try listPlayer.play(media)
       }
     }
