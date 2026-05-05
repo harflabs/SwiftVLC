@@ -137,16 +137,16 @@ public final class MediaListPlayer {
   /// Plays the item at the specified index.
   /// - Throws: ``VLCError/invalidInput(_:)`` if the index is out of range for the
   ///   attached list, or ``VLCError/operationFailed(_:)`` if libVLC rejects it.
-  public func play(at index: Int) throws(VLCError) {
-    let checkedIndex = try checkedNonnegativeInt32(index, parameter: "index")
+  public func play(at requestedIndex: Int) throws(VLCError) {
+    let index = try checkedNonnegativeInt32(requestedIndex, parameter: "index")
     guard let count = _mediaList?.count else {
       throw .invalidState("mediaList must be set before playing by index")
     }
-    if !(0..<count).contains(index) {
+    if !(0..<count).contains(requestedIndex) {
       throw .invalidInput("index must be in 0..<\(count)")
     }
-    guard libvlc_media_list_player_play_item_at_index(pointer, checkedIndex) == 0 else {
-      throw .operationFailed("Play item at index \(checkedIndex)")
+    guard libvlc_media_list_player_play_item_at_index(pointer, index) == 0 else {
+      throw .operationFailed("Play item at index \(index)")
     }
   }
 
