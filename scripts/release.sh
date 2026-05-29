@@ -237,6 +237,21 @@ if [[ ${#missing_slices[@]} -gt 0 ]]; then
   exit 1
 fi
 
+# Refuse to publish a debug-configured libVLC. Run-time assertions turn
+# malformed-media edge cases into process-killing abort()s (issue #30);
+# build-libvlc.sh disables them by default. assert() embeds its stringified
+# condition only when NDEBUG is undefined, so finding this hxxx_helper assertion
+# text proves the slices were built with --with-asserts by mistake. grep -c
+# (not -q) consumes the whole stream, avoiding a pipefail/SIGPIPE false negative.
+assert_hits=$(strings -a "$XCFW_PATH"/*/libvlc.a 2>/dev/null \
+  | grep -c 'i_input_nal_length_size || !hh->i_output_nal_length_size' || true)
+if [[ "${assert_hits:-0}" -gt 0 ]]; then
+  echo "Error: libVLC slices were built with run-time assertions enabled." >&2
+  echo "  Shipping them would re-introduce the issue #30 abort() crash." >&2
+  echo "  Rebuild without --with-asserts: ./scripts/build-libvlc.sh --clean-build --all" >&2
+  exit 1
+fi
+
 if ! command -v gh &>/dev/null; then
   echo "Error: GitHub CLI (gh) is required. Install with: brew install gh" >&2
   exit 1

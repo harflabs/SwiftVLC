@@ -41,6 +41,16 @@ BUILD_VISIONOS=no
 BUILD_MACOS=no
 BUILD_CATALYST=no
 
+# libVLC run-time assertions are OFF by default. VLC defaults to assertions
+# enabled, but a shipped media library must not abort() the host process on
+# malformed input: many "should not happen" branches in libVLC (e.g.
+# hxxx_helper_process_block, which crashed on certain FLV/H.264 files — see
+# issue #30) sit directly above a graceful fallback that only runs once the
+# assert is compiled out via NDEBUG. Disabling debug matches how VLCKit and
+# official VLC release builds ship. Developers debugging codec internals can
+# restore the asserts with --with-asserts.
+WITH_ASSERTS=no
+
 # Keep these deployment targets in sync with Package.swift.
 SWIFTVLC_MIN_IOS="18.0"
 SWIFTVLC_MIN_TVOS="18.0"
@@ -237,6 +247,9 @@ for arg in "$@"; do
             rm -rf "${BUILD_DIR}"
             echo "Continuing with fresh build..."
             ;;
+        --with-asserts|--debug)
+            WITH_ASSERTS=yes
+            ;;
         --hash=*)
             VLC_HASH="${arg#--hash=}"
             if [ -z "$VLC_HASH" ]; then
@@ -272,6 +285,9 @@ Build options:
   --clean-build      Remove the build directory, then build
   --hash=COMMIT      Pin to a specific VLC commit (default: ${VLC_HASH})
   --patches-dir=DIR  Directory containing .patch files to apply
+  --with-asserts     Enable libVLC run-time assertions (debugging only; these
+                     abort() on some malformed input — released builds omit
+                     this so libVLC takes its graceful error paths instead)
 
 Other:
   --help             Show this help message
@@ -1078,6 +1094,20 @@ cd "${BUILD_DIR}"
 export ac_cv_func_dup3=no
 export ac_cv_func_pipe2=no
 
+# Translate WITH_ASSERTS into VLC's configure flag, computed once and forwarded
+# to every per-platform build below. --disable-debug defines NDEBUG, which turns
+# assert() into a no-op so "should not happen" guards (e.g. hxxx_helper.c:565)
+# fall through to their graceful return instead of abort()ing the host process.
+# The array stays empty when asserts are enabled, expanding to zero arguments
+# (safe: the script uses `set -e` but not `set -u`).
+VLC_DEBUG_ARGS=()
+if [ "$WITH_ASSERTS" = "no" ]; then
+    VLC_DEBUG_ARGS+=( "--disable-debug" )
+    info "Run-time assertions disabled (release default)"
+else
+    info "Run-time assertions ENABLED (debugging build)"
+fi
+
 compile_libvlc() {
     local ARCH="$1"
     local PLATFORM="$2"
@@ -1099,6 +1129,7 @@ compile_libvlc() {
     "${VLC_SRC}/extras/package/apple/build.sh" \
         --arch="${ARCH}" \
         --sdk="${PLATFORM}${SDK_VERSION}" \
+        "${VLC_DEBUG_ARGS[@]}" \
         ${MAKEFLAGS}
 
     cd "${BUILD_DIR}"
@@ -1131,6 +1162,7 @@ compile_libvlc_catalyst() {
         --arch="${ARCH}" \
         --sdk="macosx${SDK_VERSION}" \
         --catalyst \
+        "${VLC_DEBUG_ARGS[@]}" \
         ${MAKEFLAGS}
 
     cd "${BUILD_DIR}"
