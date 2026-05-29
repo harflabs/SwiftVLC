@@ -189,7 +189,15 @@ final class IOSNativePiPDrawableView: UIView, IOSNativePiPDrawable {
 
   func attach(to player: Player) {
     if attachedPlayer !== player {
+      // Fully tear the backend down before re-attaching: `attach(to:)` only
+      // resets the media controller and possible/active flags, so without
+      // this the previous player's window-controller wiring (KVO
+      // observations + state-change handler) would survive a swap and keep
+      // driving PiP state for the wrong player. The production swap path
+      // (`updateUIView`) already detaches first; this keeps the method
+      // correct for any caller.
       attachedPlayer?.releaseDrawableOwnership(self)
+      nativePiPBackend.detach()
       attachedPlayer = player
       nativePiPBackend.attach(to: player)
     }

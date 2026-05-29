@@ -40,6 +40,15 @@ don't expose SwiftVLC's PiP APIs (e.g. tvOS and visionOS). On macOS the
 binding is non-`nil`, but ``PiPController/isPossible`` remains `false`
 unless the SPI native backend is enabled and available at runtime.
 
+Use the binding's controller for PiP *control and state*
+(``PiPController/toggle()``, ``PiPController/isPossible``,
+``PiPController/isActive``). Do **not** reach for its
+``PiPController/layer``: ``PiPVideoView`` renders through libVLC's native
+drawable on iOS, so the controller's `AVSampleBufferDisplayLayer` is not
+the on-screen surface and adjusting it (e.g. `videoGravity`) has no
+effect. ``PiPController/layer`` is the rendering surface only when you
+instantiate ``PiPController`` yourself and host the layer directly.
+
 On iOS Simulator, SwiftVLC reports native PiP as unavailable. Simulator
 AVSampleBufferDisplayLayer PiP can reach `isPictureInPictureActive` while
 rendering a black system PiP window, so validate iOS PiP rendering on
