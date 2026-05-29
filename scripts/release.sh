@@ -243,6 +243,12 @@ fi
 # condition only when NDEBUG is undefined, so finding this hxxx_helper assertion
 # text proves the slices were built with --with-asserts by mistake. grep -c
 # (not -q) consumes the whole stream, avoiding a pipefail/SIGPIPE false negative.
+#
+# We match a VLC-specific assert *condition*, not the __assert_rtn symbol:
+# contrib libraries (libaom, etc.) reference __assert_rtn even in a correct
+# --disable-debug build (~348 refs on macOS), so a symbol-presence check would
+# false-positive and block every release. Revalidate this signature whenever
+# VLC_HASH is bumped to a revision where hxxx_helper.c changes.
 assert_hits=$(strings -a "$XCFW_PATH"/*/libvlc.a 2>/dev/null \
   | grep -c 'i_input_nal_length_size || !hh->i_output_nal_length_size' || true)
 if [[ "${assert_hits:-0}" -gt 0 ]]; then

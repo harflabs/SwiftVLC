@@ -247,7 +247,7 @@ for arg in "$@"; do
             rm -rf "${BUILD_DIR}"
             echo "Continuing with fresh build..."
             ;;
-        --with-asserts|--debug)
+        --with-asserts)
             WITH_ASSERTS=yes
             ;;
         --hash=*)
