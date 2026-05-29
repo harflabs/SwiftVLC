@@ -1,0 +1,43 @@
+# Codecov configuration for SwiftVLC.
+#
+# Coverage comes from a single `swift test --enable-code-coverage` run on a
+# headless macOS CI host (see .github/workflows/test.yml → the `test` job).
+# That environment cannot exercise a handful of on-device-only code paths —
+# most notably the native Picture-in-Picture teardown in Sources/SwiftVLC/PiP.
+# `PixelBufferRendererCallbackContext.releaseRetiredOpaqueRetainWhenPlayerIsQuiescent`
+# only takes its early-release branch once a real video output has torn down
+# (`libvlc_media_player_has_vout(player) == 0`); under the dummy/headless vout
+# used in CI that count never reaches 0, so the code always falls through to
+# its timed fallback and the quiescent branch is unreachable. Those lines are
+# real and exercised on device, so the per-PR patch gate must not fail on them.
+
+coverage:
+  status:
+    # Overall project coverage stays an enforced, blocking check: a
+    # regression in code that CI *can* execute should still fail CI.
+    project:
+      default:
+        target: auto
+        # Tolerate sub-percent noise from non-deterministic line attribution
+        # between runs; a real drop trips the check.
+        threshold: 1%
+
+    # Patch (diff) coverage is advisory rather than blocking. New code should
+    # still be tested, and Codecov continues to post the patch number on every
+    # PR — but because diffs that touch the device-only PiP teardown paths
+    # cannot reach full coverage in headless CI, this annotates instead of
+    # failing the build. Codecov has no per-line ignore, so an advisory patch
+    # status is the least-blunt way to carve those lines out without hiding a
+    # whole heavily-tested file behind `ignore`.
+    patch:
+      default:
+        informational: true
+
+# Belt-and-suspenders: the LCOV export (scripts/export-lcov.sh) already strips
+# Tests/ and .build/, and the Showcase apps build from a separate Xcode project
+# that never feeds coverage. Listing them here keeps Codecov's own bookkeeping
+# aligned with what actually gets uploaded.
+ignore:
+  - "Tests"
+  - "Showcase"
+  - ".build"

@@ -312,21 +312,11 @@ public final class PiPController: NSObject {
     playbackIntentObserverTask?.cancel()
     possibleObservation = nil
     activeObservation = nil
-    // Only relinquish ownership of the shared native backend if we still
-    // hold it. On a player swap (`updateUIView`/`updateNSView`) a new
-    // controller claims the same backend before this old controller's
-    // deinit runs; clearing `owner` unconditionally would null the
-    // successor's claim and silently kill its PiP state callbacks.
-    #if os(iOS)
-    if nativeBackend?.owner === self {
-      nativeBackend?.owner = nil
-    }
-    #endif
-    #if os(macOS)
-    if nativeBackend?.owner === self {
-      nativeBackend?.owner = nil
-    }
-    #endif
+    // No explicit native-backend relinquish: the backend holds its `owner`
+    // weakly, so ARC clears the back-reference as this controller is torn
+    // down. A player swap (`updateUIView`/`updateNSView`) reassigns `owner`
+    // to the successor controller before this one's deinit runs, so the
+    // successor's claim is preserved without us touching it here.
     pipController?.delegate = nil
     playbackDelegateProxy.owner = nil
     renderer.setDisplayLayer(nil)
