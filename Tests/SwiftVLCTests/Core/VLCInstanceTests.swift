@@ -204,6 +204,38 @@ extension Integration {
     }
     #endif
 
+    #if os(iOS)
+    @Test
+    func `Default instance uses PiP safe iOS display`() throws {
+      let instance = try VLCInstance()
+      #expect(instance.usesPiPSafeDarwinDisplay)
+    }
+
+    @Test
+    func `Custom iOS instance with explicit sample-buffer vout is PiP safe`() throws {
+      let instance = try VLCInstance(arguments: ["--no-video-title-show", "--vout=samplebufferdisplay"])
+      #expect(instance.usesPiPSafeDarwinDisplay)
+    }
+
+    @Test
+    func `Custom iOS instance with no video is not PiP safe`() throws {
+      let instance = try VLCInstance(arguments: ["--no-video-title-show", "--no-video"])
+      #expect(!instance.usesPiPSafeDarwinDisplay)
+    }
+
+    @Test
+    func `Custom iOS instance with forced legacy display is not PiP safe`() throws {
+      let instance = try VLCInstance(arguments: ["--force-darwin-legacy-display"])
+      #expect(!instance.usesPiPSafeDarwinDisplay)
+    }
+
+    @Test
+    func `Custom iOS instance with GLES vout is not PiP safe`() throws {
+      let instance = try VLCInstance(arguments: ["--vout=gles2"])
+      #expect(!instance.usesPiPSafeDarwinDisplay)
+    }
+    #endif
+
     @Test
     func `Audio outputs returns non-empty list`() {
       let outputs = VLCInstance.shared.audioOutputs()

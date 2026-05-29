@@ -1,14 +1,18 @@
 #if os(iOS)
 import AVFoundation
+import AVKit
+import CLibVLC
+import os
 import SwiftUI
 import UIKit
 
-/// A SwiftUI view that renders video via `AVSampleBufferDisplayLayer`,
-/// enabling Picture-in-Picture support on iOS.
+/// A SwiftUI view that renders video through libVLC's native iOS drawable
+/// output and exposes Picture in Picture controls.
 ///
-/// Unlike ``VideoView``, which uses `libvlc_media_player_set_nsobject()`,
-/// this view uses vmem callbacks for rendering. The two approaches are
-/// mutually exclusive; use one or the other for a given player.
+/// Like ``VideoView``, this view attaches the player with
+/// `libvlc_media_player_set_nsobject()`. Its drawable also implements
+/// libVLC's Picture in Picture selectors so libVLC can hand SwiftVLC the
+/// native PiP window controller when the video output is ready.
 ///
 /// ```swift
 /// @State private var pipController: PiPController?
@@ -30,15 +34,12 @@ public struct PiPVideoView: UIViewRepresentable {
   }
 
   public func makeUIView(context: Context) -> UIView {
-    let controller = PiPController(player: player)
-    let displayLayer = controller.layer
+    let container = IOSNativePiPHostView()
+    container.attach(to: player)
 
-    let container = SampleBufferVideoView(displayLayer: displayLayer)
-    container.backgroundColor = .black
-    container.clipsToBounds = true
+    let controller = PiPController(player: player, nativeBackend: container.nativePiPBackend)
 
     context.coordinator.pipController = controller
-    context.coordinator.displayLayer = displayLayer
     context.coordinator.player = player
 
     // Defer the binding update. SwiftUI doesn't allow state changes
@@ -49,27 +50,27 @@ public struct PiPVideoView: UIViewRepresentable {
   }
 
   public func updateUIView(_ uiView: UIView, context: Context) {
-    guard let container = uiView as? SampleBufferVideoView else { return }
+    guard let container = uiView as? IOSNativePiPHostView else { return }
     if context.coordinator.player !== player {
-      context.coordinator.pipController?.stop()
+      container.detach()
+      container.attach(to: player)
 
-      let controller = PiPController(player: player)
-      let displayLayer = controller.layer
-      container.setDisplayLayer(displayLayer)
+      let controller = PiPController(player: player, nativeBackend: container.nativePiPBackend)
 
       context.coordinator.player = player
       context.coordinator.pipController = controller
-      context.coordinator.displayLayer = displayLayer
     }
 
     pushControllerBinding(context.coordinator.pipController, via: context.coordinator)
   }
 
-  public static func dismantleUIView(_: UIView, coordinator: Coordinator) {
-    coordinator.pipController?.stop()
-    coordinator.displayLayer?.removeFromSuperlayer()
+  public static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+    if let container = uiView as? IOSNativePiPHostView {
+      container.detach()
+    } else {
+      coordinator.pipController?.stop()
+    }
     coordinator.pipController = nil
-    coordinator.displayLayer = nil
     // Clear any external binding so callers who observe it don't
     // retain a stopped controller.
     if let binding = coordinator.controllerBinding {
@@ -84,13 +85,12 @@ public struct PiPVideoView: UIViewRepresentable {
 
   /// Internal state for the SwiftUI view's lifecycle.
   ///
-  /// Retains the ``PiPController`` and its display layer so they survive
-  /// view updates and are cleaned up on dismantle.
+  /// Retains the ``PiPController`` so it survives view updates and is
+  /// cleaned up on dismantle.
   @MainActor
   public final class Coordinator {
     weak var player: Player?
     var pipController: PiPController?
-    var displayLayer: AVSampleBufferDisplayLayer?
     var controllerBinding: Binding<PiPController?>?
   }
 
@@ -104,14 +104,22 @@ public struct PiPVideoView: UIViewRepresentable {
   }
 }
 
-/// UIView subclass that keeps the AVSampleBufferDisplayLayer
-/// sized to fill its bounds on every layout pass.
-private final class SampleBufferVideoView: UIView {
-  private var displayLayer: AVSampleBufferDisplayLayer?
+final class IOSNativePiPHostView: UIView {
+  let drawableView = IOSNativePiPDrawableView()
 
-  init(displayLayer: AVSampleBufferDisplayLayer) {
-    super.init(frame: .zero)
-    setDisplayLayer(displayLayer)
+  var nativePiPBackend: IOSNativePiPBackend {
+    drawableView.nativePiPBackend
+  }
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    backgroundColor = .black
+    clipsToBounds = true
+
+    nativePiPBackend.hostView = self
+    drawableView.frame = bounds
+    drawableView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    addSubview(drawableView)
   }
 
   @available(*, unavailable)
@@ -119,22 +127,458 @@ private final class SampleBufferVideoView: UIView {
     fatalError()
   }
 
-  func setDisplayLayer(_ displayLayer: AVSampleBufferDisplayLayer) {
-    self.displayLayer?.removeFromSuperlayer()
-    self.displayLayer = displayLayer
-    layer.addSublayer(displayLayer)
-    setNeedsLayout()
-    layoutIfNeeded()
+  func attach(to player: Player) {
+    drawableView.attach(to: player)
+  }
+
+  func detach() {
+    drawableView.detach()
   }
 
   override func layoutSubviews() {
     super.layoutSubviews()
-    // Disable implicit animations so the layer doesn't animate to the new size
-    CATransaction.begin()
-    CATransaction.setDisableActions(true)
-    displayLayer?.frame = bounds
-    CATransaction.commit()
+    drawableView.frame = bounds
   }
+}
+
+typealias IOSNativePictureInPictureReadyBlock = @convention(block) (AnyObject) -> Void
+typealias IOSNativePiPStateChangeEventHandler = @convention(block) (Bool) -> Void
+
+@objc(VLCPictureInPictureDrawable)
+private protocol IOSNativePiPDrawable: NSObjectProtocol {
+  @objc(mediaController)
+  func mediaController() -> AnyObject
+
+  @objc(pictureInPictureReady)
+  func pictureInPictureReady() -> IOSNativePictureInPictureReadyBlock
+
+  @objc(canStartPictureInPictureAutomaticallyFromInline)
+  optional func canStartPictureInPictureAutomaticallyFromInline() -> Bool
+}
+
+@objc(VLCPictureInPictureMediaControlling)
+private protocol IOSNativePiPMediaControlling: NSObjectProtocol {
+  @objc func play()
+  @objc func pause()
+
+  @objc(seekBy:completion:)
+  func seek(by offset: Int64, completion: (() -> Void)?)
+
+  @objc func mediaLength() -> Int64
+  @objc func mediaTime() -> Int64
+  @objc func isMediaSeekable() -> Bool
+  @objc func isMediaPlaying() -> Bool
+}
+
+@MainActor
+final class IOSNativePiPDrawableView: UIView, IOSNativePiPDrawable {
+  let nativePiPBackend = IOSNativePiPBackend()
+  private weak var attachedPlayer: Player?
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    backgroundColor = .black
+    clipsToBounds = true
+    nativePiPBackend.drawableView = self
+  }
+
+  @available(*, unavailable)
+  required init?(coder _: NSCoder) {
+    fatalError()
+  }
+
+  func attach(to player: Player) {
+    if attachedPlayer !== player {
+      attachedPlayer?.releaseDrawableOwnership(self)
+      attachedPlayer = player
+      nativePiPBackend.attach(to: player)
+    }
+    player.claimDrawableOwnership(self)
+    publishDrawableIfReady()
+  }
+
+  func detach() {
+    guard let player = attachedPlayer else { return }
+    player.releaseDrawableOwnership(self)
+    nativePiPBackend.detach()
+    attachedPlayer = nil
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+
+    guard hasDrawableBounds else { return }
+
+    publishDrawableIfReady()
+    resizeRenderingChildren()
+  }
+
+  override func didAddSubview(_ subview: UIView) {
+    super.didAddSubview(subview)
+    resizeRenderingSubview(subview)
+  }
+
+  override func layoutSublayers(of layer: CALayer) {
+    super.layoutSublayers(of: layer)
+    guard layer === self.layer else { return }
+    resizeRenderingLayers()
+  }
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    if window != nil {
+      publishDrawableIfReady()
+      setNeedsLayout()
+      layer.setNeedsLayout()
+    }
+  }
+
+  @objc(mediaController)
+  func mediaController() -> AnyObject {
+    nativePiPBackend.mediaController
+  }
+
+  @objc(pictureInPictureReady)
+  func pictureInPictureReady() -> IOSNativePictureInPictureReadyBlock {
+    { [weak nativePiPBackend] windowController in
+      Task { @MainActor in
+        nativePiPBackend?.handlePictureInPictureReady(windowController)
+      }
+    }
+  }
+
+  @objc(canStartPictureInPictureAutomaticallyFromInline)
+  func canStartPictureInPictureAutomaticallyFromInline() -> Bool {
+    true
+  }
+
+  private var hasDrawableBounds: Bool {
+    bounds.width > 0 && bounds.height > 0
+  }
+
+  private func publishDrawableIfReady() {
+    guard let player = attachedPlayer, player.isDrawableOwner(self) else { return }
+    if !player.isCurrentDrawable(self) {
+      player.setDrawable(self, owner: self)
+      resizeRenderingChildren()
+    }
+  }
+
+  private func resizeRenderingChildren() {
+    guard hasDrawableBounds else { return }
+    subviews.forEach(resizeRenderingSubview)
+    resizeRenderingLayers()
+  }
+
+  private func resizeRenderingSubview(_ subview: UIView) {
+    guard hasDrawableBounds else { return }
+    subview.frame = bounds
+    subview.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    syncContentScale(to: subview)
+    subview.setNeedsLayout()
+    subview.layoutIfNeeded()
+    reshapeVLCSubviewIfNeeded(subview)
+  }
+
+  private func resizeRenderingLayers() {
+    guard hasDrawableBounds else { return }
+    layer.sublayers?.forEach { sublayer in
+      CATransaction.begin()
+      CATransaction.setDisableActions(true)
+      sublayer.frame = bounds
+      CATransaction.commit()
+    }
+  }
+
+  private func syncContentScale(to subview: UIView) {
+    let scale = window?.screen.scale
+      ?? subview.window?.screen.scale
+      ?? UIScreen.main.scale
+    subview.contentScaleFactor = scale
+    subview.layer.contentsScale = scale
+  }
+}
+
+@MainActor
+final class IOSNativePiPBackend: NSObject, @unchecked Sendable {
+  let mediaController = IOSNativePiPMediaController()
+  weak var owner: PiPController? {
+    didSet { mediaController.owner = owner }
+  }
+
+  weak var hostView: IOSNativePiPHostView?
+  weak var drawableView: IOSNativePiPDrawableView?
+
+  private static var supportsNativePictureInPictureRendering: Bool {
+    #if targetEnvironment(simulator)
+    // The system can report active sample-buffer PiP while rendering a black window.
+    false
+    #else
+    true
+    #endif
+  }
+
+  private weak var windowController: NSObject?
+  private var avPictureInPictureController: AVPictureInPictureController?
+  private var possibleObservation: NSKeyValueObservation?
+  private var activeObservation: NSKeyValueObservation?
+  private var stateChangeEventHandler: IOSNativePiPStateChangeEventHandler?
+
+  private(set) var isPossible = false
+  private(set) var isActive = false
+  private var didWarnAboutVideoOutput = false
+
+  private static let logger = Logger(
+    subsystem: Signposts.subsystem,
+    category: "PictureInPicture"
+  )
+
+  func attach(to player: Player) {
+    mediaController.player = player
+    setPossible(false)
+    setActive(false)
+  }
+
+  func detach() {
+    stop()
+    clearWindowController()
+    mediaController.player = nil
+    setPossible(false)
+    setActive(false)
+  }
+
+  func handlePictureInPictureReady(_ controller: AnyObject) {
+    guard let controller = controller as? NSObject else { return }
+
+    clearWindowController()
+    guard Self.supportsNativePictureInPictureRendering else {
+      setPossible(false)
+      setActive(false)
+      return
+    }
+
+    windowController = controller
+    installStateChangeHandler(on: controller)
+    observeAVPictureInPictureController(on: controller)
+
+    if avPictureInPictureController == nil {
+      setPossible(true)
+    }
+  }
+
+  func start() {
+    guard isPossible, mediaController.player?.currentMedia != nil else {
+      warnIfVideoOutputBlocksPictureInPicture()
+      return
+    }
+    performWindowControllerAction(IOSNativePiPSelector.start)
+  }
+
+  /// One-time diagnostic for the common misconfiguration where a custom
+  /// ``VLCInstance`` forces a non-default video output (e.g. `--vout=gles2`
+  /// or `--no-video`): libVLC then never selects the sample-buffer display
+  /// PiP needs, the PiP-ready callback never fires, and ``isPossible``
+  /// stays `false` with no other signal.
+  private func warnIfVideoOutputBlocksPictureInPicture() {
+    guard !didWarnAboutVideoOutput else { return }
+    guard
+      let instance = mediaController.player?.instance,
+      !instance.usesPiPSafeDarwinDisplay
+    else { return }
+    didWarnAboutVideoOutput = true
+    Self.logger.warning(
+      """
+      Picture in Picture is unavailable: this VLCInstance's video-output \
+      arguments (e.g. --vout or --no-video) stop libVLC from selecting the \
+      sample-buffer display that native PiP requires. Use the default video \
+      output to enable PiP.
+      """
+    )
+  }
+
+  func stop() {
+    performWindowControllerAction(IOSNativePiPSelector.stop)
+  }
+
+  func invalidatePlaybackState() {
+    performWindowControllerAction(IOSNativePiPSelector.invalidatePlaybackState)
+  }
+
+  private func clearWindowController() {
+    if
+      let windowController,
+      windowController.responds(to: IOSNativePiPSelector.setStateChangeEventHandler) {
+      windowController.setValue(nil, forKey: "stateChangeEventHandler")
+    }
+    possibleObservation = nil
+    activeObservation = nil
+    avPictureInPictureController = nil
+    stateChangeEventHandler = nil
+    windowController = nil
+  }
+
+  private func installStateChangeHandler(on controller: NSObject) {
+    guard controller.responds(to: IOSNativePiPSelector.setStateChangeEventHandler) else { return }
+
+    let handler: IOSNativePiPStateChangeEventHandler = { [weak self] isStarted in
+      Task { @MainActor in
+        self?.setActive(isStarted)
+      }
+    }
+    stateChangeEventHandler = handler
+    controller.setValue(handler, forKey: "stateChangeEventHandler")
+  }
+
+  private func observeAVPictureInPictureController(on controller: NSObject) {
+    guard controller.responds(to: IOSNativePiPSelector.avPictureInPictureController) else { return }
+    guard let avController = controller.value(forKey: "avPipController") as? AVPictureInPictureController else { return }
+
+    avPictureInPictureController = avController
+    setPossible(avController.isPictureInPicturePossible)
+    setActive(avController.isPictureInPictureActive)
+
+    possibleObservation = avController.observe(
+      \.isPictureInPicturePossible,
+      options: [.initial, .new]
+    ) { [weak self] controller, _ in
+      let isPossible = controller.isPictureInPicturePossible
+      Task { @MainActor [weak self] in
+        self?.setPossible(isPossible)
+      }
+    }
+
+    activeObservation = avController.observe(
+      \.isPictureInPictureActive,
+      options: [.initial, .new]
+    ) { [weak self] controller, _ in
+      let isActive = controller.isPictureInPictureActive
+      Task { @MainActor [weak self] in
+        self?.setActive(isActive)
+      }
+    }
+  }
+
+  private func performWindowControllerAction(_ selector: Selector) {
+    guard let windowController, windowController.responds(to: selector) else { return }
+    _ = windowController.perform(selector)
+  }
+
+  private func setPossible(_ isPossible: Bool) {
+    guard self.isPossible != isPossible else { return }
+    self.isPossible = isPossible
+    Task { @MainActor [weak owner] in
+      owner?.handleNativePictureInPictureReady()
+    }
+  }
+
+  private func setActive(_ isActive: Bool) {
+    guard self.isActive != isActive else { return }
+    self.isActive = isActive
+    Task { @MainActor [weak owner] in
+      owner?.handleNativePictureInPictureActiveChanged(isActive)
+    }
+  }
+}
+
+final class IOSNativePiPMediaController: NSObject, IOSNativePiPMediaControlling, @unchecked Sendable {
+  weak var player: Player?
+  weak var owner: PiPController?
+
+  @objc func play() {
+    Task { @MainActor [weak self] in
+      guard let self, let player else { return }
+      // A cold start after playback ended is not a resume — begin afresh.
+      if player.state == .idle || player.state == .stopped {
+        try? player.play()
+        return
+      }
+      // Otherwise route through the controller so the AVKit-transient pause
+      // debouncer and PiP playback-state reconciliation engage. Fall back to
+      // a direct resume when constructed without a controller (the public
+      // direct-`PiPController` usage path).
+      if let owner {
+        owner.handleNativePictureInPictureSetPlaying(true)
+      } else {
+        player.resume()
+      }
+    }
+  }
+
+  @objc func pause() {
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      if let owner {
+        owner.handleNativePictureInPictureSetPlaying(false)
+      } else {
+        player?.pause()
+      }
+    }
+  }
+
+  @objc(seekBy:completion:)
+  func seek(by offset: Int64, completion: (() -> Void)?) {
+    nonisolated(unsafe) let completion = completion
+    Task { @MainActor [weak self] in
+      guard let player = self?.player else {
+        completion?()
+        return
+      }
+
+      let duration = player.duration?.milliseconds ?? Int64.max
+      let target = max(0, min(player.currentTime.milliseconds + offset, duration))
+      try? player.seek(to: .milliseconds(target))
+      completion?()
+    }
+  }
+
+  @objc func mediaLength() -> Int64 {
+    pipMainActorSync { [weak self] in
+      guard let player = self?.player else { return -1 }
+      let length = libvlc_media_player_get_length(player.pointer)
+      return length > 0 ? length : -1
+    }
+  }
+
+  @objc func mediaTime() -> Int64 {
+    pipMainActorSync { [weak self] in
+      guard let player = self?.player else { return 0 }
+      return max(libvlc_media_player_get_time(player.pointer), 0)
+    }
+  }
+
+  @objc func isMediaSeekable() -> Bool {
+    pipMainActorSync { [weak self] in
+      guard let player = self?.player else { return false }
+      return libvlc_media_player_is_seekable(player.pointer)
+    }
+  }
+
+  @objc func isMediaPlaying() -> Bool {
+    pipMainActorSync { [weak self] in
+      guard let player = self?.player else { return false }
+      return player.isPlaybackRequestedActive
+    }
+  }
+}
+
+private enum IOSNativePiPSelector {
+  static let start = NSSelectorFromString("startPictureInPicture")
+  static let stop = NSSelectorFromString("stopPictureInPicture")
+  static let invalidatePlaybackState = NSSelectorFromString("invalidatePlaybackState")
+  static let setStateChangeEventHandler = NSSelectorFromString("setStateChangeEventHandler:")
+  static let avPictureInPictureController = NSSelectorFromString("avPipController")
+}
+
+private let vlcUIViewReshapeSelector = NSSelectorFromString("reshape")
+
+@MainActor
+private func reshapeVLCSubviewIfNeeded(_ subview: UIView) {
+  guard
+    subview.responds(to: vlcUIViewReshapeSelector),
+    subview.bounds.width > 0,
+    subview.bounds.height > 0
+  else { return }
+  _ = subview.perform(vlcUIViewReshapeSelector)
 }
 
 #elseif os(macOS)

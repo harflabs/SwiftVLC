@@ -493,8 +493,9 @@ final class MacNativePiPMediaController: NSObject, @unchecked Sendable {
 
   @objc func mediaLength() -> Int64 {
     pipMainActorSync { [weak self] in
-      guard let player = self?.player else { return 0 }
-      return max(libvlc_media_player_get_length(player.pointer), 0)
+      guard let player = self?.player else { return -1 }
+      let length = libvlc_media_player_get_length(player.pointer)
+      return length > 0 ? length : -1
     }
   }
 

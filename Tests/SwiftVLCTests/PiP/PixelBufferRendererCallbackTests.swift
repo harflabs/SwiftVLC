@@ -129,7 +129,7 @@ extension Integration {
         }
       }
 
-      #expect(result == 3)
+      #expect(result == 12)
 
       // Chroma should be forced to BGRA.
       let chromaString = String(
@@ -394,7 +394,7 @@ extension Integration {
             }
           }
         }
-        #expect(result == 3)
+        #expect(result == 12)
         #expect(context.hasOpenVoutForTesting)
 
         context.requestRetirement(
@@ -501,6 +501,136 @@ extension Integration {
       defer { retained.release() }
 
       pixelBufferDisplayCallback(opaque: retained.toOpaque(), picture: nil)
+    }
+
+    // MARK: - Pool floor / deferred retirement
+
+    /// Drive the format callback and read back the negotiated pool's
+    /// minimum buffer count via its attributes.
+    private func formatCallbackPoolFloor(
+      renderer: PixelBufferRenderer,
+      opaque: UnsafeMutableRawPointer,
+      width: UInt32,
+      height: UInt32
+    )
+      throws -> (decodeHeadroom: UInt32, poolFloor: Int) {
+      var opaqueSlot: UnsafeMutableRawPointer? = opaque
+      var buffers = FormatBuffers()
+      buffers.width = width
+      buffers.height = height
+      let result = withUnsafeMutablePointer(to: &opaqueSlot) { opaquePtr in
+        buffers.chroma.withUnsafeMutableBufferPointer { chromaBuf in
+          withUnsafeMutablePointer(to: &buffers.width) { w in
+            withUnsafeMutablePointer(to: &buffers.height) { h in
+              withUnsafeMutablePointer(to: &buffers.pitches) { p in
+                withUnsafeMutablePointer(to: &buffers.lines) { l in
+                  pixelBufferFormatCallback(
+                    opaque: opaquePtr,
+                    chroma: chromaBuf.baseAddress,
+                    width: w,
+                    height: h,
+                    pitches: p,
+                    lines: l
+                  )
+                }
+              }
+            }
+          }
+        }
+      }
+      let pool = try #require(renderer.state.withLock { $0.pool })
+      let attrs = try #require(CVPixelBufferPoolGetAttributes(pool) as? [String: Any])
+      let minNumber = try #require(
+        attrs[kCVPixelBufferPoolMinimumBufferCountKey as String] as? NSNumber
+      )
+      return (result, minNumber.intValue)
+    }
+
+    /// The resident pool floor is byte-budgeted: 4K drains down to a small
+    /// floor while the decode-headroom return value stays at the full
+    /// picture count; SD keeps the full floor.
+    @Test
+    func `Pool floor is byte-budgeted while decode headroom is preserved`() throws {
+      let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+      let retained = makeRetainedContext(renderer: renderer)
+      defer { retained.release() }
+
+      let uhd = try formatCallbackPoolFloor(
+        renderer: renderer,
+        opaque: retained.toOpaque(),
+        width: 3840,
+        height: 2160
+      )
+      #expect(uhd.decodeHeadroom == 12)
+      #expect(uhd.poolFloor >= 3)
+      #expect(uhd.poolFloor <= 4)
+
+      let sd = try formatCallbackPoolFloor(
+        renderer: renderer,
+        opaque: retained.toOpaque(),
+        width: 320,
+        height: 240
+      )
+      #expect(sd.decodeHeadroom == 12)
+      #expect(sd.poolFloor == 12)
+
+      pixelBufferCleanupCallback(opaque: retained.toOpaque())
+    }
+
+    /// Deferred retirement (the teardown path `PiPController.deinit` uses)
+    /// keeps both the context AND the renderer alive while a vout is open —
+    /// unlike `requestRetirement`, it does not drop the renderer, so a late
+    /// callback can still render. The vout cleanup callback performs the
+    /// balancing release.
+    @Test
+    func `Deferred retirement keeps context and renderer alive until vout cleanup`() {
+      weak var weakContext: PixelBufferRendererCallbackContext?
+      weak var weakRenderer: PixelBufferRenderer?
+      var contextOpaque: UnsafeMutableRawPointer?
+
+      do {
+        let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+        let context = PixelBufferRendererCallbackContext(renderer: renderer)
+        weakContext = context
+        weakRenderer = renderer
+        let retained = Unmanaged.passRetained(context)
+        contextOpaque = retained.toOpaque()
+
+        var opaqueSlot: UnsafeMutableRawPointer? = contextOpaque
+        var buffers = FormatBuffers()
+        _ = withUnsafeMutablePointer(to: &opaqueSlot) { opaquePtr in
+          buffers.chroma.withUnsafeMutableBufferPointer { chromaBuf in
+            withUnsafeMutablePointer(to: &buffers.width) { w in
+              withUnsafeMutablePointer(to: &buffers.height) { h in
+                withUnsafeMutablePointer(to: &buffers.pitches) { p in
+                  withUnsafeMutablePointer(to: &buffers.lines) { l in
+                    pixelBufferFormatCallback(
+                      opaque: opaquePtr,
+                      chroma: chromaBuf.baseAddress,
+                      width: w,
+                      height: h,
+                      pitches: p,
+                      lines: l
+                    )
+                  }
+                }
+              }
+            }
+          }
+        }
+        #expect(context.hasOpenVoutForTesting)
+
+        context.requestDeferredRetirement()
+      }
+
+      // Vout still open → context retained, and renderer NOT dropped.
+      #expect(weakContext != nil)
+      #expect(weakRenderer != nil)
+
+      pixelBufferCleanupCallback(opaque: contextOpaque)
+
+      #expect(weakContext == nil)
+      #expect(weakRenderer == nil)
     }
   }
 }

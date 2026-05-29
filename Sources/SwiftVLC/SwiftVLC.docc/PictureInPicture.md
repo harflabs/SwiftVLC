@@ -7,8 +7,9 @@ working native backend uses private Apple framework symbols.
 ## Using PiPVideoView
 
 ``PiPVideoView`` replaces ``VideoView`` and configures the PiP-capable
-surface on your behalf. On iOS it uses SwiftVLC's public AVKit
-sample-buffer path.
+surface on your behalf. On iOS it attaches libVLC's native drawable and
+implements libVLC's Picture in Picture selectors, so the bundled iOS
+video output owns the `AVPictureInPictureController` integration.
 
 On macOS, ``PiPVideoView`` still hosts libVLC's native drawable for
 inline playback. Its native PiP start path remains unavailable unless
@@ -39,6 +40,11 @@ don't expose SwiftVLC's PiP APIs (e.g. tvOS and visionOS). On macOS the
 binding is non-`nil`, but ``PiPController/isPossible`` remains `false`
 unless the SPI native backend is enabled and available at runtime.
 
+On iOS Simulator, SwiftVLC reports native PiP as unavailable. Simulator
+AVSampleBufferDisplayLayer PiP can reach `isPictureInPictureActive` while
+rendering a black system PiP window, so validate iOS PiP rendering on
+device.
+
 ## Audio session (iOS only)
 
 PiP requires a playback-category audio session. ``PiPController``
@@ -60,9 +66,9 @@ Your app must also declare background modes in its Info.plist:
 
 ## Using PiPController directly
 
-Instantiate ``PiPController`` yourself when placing SwiftVLC's public
-iOS sample-buffer video layer into a non-SwiftUI view hierarchy, or when
-your layout needs more control than ``PiPVideoView`` offers:
+Instantiate ``PiPController`` yourself only when placing SwiftVLC's
+public iOS sample-buffer video layer into a non-SwiftUI view hierarchy,
+or when your layout needs more control than ``PiPVideoView`` offers:
 
 ```swift
 let controller = PiPController(player: player)
@@ -80,11 +86,11 @@ releases.
 
 - **Never mix rendering paths.** A player attached to direct
   ``PiPController`` sample-buffer rendering cannot also back a
-  ``VideoView``. ``PiPVideoView`` owns the active video output for the
-  lifetime of the view.
+  ``VideoView``. ``PiPVideoView`` uses libVLC's native drawable path and
+  owns the active video output for the lifetime of the view.
 - **Put the PiP surface on screen before calling `player.play()`.**
-  AVKit recognizes the PiP source only once the surface is visible and
-  receiving frames.
+  libVLC creates the native PiP controller after the visible drawable's
+  video output opens.
 - **Keep the macOS PiP-safe VLC defaults if you opt into SPI.** Passing
   a completely custom ``VLCInstance`` argument list on macOS can disable
   video output or force an unsupported vout. Start from
@@ -102,7 +108,7 @@ unavailable by default:
 - ``PiPVideoView``'s macOS native backend reports
   ``PiPController/isPossible`` as `false`.
 - ``PiPController/start()`` is a no-op for that native backend.
-- iOS PiP is unaffected — iOS uses only public AVKit.
+- iOS PiP is unaffected; libVLC's iOS drawable PiP path uses public AVKit.
 
 Non-App-Store distributions that deliberately accept private framework
 risk may opt in through SwiftVLC's `PrivateMacOSPiP` SPI. That SPI is

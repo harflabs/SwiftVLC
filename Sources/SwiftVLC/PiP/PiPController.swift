@@ -14,10 +14,10 @@ import Synchronization
 /// not use both on the same player.
 ///
 /// Most apps should prefer ``PiPVideoView``, which creates and owns a
-/// `PiPController` behind a single SwiftUI view. On macOS that view owns
-/// VLC's native drawable container for inline playback; its native PiP
-/// start path is disabled unless the `PrivateMacOSPiP` SPI opt-in is
-/// enabled.
+/// `PiPController` behind a single SwiftUI view. On iOS that view uses
+/// libVLC's native drawable PiP integration. On macOS it owns VLC's
+/// native drawable container for inline playback; its native PiP start
+/// path is disabled unless the `PrivateMacOSPiP` SPI opt-in is enabled.
 ///
 /// ```swift
 /// let controller = PiPController(player: player)
@@ -117,6 +117,10 @@ public final class PiPController: NSObject {
   private var possibleObservation: NSKeyValueObservation?
   @ObservationIgnored
   private var activeObservation: NSKeyValueObservation?
+  #if os(iOS)
+  @ObservationIgnored
+  private var nativeBackend: IOSNativePiPBackend?
+  #endif
   #if os(macOS)
   @ObservationIgnored
   private var nativeBackend: MacNativePiPBackend?
@@ -227,6 +231,31 @@ public final class PiPController: NSObject {
     startPlaybackIntentObserver()
   }
 
+  #if os(iOS)
+  init(
+    player: Player,
+    nativeBackend: IOSNativePiPBackend
+  ) {
+    self.player = player
+    playbackDriver = .live(player: player)
+    pauseDebounce = .milliseconds(250)
+    displayLayer = AVSampleBufferDisplayLayer()
+    renderer = PixelBufferRenderer(displayLayer: displayLayer)
+    playbackDelegateProxy = PiPPlaybackDelegateProxy()
+    self.nativeBackend = nativeBackend
+
+    super.init()
+
+    playbackDelegateProxy.owner = self
+    configureAudioSession()
+    nativeBackend.owner = self
+    updatePiPPossible(nativeBackend.isPossible)
+    updatePiPActive(nativeBackend.isActive)
+    startStateObserver()
+    startPlaybackIntentObserver()
+  }
+  #endif
+
   #if os(macOS)
   init(
     player: Player,
@@ -283,28 +312,28 @@ public final class PiPController: NSObject {
     playbackIntentObserverTask?.cancel()
     possibleObservation = nil
     activeObservation = nil
-    #if os(macOS)
-    nativeBackend?.owner = nil
+    // Only relinquish ownership of the shared native backend if we still
+    // hold it. On a player swap (`updateUIView`/`updateNSView`) a new
+    // controller claims the same backend before this old controller's
+    // deinit runs; clearing `owner` unconditionally would null the
+    // successor's claim and silently kill its PiP state callbacks.
+    #if os(iOS)
+    if nativeBackend?.owner === self {
+      nativeBackend?.owner = nil
+    }
     #endif
+    #if os(macOS)
+    if nativeBackend?.owner === self {
+      nativeBackend?.owner = nil
+    }
+    #endif
+    pipController?.delegate = nil
+    playbackDelegateProxy.owner = nil
     renderer.setDisplayLayer(nil)
     renderer.setTimebase(nil)
     if let rendererContext, let rendererOpaque {
-      let nativeState = PlayerState(from: libvlc_media_player_get_state(player.pointer))
-      let mayHaveInheritedCallbacks = switch nativeState {
-      case .idle, .stopped, .error:
-        player.isPlaybackRequestedActive
-      case .opening, .buffering, .playing, .paused, .stopping:
-        true
-      }
-      libvlc_video_set_callbacks(player.pointer, nil, nil, nil, nil)
-      libvlc_video_set_format_callbacks(player.pointer, nil, nil)
-      rendererContext.requestRetirement(
-        opaque: rendererOpaque,
-        deferIfVoutMayBeOpening: mayHaveInheritedCallbacks
-      )
-      if mayHaveInheritedCallbacks {
-        scheduleRetiredRendererContextRelease(rendererContext, opaque: rendererOpaque)
-      }
+      rendererContext.requestDeferredRetirement()
+      scheduleRetiredRendererContextRelease(rendererContext, opaque: rendererOpaque)
     }
   }
 
@@ -312,6 +341,12 @@ public final class PiPController: NSObject {
 
   /// Starts Picture-in-Picture if possible and media is loaded.
   public func start() {
+    #if os(iOS)
+    if let nativeBackend {
+      nativeBackend.start()
+      return
+    }
+    #endif
     #if os(macOS)
     if let nativeBackend {
       nativeBackend.start()
@@ -325,6 +360,12 @@ public final class PiPController: NSObject {
 
   /// Stops Picture-in-Picture.
   public func stop() {
+    #if os(iOS)
+    if let nativeBackend {
+      nativeBackend.stop()
+      return
+    }
+    #endif
     #if os(macOS)
     if let nativeBackend {
       nativeBackend.stop()
@@ -478,6 +519,12 @@ public final class PiPController: NSObject {
   }
 
   func invalidatePictureInPicturePlaybackState() {
+    #if os(iOS)
+    if let nativeBackend {
+      nativeBackend.invalidatePlaybackState()
+      return
+    }
+    #endif
     #if os(macOS)
     if let nativeBackend {
       nativeBackend.invalidatePlaybackState()
@@ -770,7 +817,7 @@ public final class PiPController: NSObject {
     syncTimebase(playing: player.isActive)
   }
 
-  #if os(macOS)
+  #if os(iOS) || os(macOS)
   func handleNativePictureInPictureReady() {
     updatePiPPossible(nativeBackend?.isPossible == true)
   }

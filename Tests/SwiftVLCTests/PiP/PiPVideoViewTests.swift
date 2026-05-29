@@ -45,9 +45,6 @@ extension Integration {
       let coordinator = view.makeCoordinator()
       // Fresh coordinator has no references.
       #expect(coordinator.pipController == nil)
-      #if canImport(UIKit)
-      #expect(coordinator.displayLayer == nil)
-      #endif
       #expect(coordinator.player == nil)
     }
 
@@ -80,9 +77,6 @@ extension Integration {
       // controller to the coordinator.
       let controller = PiPController(player: player)
       coordinator.pipController = controller
-      #if canImport(UIKit)
-      coordinator.displayLayer = controller.layer
-      #endif
       coordinator.player = player
 
       #if canImport(UIKit)
@@ -94,10 +88,173 @@ extension Integration {
       #endif
 
       #expect(coordinator.pipController == nil)
-      #if canImport(UIKit)
-      #expect(coordinator.displayLayer == nil)
-      #endif
     }
+
+    #if canImport(UIKit)
+    @Test
+    func `iOS native PiP host attaches drawable child`() {
+      let player = Player(instance: TestInstance.shared)
+      let host = IOSNativePiPHostView()
+
+      host.attach(to: player)
+      #expect(player.drawable === host.drawableView)
+
+      host.detach()
+      #expect(player.drawable == nil)
+    }
+
+    @Test
+    func `iOS native PiP drawable exposes VLC PiP selectors`() {
+      let view = IOSNativePiPDrawableView()
+
+      #expect(view.responds(to: NSSelectorFromString("mediaController")))
+      #expect(view.responds(to: NSSelectorFromString("pictureInPictureReady")))
+      #expect(view.responds(to: NSSelectorFromString("canStartPictureInPictureAutomaticallyFromInline")))
+      if let protocolObject = NSProtocolFromString("VLCPictureInPictureDrawable") {
+        // Bind `conforms(to:)` to a plain Bool first. Calling it through an
+        // `AnyObject` (below) inside the `#expect` autoclosure makes SILGen
+        // emit a reabstraction thunk that crashes the iOS compiler (Swift
+        // 6.3.2); hoisting the call out of the autoclosure sidesteps it, and
+        // we keep both conformance checks consistent.
+        let conformsToDrawable = view.conforms(to: protocolObject)
+        #expect(conformsToDrawable)
+      } else {
+        Issue.record("VLCPictureInPictureDrawable protocol is not registered")
+      }
+
+      let mediaController = view.mediaController()
+      if let protocolObject = NSProtocolFromString("VLCPictureInPictureMediaControlling") {
+        let conformsToMediaControlling = mediaController.conforms(to: protocolObject)
+        #expect(conformsToMediaControlling)
+      } else {
+        Issue.record("VLCPictureInPictureMediaControlling protocol is not registered")
+      }
+    }
+
+    @Test
+    func `iOS native PiP drawable sizes VLC content to its bounds`() {
+      let view = IOSNativePiPDrawableView()
+      view.frame = CGRect(x: 0, y: 0, width: 640, height: 360)
+      let vlcSubview = UIView()
+      view.addSubview(vlcSubview)
+      view.layoutIfNeeded()
+
+      #expect(vlcSubview.frame.size == CGSize(width: 640, height: 360))
+      #expect(vlcSubview.autoresizingMask == [.flexibleWidth, .flexibleHeight])
+
+      view.frame = CGRect(x: 0, y: 0, width: 480, height: 270)
+      view.layoutIfNeeded()
+
+      #expect(vlcSubview.frame.size == CGSize(width: 480, height: 270))
+      #expect(vlcSubview.autoresizingMask == [.flexibleWidth, .flexibleHeight])
+    }
+
+    @Test
+    func `iOS native PiP media controller reports playback intent`() {
+      let player = Player(instance: TestInstance.shared)
+      let mediaController = IOSNativePiPMediaController()
+      mediaController.player = player
+
+      #expect(mediaController.isMediaPlaying() == false)
+
+      player.setPlaybackIntentFromExternalControl(true)
+      #expect(mediaController.isMediaPlaying() == true)
+
+      player.setPlaybackIntentFromExternalControl(false)
+      #expect(mediaController.isMediaPlaying() == false)
+    }
+
+    @Test
+    func `iOS native PiP controller delegates to native backend`() {
+      let player = Player(instance: TestInstance.shared)
+      let backend = IOSNativePiPBackend()
+      let controller = PiPController(player: player, nativeBackend: backend)
+
+      controller.start()
+      controller.invalidatePictureInPicturePlaybackState()
+      controller.stop()
+      controller.handleNativePictureInPictureReady()
+      controller.handleNativePictureInPictureActiveChanged(true)
+      #expect(controller.isActive == true)
+      controller.handleNativePictureInPictureActiveChanged(false)
+      #expect(controller.isActive == false)
+      controller.handleNativePictureInPictureSetPlaying(true)
+      #expect(controller._pipPlaybackActiveForTesting() == true)
+    }
+
+    /// Regression: a player swap builds a new controller on the *same*
+    /// shared native backend, then releases the old controller. The old
+    /// controller's deinit must not null the successor's ownership, or the
+    /// new controller's PiP state callbacks go silently dead.
+    @Test
+    func `Controller deinit does not clobber a successor's backend claim`() async {
+      let player = Player(instance: TestInstance.shared)
+      let backend = IOSNativePiPBackend()
+
+      var first: PiPController? = PiPController(player: player, nativeBackend: backend)
+      #expect(backend.owner === first)
+
+      let second = PiPController(player: player, nativeBackend: backend)
+      #expect(backend.owner === second)
+
+      first = nil
+      await Task.yield()
+
+      #expect(backend.owner === second)
+      withExtendedLifetime(second) {}
+    }
+
+    /// Teardown of the native backend's window-controller wiring must be
+    /// idempotent, and every private selector / KVC access must be gated by
+    /// `responds(to:)` so a non-conforming controller (or none) never
+    /// crashes. After `detach()` readiness is cleared regardless of whether
+    /// a controller was installed.
+    @Test
+    func `iOS native backend teardown is idempotent and selector-gated`() {
+      let player = Player(instance: TestInstance.shared)
+      let backend = IOSNativePiPBackend()
+      backend.attach(to: player)
+
+      // A non-conforming controller must not crash.
+      backend.handlePictureInPictureReady(NSObject())
+
+      // Start/stop/invalidate are safe whether or not a controller installed.
+      backend.start()
+      backend.stop()
+      backend.invalidatePlaybackState()
+
+      // Detach clears readiness and is idempotent.
+      backend.detach()
+      backend.detach()
+      #expect(backend.isPossible == false)
+      #expect(backend.isActive == false)
+    }
+
+    /// iOS native play/pause must route through the controller — engaging
+    /// the AVKit-transient pause debouncer and PiP playback-state
+    /// reconciliation — rather than poking the player directly. Verifies the
+    /// shared media controller is wired to its owning controller and that a
+    /// native pause flows through it.
+    @Test
+    func `iOS media controller routes pause through the controller`() async {
+      let player = Player(instance: TestInstance.shared)
+      let backend = IOSNativePiPBackend()
+      let controller = PiPController(player: player, nativeBackend: backend)
+
+      #expect(backend.mediaController.owner === controller)
+
+      // Prime PiP playback state to "playing", then a native pause must flow
+      // through the controller and flip it back off.
+      controller.handleNativePictureInPictureSetPlaying(true)
+      #expect(controller._pipPlaybackActiveForTesting() == true)
+
+      backend.mediaController.pause()
+      await Task.yield()
+      #expect(controller._pipPlaybackActiveForTesting() == false)
+
+      withExtendedLifetime(controller) {}
+    }
+    #endif
 
     @Test
     func `dismantle fallback stops controller and clears binding`() async {
@@ -388,6 +545,28 @@ extension Integration {
       #expect(controller._pipPlaybackActiveForTesting() == true)
     }
 
+    /// Regression: a player swap builds a new controller on the *same*
+    /// shared native backend, then releases the old controller. The old
+    /// controller's deinit must not null the successor's ownership, or the
+    /// new controller's PiP state callbacks go silently dead.
+    @Test
+    func `macOS controller deinit does not clobber a successor's backend claim`() async {
+      let player = Player(instance: TestInstance.shared)
+      let backend = MacNativePiPBackend()
+
+      var first: PiPController? = PiPController(player: player, nativeBackend: backend)
+      #expect(backend.owner === first)
+
+      let second = PiPController(player: player, nativeBackend: backend)
+      #expect(backend.owner === second)
+
+      first = nil
+      await Task.yield()
+
+      #expect(backend.owner === second)
+      withExtendedLifetime(second) {}
+    }
+
     @Test
     func `macOS native PiP media controller defaults without player`() async {
       let mediaController = MacNativePiPMediaController()
@@ -402,7 +581,7 @@ extension Integration {
       await Task.yield()
 
       #expect(didComplete.value)
-      #expect(mediaController.mediaLength() == 0)
+      #expect(mediaController.mediaLength() == -1)
       #expect(mediaController.mediaTime() == 0)
       #expect(mediaController.isMediaSeekable() == false)
       #expect(mediaController.isMediaPlaying() == false)
@@ -432,7 +611,7 @@ extension Integration {
 
       #expect(didComplete.value)
       #expect(player.currentTime == .zero)
-      #expect(mediaController.mediaLength() >= 0)
+      #expect(mediaController.mediaLength() >= -1)
       #expect(mediaController.mediaTime() >= 0)
       _ = mediaController.isMediaSeekable()
       #expect(mediaController.isMediaPlaying() == false)
@@ -511,6 +690,7 @@ private final class Box<T> {
   }
 }
 
+#if canImport(AppKit)
 @MainActor
 private final class PiPReshapeProbeView: NSView {
   var reshapeCount = 0
@@ -520,4 +700,5 @@ private final class PiPReshapeProbeView: NSView {
     reshapeCount += 1
   }
 }
+#endif
 #endif

@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftVLC
 
 private let readMe = """
-`PiPVideoView` uses libVLC's pixel-buffer pipeline to feed `AVPictureInPictureController`. \
+`PiPVideoView` uses libVLC's native iOS drawable path to drive Picture in Picture. \
 The controller reports whether PiP is possible and whether it's currently active.
 """
 

@@ -36,7 +36,7 @@ VideoLAN's Apple wrapper, [VLCKit](https://code.videolan.org/videolan/VLCKit), i
 | **Errors** | `throws(VLCError)`, typed and exhaustive | `NSError` codes |
 | **Events** | `AsyncStream<PlayerEvent>` with multiple consumers | `NSNotificationCenter` |
 | **libVLC generation** | 4.0 | 3.x stable line; 4.0 alpha packages exist |
-| **SwiftUI PiP** | iOS via public AVKit sample buffers; macOS private backend is SPI opt-in | App-supplied integration |
+| **SwiftUI PiP** | iOS via libVLC's native AVKit-backed drawable path; macOS private backend is SPI opt-in | App-supplied integration |
 | **Swift 6 safe** | Yes, with strict concurrency | No |
 
 ## Features

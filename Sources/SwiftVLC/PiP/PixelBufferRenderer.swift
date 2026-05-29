@@ -9,7 +9,28 @@ import Foundation
 import os
 import Synchronization
 
-private let pixelBufferRendererPictureBufferCount: UInt32 = 3
+/// Number of in-flight pictures libVLC's vmem output allocates, returned
+/// from the format callback. Higher gives the decoder more headroom and
+/// smoother playback; it is the dominant driver of peak in-flight memory.
+private let pixelBufferRendererPictureBufferCount: UInt32 = 12
+
+/// Soft cap on the bytes a single `CVPixelBufferPool` keeps resident as
+/// its recycled floor. Decode headroom (above) governs peak in-flight
+/// memory; this governs how many *returned* buffers the pool retains.
+/// Without it, a 4K BGRA pool with a 12-buffer floor pins ~380 MiB even
+/// when idle. ~96 MiB keeps HD/SD generously buffered while letting 4K
+/// drain its recycled buffers.
+private let pixelBufferRendererPoolMaximumResidentBytes = 96 * 1024 * 1024
+
+/// Byte-budgeted resident floor for a BGRA pool of the given dimensions:
+/// at most the picture count, at least 3, capped by the resident budget.
+/// Decoupled from `pixelBufferRendererPictureBufferCount` so smoothness
+/// (decode headroom) and idle memory footprint can be tuned independently.
+private func pixelBufferRendererPoolMinimumBufferCount(width: Int, height: Int) -> Int {
+  let bytesPerBuffer = max(1, width * height * 4)
+  let budgeted = pixelBufferRendererPoolMaximumResidentBytes / bytesPerBuffer
+  return max(3, min(Int(pixelBufferRendererPictureBufferCount), budgeted))
+}
 
 /// Carries media objects onto the serial enqueue queue. The queue only reads
 /// these references; ownership is transferred to the layer when enqueued.
@@ -163,7 +184,7 @@ final class PixelBufferRenderer: Sendable {
       guard canEnqueueFrame(generation: generation, on: enqueued.layer) else { return }
 
       let sampleBufferRenderer = enqueued.layer.sampleBufferRenderer
-      if sampleBufferRenderer.status == .failed {
+      if sampleBufferRenderer.status == .failed || sampleBufferRenderer.requiresFlushToResumeDecoding {
         sampleBufferRenderer.flush()
       }
       guard sampleBufferRenderer.isReadyForMoreMediaData else { return }
@@ -187,7 +208,8 @@ final class PixelBufferRenderer: Sendable {
         kCVPixelBufferCGBitmapContextCompatibilityKey as String: true
       ]
       let poolAttrs: [String: Any] = [
-        kCVPixelBufferPoolMinimumBufferCountKey as String: 3
+        kCVPixelBufferPoolMinimumBufferCountKey as String:
+          pixelBufferRendererPoolMinimumBufferCount(width: width, height: height)
       ]
 
       var newPool: CVPixelBufferPool?
@@ -292,6 +314,14 @@ final class PixelBufferRendererCallbackContext: Sendable {
     }
   }
 
+  func requestDeferredRetirement() {
+    state.withLock { state in
+      guard !state.opaqueRetainReleased else { return }
+      state.retirementRequested = true
+      state.deferReleaseUntilQuiescent = true
+    }
+  }
+
   @discardableResult
   func releaseRetiredOpaqueRetainIfNoOpenVout(opaque: UnsafeMutableRawPointer) -> Bool {
     releaseOpaqueRetainIfNeeded(opaque: opaque)
@@ -301,21 +331,41 @@ final class PixelBufferRendererCallbackContext: Sendable {
     opaque: UnsafeMutableRawPointer,
     player: OpaquePointer
   ) {
-    usleep(100_000)
-
     let deadline = CFAbsoluteTimeGetCurrent() + 5
+    var quiescentSince: CFAbsoluteTime?
     while CFAbsoluteTimeGetCurrent() < deadline {
       let nativeState = PlayerState(from: libvlc_media_player_get_state(player))
-      switch nativeState {
+      let isStopped = switch nativeState {
       case .idle, .stopped, .error:
-        releaseRetiredOpaqueRetainIfNoOpenVout(opaque: opaque)
-        return
+        true
       case .opening, .buffering, .playing, .paused, .stopping:
-        break
+        false
       }
+
+      if isStopped, libvlc_media_player_has_vout(player) == 0 {
+        let now = CFAbsoluteTimeGetCurrent()
+        let started = quiescentSince ?? now
+        quiescentSince = started
+        if now - started >= 0.5 {
+          libvlc_video_set_callbacks(player, nil, nil, nil, nil)
+          libvlc_video_set_format_callbacks(player, nil, nil)
+          releaseRetiredOpaqueRetainAfterPlayerQuiesced(opaque: opaque)
+          return
+        }
+      } else {
+        quiescentSince = nil
+      }
+
       usleep(20000)
     }
 
+    // Deadline elapsed without ever observing a clean quiescent window
+    // (the player never reported stopped with no open vout). Fall back to
+    // the vout-gated release so the retained context is still relinquished
+    // instead of leaking. The guard inside ensures we never release while
+    // a vout still holds the callbacks — that would reintroduce the
+    // use-after-free this deferral exists to prevent; in that case the
+    // later cleanup callback performs the release.
     releaseRetiredOpaqueRetainIfNoOpenVout(opaque: opaque)
   }
 
@@ -360,6 +410,23 @@ final class PixelBufferRendererCallbackContext: Sendable {
       Unmanaged<PixelBufferRendererCallbackContext>.fromOpaque(opaque).release()
     }
     return shouldRelease
+  }
+
+  private func releaseRetiredOpaqueRetainAfterPlayerQuiesced(
+    opaque: UnsafeMutableRawPointer
+  ) {
+    let shouldRelease = state.withLock { state -> Bool in
+      guard state.retirementRequested, !state.opaqueRetainReleased else { return false }
+      state.voutOpen = false
+      state.deferReleaseUntilQuiescent = false
+      state.renderer = nil
+      guard state.activeCallbacks == 0 else { return false }
+      state.opaqueRetainReleased = true
+      return true
+    }
+    if shouldRelease {
+      Unmanaged<PixelBufferRendererCallbackContext>.fromOpaque(opaque).release()
+    }
   }
 }
 
@@ -414,9 +481,12 @@ func pixelBufferFormatCallback(
     chroma[2] = bgra.2
     chroma[3] = bgra.3
 
-    // Create CVPixelBufferPool
+    // Create CVPixelBufferPool. The pool's resident floor is byte-budgeted
+    // (small at 4K), decoupled from the decode headroom returned below
+    // which stays at the full picture count for smooth playback.
     let poolAttrs: [String: Any] = [
-      kCVPixelBufferPoolMinimumBufferCountKey as String: 3
+      kCVPixelBufferPoolMinimumBufferCountKey as String:
+        pixelBufferRendererPoolMinimumBufferCount(width: w, height: h)
     ]
     let pixelBufferAttrs: [String: Any] = [
       kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
@@ -529,6 +599,14 @@ func pixelBufferDisplayCallback(
       CMClockGetTime(CMClockGetHostTimeClock())
     }
 
+    // When the control timebase is frozen (rate 0, i.e. paused), its time
+    // does not advance, so a seek-while-paused frame carries a PTS no later
+    // than the already-presented one and the layer may never schedule it.
+    // Flag such frames for immediate display so paused scrubbing repaints.
+    // Steady-state playback (rate != 0, or no timebase) stays timebase- or
+    // host-clock-paced.
+    let displayImmediately = timebase.map { CMTimebaseGetRate($0) == 0 } ?? false
+
     var timingInfo = CMSampleTimingInfo(
       duration: CMTime(value: 1, timescale: 30),
       presentationTimeStamp: pts,
@@ -545,13 +623,13 @@ func pixelBufferDisplayCallback(
     )
     guard sbStatus == noErr, let sb = sampleBuffer else { return }
     if
+      displayImmediately,
       let attachments = CMSampleBufferGetSampleAttachmentsArray(
         sb,
         createIfNecessary: true
       ) as? [NSMutableDictionary], let attachment = attachments.first {
       attachment[kCMSampleAttachmentKey_DisplayImmediately] = true
     }
-
     // CMSampleBuffer is a CF type that lacks Sendable conformance but is thread-safe for read access
     nonisolated(unsafe) let sample = sb
     renderer.enqueue(sample, generation: renderGeneration, on: layer)

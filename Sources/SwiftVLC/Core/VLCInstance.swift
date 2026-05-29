@@ -71,6 +71,20 @@ public final class VLCInstance: Sendable {
       return !forcesLegacyDisplay
     }
     return ["macosx", "vout_macosx"].contains(vout)
+    #elseif os(iOS)
+    // iOS native PiP only attaches when libVLC selects its Apple
+    // sample-buffer video output (`samplebufferdisplay`, the default).
+    // `--no-video`, a forced legacy display, or any other forced `--vout`
+    // stops the PiP-ready callback from ever firing.
+    guard !Self.containsOption(named: "no-video", in: arguments) else { return false }
+    let forcesLegacyDisplay = Self.containsOption(
+      named: "force-darwin-legacy-display",
+      in: arguments
+    )
+    guard let vout = Self.lastOptionValue(named: "vout", in: arguments) else {
+      return !forcesLegacyDisplay
+    }
+    return vout == "samplebufferdisplay"
     #else
     true
     #endif
