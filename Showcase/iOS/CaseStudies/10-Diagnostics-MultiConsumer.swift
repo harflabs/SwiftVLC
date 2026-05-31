@@ -61,15 +61,23 @@ struct MultiConsumerEventsCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle("Multi-consumer events")
-    .task { await consumerA() }
-    .task { await consumerB() }
+    .task { await run() }
     .onDisappear { player.stop() }
   }
 
-  /// Independent stream #1: only lifecycle transitions.
-  private func consumerA() async {
+  /// Bootstrap: subscribe both consumers before starting playback.
+  private func run() async {
+    let events = player.events
     try? player.play(url: TestMedia.demo)
-    for await event in player.events {
+    await withTaskGroup(of: Void.self) { group in
+      group.addTask { await self.consumerA(events: events) }
+      group.addTask { await self.consumerB(events: events) }
+    }
+  }
+
+  /// Independent stream #1: only lifecycle transitions.
+  private func consumerA(events: AsyncStream<PlayerEvent>) async {
+    for await event in events {
       let text: String? = switch event {
       case .stateChanged(let state): "state → \(state)"
       case .seekableChanged(let ok): "seekable → \(ok)"
@@ -85,8 +93,8 @@ struct MultiConsumerEventsCase: View {
   }
 
   /// Independent stream #2: only media / track events.
-  private func consumerB() async {
-    for await event in player.events {
+  private func consumerB(events: AsyncStream<PlayerEvent>) async {
+    for await event in events {
       let text: String? = switch event {
       case .mediaChanged: "media changed"
       case .tracksChanged: "tracks changed (\(player.audioTracks.count) audio)"
