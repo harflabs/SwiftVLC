@@ -47,8 +47,9 @@ struct EventsCase: View {
   }
 
   private func task() async {
+    let events = player.events
     try? player.play(url: TestMedia.demo)
-    for await event in player.events {
+    for await event in events {
       if let text = describe(event) {
         log.insert(LogLine(text: text), at: 0)
         if log.count > 50 { log.removeLast() }
