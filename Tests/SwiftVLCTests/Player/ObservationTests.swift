@@ -281,5 +281,32 @@ extension Integration {
       }
       #expect(!chapterFired.withLock { $0 })
     }
+
+    @Test
+    func `out of range chapter and title setters do not invalidate observation`() {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let chapterFired = Mutex(false)
+      let titleFired = Mutex(false)
+
+      withObservationTracking {
+        _ = player.currentChapter
+      } onChange: {
+        chapterFired.withLock { $0 = true }
+      }
+
+      withObservationTracking {
+        _ = player.currentTitle
+      } onChange: {
+        titleFired.withLock { $0 = true }
+      }
+
+      for value in [Int(Int32.max) + 1, Int(Int32.min) - 1] {
+        player.currentChapter = value
+        player.currentTitle = value
+      }
+
+      #expect(!chapterFired.withLock { $0 })
+      #expect(!titleFired.withLock { $0 })
+    }
   }
 }

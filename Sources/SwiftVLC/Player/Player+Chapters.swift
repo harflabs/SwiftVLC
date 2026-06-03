@@ -27,8 +27,8 @@ extension Player {
       return Int(libvlc_media_player_get_chapter(pointer))
     }
     set {
+      guard let chapter = Int32(exactly: newValue) else { return }
       withMutation(keyPath: \.currentChapter) {
-        guard let chapter = Int32(exactly: newValue) else { return }
         libvlc_media_player_set_chapter(pointer, chapter)
       }
     }
@@ -63,8 +63,8 @@ extension Player {
       return Int(libvlc_media_player_get_title(pointer))
     }
     set {
+      guard let title = Int32(exactly: newValue) else { return }
       withMutation(keyPath: \.currentTitle) {
-        guard let title = Int32(exactly: newValue) else { return }
         libvlc_media_player_set_title(pointer, title)
       }
     }
