@@ -40,6 +40,29 @@ extension PiPController: AVPictureInPictureControllerDelegate {
     }
   }
 
+  /// Called when the user taps the PiP window's restore ("return to app")
+  /// control. Forwards to ``PiPController/onRestoreUserInterface`` so the
+  /// host app can bring its player UI back, then completes the AVKit
+  /// transition. If no hook is set, completes immediately.
+  ///
+  /// The close (X) button does **not** route through here — it only fires
+  /// ``pictureInPictureControllerDidStopPictureInPicture(_:)`` — which is
+  /// how callers distinguish "restore" from "close".
+  public nonisolated func pictureInPictureController(
+    _: AVPictureInPictureController,
+    restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping @Sendable (Bool) -> Void
+  ) {
+    pipMainActorSync {
+      guard let onRestoreUserInterface else {
+        completionHandler(true)
+        return
+      }
+      onRestoreUserInterface {
+        completionHandler(true)
+      }
+    }
+  }
+
   /// `AVPictureInPictureControllerDelegate` hook. SwiftVLC does not
   /// propagate PiP start failures; we still resync the observed flags so
   /// the UI doesn't stay stuck in a stale "starting" state.

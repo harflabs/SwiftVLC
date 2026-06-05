@@ -195,6 +195,27 @@ public final class PiPController: NSObject {
   /// Whether a PiP window is currently visible.
   public private(set) var isActive: Bool = false
 
+  /// Invoked when the user taps the PiP window's **restore** affordance
+  /// (the "return to app" control), as opposed to the **close** (X)
+  /// button.
+  ///
+  /// Use this to bring your full-screen player UI back on screen when the
+  /// user wants to keep watching in the app. The closure receives a
+  /// completion handler that you **must** call once your interface has
+  /// finished restoring, so AVKit can dismiss the PiP window cleanly.
+  ///
+  /// This is *not* called when PiP stops via the close button, an
+  /// end-of-media stop, or a programmatic ``stop()`` — those paths only
+  /// flip ``isActive`` to `false`. That distinction is the whole point:
+  /// observe ``isActive`` for "PiP ended", and use this hook for "PiP
+  /// ended *and the user asked to come back*".
+  ///
+  /// If this is `nil`, restoration completes immediately.
+  ///
+  /// - Note: iOS sample-buffer PiP only. On platforms/backends without a
+  ///   restore affordance this is never called.
+  public var onRestoreUserInterface: (@MainActor (@escaping @MainActor () -> Void) -> Void)?
+
   /// The layer that renders video frames for both the inline and PiP
   /// presentations.
   ///
