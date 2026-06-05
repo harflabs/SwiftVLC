@@ -57,8 +57,8 @@ extension PiPController: AVPictureInPictureControllerDelegate {
         completionHandler(true)
         return
       }
-      onRestoreUserInterface {
-        completionHandler(true)
+      onRestoreUserInterface { restored in
+        completionHandler(restored)
       }
     }
   }

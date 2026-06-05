@@ -202,7 +202,9 @@ public final class PiPController: NSObject {
   /// Use this to bring your full-screen player UI back on screen when the
   /// user wants to keep watching in the app. The closure receives a
   /// completion handler that you **must** call once your interface has
-  /// finished restoring, so AVKit can dismiss the PiP window cleanly.
+  /// finished restoring, so AVKit can dismiss the PiP window cleanly. Pass
+  /// `true` if the UI was restored successfully, or `false` if you could
+  /// not bring it back; the value is forwarded to AVKit.
   ///
   /// This is *not* called when PiP stops via the close button, an
   /// end-of-media stop, or a programmatic ``stop()`` — those paths only
@@ -214,7 +216,7 @@ public final class PiPController: NSObject {
   ///
   /// - Note: iOS sample-buffer PiP only. On platforms/backends without a
   ///   restore affordance this is never called.
-  public var onRestoreUserInterface: (@MainActor (@escaping @MainActor () -> Void) -> Void)?
+  public var onRestoreUserInterface: (@MainActor (@escaping @MainActor (Bool) -> Void) -> Void)?
 
   /// The layer that renders video frames for both the inline and PiP
   /// presentations.

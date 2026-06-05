@@ -734,6 +734,69 @@ extension Integration {
       #expect(controller.isActive == false)
     }
 
+    /// With no `onRestoreUserInterface` hook, AVKit's completion handler
+    /// must still fire — with `true` — so PiP tears down instead of
+    /// hanging.
+    @Test
+    func `restoreUserInterface completes with true when no hook is set`() {
+      let player = Player(instance: TestInstance.shared)
+      let controller = PiPController(player: player)
+      guard let pip = makePictureInPictureController(for: controller) else { return }
+
+      let restored = Mutex<Bool?>(nil)
+      controller.pictureInPictureController(
+        pip,
+        restoreUserInterfaceForPictureInPictureStopWithCompletionHandler: { value in restored.withLock { $0 = value } }
+      )
+
+      #expect(restored.withLock { $0 } == true)
+    }
+
+    /// The host's restore hook is invoked, and the success value it passes
+    /// to its completion is forwarded verbatim to AVKit.
+    @Test
+    func `restoreUserInterface forwards host success to AVKit`() {
+      let player = Player(instance: TestInstance.shared)
+      let controller = PiPController(player: player)
+      guard let pip = makePictureInPictureController(for: controller) else { return }
+
+      let hookCalled = Mutex(false)
+      controller.onRestoreUserInterface = { done in
+        hookCalled.withLock { $0 = true }
+        done(true)
+      }
+
+      let restored = Mutex<Bool?>(nil)
+      controller.pictureInPictureController(
+        pip,
+        restoreUserInterfaceForPictureInPictureStopWithCompletionHandler: { value in restored.withLock { $0 = value } }
+      )
+
+      #expect(hookCalled.withLock { $0 })
+      #expect(restored.withLock { $0 } == true)
+    }
+
+    /// A host that fails to restore its UI passes `false`, which must reach
+    /// AVKit so the system can react accordingly.
+    @Test
+    func `restoreUserInterface forwards host failure to AVKit`() {
+      let player = Player(instance: TestInstance.shared)
+      let controller = PiPController(player: player)
+      guard let pip = makePictureInPictureController(for: controller) else { return }
+
+      controller.onRestoreUserInterface = { done in
+        done(false)
+      }
+
+      let restored = Mutex<Bool?>(nil)
+      controller.pictureInPictureController(
+        pip,
+        restoreUserInterfaceForPictureInPictureStopWithCompletionHandler: { value in restored.withLock { $0 = value } }
+      )
+
+      #expect(restored.withLock { $0 } == false)
+    }
+
     @Test
     func `terminal observed state clears stale pending PiP play request`() {
       let player = Player(instance: TestInstance.shared)
