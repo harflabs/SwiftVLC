@@ -216,6 +216,7 @@ public final class PiPController: NSObject {
   ///
   /// - Note: iOS sample-buffer PiP only. On platforms/backends without a
   ///   restore affordance this is never called.
+  @ObservationIgnored
   public var onRestoreUserInterface: (@MainActor (@escaping @MainActor (Bool) -> Void) -> Void)?
 
   /// The layer that renders video frames for both the inline and PiP
