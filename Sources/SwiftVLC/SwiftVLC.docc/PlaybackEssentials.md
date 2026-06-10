@@ -70,14 +70,14 @@ Slider(
         get: { Double(player.audioVolume.rawValue) },
         set: { try? player.setAudioVolume(Volume(Float($0))) }
     ),
-    in: 0...1.25
+    in: 0...2.0
 )
 ```
 
 | Property | Range | Notes |
 |---|---|---|
 | ``Player/position`` | `0.0 ... 1.0` | Read-only fractional playback position |
-| ``Player/volume`` | `0.0 ... 1.25` | Read-only requested volume shadow |
+| ``Player/volume`` | `0.0 ... 2.0` | Read-only requested volume shadow |
 | ``Player/isMuted`` | — | Independent of volume |
 | ``Player/rate`` | `0.25 ... 4.0` via ``PlaybackRate`` | Read-only current rate |
 | ``Player/aspectRatio`` | ``AspectRatio`` | See <doc:DisplayingVideo> |
@@ -119,6 +119,15 @@ Seeks throw when the current media is not seekable or the requested time
 is outside the known playable range. Native completion is asynchronous;
 observe ``Player/currentTime`` or ``PlayerEvent/timeChanged(_:)`` for
 the final libVLC timestamp.
+
+For live, timeshift, and unknown-duration media the strict seeks cannot
+validate a target. Use the best-effort, non-throwing
+``Player/seek(toPosition:fast:)`` and ``Player/jump(by:)`` instead:
+
+```swift
+player.seek(toPosition: 0.95, fast: true)  // raw fractional seek
+player.jump(by: .seconds(-10))             // native relative jump
+```
 
 ## The raw event stream
 
@@ -173,9 +182,11 @@ See <doc:ConcurrencyModel> for the full isolation story.
 - ``Player/pause()``
 - ``Player/resume()``
 - ``Player/stop()``
-- ``Player/seek(to:)-(Duration)``
+- ``Player/seek(to:fast:)``
 - ``Player/seek(to:)-(PlaybackPosition)``
-- ``Player/seek(by:)``
+- ``Player/seek(by:fast:)``
+- ``Player/seek(toPosition:fast:)``
+- ``Player/jump(by:)``
 - ``Player/nextFrame()``
 
 ### Observable properties

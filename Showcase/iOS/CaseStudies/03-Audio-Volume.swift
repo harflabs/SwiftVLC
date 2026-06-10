@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftVLC
 
 private let readMe = """
-`volume` is `0.0...1.25` (values above 1.0 amplify). `isMuted` is orthogonal: \
+`volume` is `0.0...2.0` (values above 1.0 amplify). `isMuted` is orthogonal: \
 muting preserves the underlying level so unmuting restores it.
 """
 
@@ -33,7 +33,7 @@ struct VolumeCase: View {
             get: { player.volume },
             set: { try? player.setAudioVolume(Volume($0)) }
           ),
-          range: 0...1.25,
+          range: 0...2.0,
           step: 0.05
         )
         .accessibilityIdentifier(AccessibilityID.Volume.slider)

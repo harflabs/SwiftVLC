@@ -75,6 +75,7 @@ audio and video overlay APIs.
 - <doc:IntegrationTopology>
 - <doc:Logging>
 - <doc:ComparisonWithVLCKit>
+- <doc:VLCKitPortingGuide>
 
 ### Playback
 

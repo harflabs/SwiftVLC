@@ -39,7 +39,8 @@ public enum PlayerEvent: Sendable, CustomStringConvertible {
   /// (network connections, custom I/O callbacks). The player emits this
   /// before transitioning to ``PlayerState/stopped``. Fires for every
   /// teardown cause — natural end, ``Player/stop()``, and media
-  /// replacement alike; use ``endReached`` to single out the natural end.
+  /// replacement alike; use ``endReached-enum.case`` to single out the
+  /// natural end.
   case mediaStopping
   /// Playback reached the natural end of the media.
   ///

@@ -41,30 +41,32 @@ public struct PlaybackPosition: Sendable, Hashable, Comparable, ExpressibleByFlo
 
 // MARK: - Volume
 
-/// Audio output volume, in `0.0 ... 1.25` (silent through 125%).
+/// Audio output volume, in `0.0 ... 2.0` (silent through 200%).
 ///
-/// libVLC accepts amplification above 1.0 up to its internal ceiling;
-/// the SwiftVLC clamp of 1.25 reflects the practical headroom before
-/// audio clipping becomes audible on most outputs.
+/// libVLC volume is a percentage where `100` is 0 dB nominal gain.
+/// Values above 1.0 software-amplify the decoded samples and can
+/// distort on quietly-mastered content; 2.0 (200%) is libVLC's
+/// practical amplification ceiling and matches the 0–200 range
+/// VLCKit exposed.
 ///
 /// ```swift
 /// try player.setAudioVolume(.muted)       // 0.0
 /// try player.setAudioVolume(.unity)       // 1.0 (default)
 /// try player.setAudioVolume(0.8)          // 80 %
-/// try player.setAudioVolume(.init(2.0))   // clamped to 1.25
+/// try player.setAudioVolume(.init(2.5))   // clamped to 2.0
 /// ```
 public struct Volume: Sendable, Hashable, Comparable, ExpressibleByFloatLiteral {
-  /// The clamped value, in `0.0 ... 1.25`.
+  /// The clamped value, in `0.0 ... 2.0`.
   public let rawValue: Float
 
-  /// Creates a volume, clamping finite values to `0.0 ... 1.25`.
+  /// Creates a volume, clamping finite values to `0.0 ... 2.0`.
   /// `NaN` becomes `.unity`.
   public init(_ value: Float) {
     guard !value.isNaN else {
       rawValue = 1.0
       return
     }
-    rawValue = Swift.max(0.0, Swift.min(1.25, value))
+    rawValue = Swift.max(0.0, Swift.min(2.0, value))
   }
 
   /// `ExpressibleByFloatLiteral` conformance — `try player.setAudioVolume(0.8)`.
@@ -76,8 +78,9 @@ public struct Volume: Sendable, Hashable, Comparable, ExpressibleByFloatLiteral 
   public static let muted: Volume = 0.0
   /// Volume 1.0 (default unity gain, 100%).
   public static let unity: Volume = 1.0
-  /// Volume 1.25 (the maximum SwiftVLC will pass to libVLC).
-  public static let max: Volume = 1.25
+  /// Volume 2.0 (200% amplification, the maximum SwiftVLC will pass
+  /// to libVLC).
+  public static let max: Volume = 2.0
 
   public static func < (lhs: Volume, rhs: Volume) -> Bool {
     lhs.rawValue < rhs.rawValue
@@ -166,6 +169,38 @@ public struct SubtitleScale: Sendable, Hashable, Comparable, ExpressibleByFloatL
   /// `ExpressibleByFloatLiteral` conformance — `player.setSubtitleScale(1.5)`.
   public init(floatLiteral value: Double) {
     self.init(Float(value))
+  }
+
+  /// Creates a scale that approximates an absolute subtitle point size.
+  ///
+  /// VLC 4 cannot change the absolute subtitle font size mid-playback:
+  /// the libVLC-3-era text-renderer setter was removed, so a live
+  /// absolute size change is impossible. This initializer instead maps
+  /// a desired point size to the relative `spu-text-scale` factor
+  /// against an assumed base render size —
+  /// `approximatePoints / basePoints`, clamped to `0.1 ... 5.0`.
+  ///
+  /// A static escape hatch exists for the base size itself —
+  /// `VLCInstance(arguments: ["--freetype-fontsize=24"])` at instance
+  /// creation, or `Media.addOption(":freetype-fontsize=24")` per media —
+  /// but it is experimental pending device validation; do not rely on
+  /// it taking effect.
+  ///
+  /// ```swift
+  /// player.setSubtitleScale(.init(approximatePoints: 36))  // 2.0
+  /// ```
+  ///
+  /// - Parameters:
+  ///   - approximatePoints: The desired subtitle size, in points.
+  ///   - basePoints: The assumed base render size, in points, that the
+  ///     relative scale is computed against. Must be greater than zero;
+  ///     otherwise the scale falls back to `1.0`.
+  public init(approximatePoints: Double, basePoints: Double = 18) {
+    guard basePoints > 0 else {
+      self.init(1.0)
+      return
+    }
+    self.init(Float(approximatePoints / basePoints))
   }
 
   /// Scale 1.0 (100 %, default).

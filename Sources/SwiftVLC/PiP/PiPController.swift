@@ -118,8 +118,10 @@ public final class PiPController: NSObject {
   @ObservationIgnored
   private var activeObservation: NSKeyValueObservation?
   #if os(iOS)
+  /// Internal, not private: the validation-harness SPI in
+  /// PiPController+Validation.swift probes the backend's wiring.
   @ObservationIgnored
-  private var nativeBackend: IOSNativePiPBackend?
+  var nativeBackend: IOSNativePiPBackend?
   #endif
   #if os(macOS)
   @ObservationIgnored

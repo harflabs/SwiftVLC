@@ -25,7 +25,7 @@ struct TVVolumeCase: View {
                 get: { player.volume },
                 set: { try? player.setAudioVolume(Volume($0)) }
               ),
-              in: 0...1.25,
+              in: 0...2.0,
               step: 0.05
             ) { "\(Int($0 * 100))%" }
             Image(systemName: "speaker.wave.3.fill")

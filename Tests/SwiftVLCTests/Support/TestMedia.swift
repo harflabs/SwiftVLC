@@ -17,6 +17,13 @@ enum TestMedia {
     url(for: "twosec", ext: "mp4")
   }
 
+  /// 20s 64x64 black, video-only, keyframes only at ~0s and ~10s —
+  /// the sparse-GOP fixture that makes fast (keyframe) and precise
+  /// seeks land visibly apart.
+  static var sparseURL: URL {
+    url(for: "sparse", ext: "mp4")
+  }
+
   /// Minimal SRT subtitle file.
   static var subtitleURL: URL {
     url(for: "test", ext: "srt")

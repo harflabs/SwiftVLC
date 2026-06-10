@@ -102,7 +102,7 @@ extension Player {
   ///   old session is gone; retry `play()` or recast again), or whatever
   ///   ``setRenderer(_:)`` throws on the never-played path. A session
   ///   that starts and *then* fails asynchronously surfaces through
-  ///   ``PlayerEvent/encounteredError``, not a throw.
+  ///   ``PlayerEvent/encounteredError-enum.case``, not a throw.
   public func recast(to renderer: RendererItem?) async throws(VLCError) {
     guard nativePlayerHasStartedPlayback || state.isActive else {
       try setRenderer(renderer)

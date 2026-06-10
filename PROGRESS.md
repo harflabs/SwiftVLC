@@ -151,7 +151,32 @@ ASan green; swiftlint --strict and swiftformat --lint clean repo-wide
 (Player.swift split into Player+Teardown.swift / Player+Drawable.swift and
 the PiP probe into PiPController+Validation.swift to satisfy file_length).
 
-## M3 — Seek & playback info — PENDING
+## M3 — Seek & playback info — DONE
+
+| Item | Status | Evidence / notes |
+|---|---|---|
+| P0.1 lenient seek | DONE (harness leg PENDING-DEVICE) | `Player+Seek.swift` (seek family relocated): `seek(toPosition:fast:)` / `jump(by:)` return `Bool`, never throw, never derive targets from `currentTime`/`duration`. Pinned-binary discovery: the C entry points return success even with no media, so a Swift-side session gate fronts them — `isPlaybackRequestedActive` (covers the just-issued-`play()` turn) else a native-state read; the mirror-state version of the gate was a review-confirmed bug (play-then-seek no-op'd) and was fixed with same-turn tests. Timeshift `set_position` acceptance is harness matrix (f), device-only. |
+| P3.1 fast | DONE | `fast:` on both strict call sites (`seek(to:fast:)`, `seek(by:fast:)`). Discriminating test on a new committed sparse-keyframe fixture (`sparse.mp4`, I-frames at 0 s/10 s): precise lands ≈9 s, fast snaps to the keyframe (red-green verified by hardcoding the flag off). |
+| F017 position publication | DONE | All strict + lenient paths publish derived `position` (and `currentTime`) when computable, including paused `jump(by:)` (review-driven). |
+| P0.4 videoSize/hasVideoOutput | DONE | `Player+VideoInfo.swift`. Pinned-binary discoveries: `has_vout` always returns 1 (pre-created window vout) and `libvlc_video_get_size` is a selected-track probe (binary disassembly during review) — `hasVideoOutput` is therefore `videoSize != nil` with the mechanism documented honestly. Invalidation on `.voutChanged` AND `.tracksChanged` (adaptive switches emit no size event) for both properties; dummy-vout decode confirmed 64×64 readable headless. Adaptive-switch device check rides the harness smoke screens. |
+| P1.8 activeVideoOutputs | DONE | Stored, reset in `resetMediaDerivedState()` AND on the handle swap (the old handle's `voutChanged(0)` is source-filtered after reattach — review finding). |
+| P0.5 SubtitleScale convenience | DONE (escape-hatch doc PENDING-DEVICE) | `init(approximatePoints:basePoints:)`, clamped; docs state the no-live-absolute-change limitation; `--freetype-fontsize` documented as experimental pending device validation (harness matrix (g) decides the final wording). Swap-survival test green. |
+| P1.1 UA/app-id | DONE | Designated init widened in place (nil defaults byte-identical); `setUserAgent`/`setAppID`. Wire test against a local socket server: custom UA arrives as "MyIPTV/9.9 LibVLC/4.0.0-dev" (libVLC appends its token — asserted by prefix), nil default contains "SwiftVLC". Ungated, runs on CI. |
+| §3.16 Volume 2.0 | DONE | Clamp 0…2.0, `.max` 2.0, docs + all six Showcase volume surfaces widened; wire-through test reads 200 natively (needs the real-aout instance — dummy aout has no volume control). |
+| §3.16 porting guide | DONE | `VLCKitPortingGuide.md`: nine idiom sections, every claim symbol-linked; docc `--analyze` 0 warnings after disambiguating the case/accessor collisions (including pre-existing M2 ones). |
+
+M3 review (2 lenses → 14 agents, 12 confirmed) drove: the session-gate fix,
+`hasVideoOutput` semantics + invalidation, swap reset for the vout count,
+the sparse-keyframe discriminating fixture, jump/seek(by:) F017+fast
+completion, docc link repairs, and the Showcase volume surfaces. One
+out-of-list fix: the M2 file split had left `nativeBackend` private while
+the extracted `PiPController+Validation.swift` reads it — the iOS Showcase
+scheme was silently broken at the M2 commit; fixed and all three schemes
+rebuilt green.
+
+Recorded test-plan deviations: no synthetic HLS-live unit test (valid HLS
+needs real TS/fMP4 segments; live behavior is covered by the harness live
+screens on hardware — matrix (f) + smoke screens).
 
 ## M4 — PiP — PENDING (spike-independent items only; native-path is device-gated)
 

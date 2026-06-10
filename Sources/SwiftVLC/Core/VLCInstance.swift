@@ -50,7 +50,8 @@ public final class VLCInstance: Sendable {
   /// Intentionally excludes `--no-stats`: disabling stats globally would
   /// make ``Media/statistics()`` return an all-zero struct for every
   /// caller, which is almost never what an app wants. Pass a custom
-  /// argument list to ``init(arguments:)`` if you need that mode
+  /// argument list to ``init(arguments:applicationName:httpUserAgent:)``
+  /// if you need that mode
   /// (embedded contexts with tight memory budgets, CLI tools).
   public static let defaultArguments: [String] = [
     "--no-video-title-show",
@@ -212,12 +213,26 @@ public final class VLCInstance: Sendable {
 
   /// Creates a new libVLC instance with the given arguments.
   ///
-  /// - Parameter arguments: Command-line style arguments for libVLC configuration.
-  ///   Common arguments include `"--no-video-title-show"`,
-  ///   `"--no-snapshot-preview"`, `"--no-stats"`.
+  /// - Parameters:
+  ///   - arguments: Command-line style arguments for libVLC configuration.
+  ///     Common arguments include `"--no-video-title-show"`,
+  ///     `"--no-snapshot-preview"`, `"--no-stats"`.
+  ///   - applicationName: Human-readable application name reported to
+  ///     libVLC, e.g. `"FooBar player 1.2.3"`. Defaults to `"SwiftVLC"`
+  ///     when `nil`.
+  ///   - httpUserAgent: The `User-Agent` header libVLC sends on HTTP
+  ///     connections, e.g. `"FooBar/1.2.3"`. Defaults to `"SwiftVLC"`
+  ///     when `nil`. Set it here rather than via
+  ///     ``setUserAgent(name:http:)`` so it is in place before any
+  ///     networking starts.
   /// - Throws: `VLCError.invalidInput` if too many arguments are supplied,
   ///   or `VLCError.instanceCreationFailed` if libVLC cannot be initialized.
-  public init(arguments: [String] = VLCInstance.defaultArguments) throws(VLCError) {
+  public init(
+    arguments: [String] = VLCInstance.defaultArguments,
+    applicationName: String? = nil,
+    httpUserAgent: String? = nil
+  )
+    throws(VLCError) {
     self.arguments = arguments
     let argumentCount = try checkedInt32(arguments.count, parameter: "arguments.count")
 
@@ -238,12 +253,43 @@ public final class VLCInstance: Sendable {
 
     pointer = instance
     logBroadcaster = LogBroadcaster(instancePointer: instance)
-    libvlc_set_user_agent(instance, "SwiftVLC", "SwiftVLC")
+    libvlc_set_user_agent(
+      instance,
+      applicationName ?? "SwiftVLC",
+      httpUserAgent ?? "SwiftVLC"
+    )
   }
 
   /// Creates the default shared instance (fatalError on failure).
   private convenience init() {
     try! self.init(arguments: VLCInstance.defaultArguments)
+  }
+
+  /// Sets the application identity libVLC reports to peers and servers.
+  ///
+  /// The setting is instance-global and only affects HTTP connections
+  /// opened after the call. Prefer passing `applicationName` /
+  /// `httpUserAgent` to ``init(arguments:applicationName:httpUserAgent:)``
+  /// so the identity is in place before any networking starts.
+  ///
+  /// - Parameters:
+  ///   - name: Human-readable application name, e.g. `"FooBar player 1.2.3"`.
+  ///   - http: HTTP `User-Agent` header value, e.g. `"FooBar/1.2.3"`.
+  public func setUserAgent(name: String, http: String) {
+    libvlc_set_user_agent(pointer, name, http)
+  }
+
+  /// Sets meta-information about the application.
+  ///
+  /// Fire-and-forget: libVLC offers no getter, so the values cannot be
+  /// read back. See also ``setUserAgent(name:http:)``.
+  ///
+  /// - Parameters:
+  ///   - id: Java-style application identifier, e.g. `"com.acme.foobar"`.
+  ///   - version: Application version numbers, e.g. `"1.2.3"`.
+  ///   - icon: Application icon name, e.g. `"foobar"`.
+  public func setAppID(_ id: String, version: String, icon: String) {
+    libvlc_set_app_id(pointer, id, version, icon)
   }
 
   deinit {

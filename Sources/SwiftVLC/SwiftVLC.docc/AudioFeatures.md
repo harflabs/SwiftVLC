@@ -5,13 +5,14 @@ Tune volume, output routing, channel mixing, and equalization.
 ## Volume, mute, delay
 
 ```swift
-try player.setAudioVolume(0.8)             // 0.0 silent, 1.0 is 100%, up to 1.25
+try player.setAudioVolume(0.8)             // 0.0 silent, 1.0 is 100%, up to 2.0
 player.isMuted = false
 try player.setAudioDelay(.milliseconds(30)) // positive = audio plays later
 ```
 
 Volume is normalized, so `0.0 ... 1.0` covers the useful range; values
-above `1.0` amplify beyond normal (capped around 1.25 / 125%).
+above `1.0` software-amplify beyond normal (capped at 2.0 / 200%) and
+can distort on quietly-mastered content.
 
 ## Output modules and devices
 

@@ -1,4 +1,6 @@
 @testable import SwiftVLC
+import CLibVLC
+import Foundation
 import Testing
 
 extension Logic {
@@ -45,13 +47,22 @@ extension Logic {
     }
 
     @Test func `Volume clamps above max`() {
-      #expect(Volume(2.0).rawValue == 1.25)
+      #expect(Volume(2.5).rawValue == 2.0)
+    }
+
+    @Test func `Volume passes through the 2.0 ceiling exactly`() {
+      #expect(Volume(2.0).rawValue == 2.0)
+    }
+
+    @Test func `Volume preserves former 1.25 ceiling values unchanged`() {
+      #expect(Volume(1.25).rawValue == 1.25)
     }
 
     @Test func `Volume named constants`() {
       #expect(Volume.muted.rawValue == 0.0)
       #expect(Volume.unity.rawValue == 1.0)
-      #expect(Volume.max.rawValue == 1.25)
+      #expect(Volume.unity.rawValue.bitPattern == Float(1.0).bitPattern)
+      #expect(Volume.max.rawValue == 2.0)
     }
 
     @Test func `Volume maps NaN to unity`() {
@@ -121,6 +132,20 @@ extension Logic {
       #expect(SubtitleScale.normal < SubtitleScale.doubleSize)
     }
 
+    @Test func `SubtitleScale approximate points maps against the base size`() {
+      #expect(SubtitleScale(approximatePoints: 36, basePoints: 18).rawValue == 2.0)
+      #expect(SubtitleScale(approximatePoints: 9, basePoints: 18).rawValue == 0.5)
+    }
+
+    @Test func `SubtitleScale approximate points clamps to the scale range`() {
+      #expect(SubtitleScale(approximatePoints: 1000, basePoints: 18).rawValue == 5.0)
+      #expect(SubtitleScale(approximatePoints: 0.1, basePoints: 18).rawValue == 0.1)
+    }
+
+    @Test func `SubtitleScale approximate points falls back to normal on a degenerate base`() {
+      #expect(SubtitleScale(approximatePoints: 36, basePoints: 0) == .normal)
+    }
+
     // MARK: - EqualizerGain
 
     @Test func `EqualizerGain clamps below -20`() {
@@ -166,8 +191,8 @@ extension Integration {
       try player.setAudioVolume(.unity)
       #expect(player.volume == 1.0)
       #expect(player.audioVolume == .unity)
-      try player.setAudioVolume(Volume(2.0)) // clamps to 1.25
-      #expect(player.volume == 1.25)
+      try player.setAudioVolume(Volume(2.5)) // clamps to 2.0
+      #expect(player.volume == 2.0)
       #expect(player.audioVolume == .max)
     }
 
@@ -195,6 +220,43 @@ extension Integration {
       // mutate state in surprising ways.
       try player.setPlaybackRate(.normal)
       try player.setPlaybackRate(PlaybackRate(8.0)) // clamps to 4.0 in init
+    }
+
+    /// The dummy audio module has no volume control, so a live set is
+    /// rejected on `makePlayback()` instances; the ceiling can only be
+    /// verified through the real audio output. Muting first keeps the
+    /// host silent — mute and volume are orthogonal in libVLC.
+    @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+    func `setAudioVolume at the 2.0 ceiling reaches libVLC as 200 percent`() async throws {
+      let player = Player(instance: TestInstance.makeRealAudioPlayback())
+      player.isMuted = true
+      try player.play(Media(url: TestMedia.twosecURL))
+      try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
+      try #require(await poll(until: { player.currentTime > .zero }), "Waiting for: player.currentTime > .zero")
+      try player.setAudioVolume(Volume(2.0))
+      try #require(
+        await poll(until: { libvlc_audio_get_volume(player.pointer) == 200 }),
+        "Waiting for: libvlc_audio_get_volume == 200"
+      )
+      player.stop()
+    }
+
+    /// The point-size convenience must feed the same `spu-text-scale`
+    /// value the carry-over copies onto every replacement handle, so a
+    /// scale set before a swap reads back from the new native player.
+    @Test func `Subtitle scale from approximate points survives the native handle swap`() throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      player.setSubtitleScale(SubtitleScale(approximatePoints: 36))
+      let oldPointer = player.pointer
+
+      player.setDrawable(NSObject())
+      player.stop()
+      try player.prepareDrawableForPlayback()
+      try #require(
+        player.pointer != oldPointer,
+        "swap did not replace the native player handle"
+      )
+      #expect(abs(player.subtitleTextScale - 2.0) < 0.001)
     }
   }
 }

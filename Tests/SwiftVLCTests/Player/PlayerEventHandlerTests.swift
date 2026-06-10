@@ -379,7 +379,6 @@ extension Integration {
 
       player._handleEventForTesting(.corked)
       player._handleEventForTesting(.uncorked)
-      player._handleEventForTesting(.voutChanged(1))
       player._handleEventForTesting(.recordingChanged(isRecording: true, filePath: "/tmp/r.ts"))
       player._handleEventForTesting(.titleListChanged)
       player._handleEventForTesting(.snapshotTaken("/tmp/s.png"))

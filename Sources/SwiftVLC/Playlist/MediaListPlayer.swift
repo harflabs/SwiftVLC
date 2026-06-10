@@ -61,7 +61,8 @@ public final class MediaListPlayer {
   /// The ``Player`` used for actual playback.
   ///
   /// While attached, the player does not synthesize
-  /// ``PlayerEvent/endReached`` — list advancement stops the handle
+  /// ``PlayerEvent/endReached-enum.case`` — list advancement stops the
+  /// handle
   /// between items through list-player C calls the player cannot tell
   /// apart from a natural end. Observe list-level completion instead.
   public var mediaPlayer: Player? {

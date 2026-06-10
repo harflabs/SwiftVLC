@@ -51,14 +51,22 @@ public final class Player {
   /// bar; the `state` enum only carries lifecycle information.
   public internal(set) var bufferFill: Float = 0
 
+  /// Number of decoded video outputs; `0` when none.
+  ///
+  /// Mirrors libVLC's video-output count as reported by
+  /// ``PlayerEvent/voutChanged(_:)``. Stays `0` for audio-only media
+  /// and resets when media is loaded or replaced. See also
+  /// ``hasVideoOutput`` for a live read of the same condition.
+  public internal(set) var activeVideoOutputs: Int = 0
+
   /// The currently loaded media.
   public internal(set) var currentMedia: Media?
 
   /// Whether the last `stopped` transition was a natural end of media.
   ///
-  /// Set when ``PlayerEvent/endReached`` is synthesized; reset by the
+  /// Set when ``PlayerEvent/endReached-enum.case`` is synthesized; reset by the
   /// next ``load(_:)``, ``play(_:)``, or ``play()``. See
-  /// ``PlayerEvent/endReached`` for what counts as a natural end.
+  /// ``PlayerEvent/endReached-enum.case`` for what counts as a natural end.
   public internal(set) var didReachEnd: Bool = false
 
   /// Available audio tracks.
@@ -324,7 +332,7 @@ public final class Player {
   /// The default `.newest(64)` policy bounds memory but is lossy: a
   /// consumer stalled past 64 undelivered events silently loses the
   /// oldest ones, which can include one-shot terminal transitions such as
-  /// `.stateChanged(.stopped)` or ``PlayerEvent/endReached``. Consumers
+  /// `.stateChanged(.stopped)` or ``PlayerEvent/endReached-enum.case``. Consumers
   /// that must not miss those should pass `.unbounded`, ideally with a
   /// `filter` that keeps the `timeChanged`/`positionChanged` firehose out
   /// of the buffer.
@@ -769,108 +777,6 @@ public final class Player {
       endCoordinator.markLibraryStop()
     }
     libvlc_media_player_stop_async(pointer)
-  }
-
-  /// Seeks to an absolute time in the current media.
-  ///
-  /// Throws instead of silently ignoring invalid requests. Check
-  /// ``isSeekable`` before exposing scrub controls. The native seek is
-  /// asynchronous; SwiftVLC publishes the requested time immediately after
-  /// validation so paused players update their UI even if libVLC does not
-  /// emit a follow-up `timeChanged` event.
-  ///
-  /// - Throws: ``VLCError/invalidState(_:)`` if the current media is not
-  ///   seekable, or ``VLCError/invalidInput(_:)`` if `time` is negative,
-  ///   outside libVLC's millisecond range, or beyond known duration.
-  public func seek(to time: Duration) throws(VLCError) {
-    let milliseconds = try checkedSeekMilliseconds(for: time, parameter: "time")
-    libvlc_media_player_set_time(pointer, milliseconds, /* fast */ false)
-    currentTime = .milliseconds(milliseconds)
-  }
-
-  /// Seeks to a fractional position in the current media.
-  ///
-  /// `PlaybackPosition` clamps to `0.0 ... 1.0` on construction. This
-  /// method still throws if the player does not yet know media duration or
-  /// if the current media is not seekable.
-  public func seek(to position: PlaybackPosition) throws(VLCError) {
-    guard let duration else {
-      throw .invalidState("duration is not known")
-    }
-    let durationMs = try duration.checkedNonnegativeMilliseconds(parameter: "duration")
-    let target = checkedMilliseconds(for: position, durationMs: durationMs)
-    try seek(to: .milliseconds(target))
-  }
-
-  /// Seeks by a relative offset from the current position.
-  ///
-  /// Negative offsets rewind, positive offsets fast-forward. The target is
-  /// clamped to the known playable range after validating the offset.
-  ///
-  /// - Throws: ``VLCError/invalidState(_:)`` if the current media is not
-  ///   seekable, or ``VLCError/invalidInput(_:)`` if the offset/current
-  ///   time cannot be represented in libVLC's millisecond unit.
-  public func seek(by offset: Duration) throws(VLCError) {
-    guard isSeekable else {
-      throw .invalidState("current media is not seekable")
-    }
-
-    let currentMs = try currentTime.checkedMilliseconds(parameter: "currentTime")
-    let offsetMs = try offset.checkedMilliseconds(parameter: "offset")
-    let targetResult = currentMs.addingReportingOverflow(offsetMs)
-    guard !targetResult.overflow else {
-      throw .invalidInput("offset is outside the supported millisecond range")
-    }
-
-    var targetMs = Swift.max(0, targetResult.partialValue)
-    if let duration {
-      let durationMs = try duration.checkedNonnegativeMilliseconds(parameter: "duration")
-      targetMs = Swift.min(targetMs, durationMs)
-    }
-
-    libvlc_media_player_set_time(pointer, targetMs, /* fast */ false)
-    currentTime = .milliseconds(targetMs)
-  }
-
-  private func checkedSeekMilliseconds(for time: Duration, parameter: String) throws(VLCError) -> Int64 {
-    guard isSeekable else {
-      throw .invalidState("current media is not seekable")
-    }
-
-    let milliseconds = try time.checkedNonnegativeMilliseconds(parameter: parameter)
-    if let duration {
-      let durationMs = try duration.checkedNonnegativeMilliseconds(parameter: "duration")
-      guard milliseconds <= durationMs else {
-        throw .invalidInput("\(parameter) must not exceed current media duration")
-      }
-    }
-    return milliseconds
-  }
-
-  private func checkedMilliseconds(for position: PlaybackPosition, durationMs: Int64) -> Int64 {
-    guard position.rawValue > 0 else { return 0 }
-    guard position.rawValue < 1 else { return durationMs }
-
-    let scaled = (Double(durationMs) * position.rawValue).rounded()
-    guard scaled.isFinite, scaled > 0 else { return 0 }
-    guard scaled < Double(Int64.max) else { return durationMs }
-    return Swift.min(Int64(scaled), durationMs)
-  }
-
-  /// Pauses playback and advances one video frame.
-  ///
-  /// Requires the current media to be pausable (see ``isPausable``).
-  /// Calling repeatedly yields frame-by-frame stepping.
-  public func nextFrame() {
-    libvlc_media_player_next_frame(pointer)
-    // libVLC doesn't emit `MediaPlayerTimeChanged` after a next-frame
-    // step while paused: the decoder advances one frame but the event
-    // thread stays quiescent. Read the authoritative time directly so
-    // `currentTime` reflects the step.
-    let ms = libvlc_media_player_get_time(pointer)
-    if ms >= 0 {
-      currentTime = .milliseconds(ms)
-    }
   }
 
   // MARK: - External Tracks

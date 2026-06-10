@@ -17,7 +17,7 @@ extension Player {
     PlaybackPosition(position)
   }
 
-  /// Audio output volume, clamped to `0.0 ... 1.25`.
+  /// Audio output volume, clamped to `0.0 ... 2.0`.
   ///
   /// Use ``setAudioVolume(_:)`` to change volume.
   public var audioVolume: Volume {
