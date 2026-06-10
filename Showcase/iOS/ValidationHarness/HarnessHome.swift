@@ -13,8 +13,30 @@ struct HarnessHome: View {
     return zappable.count >= 2
   }
 
+  private var screenBAvailable: Bool {
+    guard let streams else { return false }
+    return streams.vod != nil || streams.hlsLive != nil
+  }
+
   private var screenCAvailable: Bool {
     !(streams?.configured.isEmpty ?? true)
+  }
+
+  private var screenDAvailable: Bool {
+    !(streams?.configured.isEmpty ?? true)
+  }
+
+  private var screenEAvailable: Bool {
+    guard let streams else { return false }
+    return streams.hlsLive != nil || streams.vod != nil || streams.audioOnly != nil
+  }
+
+  private var screenFAvailable: Bool {
+    streams?.catchup != nil
+  }
+
+  private var screenGAvailable: Bool {
+    streams?.subtitled != nil
   }
 
   var body: some View {
@@ -78,7 +100,16 @@ struct HarnessHome: View {
         )
       }
 
-      placeholderRow("(b) Auto-PiP trigger conditions")
+      if let streams, screenBAvailable {
+        NavigationLink("(b) Auto-PiP trigger conditions") {
+          MatrixScreenB(streams: streams)
+        }
+      } else {
+        unavailableRow(
+          "(b) Auto-PiP trigger conditions",
+          detail: "Needs vod or hlsLive"
+        )
+      }
 
       if let streams, screenCAvailable {
         NavigationLink("(c) Restore/X baseline (no hook)") {
@@ -91,24 +122,70 @@ struct HarnessHome: View {
         )
       }
 
-      placeholderRow("(d) Cast-start while PiP")
-      placeholderRow("(e) Background audio without PiP")
-      placeholderRow("(f) set_position/jump_time on catch-up")
-      placeholderRow("(g) --freetype-fontsize survival")
+      if let streams, screenDAvailable {
+        NavigationLink("(d) Cast-start while PiP + recast") {
+          MatrixScreenD(streams: streams)
+        }
+      } else {
+        unavailableRow(
+          "(d) Cast-start while PiP + recast",
+          detail: "Needs any one configured stream"
+        )
+      }
+
+      if let streams, screenEAvailable {
+        NavigationLink("(e) Background audio without PiP") {
+          MatrixScreenE(streams: streams)
+        }
+      } else {
+        unavailableRow(
+          "(e) Background audio without PiP",
+          detail: "Needs hlsLive, vod, or audioOnly"
+        )
+      }
+
+      if let streams, screenFAvailable {
+        NavigationLink("(f) set_position/jump_time on catch-up") {
+          MatrixScreenF(streams: streams)
+        }
+      } else {
+        unavailableRow(
+          "(f) set_position/jump_time on catch-up",
+          detail: "Needs catchup"
+        )
+      }
+
+      if let streams, screenGAvailable {
+        NavigationLink("(g) --freetype-fontsize survival") {
+          MatrixScreenG(streams: streams)
+        }
+      } else {
+        unavailableRow(
+          "(g) --freetype-fontsize survival",
+          detail: "Needs subtitled"
+        )
+      }
     }
   }
 
   private var smokeSection: some View {
     Section("Engine smoke") {
-      placeholderRow("Live TS")
-      placeholderRow("HLS live")
-      placeholderRow("VOD")
-      placeholderRow("Catch-up")
+      smokeRow("Live TS", key: .liveTS)
+      smokeRow("HLS live", key: .hlsLive)
+      smokeRow("VOD", key: .vod)
+      smokeRow("Catch-up", key: .catchup)
     }
   }
 
-  private func placeholderRow(_ title: String) -> some View {
-    unavailableRow(title, detail: "Not built yet")
+  @ViewBuilder
+  private func smokeRow(_ title: String, key: HarnessStreams.Key) -> some View {
+    if let url = streams?.url(for: key) {
+      NavigationLink(title) {
+        SmokeScreen(title: title, streamKey: key, url: url)
+      }
+    } else {
+      unavailableRow(title, detail: "Needs \(key.rawValue)")
+    }
   }
 
   private func unavailableRow(_ title: String, detail: String) -> some View {

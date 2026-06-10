@@ -197,7 +197,41 @@ ASan green (earlier in chain); Showcase iOS/macOS schemes build; tvOS
 build-for-testing green; compact adversarial review (2 confirmed findings,
 both fixed: activation seed hole, stop-reason gating window).
 
-## M5b — Full harness + validation — PENDING
+## M5b — Full harness + validation — DONE (device passes pending hardware)
+
+All §3.13 deliverables ship: matrix screens (a)–(g) (a/c from M5a; b/d/e/f/g
+new), one parameterized engine smoke screen instantiated for live TS / HLS
+live / VOD / catch-up (start latency, decoded size, tracks/codecs,
+statistics, seek probes), persisted PASS/FAIL/observation recording with
+JSON export on every screen, config gating with disabled-row explanations,
+`streams.local.example.json` committed, `streams.local.json` gitignored
+(verified by `git check-ignore`), and a `HarnessHome` launch route.
+
+Simulator validation runs (operator-style, local gitignored config pointing
+at Apple's public bipbop streams for vod/adaptive/subtitled):
+- iOS Showcase (iPhone 17 Pro sim): builds, installs, launches; root form
+  shows the harness section; HarnessHome correctly reports "bundled
+  streams.local.json" with missing keys (liveTS, hlsLive, catchup,
+  audioOnly) and gates rows exactly as designed ((a) disabled, (b)–(e)
+  enabled, (f) disabled); the Events case study plays the remote demo
+  stream with video rendering and the lossless filtered event stream
+  populating live (screenshots reviewed).
+- tvOS Showcase (Apple TV 4K 3rd gen sim): builds, installs, launches; the
+  Events case study plays with rendered video and live filtered events.
+- PiP rendering is force-disabled in the simulator (`PiPVideoView.swift`
+  simulator gate) — no PiP behavior was or could be validated in these
+  runs; everything PiP-visual is in the PENDING-DEVICE ledger.
+
+## Final verification (whole branch)
+
+Every milestone ran the full chain at its boundary; the final state:
+strict-concurrency build 0 warnings; `CI=true swift test --no-parallel`
+green (1502 tests / 121 suites); local playback suite green; TSan + ASan
+filters green; swiftlint --strict + swiftformat --lint clean repo-wide;
+docc `--analyze` clean for all files touched this release; iOS/macOS/tvOS
+Showcase schemes build; DynamicHost fixture verify.sh PASS (both
+platforms + launch leg); tvOS simulator suite green (plus the one-off
+ungated playback run for the §3.3 matrix).
 
 ## Deviations log
 
@@ -214,6 +248,54 @@ both fixed: activation seed hole, stop-reason gating window).
 4. Two pre-existing tvOS-slice behavioral differences fixed in tests (not
    library code) — they predate v0.10.0 and were invisible before P1.13.
 
-## PENDING-DEVICE ledger (hardware-only acceptance, accumulate as reached)
+## PENDING-DEVICE ledger (hardware-only acceptance)
 
-- (populated as milestones land)
+Prerequisite for all: build Showcase iOS to a physical iPhone/iPad (PiP is
+simulator-blind), with `Showcase/iOS/ValidationHarness/streams.local.json`
+filled per `streams.local.example.json` (liveTS, hlsLive, vod, catchup,
+subtitled, adaptive, audioOnly). Record every outcome in each screen's
+PASS/FAIL recorder and export the JSON.
+
+1. **P0.6 spike, steps 1–5** — screen (c): with PiP active, tap "Probe
+   native backend" (logs the window-controller class, AV controller
+   presence, delegate class, and the five respondsToSelector results);
+   exercise restore and X with no hook installed; zap channels and
+   re-probe (delegate identity across vout rebuilds). Outcome decides
+   go (forwarding proxy, plus P1.12's native will/did/failed events) vs
+   no-go (libVLC-side patch; fork-liability re-estimate). The F062
+   `pipMainActorSync` re-evaluation belongs in the same report. **No
+   native-path restore implementation has been merged** — that is the
+   gated work.
+2. **P0.7 matrix (a)** — screen (a): PiP active → same-Player zaps across
+   VOD→live, live→live, live→VOD; record window survival and gap/freeze
+   per class. Survives → document the guarantee; closes → implement
+   `resumesAcrossMediaReplacement` (design pre-sketched in PLAN §3.10).
+3. **§3.15 matrix (e) — RELEASE-GATING** — screen (e): fullscreen playing
+   with auto-PiP off → background: does audio continue, does timeChanged
+   keep firing (the screen's once-per-second wall-clock log shows it on
+   return), does video re-render on foreground; repeat with the
+   audio-only stream. On stall: a background-policy fix is in scope
+   before release per the plan. **The release does not ship with (e)
+   unresolved.**
+4. **P1.11 matrix (b)** — screen (b): auto-PiP engages with the flag on,
+   stays inline with it off (toggle rebuilds the view).
+5. **P0.3 matrix (d)/(d′)** — screen (d): recast to a real Chromecast
+   sink mid-playback; resumes ≈ captured position; recast(to: nil)
+   returns local; overlays/adjustments visually survive; record
+   cast-start-while-PiP behavior.
+6. **P0.1 matrix (f)** — screen (f): seek(toPosition:)/jump(by:) results
+   against a real timeshift/catch-up stream (demuxer runtime property).
+7. **P0.5 matrix (g)** — screen (g): whether `--freetype-fontsize=40`
+   visibly changes subtitle size; then finalize the escape-hatch doc
+   wording to state the observed result (currently marked experimental
+   pending validation).
+8. **P0.4 hardware leg** — smoke screens: decoded `videoSize` non-nil on
+   a live channel with declared 0×0 dims; `videoSize` updates on an
+   adaptive rendition switch.
+9. **Engine smoke baseline** — run all four smoke screens once per
+   release for the risk register (start latency, seek behavior, tracks,
+   statistics per content class).
+10. **AVAudioSession deactivation test** — `PlayerStopTeardownTests`'
+    audio-session test executes on iOS/tvOS simulator runs without the
+    CI variable (compiled green for both); run once on device alongside
+    (e) for the full P1.10 acceptance.

@@ -115,6 +115,7 @@ extension UITestRoute {
     case .roleAndCork: RoleAndCorkCase()
     case .multiTrackSelection: MultiTrackSelectionCase()
     case .multiConsumer: MultiConsumerEventsCase()
+    case .harnessHome: HarnessHome()
     }
   }
 }

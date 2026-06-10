@@ -504,7 +504,8 @@ extension TVShowcase {
          .recording,
          .pip,
          .discoveryRenderers,
-         .multiConsumer:
+         .multiConsumer,
+         .harnessHome:
       return nil
     }
   }
