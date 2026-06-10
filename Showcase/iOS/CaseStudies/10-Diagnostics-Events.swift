@@ -2,9 +2,11 @@ import SwiftUI
 import SwiftVLC
 
 private let readMe = """
-`player.events` is an `AsyncStream<PlayerEvent>`. Each call returns an independent \
-stream, so multiple views can observe concurrently. `timeChanged`, `positionChanged`, \
-and `bufferingProgress` are filtered out below; they fire constantly during playback.
+`player.events(policy:filter:)` returns an independent `AsyncStream<PlayerEvent>` per \
+call, so multiple views can observe concurrently. This screen subscribes before \
+`play()` with the lossless `.unbounded` policy and a filter that keeps the \
+`timeChanged`/`positionChanged`/`bufferingProgress` firehose out of the buffer, so no \
+lifecycle event can be dropped however briefly the UI stalls.
 """
 
 struct EventsCase: View {
@@ -47,20 +49,21 @@ struct EventsCase: View {
   }
 
   private func task() async {
-    let events = player.events
+    let events = player.events(policy: .unbounded, filter: { event in
+      switch event {
+      case .timeChanged, .positionChanged, .bufferingProgress: false
+      default: true
+      }
+    })
     try? player.play(url: TestMedia.demo)
     for await event in events {
-      if let text = describe(event) {
-        log.insert(LogLine(text: text), at: 0)
-        if log.count > 50 { log.removeLast() }
-      }
+      log.insert(LogLine(text: describe(event)), at: 0)
+      if log.count > 50 { log.removeLast() }
     }
   }
 
-  private func describe(_ event: PlayerEvent) -> String? {
+  private func describe(_ event: PlayerEvent) -> String {
     switch event {
-    case .timeChanged, .positionChanged, .bufferingProgress:
-      nil
     case .stateChanged(let s): "state → \(s)"
     case .lengthChanged(let d): "length → \(Int(d.components.seconds))s"
     case .seekableChanged(let b): "seekable → \(b)"

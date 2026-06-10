@@ -299,10 +299,76 @@ public final class Player {
 
   // MARK: - Event Stream
 
-  /// Raw event stream for custom processing.
+  /// Raw event stream for custom processing, with the default buffering
+  /// policy (`.newest(64)`) and no filter.
   /// Most consumers should use `@Observable` properties instead.
+  /// See ``events(policy:filter:)`` for the delivery guarantees and their
+  /// limits.
   public nonisolated var events: AsyncStream<PlayerEvent> {
-    eventBridge.makeStream()
+    eventBridge.makeStream(policy: .newest(64), filter: nil)
+  }
+
+  /// Raw event stream with an explicit buffering policy and an optional
+  /// per-subscription filter.
+  ///
+  /// The default `.newest(64)` policy bounds memory but is lossy: a
+  /// consumer stalled past 64 undelivered events silently loses the
+  /// oldest ones, which can include one-shot terminal transitions such as
+  /// `.stateChanged(.stopped)` or ``PlayerEvent/endReached``. Consumers
+  /// that must not miss those should pass `.unbounded`, ideally with a
+  /// `filter` that keeps the `timeChanged`/`positionChanged` firehose out
+  /// of the buffer.
+  ///
+  /// `filter` runs on libVLC's event thread for every event, outside any
+  /// SwiftVLC lock — keep it fast and never block in it. Don't touch
+  /// main-actor state from it: beyond the usual isolation rules, native
+  /// teardown (handle replacement, player deinit) joins the event thread
+  /// while detaching callbacks, so a filter blocked on the main actor
+  /// can deadlock teardown against the very thread it is stalling.
+  ///
+  /// A delivery limit that no policy removes: when the player replaces
+  /// its native handle (stopping drawable-hosted playback does this
+  /// lazily, and ``recast(to:)``-style renderer changes do it
+  /// mid-session), the bridge reattaches to the replacement handle before
+  /// the old one finishes stopping on a background queue. Terminal events
+  /// of the *swapped-out* handle are never delivered to any stream; state
+  /// derived from them is reset by the swap itself.
+  public nonisolated func events(
+    policy: EventBufferingPolicy = .newest(64),
+    filter: (@Sendable (PlayerEvent) -> Bool)? = nil
+  ) -> AsyncStream<PlayerEvent> {
+    eventBridge.makeStream(policy: policy, filter: filter)
+  }
+
+  /// Lossless stream of lifecycle state transitions — no firehose.
+  ///
+  /// Equivalent to an `.unbounded` ``events(policy:filter:)``
+  /// subscription that keeps only `.stateChanged` payloads, so a lagging
+  /// consumer can never lose a one-shot terminal transition. Memory is
+  /// bounded in practice by the low rate of state changes.
+  public nonisolated var stateTransitions: AsyncStream<PlayerState> {
+    let upstream = eventBridge.makeStream(
+      policy: .unbounded,
+      filter: { event in
+        if case .stateChanged = event { return true }
+        return false
+      }
+    )
+    let (stream, continuation) = AsyncStream<PlayerState>.makeStream(
+      bufferingPolicy: .unbounded
+    )
+    let pump = Task {
+      for await event in upstream {
+        if case .stateChanged(let state) = event {
+          continuation.yield(state)
+        }
+      }
+      continuation.finish()
+    }
+    continuation.onTermination = { _ in
+      pump.cancel()
+    }
+    return stream
   }
 
   nonisolated var playbackIntentEvents: AsyncStream<Bool> {

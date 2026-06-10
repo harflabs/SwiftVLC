@@ -291,6 +291,140 @@ extension Logic {
       _ = (stream, reattachedStream)
     }
 
+    // MARK: - Buffering policy
+
+    @Test func `unbounded policy delivers everything under consumer stall`() async {
+      let broadcaster = Broadcaster<Int>()
+      let unbounded = broadcaster.subscribe(policy: .unbounded)
+      let newestOne = broadcaster.subscribe(policy: .newest(1))
+
+      // Broadcast the whole burst before either consumer starts, so the
+      // values pile up in the per-subscription buffers. Finishing the
+      // streams afterwards lets both drains terminate deterministically —
+      // AsyncStream delivers buffered elements before reporting the end.
+      for value in 0..<200 {
+        broadcaster.broadcast(value)
+      }
+      broadcaster.finishAll()
+
+      let everything = await collect(unbounded)
+      let survivors = await collect(newestOne)
+
+      #expect(everything == Array(0..<200))
+      #expect(survivors.first == 199)
+      #expect(survivors.count == 1)
+    }
+
+    @Test func `single subscriber fast path respects the filter`() async {
+      let broadcaster = Broadcaster<Int>()
+      let evens = broadcaster.subscribe(filter: { $0.isMultiple(of: 2) })
+
+      Task.detached {
+        for value in 1...4 {
+          broadcaster.broadcast(value)
+        }
+        broadcaster.finishAll()
+      }
+
+      let received = await collect(evens)
+      #expect(received == [2, 4])
+    }
+
+    // MARK: - Re-entrant filters
+
+    @Test func `filter reading broadcaster state runs outside the lock`() async {
+      let broadcaster = Broadcaster<Int>()
+      // `isEmpty` acquires the broadcaster's non-recursive Mutex. If the
+      // filter ran inside `broadcast`'s critical section this would be a
+      // re-entrant acquisition and deadlock.
+      let stream = broadcaster.subscribe(filter: { _ in !broadcaster.isEmpty })
+
+      Task.detached {
+        broadcaster.broadcast(1)
+        broadcaster.finishAll()
+      }
+
+      let received = await collect(stream)
+      #expect(received == [1])
+    }
+
+    @Test func `filter subscribing re-entrantly does not deadlock`() async {
+      let broadcaster = Broadcaster<Int>()
+      let stream = broadcaster.subscribe(filter: { _ in
+        // Re-enter the broadcaster mid-broadcast; the throwaway stream is
+        // dropped immediately, which also re-enters via onTermination.
+        _ = broadcaster.subscribe()
+        return true
+      })
+
+      Task.detached {
+        broadcaster.broadcast(7)
+        broadcaster.finishAll()
+      }
+
+      let received = await collect(stream)
+      #expect(received == [7])
+    }
+
+    // MARK: - Rapid unsubscribe vs. concurrent subscribe
+
+    @Test func `rapid unsubscribe does not orphan a concurrent subscriber`() async throws {
+      let attaches = Mutex(0)
+      let detaches = Mutex(0)
+      let broadcaster = Broadcaster<Int>(
+        onFirstSubscriber: { attaches.withLock { $0 += 1 } },
+        onLastUnsubscribed: { detaches.withLock { $0 += 1 } }
+      )
+
+      for iteration in 0..<100 {
+        let s1 = broadcaster.subscribe()
+        let c1 = Task.detached { @Sendable in
+          for await _ in s1 {}
+        }
+        c1.cancel()
+
+        // Attach a second subscriber while the first one's teardown is
+        // in flight; it must still be wired up and receive the broadcast.
+        let received = Mutex(false)
+        let s2 = broadcaster.subscribe()
+        let c2 = Task.detached { @Sendable in
+          for await _ in s2 {
+            received.withLock { $0 = true }
+            break
+          }
+        }
+        broadcaster.broadcast(iteration)
+
+        let delivered = try await poll(every: .milliseconds(5), until: { received.withLock { $0 } })
+        try #require(
+          delivered,
+          "subscriber attached during teardown missed the broadcast (iteration \(iteration))"
+        )
+
+        c2.cancel()
+        await c1.value
+        await c2.value
+
+        // Lifecycle callbacks alternate: at any instant the attach count
+        // either matches the detach count or leads it by exactly one.
+        let observedAttaches = attaches.withLock { $0 }
+        let observedDetaches = detaches.withLock { $0 }
+        #expect(
+          observedAttaches == observedDetaches || observedAttaches == observedDetaches + 1,
+          "lifecycle counters diverged: attaches=\(observedAttaches) detaches=\(observedDetaches)"
+        )
+      }
+
+      let settled = try await poll(timeout: .seconds(5), until: {
+        attaches.withLock { $0 } == detaches.withLock { $0 }
+      })
+      #expect(
+        settled,
+        "lifecycle callbacks did not settle: attaches=\(attaches.withLock { $0 }) detaches=\(detaches.withLock { $0 })"
+      )
+      #expect(attaches.withLock { $0 } >= 1)
+    }
+
     // MARK: - Concurrency stress
 
     @Test func `concurrent broadcasts and subscriptions do not deadlock or crash`() async {

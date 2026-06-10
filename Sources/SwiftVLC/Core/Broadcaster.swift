@@ -4,7 +4,7 @@ import Synchronization
 
 /// A multi-consumer broadcaster of `Sendable` values.
 ///
-/// Each call to ``subscribe(bufferSize:filter:)`` returns an
+/// Each call to ``subscribe(policy:filter:)`` returns an
 /// independent `AsyncStream`. Producers call ``broadcast(_:)`` to send
 /// a value to every active subscriber whose `filter` accepts it.
 ///
@@ -38,20 +38,14 @@ final class Broadcaster<Element: Sendable>: Sendable {
   private struct State {
     var nextID: Int = 0
     var subscribers: [Int: Subscriber] = [:]
-    var lifecyclePending: LifecyclePhase = .idle
+    /// Whether the upstream source is currently attached (lifecycle
+    /// callbacks installed). Written only between callbacks on the
+    /// reconciliation queue, so attach/detach strictly alternate.
+    var attached = false
     /// Once `true`, the broadcaster is permanently terminated. New
     /// `subscribe(...)` calls return immediately-finished streams and
     /// `broadcast(_:)` is a no-op. Set by ``terminate()``.
     var terminated: Bool = false
-  }
-
-  /// Tracks reconciliation work so first-subscribe and last-unsubscribe
-  /// callbacks fire exactly once per transition without overlapping.
-  private enum LifecyclePhase {
-    case idle // last reconciliation matches the current state
-    case scheduledOn // a 0→N transition needs to fire `onFirstSubscriber`
-    case scheduledOff // an N→0 transition needs to fire `onLastUnsubscribed`
-    case running // a reconciliation pass is currently executing
   }
 
   private let state = Mutex(State())
@@ -89,43 +83,50 @@ final class Broadcaster<Element: Sendable>: Sendable {
   /// passed to ``broadcast(_:)`` while the stream is alive.
   ///
   /// - Parameters:
-  ///   - bufferSize: Override the broadcaster's default buffer size for
-  ///     this stream. The buffering policy is always `.bufferingNewest`.
+  ///   - policy: Buffering behavior for this stream. `nil` uses the
+  ///     broadcaster's default size with the newest-wins policy.
   ///   - filter: Optional per-subscriber predicate. Only elements for
   ///     which `filter` returns `true` are yielded to this stream.
   func subscribe(
-    bufferSize: Int? = nil,
+    policy: EventBufferingPolicy? = nil,
     filter: Filter? = nil
   ) -> AsyncStream<Element> {
+    // `bufferingNewest(0)` (or a negative count) silently drops every
+    // element yielded while no consumer is suspended in `next()` —
+    // clamping to 1 keeps a degenerate count from producing a stream
+    // that loses essentially everything with no signal.
+    let bufferingPolicy: AsyncStream<Element>.Continuation.BufferingPolicy =
+      switch policy ?? .newest(defaultBufferSize) {
+      case .newest(let count): .bufferingNewest(Swift.max(1, count))
+      case .unbounded: .unbounded
+      }
     let (stream, continuation) = AsyncStream<Element>.makeStream(
-      bufferingPolicy: .bufferingNewest(bufferSize ?? defaultBufferSize)
+      bufferingPolicy: bufferingPolicy
     )
 
-    let outcome = state.withLock { state -> (id: Int, becameFirst: Bool)? in
+    // The reconciliation pass is scheduled while the lock is still held
+    // (`DispatchQueue.async` never blocks): if it were scheduled after
+    // unlocking, a concurrent membership change could enqueue its own
+    // pass first, and the FIFO queue would observe the transitions in
+    // the wrong order.
+    let id = state.withLock { state -> Int? in
       guard !state.terminated else { return nil }
       let id = state.nextID
       state.nextID += 1
       state.subscribers[id] = Subscriber(continuation: continuation, filter: filter)
-      let becameFirst = state.subscribers.count == 1
-      if becameFirst {
-        state.lifecyclePending = .scheduledOn
+      if state.subscribers.count == 1 {
+        scheduleReconciliation()
       }
-      return (id, becameFirst)
+      return id
     }
 
-    guard let outcome else {
+    guard let id else {
       continuation.finish()
       return stream
     }
 
     continuation.onTermination = { [weak self] _ in
-      self?.unsubscribe(id: outcome.id)
-    }
-
-    if outcome.becameFirst {
-      reconciliation.schedule { [weak self] in
-        self?.runFirstSubscriberCallback()
-      }
+      self?.unsubscribe(id: id)
     }
 
     return stream
@@ -134,21 +135,43 @@ final class Broadcaster<Element: Sendable>: Sendable {
   /// Sends an element to every subscriber whose filter accepts it.
   ///
   /// Safe to call from any thread, including from a libVLC C callback.
-  /// Subscriber filters and yields run outside the broadcaster's lock,
-  /// so a slow consumer can't block other consumers or the producer.
+  /// Subscriber filters and yields run outside the broadcaster's lock —
+  /// load-bearing twice over: a slow consumer can't block other consumers
+  /// or the producer, and a user-supplied filter that touches this
+  /// broadcaster again (subscribe, `isEmpty`, even `broadcast`) cannot
+  /// deadlock on the non-recursive `Mutex` or stall libVLC's event
+  /// thread while it holds the lock.
   func broadcast(_ element: Element) {
     let interval = Signposts.signposter.beginInterval("Broadcaster.broadcast")
-    let snapshot = state.withLock { state in
-      state.terminated
-        ? []
-        : state.subscribers.values.filter { sub in
-          sub.filter?(element) ?? true
-        }
+    let snapshot = state.withLock { state -> Snapshot in
+      guard !state.terminated, !state.subscribers.isEmpty else { return .none }
+      if state.subscribers.count == 1, let only = state.subscribers.values.first {
+        return .single(only)
+      }
+      return .many(Array(state.subscribers.values))
     }
-    for sub in snapshot {
-      sub.continuation.yield(element)
+    var delivered = 0
+    switch snapshot {
+    case .none:
+      break
+    case .single(let sub):
+      if sub.filter?(element) ?? true {
+        sub.continuation.yield(element)
+        delivered = 1
+      }
+    case .many(let subs):
+      for sub in subs where sub.filter?(element) ?? true {
+        sub.continuation.yield(element)
+        delivered += 1
+      }
     }
-    Signposts.signposter.endInterval("Broadcaster.broadcast", interval, "subs=\(snapshot.count)")
+    Signposts.signposter.endInterval("Broadcaster.broadcast", interval, "subs=\(delivered)")
+  }
+
+  private enum Snapshot {
+    case none
+    case single(Subscriber)
+    case many([Subscriber])
   }
 
   /// Returns `true` if at least one subscriber's filter would accept the
@@ -179,30 +202,23 @@ final class Broadcaster<Element: Sendable>: Sendable {
   /// `subscribe(...)` calls so they return immediately-finished
   /// streams.
   func finishAll() {
-    let (snapshot, becameEmpty) = state.withLock { state -> ([Subscriber], Bool) in
+    let snapshot = state.withLock { state -> [Subscriber] in
       let subs = Array(state.subscribers.values)
-      let wasEmpty = state.subscribers.isEmpty
       state.subscribers.removeAll()
-      let becameEmpty = !wasEmpty
-      if becameEmpty {
-        state.lifecyclePending = .scheduledOff
+      if !subs.isEmpty {
+        scheduleReconciliation()
       }
-      return (subs, becameEmpty)
+      return subs
     }
     for sub in snapshot {
       sub.continuation.finish()
-    }
-    if becameEmpty {
-      reconciliation.schedule { [weak self] in
-        self?.runLastUnsubscribedCallback()
-      }
     }
   }
 
   /// Permanently terminates the broadcaster.
   ///
   /// Finishes every active stream, makes future calls to
-  /// ``subscribe(bufferSize:filter:)`` return immediately-finished
+  /// ``subscribe(policy:filter:)`` return immediately-finished
   /// streams, and makes ``broadcast(_:)`` a no-op. `onLastUnsubscribed`
   /// fires on the reconciliation queue if there were active subscribers.
   ///
@@ -210,24 +226,17 @@ final class Broadcaster<Element: Sendable>: Sendable {
   /// (handler deinit, registration loss). If subscribers may re-attach,
   /// use ``finishAll()`` instead.
   func terminate() {
-    let (snapshot, becameEmpty) = state.withLock { state -> ([Subscriber], Bool) in
+    let snapshot = state.withLock { state -> [Subscriber] in
       state.terminated = true
       let subs = Array(state.subscribers.values)
-      let wasEmpty = state.subscribers.isEmpty
       state.subscribers.removeAll()
-      let becameEmpty = !wasEmpty
-      if becameEmpty {
-        state.lifecyclePending = .scheduledOff
+      if !subs.isEmpty {
+        scheduleReconciliation()
       }
-      return (subs, becameEmpty)
+      return subs
     }
     for sub in snapshot {
       sub.continuation.finish()
-    }
-    if becameEmpty {
-      reconciliation.schedule { [weak self] in
-        self?.runLastUnsubscribedCallback()
-      }
     }
   }
 
@@ -243,79 +252,50 @@ final class Broadcaster<Element: Sendable>: Sendable {
   }
 
   private func unsubscribe(id: Int) {
-    let becameEmpty = state.withLock { state -> Bool in
+    state.withLock { state in
       let wasEmpty = state.subscribers.isEmpty
       state.subscribers.removeValue(forKey: id)
-      return !wasEmpty && state.subscribers.isEmpty
-    }
-    if becameEmpty {
-      state.withLock { $0.lifecyclePending = .scheduledOff }
-      reconciliation.schedule { [weak self] in
-        self?.runLastUnsubscribedCallback()
+      if !wasEmpty, state.subscribers.isEmpty {
+        scheduleReconciliation()
       }
     }
   }
 
   // MARK: - Lifecycle reconciliation
 
-  private func runFirstSubscriberCallback() {
-    let shouldFire = state.withLock { state -> Bool in
-      guard state.lifecyclePending == .scheduledOn, !state.subscribers.isEmpty else {
-        state.lifecyclePending = .idle
-        return false
-      }
-      state.lifecyclePending = .running
-      return true
-    }
-    guard shouldFire else { return }
-
-    onFirstSubscriber()
-
-    state.withLock { state in
-      // If subscribers vanished while the callback ran, schedule the
-      // teardown so we leave no upstream attachment behind.
-      if state.subscribers.isEmpty {
-        state.lifecyclePending = .scheduledOff
-      } else {
-        state.lifecyclePending = .idle
-      }
-    }
-    let needsTeardown = state.withLock { $0.lifecyclePending == .scheduledOff }
-    if needsTeardown {
-      reconciliation.schedule { [weak self] in
-        self?.runLastUnsubscribedCallback()
-      }
+  /// Must be called while holding the `state` lock (see the comment in
+  /// `subscribe`): scheduling inside the critical section keeps the FIFO
+  /// queue's job order consistent with the order of membership
+  /// transitions.
+  private func scheduleReconciliation() {
+    reconciliation.schedule { [weak self] in
+      self?.runReconciliation()
     }
   }
 
-  private func runLastUnsubscribedCallback() {
-    let shouldFire = state.withLock { state -> Bool in
-      guard state.lifecyclePending == .scheduledOff, state.subscribers.isEmpty else {
-        state.lifecyclePending = .idle
-        return false
+  /// Converges the upstream attachment to the current membership.
+  ///
+  /// Runs only on the serial reconciliation queue, so passes never
+  /// overlap and `attached` flips strictly between callbacks — a
+  /// double-attach or double-detach is impossible regardless of how
+  /// subscribe/unsubscribe storms interleave with the queue. Each pass
+  /// loops until attachment matches membership, so a membership change
+  /// that lands mid-callback is absorbed by the same pass (a later
+  /// queued pass then finds nothing to do).
+  private func runReconciliation() {
+    while true {
+      let shouldAttach = state.withLock { state -> Bool? in
+        let desired = !state.subscribers.isEmpty
+        return desired == state.attached ? nil : desired
       }
-      state.lifecyclePending = .running
-      return true
-    }
-    guard shouldFire else { return }
+      guard let shouldAttach else { return }
 
-    onLastUnsubscribed()
-
-    state.withLock { state in
-      // If subscribers reattached while the teardown callback ran,
-      // schedule a reattach so we don't leave the broadcaster in a
-      // detached state with active subscribers.
-      if !state.subscribers.isEmpty {
-        state.lifecyclePending = .scheduledOn
+      if shouldAttach {
+        onFirstSubscriber()
       } else {
-        state.lifecyclePending = .idle
+        onLastUnsubscribed()
       }
-    }
-    let needsAttach = state.withLock { $0.lifecyclePending == .scheduledOn }
-    if needsAttach {
-      reconciliation.schedule { [weak self] in
-        self?.runFirstSubscriberCallback()
-      }
+      state.withLock { $0.attached = shouldAttach }
     }
   }
 }

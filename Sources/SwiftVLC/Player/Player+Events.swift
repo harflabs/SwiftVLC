@@ -34,9 +34,19 @@ extension Player {
   /// Spawns the event-consuming `Task` that mirrors libVLC events
   /// onto observable properties. Captures `eventBridge` strongly and
   /// `self` weakly to avoid the retain cycle Player → eventTask → Player.
+  ///
+  /// The subscription is unbounded: `state` and every other mirrored
+  /// property must not skip a transition just because the main actor
+  /// lagged behind a burst. The cost is that during active playback the
+  /// buffer grows at full event rate (the ~30 Hz `timeChanged`/
+  /// `positionChanged` firehose) for as long as the main actor is
+  /// stalled — small enum payloads, proportional to stall duration. A
+  /// main actor stalled long enough for that to matter is already a
+  /// broken app; a lossy buffer here would instead leave the observable
+  /// mirror permanently wrong about a one-shot transition.
   func startEventConsumer() {
     let bridge = eventBridge
-    let stream = bridge.makeSourcedStream()
+    let stream = bridge.makeSourcedStream(policy: .unbounded)
     eventTask = Task { [weak self] in
       for await sourcedEvent in stream {
         guard !Task.isCancelled else { return }

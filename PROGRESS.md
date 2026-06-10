@@ -73,7 +73,25 @@ scheme builds for the simulator; package strict build stays at 0 warnings.
 Screens' PASS/FAIL outcomes are device-gated (PiP is simulator-blind) —
 recorded under PENDING-DEVICE at the end.
 
-## M1 — Event delivery (P2.14 + F001/F004/F009/F037/F023) — PENDING
+## M1 — Event delivery (P2.14 + F001/F004/F009/F037/F023) — DONE
+
+| Item | Status | Evidence / notes |
+|---|---|---|
+| P2.14 public API | DONE | `EventBufferingPolicy` (`.newest(Int)` clamped ≥1, `.unbounded`), `Player.events(policy:filter:)` (parameterless `events` kept as sugar), `Player.stateTransitions` (lossless, lifecycle-only, pump-task bridged). Docs carry the swapped-handle non-delivery limitation and the blocking-filter/teardown deadlock caveat. |
+| Filter hoist | DONE | `Broadcaster.broadcast` snapshots subscribers under the Mutex, evaluates filters + yields outside; F012 single-subscriber fast path folded in (the hoist rewrote the fan-out loop, per the conditional-rider rule). Re-entrancy tests (filter calling `isEmpty`/`subscribe`/`player.events`) green. |
+| Internal consumer | DONE | Sourced subscription `.unbounded`; pinning test broadcasts a `lengthChanged` then 128-event firehose through the bridge before the consumer runs and requires the mirror to surface it (red-green verified by removing the policy argument). |
+| F001 (#34) | DONE→SUPERSEDED | The single-critical-section fix landed, then the adversarial review proved the whole phase machine still double-fires under schedule-order inversion (pre-existing). Replaced `lifecyclePending` with an `attached` flag + convergent `runReconciliation()` loop on the serial queue; reconciliation passes are scheduled while holding the state lock so FIFO order matches transition order. Churn test green 10×10 iterations (pre-rewrite flake rate was ~13%). |
+| F004 (#36) | DONE | `BroadcasterBox.value` weak; weak-probe test on a non-shared instance red-green verified (strong box → leak detected → weak → green). |
+| F009 | DONE | Per-broadcaster `isEmpty` gating in the bridge context; sourced broadcast ordered BEFORE the public one so user filters can never delay internal state mirroring (review finding). |
+| F037 (#46) | DONE | Same-stream-across-swap test; red-green verified by disabling `eventBridge.reattach(to:)`. |
+| F023 | DONE | All three platform diagnostics case studies subscribe before `play()` with `.unbounded` + subscription-time firehose filter; iOS/macOS/tvOS showcase schemes build. |
+
+Adversarial review (3 lenses → 14 agents, 8 confirmed findings) drove: the
+reconciliation rewrite, broadcast ordering, `.newest` clamping, honest
+internal-consumer doc, the internal-consumer pinning test, headless
+policy+filter and stateTransitions tests (via a new `EventBridge.
+_broadcastForTesting` hook), and the filter/teardown doc caveat. All
+confirmed findings fixed or pinned; none deferred.
 
 ## M2 — Stop/teardown cluster (ONE unit) — PENDING
 

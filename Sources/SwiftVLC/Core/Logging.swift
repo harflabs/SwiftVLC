@@ -184,6 +184,10 @@ final class LogBroadcaster: Sendable {
     broadcaster.broadcast(entry)
   }
 
+  var _broadcasterForTesting: Broadcaster<LogEntry> {
+    broadcaster
+  }
+
   /// Returns `true` if some subscriber would receive an entry at this
   /// level. Used by the C callback to short-circuit String allocation
   /// when no one is listening.
@@ -195,14 +199,22 @@ final class LogBroadcaster: Sendable {
   }
 }
 
-/// Captures-by-reference helper for resolving the `Broadcaster` retain
-/// cycle in `LogBroadcaster.init`: the lifecycle closures must retain
-/// the broadcaster as the libVLC userData pointer, but the broadcaster
-/// doesn't exist when the closures are constructed. The box is captured
-/// by the closures; `LogBroadcaster.init` populates it after the
-/// broadcaster is built.
+/// Captures-by-reference helper for the no-self-yet problem in
+/// `LogBroadcaster.init`: the lifecycle closures must reach the
+/// broadcaster (to retain it as the libVLC userData pointer on install),
+/// but the broadcaster doesn't exist when the closures are constructed.
+/// The box is captured by the closures; `LogBroadcaster.init` populates
+/// it after the broadcaster is built.
+///
+/// The reference must be `weak`: the broadcaster retains its lifecycle
+/// closures, the closures retain this box, and a strong `value` would
+/// close that loop into a self-contained cycle that leaks the whole log
+/// graph once per non-shared `VLCInstance`. The broadcaster is kept
+/// alive by `LogBroadcaster.broadcaster` for exactly as long as installs
+/// can happen, so the weak read inside the closures cannot observe a
+/// live broadcaster being torn down mid-install.
 private final class BroadcasterBox: @unchecked Sendable {
-  var value: Broadcaster<LogEntry>?
+  weak var value: Broadcaster<LogEntry>?
 }
 
 /// C callback. Receives pre-formatted messages from the C shim and

@@ -8,8 +8,8 @@ struct TVEventsCase: View {
   var body: some View {
     TVShowcaseContent(
       title: "Events",
-      summary: "Consume Player.events as an AsyncStream and filter the high-volume playback events.",
-      usage: "Play, pause, seek, and stop media to watch the filtered Player.events stream append recent playback events."
+      summary: "Subscribe with player.events(policy:filter:) using the lossless .unbounded policy and a filter that keeps the high-volume playback events out of the buffer.",
+      usage: "Play, pause, seek, and stop media to watch the filtered, lossless Player.events stream append recent playback events."
     ) {
       VStack(spacing: 16) {
         TVVideoPanel(player: player)
@@ -26,27 +26,30 @@ struct TVEventsCase: View {
           }
         }
       }
-      TVLibrarySurface(symbols: ["player.events", "AsyncStream<PlayerEvent>"])
+      TVLibrarySurface(symbols: ["player.events(policy:filter:)", "AsyncStream<PlayerEvent>"])
     }
     .task { await task() }
     .onDisappear { player.stop() }
   }
 
   private func task() async {
+    let events = player.events(policy: .unbounded, filter: { event in
+      switch event {
+      case .timeChanged, .positionChanged, .bufferingProgress: false
+      default: true
+      }
+    })
     try? player.play(url: TVTestMedia.demo)
-    for await event in player.events {
-      guard let text = describe(event) else { continue }
-      log.insert(EventLine(text: text), at: 0)
+    for await event in events {
+      log.insert(EventLine(text: describe(event)), at: 0)
       if log.count > 40 {
         log.removeLast()
       }
     }
   }
 
-  private func describe(_ event: PlayerEvent) -> String? {
+  private func describe(_ event: PlayerEvent) -> String {
     switch event {
-    case .timeChanged, .positionChanged, .bufferingProgress:
-      nil
     case .stateChanged(let state): "state: \(state)"
     case .lengthChanged(let duration): "length: \(durationLabel(duration))"
     case .seekableChanged(let isSeekable): "seekable: \(isSeekable)"
