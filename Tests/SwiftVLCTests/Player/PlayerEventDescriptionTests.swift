@@ -47,6 +47,7 @@ extension Logic {
       #expect(PlayerEvent.uncorked.description == "uncorked")
       #expect(PlayerEvent.mediaStopping.description == "mediaStopping")
       #expect(PlayerEvent.titleListChanged.description == "titleListChanged")
+      #expect(PlayerEvent.endReached.description == "endReached")
     }
 
     @Test

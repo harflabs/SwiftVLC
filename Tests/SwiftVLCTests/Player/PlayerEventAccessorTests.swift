@@ -31,6 +31,7 @@ extension Logic {
       #expect(PlayerEvent.uncorked.uncorked != nil)
       #expect(PlayerEvent.mediaStopping.mediaStopping != nil)
       #expect(PlayerEvent.titleListChanged.titleListChanged != nil)
+      #expect(PlayerEvent.endReached.endReached != nil)
 
       if case .some(.some(let device)) = PlayerEvent.audioDeviceChanged("built-in").audioDeviceChanged {
         expectNoDifference(device, "built-in")
@@ -91,7 +92,8 @@ extension Logic {
         PlayerEvent.muted.programAdded == nil,
         PlayerEvent.muted.programDeleted == nil,
         PlayerEvent.muted.programSelected == nil,
-        PlayerEvent.muted.programUpdated == nil
+        PlayerEvent.muted.programUpdated == nil,
+        PlayerEvent.muted.endReached == nil
       ]
 
       expectNoDifference(nilResults, Array(repeating: true, count: nilResults.count))

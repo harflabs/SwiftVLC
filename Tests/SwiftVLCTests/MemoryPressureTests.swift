@@ -663,55 +663,29 @@ extension Integration {
 
     // MARK: - "Player keeps running after dismiss" timing probe
 
-    /// Measures how long after `.onDisappear`-style teardown libVLC's
-    /// actual stop + release completes. The Player's `isolated deinit`
-    /// dispatches cleanup to a utility queue; if the queue is slow, the
-    /// audio output keeps playing after the user has left the screen.
-    /// The user-reported "player keeps running" is exactly this delay.
-    ///
-    /// This test doesn't assert a hard threshold — it records the
-    /// observed cleanup delay so we can see it directly. A well-behaved
-    /// pipeline should finish within ~200ms.
+    /// Measures how long `.onDisappear`-style teardown takes until
+    /// libVLC's actual stop + release completes, via the awaitable
+    /// teardown hook: `shutdown()` runs the same offloaded choreography
+    /// as `deinit` (bridge invalidation → stop → release) and suspends
+    /// until it finishes, so the elapsed time across the `await` is the
+    /// real cleanup window. If that window is slow, the audio output
+    /// keeps playing after the user has left the screen — the
+    /// user-reported "player keeps running" is exactly this delay.
     @Test(.enabled(if: TestCondition.canPlayMedia))
     func `Player cleanup after drop completes within a reasonable window`() async throws {
-      let cleanupFinished = Mutex(false)
-      let finishedAt = Mutex<ContinuousClock.Instant?>(nil)
-      let droppedAt: ContinuousClock.Instant
+      let instance = TestInstance.makeAudioOnly()
+      let player = Player(instance: instance)
+      try player.play(url: TestMedia.twosecURL)
+      try await Task.sleep(for: .milliseconds(100))
 
-      do {
-        let instance = TestInstance.makeAudioOnly()
-        let player = Player(instance: instance)
-        try player.play(url: TestMedia.twosecURL)
-        try await Task.sleep(for: .milliseconds(100))
-        player.stop()
-        droppedAt = ContinuousClock.now
-      }
+      let droppedAt = ContinuousClock.now
+      await player.shutdown()
+      let delay = ContinuousClock.now - droppedAt
 
-      // Poll for cleanup: we can't directly observe deinit completion,
-      // but we can poll until a fresh utility-queue task runs, which
-      // signals the queue has drained behind us.
-      DispatchQueue.global(qos: .utility).async {
-        cleanupFinished.withLock { $0 = true }
-        finishedAt.withLock { $0 = ContinuousClock.now }
-      }
-
-      let start = ContinuousClock.now
-      while !cleanupFinished.withLock({ $0 }), ContinuousClock.now - start < .seconds(5) {
-        try await Task.sleep(for: .milliseconds(20))
-      }
-
-      let completed = cleanupFinished.withLock { $0 }
-      #expect(completed, "Utility queue never drained within 5s after player drop — cleanup backed up")
-
-      if let stamp = finishedAt.withLock({ $0 }) {
-        let delay = stamp - droppedAt
-        // Log for visibility; don't assert a hard threshold. A delay
-        // over ~1s indicates the queue is backlogged, which is the
-        // user-visible "still playing" symptom.
-        let ms = Double(delay.components.seconds) * 1000
-          + Double(delay.components.attoseconds) / 1e15
-        #expect(ms < 2000, "Utility queue drained \(Int(ms))ms after drop — too slow")
-      }
+      #expect(
+        delay < .seconds(2),
+        "Native stop + release took \(delay) after teardown — audio output outlives dismissal"
+      )
     }
 
     // MARK: - Concurrent parse cancel chaos

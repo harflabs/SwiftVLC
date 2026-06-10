@@ -55,7 +55,10 @@ struct MacPlaylistQueueCase: View {
       MacLibrarySurface(symbols: ["MediaList", "MediaListPlayer", "listPlayer.play(at:)"])
     }
     .task { task() }
-    .onDisappear { listPlayer.stop() }
+    .onDisappear {
+      listPlayer.stop()
+      Task { await player.stopAndWait() }
+    }
   }
 
   private func task() {

@@ -110,6 +110,17 @@ extension Player {
     guard libvlc_video_update_viewpoint(pointer, vp, absolute) == 0 else {
       throw .operationFailed("Update viewpoint")
     }
+    if absolute {
+      _viewpoint = viewpoint
+    } else {
+      let base = _viewpoint ?? Viewpoint(yaw: 0, pitch: 0, roll: 0, fieldOfView: 80)
+      _viewpoint = Viewpoint(
+        yaw: base.yaw + viewpoint.yaw,
+        pitch: base.pitch + viewpoint.pitch,
+        roll: base.roll + viewpoint.roll,
+        fieldOfView: base.fieldOfView + viewpoint.fieldOfView
+      )
+    }
   }
 
   // MARK: - Teletext
@@ -142,6 +153,7 @@ extension Player {
     }
     withMutation(keyPath: \.teletextPage) {
       libvlc_video_set_teletext(pointer, page)
+      _teletextPage = page
     }
   }
 

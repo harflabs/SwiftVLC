@@ -29,12 +29,13 @@ extension Logic {
         .titleSelectionChanged(0),
         .snapshotTaken("/tmp/snap.png"),
         .mediaStopping,
+        .endReached,
         .programAdded(1),
         .programDeleted(1),
         .programSelected(unselectedId: 0, selectedId: 1),
         .programUpdated(1)
       ]
-      #expect(events.count == 27)
+      #expect(events.count == 28)
     }
 
     @Test

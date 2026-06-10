@@ -13,11 +13,19 @@ import CLibVLC
 /// ```
 @MainActor
 public struct Logo: ~Copyable, ~Escapable {
-  private let pointer: OpaquePointer
+  private let player: Player
 
   @_lifetime(borrow player)
   init(player: borrowing Player) {
-    pointer = player.pointer
+    self.player = copy player
+  }
+
+  /// Read live on every access: the player can replace its native handle
+  /// mid-session (renderer recast, stopped drawable playback), and a
+  /// pointer snapshotted at `init` would keep writing to the released
+  /// handle.
+  private var pointer: OpaquePointer {
+    player.pointer
   }
 
   /// Whether the logo overlay is enabled.
@@ -35,6 +43,7 @@ public struct Logo: ~Copyable, ~Escapable {
   /// `"file,delay,transparency;file,delay,transparency;..."` for an
   /// animated sequence.
   public func setFile(_ file: String) {
+    player._logoFile = file
     libvlc_video_set_logo_string(pointer, UInt32(libvlc_logo_file.rawValue), file)
   }
 

@@ -37,8 +37,21 @@ public enum PlayerEvent: Sendable, CustomStringConvertible {
   case audioDeviceChanged(String?)
   /// The current media is stopping. A good time to release input resources
   /// (network connections, custom I/O callbacks). The player emits this
-  /// before transitioning to ``PlayerState/stopped``.
+  /// before transitioning to ``PlayerState/stopped``. Fires for every
+  /// teardown cause — natural end, ``Player/stop()``, and media
+  /// replacement alike; use ``endReached`` to single out the natural end.
   case mediaStopping
+  /// Playback reached the natural end of the media.
+  ///
+  /// libVLC 4 reports natural end-of-media and a requested stop as the
+  /// same `.stateChanged(.stopped)` transition; SwiftVLC synthesizes this
+  /// event when a `stopped` arrives that no library-issued stop, error,
+  /// or attached ``MediaListPlayer`` accounts for. Always delivered
+  /// immediately after the `.stateChanged(.stopped)` it belongs to, from
+  /// the same native handle. Not emitted while a ``MediaListPlayer``
+  /// drives this player — list advancement stops the handle between
+  /// items.
+  case endReached
   /// Number of active video outputs changed.
   case voutChanged(Int)
   /// Buffer fill level during initial load (0.0–1.0).
@@ -80,6 +93,7 @@ public enum PlayerEvent: Sendable, CustomStringConvertible {
     case .uncorked: "uncorked"
     case .audioDeviceChanged(let device): "audioDeviceChanged(\(device ?? "nil"))"
     case .mediaStopping: "mediaStopping"
+    case .endReached: "endReached"
     case .voutChanged(let count): "voutChanged(\(count))"
     case .bufferingProgress(let progress): "bufferingProgress(\(progress))"
     case .chapterChanged(let chapter): "chapterChanged(\(chapter))"
@@ -181,6 +195,11 @@ extension PlayerEvent {
   /// `Void` if this event is `.mediaStopping`, otherwise `nil`.
   public var mediaStopping: Void? {
     if case .mediaStopping = self { () } else { nil }
+  }
+
+  /// `Void` if this event is `.endReached`, otherwise `nil`.
+  public var endReached: Void? {
+    if case .endReached = self { () } else { nil }
   }
 
   /// `Int` if this event is `.voutChanged`, otherwise `nil`.

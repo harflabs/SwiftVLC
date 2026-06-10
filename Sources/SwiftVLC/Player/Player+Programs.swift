@@ -43,9 +43,13 @@ extension Player {
   ///
   /// Pass `nil` to revert to local playback. libVLC only applies renderer
   /// selection before the first `play()` call on a native media player.
-  /// Set the renderer before starting playback on this ``Player``. To
-  /// retarget after local playback has already started, create a fresh
-  /// ``Player``, set its renderer, then start playback there.
+  /// Set the renderer before starting playback on this ``Player``; to
+  /// retarget after playback has started, use ``recast(to:)``.
+  ///
+  /// > Note: On tvOS the bundled libVLC ships no renderer output
+  /// > backends (the Chromecast plugin stack is absent from that binary
+  /// > slice), so discovery can surface devices that playback can never
+  /// > reach — applying a renderer there does not produce remote output.
   ///
   /// - Parameter renderer: A ``RendererItem`` discovered by ``RendererDiscoverer``, or `nil`.
   /// - Throws: `VLCError.operationFailed` if the renderer cannot be set,
@@ -64,6 +68,109 @@ extension Player {
     let result = libvlc_media_player_set_renderer(pointer, renderer?.pointer)
     guard result == 0 else { throw .operationFailed("Set renderer") }
     selectedRenderer = renderer
+  }
+
+  /// Switches the active renderer mid-playback on this same `Player` —
+  /// drawable attachment, observation, and app-side Now-Playing wiring
+  /// all survive. Pass `nil` to return to local playback.
+  ///
+  /// libVLC applies a renderer only before a native handle's first play,
+  /// so this replaces the handle under the hood (the same lazy
+  /// replacement a stopped drawable-hosted playback uses), re-applies the
+  /// per-player state, and restarts the current media. The call awaits
+  /// the **new session**: it resumes from the captured position once the
+  /// new session reports seekability (renderer sessions often reject
+  /// pre-buffer seeks; live streams never become seekable, so they
+  /// restart without a position restore). It never awaits the old
+  /// handle's stop — that completes on a background queue and its events
+  /// are unobservable; use ``stopAndWait()`` for the explicit-stop path.
+  ///
+  /// If libVLC rejects the renderer the call throws with the prior
+  /// renderer and local playback left intact. A-B loop bounds,
+  /// track/chapter/title selection, and DVB program selection reset with
+  /// the new session — elementary-stream and program ids can differ per
+  /// session, so re-selection is app policy. System Picture-in-Picture
+  /// backed by the replaced handle stops when the handle is torn down.
+  ///
+  /// > Note: On tvOS the bundled libVLC ships no renderer output
+  /// > backends — see ``setRenderer(_:)``.
+  ///
+  /// - Throws: ``VLCError/operationFailed(_:)`` if the renderer is
+  ///   rejected (prior renderer and local playback left intact),
+  ///   ``VLCError/playbackFailed(reason:)`` if the replacement session
+  ///   cannot be started (the renderer is applied at that point — the
+  ///   old session is gone; retry `play()` or recast again), or whatever
+  ///   ``setRenderer(_:)`` throws on the never-played path. A session
+  ///   that starts and *then* fails asynchronously surfaces through
+  ///   ``PlayerEvent/encounteredError``, not a throw.
+  public func recast(to renderer: RendererItem?) async throws(VLCError) {
+    guard nativePlayerHasStartedPlayback || state.isActive else {
+      try setRenderer(renderer)
+      return
+    }
+
+    let resumeTime = currentTime
+    let wasPlaying = isPlaybackRequestedActive
+    let priorRenderer = selectedRenderer
+    let priorPointer = pointer
+    let priorNeedsReplacement = nativePlayerNeedsReplacementBeforePlayback
+    let priorNeedsRebind = needsDrawableRebindForPlayback
+
+    selectedRenderer = renderer
+    nativePlayerNeedsReplacementBeforePlayback = true
+    let transitions = stateTransitions
+    do {
+      try play()
+    } catch {
+      // Restoration is only coherent when the throw happened before the
+      // handle replacement committed (renderer rejection releases just
+      // the candidate handle). If the replacement went through and the
+      // subsequent play call failed, the new renderer is already bound
+      // and the old session is gone — rolling the bookkeeping back would
+      // make it lie about the native state.
+      if pointer == priorPointer {
+        selectedRenderer = priorRenderer
+        nativePlayerNeedsReplacementBeforePlayback = priorNeedsReplacement
+        needsDrawableRebindForPlayback = priorNeedsRebind
+      }
+      throw error
+    }
+
+    await Self.awaitPlaying(on: transitions)
+    if resumeTime > .zero, await awaitSeekability() {
+      try? seek(to: resumeTime)
+    }
+    if !wasPlaying {
+      pause()
+    }
+  }
+
+  private static func awaitPlaying(
+    on transitions: AsyncStream<PlayerState>,
+    timeout: Duration = .seconds(10)
+  )
+    async {
+    await withTaskGroup(of: Void.self) { group in
+      group.addTask {
+        for await state in transitions where state == .playing || state == .error {
+          break
+        }
+      }
+      group.addTask {
+        try? await Task.sleep(for: timeout)
+      }
+      await group.next()
+      group.cancelAll()
+    }
+  }
+
+  private func awaitSeekability(timeout: Duration = .seconds(2)) async -> Bool {
+    let deadline = ContinuousClock.now + timeout
+    while !isSeekable {
+      if ContinuousClock.now >= deadline { return false }
+      try? await Task.sleep(for: .milliseconds(50))
+    }
+    return true
   }
 
   // MARK: - Deinterlacing
@@ -103,5 +210,7 @@ extension Player {
     guard libvlc_video_set_deinterlace(pointer, state, mode) == 0 else {
       throw .operationFailed("Set deinterlace")
     }
+    _deinterlaceState = state
+    _deinterlaceMode = mode
   }
 }

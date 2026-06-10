@@ -70,7 +70,10 @@ struct PlaylistQueueCase: View {
     .navigationTitle("Playlist queue")
     .task { task() }
     .onChange(of: mode) { listPlayer.playbackMode = mode }
-    .onDisappear { listPlayer.stop() }
+    .onDisappear {
+      listPlayer.stop()
+      Task { await player.stopAndWait() }
+    }
   }
 
   private func task() {

@@ -175,6 +175,18 @@ extension Player {
       withMutation(keyPath: \.selectedProgram) {}
       withMutation(keyPath: \.isProgramScrambled) {}
 
+    case .endReached:
+      // A consumer of the public stream can observe `.endReached` and
+      // call `play()` before this internal mirror drains its copy of
+      // the same event; the intent flag (set synchronously by `play()`)
+      // marks that queued copy as belonging to the finished session, not
+      // the new one. The bare-`load()` analog self-heals: its
+      // `.mediaChanged` is queued behind the stale `.endReached` and
+      // resets the flag right after.
+      if !isPlaybackRequestedActive {
+        didReachEnd = true
+      }
+
     case .corked, .uncorked, .voutChanged,
          .recordingChanged, .titleListChanged, .snapshotTaken,
          .mediaStopping:
@@ -265,6 +277,7 @@ extension Player {
     isSeekable = false
     isPausable = false
     bufferFill = 0
+    didReachEnd = false
     withMutation(keyPath: \.position) {
       _position = 0
     }

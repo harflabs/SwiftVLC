@@ -16,10 +16,10 @@ final class EventBridge: Sendable {
   private nonisolated(unsafe) var attachedEventTypes: [Int32]
   private let invalidated = Mutex(false)
 
-  init(eventManager: OpaquePointer) {
+  init(eventManager: OpaquePointer, endCoordinator: PlaybackEndCoordinator? = nil) {
     self.eventManager = eventManager
 
-    let context = EventBridgeCallbackContext()
+    let context = EventBridgeCallbackContext(endCoordinator: endCoordinator)
     self.context = context
     let opaque = Unmanaged.passRetained(context).toOpaque()
     contextOpaque = opaque
@@ -154,6 +154,11 @@ struct SourcedPlayerEvent {
 private final class EventBridgeCallbackContext: Sendable {
   private let events = Broadcaster<PlayerEvent>(defaultBufferSize: 64)
   private let sourcedEvents = Broadcaster<SourcedPlayerEvent>(defaultBufferSize: 64)
+  let endCoordinator: PlaybackEndCoordinator?
+
+  init(endCoordinator: PlaybackEndCoordinator?) {
+    self.endCoordinator = endCoordinator
+  }
 
   func makeStream(
     policy: EventBufferingPolicy?,
@@ -202,8 +207,22 @@ private func playerEventCallback(
 
   let context = Unmanaged<EventBridgeCallbackContext>.fromOpaque(opaque).takeUnretainedValue()
 
-  if let mapped = mapEvent(event.pointee) {
-    context.broadcast(mapped, source: sourceIdentifier(for: event.pointee))
+  guard let mapped = mapEvent(event.pointee) else { return }
+  let source = sourceIdentifier(for: event.pointee)
+  context.broadcast(mapped, source: source)
+
+  // End-of-media synthesis happens here, on the event thread, immediately
+  // after the `stopped` broadcast: every subscriber observes `.stopped`
+  // then `.endReached` from the same source, with no consumer-lag race
+  // and internal source filtering working unchanged.
+  guard let coordinator = context.endCoordinator else { return }
+  switch mapped {
+  case .encounteredError:
+    coordinator.markError()
+  case .stateChanged(.stopped) where coordinator.consumeStoppedShouldSynthesizeEnd():
+    context.broadcast(.endReached, source: source)
+  default:
+    break
   }
 }
 

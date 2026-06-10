@@ -331,6 +331,7 @@ extension Integration {
       case .titleSelectionChanged: "titleSelectionChanged"
       case .snapshotTaken: "snapshotTaken"
       case .mediaStopping: "mediaStopping"
+      case .endReached: "endReached"
       case .programAdded: "programAdded"
       case .programDeleted: "programDeleted"
       case .programSelected: "programSelected"

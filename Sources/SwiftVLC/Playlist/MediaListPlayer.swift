@@ -41,6 +41,14 @@ public final class MediaListPlayer {
   }
 
   isolated deinit {
+    // A still-attached player must be released from suppression here, or
+    // it never synthesizes a natural end again — the weak back-reference
+    // nils silently and nothing else clears the flag. The offloaded stop
+    // below drives the still-bound handle, so the same detach
+    // bookkeeping as the setter applies.
+    if let previous = _mediaPlayer {
+      detachForEndSynthesis(previous)
+    }
     // Release off the main actor. `stop_async` and `release` can block
     // waiting for VLC's internal threads, stalling all async work.
     nonisolated(unsafe) let p = pointer
@@ -51,16 +59,63 @@ public final class MediaListPlayer {
   }
 
   /// The ``Player`` used for actual playback.
+  ///
+  /// While attached, the player does not synthesize
+  /// ``PlayerEvent/endReached`` — list advancement stops the handle
+  /// between items through list-player C calls the player cannot tell
+  /// apart from a natural end. Observe list-level completion instead.
   public var mediaPlayer: Player? {
     get { _mediaPlayer }
     set {
+      if let previous = _mediaPlayer, previous !== newValue {
+        detachForEndSynthesis(previous)
+      }
       _mediaPlayer = newValue
       if let newValue {
+        newValue.endCoordinator.setSuppressed(true)
+        newValue.attachedMediaListPlayer = self
         libvlc_media_list_player_set_media_player(pointer, newValue.pointer)
       } else {
         rebuildNativePlayer()
       }
     }
+  }
+
+  /// Detach-time end-synthesis bookkeeping for a previously attached
+  /// player. The native list player's teardown (rebuild or replacement)
+  /// stops the still-bound handle on a background queue *after* this
+  /// runs, so a mid-playback detach must record that stop as
+  /// library-initiated before lifting suppression — otherwise the
+  /// deferred `Stopped` lands un-suppressed and unmarked and reads as a
+  /// natural end of the item the user detached. Suppression is lifted
+  /// unless another list player has since taken over the attachment: a
+  /// stale detach must not un-suppress a player that is still being
+  /// driven. The back-reference is `weak`, and weak references to an
+  /// object read `nil` once its deinit has begun — so on the deinit
+  /// path `attachedMediaListPlayer === self` can never hold and `nil`
+  /// must also count as "ours"; a `nil` that instead came from a third
+  /// list player's earlier teardown already lifted suppression, making
+  /// the repeat lift a no-op.
+  private func detachForEndSynthesis(_ previous: Player) {
+    switch previous.nativePlaybackState {
+    case .idle, .stopped, .error:
+      break
+    default:
+      previous.endCoordinator.markLibraryStop()
+    }
+    let owner = previous.attachedMediaListPlayer
+    guard owner === self || owner == nil else { return }
+    previous.endCoordinator.setSuppressed(false)
+    previous.attachedMediaListPlayer = nil
+  }
+
+  /// Re-binds the native list player to the attached ``Player``'s
+  /// current handle. The C API stores the raw `libvlc_media_player_t*`,
+  /// so the player calls this after every native-handle replacement —
+  /// without it the list player keeps driving the released handle.
+  func rebindMediaPlayerHandle() {
+    guard let player = _mediaPlayer else { return }
+    libvlc_media_list_player_set_media_player(pointer, player.pointer)
   }
 
   /// The media list to play.

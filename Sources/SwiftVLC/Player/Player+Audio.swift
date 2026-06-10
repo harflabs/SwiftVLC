@@ -33,6 +33,7 @@ extension Player {
     guard libvlc_audio_output_set(pointer, name) == 0 else {
       throw .operationFailed("Set audio output '\(name)'")
     }
+    _audioOutputModule = name
   }
 
   /// Lists available audio output devices for the current output.
@@ -54,6 +55,7 @@ extension Player {
     guard libvlc_audio_output_device_set(pointer, deviceId) == 0 else {
       throw .operationFailed("Set audio device '\(deviceId)'")
     }
+    _audioOutputDevice = deviceId
   }
 
   /// Current audio output device identifier.

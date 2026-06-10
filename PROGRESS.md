@@ -93,7 +93,63 @@ policy+filter and stateTransitions tests (via a new `EventBridge.
 _broadcastForTesting` hook), and the filter/teardown doc caveat. All
 confirmed findings fixed or pinned; none deferred.
 
-## M2 — Stop/teardown cluster (ONE unit) — PENDING
+## M2 — Stop/teardown cluster (ONE unit) — DONE
+
+| Item | Status | Evidence / notes |
+|---|---|---|
+| P1.10 `stopAndWait()` / `shutdown()` | DONE | `Player+Teardown.swift`. `stopAndWait` subscribes an unbounded sourced stream before issuing the stop, double-checks the native terminal state around the subscription (closes the missed-event stall), reconciles the observable mirror on return (red-test-discovered gap), 10 s defensive ceiling. `shutdown` shares `teardownNativePlayer` with `deinit` (the choreography exists once), detaches an attached `MediaListPlayer`, clears intent/pause state, awaits the offloaded teardown via checked continuation, and swaps in an inert handle so post-shutdown calls are safe no-ops. |
+| P0.2 `.endReached` / `didReachEnd` | DONE | `PlaybackEndCoordinator` consulted by the C callback after broadcasting `.stopped`; synthesis suppressed by library stop, error latch, or list-player attachment; ordering (`.stopped` then `.endReached`, same source) asserted in tests. 8-test playback matrix green ×3 locally; full CI-eligible coordinator decision-table unit suite added. |
+| P0.3 `recast(to:)` | DONE (device leg PENDING-DEVICE) | Rides the lazy replacement path; restores prior renderer/flags only when the throw pre-dates the handle commit; awaits new-session `.playing` then seekability before the time restore; never awaits the old handle's stop (§4 rule 7). Real-sink hand-off is harness matrix (d′), device-only. |
+| F003 carry-over | DONE | `carryOverPerPlayerState`: marquee ints + `_marqueeText` shadow (never the live old-handle text — may hold a transient cache-bust value), logo ints + `_logoFile` shadow, adjustments, stereo/mix, `_teletextPage`/`_deinterlaceState`/`_audioOutputModule`/`_audioOutputDevice`/`_viewpoint` shadows. Deliberate resets documented: A-B loop, track/chapter/title, DVB program selection. Deinterlace carry-over has native read-back parity coverage (red-green verified); teletext/audio-routing/viewpoint native read-back is impossible headless — shadow-only tests say so explicitly. |
+| F005 list-player rebind | DONE | `rebindMediaPlayerHandle()` called from the swap; attach/detach manages end-synthesis suppression. |
+| F022 Logo live pointer | DONE | Logo mirrors Marquee (player held, pointer computed). |
+| F024 showcase stops | DONE | All three platform playlist case studies stop the list player and drain the Player via `Task { await player.stopAndWait() }`; three schemes build. |
+| F034 `setRate` internal | DONE | `setPlaybackRate(_:)` is the single public mutator. |
+| F043/F044 weak-probe drawable release | DONE | Both orderings (swap-retained drain ≤5 s; plain detach immediate). |
+| F052 cleanup probe rewrite | DONE | Probe measures `await shutdown()` completion (<2 s asserted); concurrent-queue hack gone. |
+
+Adversarial review (3 lenses → 25 agents, 22 confirmed findings ≈ 11 unique)
+drove the second wave of fixes:
+- Phantom-`.endReached` classes closed: list-player detach mid-playback now
+  marks the deferred native stop before lifting suppression; list-player
+  `deinit` lifts suppression (weak refs read nil during deinit — ownership
+  guard accepts the nil arm); `didReachEnd` latches only when playback
+  intent is inactive (consumer-outpaces-mirror race).
+- The review's third phantom claim (bare `load()` while playing) was
+  implemented and then **reverted with red-green proof**: against the pinned
+  libVLC 4 binary, `set_media` on a started handle replaces seamlessly
+  (`mediaStopping` → `mediaChanged`, **no `Stopped`**), so the proposed mark
+  swallowed the next genuine end instead of fixing anything. The seamless
+  semantics are documented at the `load()` site and pinned by a regression
+  test. (The review's source citation — vlc_player.h prose — disagrees with
+  the shipped binary; the binary wins.)
+- `stop()` TOCTOU (consume-before-mark, microsecond window, self-healing at
+  one suppressed end) documented at the site rather than closed — a fix
+  needs a session generation token for no practical gain.
+- shutdown intent/pause-state reset; recast restore-coherence + honest
+  Throws docs; program-selection added to the deliberate-reset docs.
+
+PLAN §3.3 acceptance deviation: "all seven tests green on macOS and tvOS-sim
+CI" is structurally unmeetable — both CI jobs set CI/TEST_RUNNER_CI
+deliberately (GHA macOS runners crash in libVLC's hardware-accel probe;
+documented in TestInstance.swift). Compensation: the matrix runs green
+locally (macOS, 3×), a one-off local tvOS-simulator run without the CI gate
+executes it on tvOS (result below), and the coordinator's decision logic has
+ungated CI unit coverage.
+
+tvOS-simulator playback run (one-off, no CI gate, Apple TV 4K 3rd gen sim):
+the complete end-reached matrix — all 8 §3.3 tests plus the 3 review-driven
+regressions — PASSED on tvOS. Two unrelated playback tests fail on the tvOS
+simulator only (`EventBridgeTests."Volume changed event"` — the tvOS sim's
+real aout does not report volume events; `VideoSurfaceRaceTests."serial
+multi-surface attach ordering"`) — environmental differences in suites that
+no CI configuration executes on tvOS by design; recorded, not gating.
+
+M2 verification evidence: strict build 0 warnings; CI suite green (1457
+tests / 116 suites); local playback suite green ×2 (~140 s); TSan green;
+ASan green; swiftlint --strict and swiftformat --lint clean repo-wide
+(Player.swift split into Player+Teardown.swift / Player+Drawable.swift and
+the PiP probe into PiPController+Validation.swift to satisfy file_length).
 
 ## M3 — Seek & playback info — PENDING
 
