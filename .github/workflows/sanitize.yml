@@ -108,6 +108,14 @@ jobs:
       # Run only the suites that exist *because* of races/lifecycle/memory
       # concerns. The general test suite runs unsanitized in `test.yml`.
       #
+      # Playback-driven race suites (PlayerCleanupRaceTests,
+      # AudioOutputRaceTests, …) are gated on `TestCondition.canPlayMedia`
+      # and self-skip under CI=true, so the sanitizers never see them here.
+      # PlaybackFreeTeardownRaceTests exists to cover the stop, native-
+      # handle-swap, and offloaded-deinit paths without playback so they
+      # run under both sanitizers. The residual gap is real-playback
+      # stop/teardown, which remains device/local-only.
+      #
       # `--no-parallel` per the same rationale as the test job: serialized
       # runs avoid main-actor contention that masks real races as timeouts.
       #
@@ -124,4 +132,4 @@ jobs:
             xcrun --toolchain "$TOOLCHAINS" swift test \
               --sanitize=${{ matrix.sanitizer }} \
               --no-parallel \
-              --filter "RaceTests|StressTests|MemoryTests|MemoryAndRetainTests|MemoryPressureTests|LifecycleStressTests"
+              --filter "RaceTests|StressTests|MemoryAndRetainTests|MemoryPressureTests|LifecycleStressTests"

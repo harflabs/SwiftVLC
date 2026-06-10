@@ -10,16 +10,12 @@ extension Integration {
       let player = Player(instance: TestInstance.shared)
       let media = try Media(url: TestMedia.twosecURL)
       try player.play(media)
-      guard try await poll(until: { player.isPlaying }) else {
-        player.stop()
-        return
-      }
+      try #require(await poll(until: { player.isPlaying }), "Waiting for: player.isPlaying")
       // Wait for some frames to decode so statistics populate
-      guard try await poll(timeout: .seconds(5), until: { player.statistics != nil }) else {
-        player.stop()
-        // Statistics may not become available on all platforms
-        return
-      }
+      try #require(
+        await poll(timeout: .seconds(5), until: { player.statistics != nil }),
+        "Waiting for: player.statistics != nil"
+      )
       // readBytes may still be 0 if stats haven't fully populated yet
       // The important thing is that statistics is non-nil during playback
       if let stats = player.statistics {

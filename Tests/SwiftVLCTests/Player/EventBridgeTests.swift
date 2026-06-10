@@ -34,11 +34,7 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.testMP4URL))
-      guard try await poll(until: { receivedEvent.withLock { $0 } }) else {
-        player.stop()
-        task.cancel()
-        return
-      }
+      try #require(await poll(until: { receivedEvent.withLock { $0 } }), "Waiting for: event received")
       player.stop()
       task.cancel()
     }
@@ -66,12 +62,10 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.testMP4URL))
-      guard try await poll(until: { count1.withLock { $0 } > 0 && count2.withLock { $0 } > 0 }) else {
-        player.stop()
-        t1.cancel()
-        t2.cancel()
-        return
-      }
+      try #require(
+        await poll(until: { count1.withLock { $0 } > 0 && count2.withLock { $0 } > 0 }),
+        "Waiting for: both consumers received events"
+      )
 
       player.stop()
       t1.cancel()
@@ -107,7 +101,7 @@ extension Integration {
 
     @Test(.timeLimit(.minutes(1)))
     func `State transitions received during playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       let stream = player.events
 
       let receivedStates = Mutex<[PlayerState]>([])
@@ -116,7 +110,7 @@ extension Integration {
           if case .stateChanged(let state) = event {
             let shouldBreak = receivedStates.withLock {
               $0.append(state)
-              return state == .playing || state == .stopped || $0.count >= 5
+              return state == .stopped || $0.count >= 8
             }
             if shouldBreak { break }
           }
@@ -124,25 +118,20 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.testMP4URL))
-      guard try await poll(until: { receivedStates.withLock { !$0.isEmpty } }) else {
-        player.stop()
-        task.cancel()
-        return
-      }
+      try #require(await poll(until: { receivedStates.withLock { !$0.isEmpty } }), "Waiting for: a state change received")
       player.stop()
-      guard
-        try await poll(until: {
+      try #require(
+        await poll(until: {
           receivedStates.withLock { $0.contains(where: { $0 == .stopped || $0 == .stopping }) }
-        }) else {
-        task.cancel()
-        return
-      }
+        }),
+        "Waiting for: stopped or stopping state received"
+      )
       task.cancel()
     }
 
     @Test(.timeLimit(.minutes(1)))
     func `Time and position events during playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       let stream = player.events
 
       let receivedTime = Mutex(false)
@@ -159,11 +148,10 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.twosecURL))
-      guard try await poll(until: { receivedTime.withLock { $0 } && receivedPosition.withLock { $0 } }) else {
-        player.stop()
-        task.cancel()
-        return
-      }
+      try #require(
+        await poll(until: { receivedTime.withLock { $0 } && receivedPosition.withLock { $0 } }),
+        "Waiting for: time and position events received"
+      )
       player.stop()
       task.cancel()
     }
@@ -184,11 +172,7 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.twosecURL))
-      guard try await poll(until: { receivedLength.withLock { $0 } }) else {
-        player.stop()
-        task.cancel()
-        return
-      }
+      try #require(await poll(until: { receivedLength.withLock { $0 } }), "Waiting for: length changed event received")
       player.stop()
       task.cancel()
     }
@@ -212,18 +196,17 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.twosecURL))
-      guard try await poll(until: { receivedSeekable.withLock { $0 } && receivedPausable.withLock { $0 } }) else {
-        player.stop()
-        task.cancel()
-        return
-      }
+      try #require(
+        await poll(until: { receivedSeekable.withLock { $0 } && receivedPausable.withLock { $0 } }),
+        "Waiting for: seekable and pausable events received"
+      )
       player.stop()
       task.cancel()
     }
 
     @Test(.timeLimit(.minutes(1)))
     func `Mute events`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makeRealAudioPlayback())
       let stream = player.events
 
       let receivedMuted = Mutex(false)
@@ -240,26 +223,19 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.twosecURL))
-      guard try await poll(until: { player.state == .playing }) else {
-        player.stop()
-        task.cancel()
-        return
-      }
+      try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
+      try #require(await poll(until: { player.currentTime > .zero }), "Waiting for: playback clock advanced")
       player.isMuted = true
-      try await Task.sleep(for: .milliseconds(50))
+      try #require(await poll(until: { receivedMuted.withLock { $0 } }), "Waiting for: muted event received")
       player.isMuted = false
-      guard try await poll(until: { receivedMuted.withLock { $0 } && receivedUnmuted.withLock { $0 } }) else {
-        player.stop()
-        task.cancel()
-        return
-      }
+      try #require(await poll(until: { receivedUnmuted.withLock { $0 } }), "Waiting for: unmuted event received")
       player.stop()
       task.cancel()
     }
 
     @Test(.timeLimit(.minutes(1)))
     func `Volume changed event`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makeRealAudioPlayback())
       let stream = player.events
 
       let receivedVolumeChanged = Mutex(false)
@@ -273,24 +249,20 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.twosecURL))
-      guard try await poll(until: { player.state == .playing }) else {
-        player.stop()
-        task.cancel()
-        return
-      }
+      try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
+      try #require(await poll(until: { player.currentTime > .zero }), "Waiting for: playback clock advanced")
       try? player.setAudioVolume(Volume(0.5))
-      guard try await poll(until: { receivedVolumeChanged.withLock { $0 } }) else {
-        player.stop()
-        task.cancel()
-        return
-      }
+      try #require(
+        await poll(until: { receivedVolumeChanged.withLock { $0 } }),
+        "Waiting for: volume changed event received"
+      )
       player.stop()
       task.cancel()
     }
 
     @Test(.timeLimit(.minutes(1)))
     func `Stopped event resets player state`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       let stream = player.events
 
       let receivedStopped = Mutex(false)
@@ -304,16 +276,9 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.testMP4URL))
-      guard try await poll(until: { player.state == .playing }) else {
-        player.stop()
-        task.cancel()
-        return
-      }
+      try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       player.stop()
-      guard try await poll(until: { receivedStopped.withLock { $0 } }) else {
-        task.cancel()
-        return
-      }
+      try #require(await poll(until: { receivedStopped.withLock { $0 } }), "Waiting for: stopped event received")
       task.cancel()
     }
 
@@ -336,14 +301,12 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.twosecURL))
-      guard
-        try await poll(until: {
+      try #require(
+        await poll(until: {
           receivedTracksChanged.withLock { $0 } || receivedMediaChanged.withLock { $0 }
-        }) else {
-        player.stop()
-        task.cancel()
-        return
-      }
+        }),
+        "Waiting for: tracks changed or media changed event received"
+      )
       player.stop()
       task.cancel()
     }
@@ -364,11 +327,10 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.twosecURL))
-      guard try await poll(until: { receivedBuffering.withLock { $0 } }) else {
-        player.stop()
-        task.cancel()
-        return
-      }
+      try #require(
+        await poll(until: { receivedBuffering.withLock { $0 } }),
+        "Waiting for: buffering progress event received"
+      )
       player.stop()
       task.cancel()
     }

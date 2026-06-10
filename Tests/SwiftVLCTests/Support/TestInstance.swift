@@ -78,6 +78,17 @@ enum TestInstance {
     try! VLCInstance(arguments: playbackArguments)
   }
 
+  /// Creates an independent VLC instance with the dummy video output but
+  /// a real audio output. The dummy audio module swallows mute/volume
+  /// reports, so `.muted` / `.unmuted` / `.volumeChanged` never reach the
+  /// player's event manager under ``makePlayback()``; asserting their
+  /// delivery requires the live aout core. Playback through this instance
+  /// emits brief audible output on the host, so keep usage behind
+  /// `TestCondition.canPlayMedia` and mute or stop promptly.
+  static func makeRealAudioPlayback() -> VLCInstance {
+    try! VLCInstance(arguments: VLCInstance.defaultArguments + ["--vout=dummy", "--quiet"])
+  }
+
   /// A single shared instance with audio and video outputs disabled.
   /// Default for tests that don't care about per-test isolation and
   /// don't need to reach `.playing`. Skips the ~50 ms instance-creation

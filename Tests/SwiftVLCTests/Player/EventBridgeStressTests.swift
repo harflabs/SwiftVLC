@@ -7,7 +7,7 @@ extension Integration {
   @MainActor struct EventBridgeStressTests {
     @Test(.timeLimit(.minutes(1)))
     func `Many concurrent consumers all receive events`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       let consumerCount = 12
       let streams = (0..<consumerCount).map { _ in player.events }
       let counts = Mutex([Int](repeating: 0, count: consumerCount))
@@ -22,19 +22,12 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.twosecURL))
-      guard
-        try await poll(every: .milliseconds(100), timeout: .seconds(5), until: {
+      try #require(
+        await poll(every: .milliseconds(100), timeout: .seconds(5), until: {
           counts.withLock { $0.allSatisfy { $0 > 0 } }
-        }) else {
-        for task in tasks {
-          task.cancel()
-        }
-        for task in tasks {
-          await task.value
-        }
-        player.stop()
-        return
-      }
+        }),
+        "Waiting for: every consumer received at least one event"
+      )
 
       for task in tasks {
         task.cancel()
@@ -77,12 +70,7 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.testMP4URL))
-      guard try await poll(until: { receivedEvent.withLock { $0 } }) else {
-        task.cancel()
-        await task.value
-        player.stop()
-        return
-      }
+      try #require(await poll(until: { receivedEvent.withLock { $0 } }), "Waiting for: event received")
       task.cancel()
       await task.value
       player.stop()
@@ -115,12 +103,7 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.testMP4URL))
-      guard try await poll(until: { receivedEvent.withLock { $0 } }) else {
-        task2.cancel()
-        await task2.value
-        player.stop()
-        return
-      }
+      try #require(await poll(until: { receivedEvent.withLock { $0 } }), "Waiting for: event received on second stream")
       task2.cancel()
       await task2.value
       player.stop()
@@ -130,7 +113,7 @@ extension Integration {
 
     @Test(.timeLimit(.minutes(1)))
     func `Slow consumer does not block fast consumer`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       let fastStream = player.events
       let slowStream = player.events
 
@@ -156,17 +139,12 @@ extension Integration {
       try player.play(Media(url: TestMedia.twosecURL))
 
       // The fast consumer should reach 5 events before the slow one finishes
-      guard
-        try await poll(every: .milliseconds(100), timeout: .seconds(5), until: {
+      try #require(
+        await poll(every: .milliseconds(100), timeout: .seconds(5), until: {
           fastCount.withLock { $0 } >= 5
-        }) else {
-        fastTask.cancel()
-        slowTask.cancel()
-        await fastTask.value
-        await slowTask.value
-        player.stop()
-        return
-      }
+        }),
+        "Waiting for: fast consumer received at least 5 events"
+      )
 
       // Fast consumer got its events; slow consumer should still be behind
       let fast = fastCount.withLock { $0 }
@@ -183,7 +161,7 @@ extension Integration {
 
     @Test(.timeLimit(.minutes(1)))
     func `All major event types received during full playthrough`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       let stream = player.events
 
       let receivedState = Mutex(false)
@@ -226,8 +204,8 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.twosecURL))
-      guard
-        try await poll(every: .milliseconds(100), timeout: .seconds(8), until: {
+      try #require(
+        await poll(every: .milliseconds(100), timeout: .seconds(8), until: {
           receivedState.withLock { $0 }
             && receivedTime.withLock { $0 }
             && receivedPosition.withLock { $0 }
@@ -236,13 +214,9 @@ extension Integration {
             && receivedPausable.withLock { $0 }
             && (receivedTracks.withLock { $0 } || receivedMedia.withLock { $0 })
             && receivedBuffering.withLock { $0 }
-        }) else {
-        task.cancel()
-        await task.value
-        player.stop()
-        // Some events may not fire on all platforms; gracefully skip
-        return
-      }
+        }),
+        "Waiting for: state, time, position, length, seekable, pausable, tracks/media, and buffering events received"
+      )
 
       task.cancel()
       await task.value
@@ -261,7 +235,7 @@ extension Integration {
 
     @Test(.timeLimit(.minutes(1)))
     func `Multiple players with independent event bridges`() async throws {
-      let player1 = Player(instance: TestInstance.shared)
+      let player1 = Player(instance: TestInstance.makePlayback())
       let player2 = Player(instance: TestInstance.shared)
       let stream1 = player1.events
       let stream2 = player2.events
@@ -298,17 +272,12 @@ extension Integration {
 
       // Only play on player1
       try player1.play(Media(url: TestMedia.testMP4URL))
-      guard
-        try await poll(every: .milliseconds(100), timeout: .seconds(5), until: {
+      try #require(
+        await poll(every: .milliseconds(100), timeout: .seconds(5), until: {
           events1.withLock { $0.count } >= 2
-        }) else {
-        task1.cancel()
-        task2.cancel()
-        await task1.value
-        await task2.value
-        player1.stop()
-        return
-      }
+        }),
+        "Waiting for: player1 received at least 2 state/time events"
+      )
 
       // Player2 was never played, so it should have no events
       let count2 = events2.withLock { $0.count }
@@ -324,7 +293,7 @@ extension Integration {
 
     @Test(.timeLimit(.minutes(1)))
     func `Media changed event fires when switching media`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       let stream = player.events
 
       let mediaChangedCount = Mutex(0)
@@ -339,12 +308,7 @@ extension Integration {
 
       // Play first media
       try player.play(Media(url: TestMedia.testMP4URL))
-      guard try await poll(until: { player.state == .playing }) else {
-        task.cancel()
-        await task.value
-        player.stop()
-        return
-      }
+      try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
 
       // Switch to second media while playing
       try player.play(Media(url: TestMedia.twosecURL))
@@ -369,7 +333,7 @@ extension Integration {
 
     @Test(.timeLimit(.minutes(1)))
     func `Vout event during video playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       let stream = player.events
 
       let receivedVout = Mutex(false)
@@ -383,16 +347,12 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.twosecURL))
-      guard
-        try await poll(every: .milliseconds(100), timeout: .seconds(5), until: {
+      try #require(
+        await poll(every: .milliseconds(100), timeout: .seconds(5), until: {
           receivedVout.withLock { $0 }
-        }) else {
-        task.cancel()
-        await task.value
-        player.stop()
-        // Vout may not fire in headless test environments; still validate no crash
-        return
-      }
+        }),
+        "Waiting for: voutChanged event with active vout received"
+      )
 
       task.cancel()
       await task.value

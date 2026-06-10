@@ -200,14 +200,11 @@ extension Integration {
       #expect(paused == true)
     }
 
-    @Test
+    @Test(.enabled(if: TestCondition.canPlayMedia, "Requires video output (skipped on CI)"))
     func `transient PiP pause then play does not send native pause or resume`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(url: TestMedia.twosecURL)
-      guard try await poll(until: { player.state == .playing }) else {
-        player.stop()
-        return
-      }
+      try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       defer { player.stop() }
 
       let recorder = PlaybackRecorder()
@@ -226,14 +223,11 @@ extension Integration {
       #expect(recorder.cancelPendingPauseCount == 1)
     }
 
-    @Test
+    @Test(.enabled(if: TestCondition.canPlayMedia, "Requires video output (skipped on CI)"))
     func `PiP skip cancels pending pause and suppresses redundant resume`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       try player.play(url: TestMedia.twosecURL)
-      guard try await poll(until: { player.state == .playing }) else {
-        player.stop()
-        return
-      }
+      try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       defer { player.stop() }
 
       let recorder = PlaybackRecorder()

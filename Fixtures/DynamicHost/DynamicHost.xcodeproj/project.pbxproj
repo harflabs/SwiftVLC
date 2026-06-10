@@ -1,0 +1,392 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 71;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		D1000000000000000000000A /* FeatureA in Frameworks */ = {isa = PBXBuildFile; productRef = D80000000000000000000001 /* FeatureA */; };
+		D1000000000000000000000B /* FeatureB in Frameworks */ = {isa = PBXBuildFile; productRef = D80000000000000000000002 /* FeatureB */; };
+		D1000000000000000000000C /* MediaCore in Frameworks */ = {isa = PBXBuildFile; productRef = D80000000000000000000003 /* MediaCore */; };
+		D1000000000000000000000D /* FeatureA in Frameworks */ = {isa = PBXBuildFile; productRef = D80000000000000000000004 /* FeatureA */; };
+		D1000000000000000000000E /* FeatureB in Frameworks */ = {isa = PBXBuildFile; productRef = D80000000000000000000005 /* FeatureB */; };
+		D1000000000000000000000F /* MediaCore in Frameworks */ = {isa = PBXBuildFile; productRef = D80000000000000000000006 /* MediaCore */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		D2000000000000000000000A /* DynamicHost-iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "DynamicHost-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		D2000000000000000000000B /* DynamicHost-tvOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "DynamicHost-tvOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		D4000000000000000000000A /* App */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = App; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		D3000000000000000000000A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D1000000000000000000000A /* FeatureA in Frameworks */,
+				D1000000000000000000000B /* FeatureB in Frameworks */,
+				D1000000000000000000000C /* MediaCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D3000000000000000000000B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D1000000000000000000000D /* FeatureA in Frameworks */,
+				D1000000000000000000000E /* FeatureB in Frameworks */,
+				D1000000000000000000000F /* MediaCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		D40000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				D4000000000000000000000A /* App */,
+				D40000000000000000000002 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		D40000000000000000000002 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				D2000000000000000000000A /* DynamicHost-iOS.app */,
+				D2000000000000000000000B /* DynamicHost-tvOS.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		D5000000000000000000000A /* DynamicHost-iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D70000000000000000000011 /* Build configuration list for PBXNativeTarget "DynamicHost-iOS" */;
+			buildPhases = (
+				D6000000000000000000000A /* Sources */,
+				D3000000000000000000000A /* Frameworks */,
+				D6000000000000000000000B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				D4000000000000000000000A /* App */,
+			);
+			name = "DynamicHost-iOS";
+			packageProductDependencies = (
+				D80000000000000000000001 /* FeatureA */,
+				D80000000000000000000002 /* FeatureB */,
+				D80000000000000000000003 /* MediaCore */,
+			);
+			productName = "DynamicHost-iOS";
+			productReference = D2000000000000000000000A /* DynamicHost-iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		D5000000000000000000000B /* DynamicHost-tvOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D70000000000000000000012 /* Build configuration list for PBXNativeTarget "DynamicHost-tvOS" */;
+			buildPhases = (
+				D6000000000000000000000C /* Sources */,
+				D3000000000000000000000B /* Frameworks */,
+				D6000000000000000000000D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				D4000000000000000000000A /* App */,
+			);
+			name = "DynamicHost-tvOS";
+			packageProductDependencies = (
+				D80000000000000000000004 /* FeatureA */,
+				D80000000000000000000005 /* FeatureB */,
+				D80000000000000000000006 /* MediaCore */,
+			);
+			productName = "DynamicHost-tvOS";
+			productReference = D2000000000000000000000B /* DynamicHost-tvOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		D90000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 2640;
+			};
+			buildConfigurationList = D70000000000000000000010 /* Build configuration list for PBXProject "DynamicHost" */;
+			compatibilityVersion = "Xcode 16.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = D40000000000000000000001;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				DA0000000000000000000001 /* XCLocalSwiftPackageReference "MediaKit" */,
+				DA0000000000000000000002 /* XCLocalSwiftPackageReference "MediaCoreKit" */,
+			);
+			productRefGroup = D40000000000000000000002 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				D5000000000000000000000A /* DynamicHost-iOS */,
+				D5000000000000000000000B /* DynamicHost-tvOS */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		D6000000000000000000000B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D6000000000000000000000D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		D6000000000000000000000A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D6000000000000000000000C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		D70000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator appletvos appletvsimulator";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TVOS_DEPLOYMENT_TARGET = 18.0;
+			};
+			name = Debug;
+		};
+		D70000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator appletvos appletvsimulator";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TVOS_DEPLOYMENT_TARGET = 18.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		D70000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.fixtures.dynamichost.ios;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		D70000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.fixtures.dynamichost.ios;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		D70000000000000000000005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.fixtures.dynamichost.tvos;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = appletvos;
+				SUPPORTED_PLATFORMS = "appletvos appletvsimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = 3;
+				TVOS_DEPLOYMENT_TARGET = 18.0;
+			};
+			name = Debug;
+		};
+		D70000000000000000000006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.fixtures.dynamichost.tvos;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = appletvos;
+				SUPPORTED_PLATFORMS = "appletvos appletvsimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = 3;
+				TVOS_DEPLOYMENT_TARGET = 18.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		D70000000000000000000010 /* Build configuration list for PBXProject "DynamicHost" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D70000000000000000000001 /* Debug */,
+				D70000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D70000000000000000000011 /* Build configuration list for PBXNativeTarget "DynamicHost-iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D70000000000000000000003 /* Debug */,
+				D70000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D70000000000000000000012 /* Build configuration list for PBXNativeTarget "DynamicHost-tvOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D70000000000000000000005 /* Debug */,
+				D70000000000000000000006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		DA0000000000000000000001 /* XCLocalSwiftPackageReference "MediaKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = MediaKit;
+		};
+		DA0000000000000000000002 /* XCLocalSwiftPackageReference "MediaCoreKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = MediaCoreKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		D80000000000000000000001 /* FeatureA */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DA0000000000000000000001 /* XCLocalSwiftPackageReference "MediaKit" */;
+			productName = FeatureA;
+		};
+		D80000000000000000000002 /* FeatureB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DA0000000000000000000001 /* XCLocalSwiftPackageReference "MediaKit" */;
+			productName = FeatureB;
+		};
+		D80000000000000000000003 /* MediaCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DA0000000000000000000002 /* XCLocalSwiftPackageReference "MediaCoreKit" */;
+			productName = MediaCore;
+		};
+		D80000000000000000000004 /* FeatureA */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DA0000000000000000000001 /* XCLocalSwiftPackageReference "MediaKit" */;
+			productName = FeatureA;
+		};
+		D80000000000000000000005 /* FeatureB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DA0000000000000000000001 /* XCLocalSwiftPackageReference "MediaKit" */;
+			productName = FeatureB;
+		};
+		D80000000000000000000006 /* MediaCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DA0000000000000000000002 /* XCLocalSwiftPackageReference "MediaCoreKit" */;
+			productName = MediaCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = D90000000000000000000001 /* Project object */;
+}

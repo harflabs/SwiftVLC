@@ -9,7 +9,7 @@ extension Integration {
 
     @Test(.timeLimit(.minutes(1)))
     func `TracksChanged fires from ESAdded during video playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       let stream = player.events
 
       let receivedTracksChanged = Mutex(false)
@@ -23,16 +23,12 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.twosecURL))
-      guard
-        try await poll(every: .milliseconds(50), timeout: .seconds(5), until: {
+      try #require(
+        await poll(every: .milliseconds(50), timeout: .seconds(5), until: {
           receivedTracksChanged.withLock { $0 }
-        }) else {
-        task.cancel()
-        await task.value
-        player.stop()
-        // tracksChanged may not fire in all environments
-        return
-      }
+        }),
+        "Waiting for: tracksChanged event received"
+      )
       task.cancel()
       await task.value
       player.stop()
@@ -58,12 +54,7 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.testMP4URL))
-      guard try await poll(until: { receivedMediaChanged.withLock { $0 } }) else {
-        task.cancel()
-        await task.value
-        player.stop()
-        return
-      }
+      try #require(await poll(until: { receivedMediaChanged.withLock { $0 } }), "Waiting for: mediaChanged event received")
       task.cancel()
       await task.value
       player.stop()
@@ -75,7 +66,7 @@ extension Integration {
 
     @Test(.timeLimit(.minutes(1)))
     func `MediaChanged fires on media switch`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       let stream = player.events
 
       let mediaChangedCount = Mutex(0)
@@ -90,12 +81,7 @@ extension Integration {
 
       // Play first media
       try player.play(Media(url: TestMedia.testMP4URL))
-      guard try await poll(until: { player.state == .playing }) else {
-        task.cancel()
-        await task.value
-        player.stop()
-        return
-      }
+      try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
 
       // Switch to second media
       try player.play(Media(url: TestMedia.twosecURL))
@@ -120,7 +106,7 @@ extension Integration {
 
     @Test(.timeLimit(.minutes(1)))
     func `VoutChanged fires during video playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       let stream = player.events
 
       let receivedVout = Mutex(false)
@@ -134,16 +120,12 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.twosecURL))
-      guard
-        try await poll(every: .milliseconds(100), timeout: .seconds(5), until: {
+      try #require(
+        await poll(every: .milliseconds(100), timeout: .seconds(5), until: {
           receivedVout.withLock { $0 }
-        }) else {
-        task.cancel()
-        await task.value
-        player.stop()
-        // voutChanged may not fire in headless environments
-        return
-      }
+        }),
+        "Waiting for: voutChanged event received"
+      )
       task.cancel()
       await task.value
       player.stop()
@@ -151,46 +133,37 @@ extension Integration {
       #expect(receivedVout.withLock { $0 })
     }
 
-    // MARK: - Idle state event fires (NothingSpecial)
+    // MARK: - Stopped state event fires after stop
 
     @Test(.timeLimit(.minutes(1)))
-    func `Idle state event fires after stop`() async throws {
-      let player = Player(instance: TestInstance.shared)
+    func `Stopped state event fires after stop`() async throws {
+      let player = Player(instance: TestInstance.makePlayback())
       let stream = player.events
 
-      let receivedIdle = Mutex(false)
+      let receivedStopped = Mutex(false)
       let task = Task.detached { @Sendable in
         for await event in stream {
-          if case .stateChanged(.idle) = event {
-            receivedIdle.withLock { $0 = true }
+          if case .stateChanged(.stopped) = event {
+            receivedStopped.withLock { $0 = true }
             break
           }
         }
       }
 
-      // Play then stop — NothingSpecial may fire after stopped->idle transition
       try player.play(Media(url: TestMedia.testMP4URL))
-      guard try await poll(until: { player.state == .playing }) else {
-        task.cancel()
-        await task.value
-        player.stop()
-        return
-      }
+      try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
       player.stop()
 
-      guard
-        try await poll(every: .milliseconds(100), timeout: .seconds(5), until: {
-          receivedIdle.withLock { $0 }
-        }) else {
-        task.cancel()
-        await task.value
-        // NothingSpecial may not fire in all libVLC versions; no crash is the baseline
-        return
-      }
+      try #require(
+        await poll(every: .milliseconds(100), timeout: .seconds(5), until: {
+          receivedStopped.withLock { $0 }
+        }),
+        "Waiting for: stopped state event received"
+      )
       task.cancel()
       await task.value
 
-      #expect(receivedIdle.withLock { $0 })
+      #expect(receivedStopped.withLock { $0 })
     }
 
     // MARK: - Multiple consumers verify same event arrives to all
@@ -232,15 +205,12 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.twosecURL))
-      guard
-        try await poll(every: .milliseconds(100), timeout: .seconds(5), until: {
+      try #require(
+        await poll(every: .milliseconds(100), timeout: .seconds(5), until: {
           media3.withLock { $0 }
-        }) else {
-        t1.cancel(); t2.cancel(); t3.cancel()
-        await t1.value; await t2.value; await t3.value
-        player.stop()
-        return
-      }
+        }),
+        "Waiting for: mediaChanged event received by consumer 3"
+      )
 
       // Wait a bit more for tracks
       _ = try await poll(every: .milliseconds(100), timeout: .seconds(3), until: {
@@ -258,7 +228,7 @@ extension Integration {
 
     @Test(.timeLimit(.minutes(1)))
     func `Multiple tracksChanged events accumulate during playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       let stream = player.events
 
       let tracksCount = Mutex(0)
@@ -273,20 +243,12 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.twosecURL))
-      guard
-        try await poll(every: .milliseconds(100), timeout: .seconds(5), until: {
+      try #require(
+        await poll(every: .milliseconds(100), timeout: .seconds(5), until: {
           tracksCount.withLock { $0 } >= 2
-        }) else {
-        task.cancel()
-        await task.value
-        player.stop()
-        // At least verify we got some
-        let count = tracksCount.withLock { $0 }
-        if count > 0 {
-          #expect(count >= 1, "Got at least one tracksChanged")
-        }
-        return
-      }
+        }),
+        "Waiting for: at least 2 tracksChanged events received"
+      )
       task.cancel()
       await task.value
       player.stop()
@@ -298,7 +260,7 @@ extension Integration {
 
     @Test(.timeLimit(.minutes(1)))
     func `Full event coverage during video playback`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       let stream = player.events
 
       let receivedState = Mutex(false)
@@ -330,19 +292,15 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.twosecURL))
-      guard
-        try await poll(every: .milliseconds(100), timeout: .seconds(8), until: {
+      try #require(
+        await poll(every: .milliseconds(100), timeout: .seconds(8), until: {
           receivedState.withLock { $0 }
             && receivedMedia.withLock { $0 }
             && receivedTime.withLock { $0 }
             && receivedLength.withLock { $0 }
-        }) else {
-        task.cancel()
-        await task.value
-        player.stop()
-        // Some events may not fire on all platforms; gracefully skip
-        return
-      }
+        }),
+        "Waiting for: state, media, time, and length events received"
+      )
       task.cancel()
       await task.value
       player.stop()

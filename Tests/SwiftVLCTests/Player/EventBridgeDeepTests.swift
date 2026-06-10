@@ -23,12 +23,7 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.testMP4URL))
-      guard try await poll(until: { receivedMediaChanged.withLock { $0 } }) else {
-        task.cancel()
-        await task.value
-        player.stop()
-        return
-      }
+      try #require(await poll(until: { receivedMediaChanged.withLock { $0 } }), "Waiting for: mediaChanged event received")
       task.cancel()
       await task.value
       player.stop()
@@ -38,7 +33,7 @@ extension Integration {
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `TracksChanged event fires after load`() async throws {
-      let player = Player(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.makePlayback())
       let stream = player.events
 
       let receivedTracksChanged = Mutex(false)
@@ -52,16 +47,12 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.testMP4URL))
-      guard
-        try await poll(every: .milliseconds(100), timeout: .seconds(5), until: {
+      try #require(
+        await poll(every: .milliseconds(100), timeout: .seconds(5), until: {
           receivedTracksChanged.withLock { $0 }
-        }) else {
-        task.cancel()
-        await task.value
-        player.stop()
-        // tracksChanged may not fire in all environments; no crash is the baseline
-        return
-      }
+        }),
+        "Waiting for: tracksChanged event received"
+      )
       task.cancel()
       await task.value
       player.stop()
@@ -136,12 +127,7 @@ extension Integration {
       }
 
       try player.play(Media(url: TestMedia.testMP4URL))
-      guard try await poll(until: { collected.withLock { $0.count } >= 3 }) else {
-        task.cancel()
-        await task.value
-        player.stop()
-        return
-      }
+      try #require(await poll(until: { collected.withLock { $0.count } >= 3 }), "Waiting for: at least 3 events collected")
       task.cancel()
       await task.value
       player.stop()

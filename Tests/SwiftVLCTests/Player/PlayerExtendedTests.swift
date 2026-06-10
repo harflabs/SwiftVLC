@@ -476,11 +476,7 @@ extension Integration {
       try player1.play(Media(url: TestMedia.twosecURL))
       try player2.play(Media(url: TestMedia.silenceURL))
 
-      guard try await poll(until: { player1.state == .playing }) else {
-        player1.stop()
-        player2.stop()
-        return
-      }
+      try #require(await poll(until: { player1.state == .playing }), "Waiting for: player1.state == .playing")
 
       _ = player1.isPlaying
 
