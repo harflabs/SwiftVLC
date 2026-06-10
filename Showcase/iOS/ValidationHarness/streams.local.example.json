@@ -1,0 +1,9 @@
+{
+  "liveTS": "http://<host>/live/channel.ts",
+  "hlsLive": "https://<host>/live/master.m3u8",
+  "vod": "https://<host>/movie.mp4",
+  "catchup": "http://<host>/timeshift/channel.ts",
+  "subtitled": "https://<host>/subbed.m3u8",
+  "adaptive": "https://<host>/abr/master.m3u8",
+  "audioOnly": "https://<host>/radio.aac"
+}

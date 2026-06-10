@@ -471,6 +471,33 @@ final class IOSNativePiPBackend: NSObject, @unchecked Sendable {
     _ = windowController.perform(selector)
   }
 
+  func makeValidationProbe() -> NativePiPProbe {
+    let delegateSelectorNames = [
+      "pictureInPictureControllerWillStartPictureInPicture:",
+      "pictureInPictureControllerDidStartPictureInPicture:",
+      "pictureInPictureControllerDidStopPictureInPicture:",
+      "pictureInPictureController:failedToStartPictureInPictureWithError:",
+      "pictureInPictureController:restoreUserInterfaceForPictureInPictureStopWithCompletionHandler:"
+    ]
+
+    let delegate = avPictureInPictureController?.delegate
+    var delegateResponds: [String: Bool] = [:]
+    if let delegate {
+      for name in delegateSelectorNames {
+        delegateResponds[name] = delegate.responds(to: Selector((name)))
+      }
+    }
+
+    return NativePiPProbe(
+      windowControllerClassName: windowController.map { NSStringFromClass(type(of: $0)) },
+      hasAVController: avPictureInPictureController != nil,
+      avDelegateClassName: delegate.flatMap { object_getClass($0) }.map { NSStringFromClass($0) },
+      delegateResponds: delegateResponds,
+      isPossible: isPossible,
+      isActive: isActive
+    )
+  }
+
   private func setPossible(_ isPossible: Bool) {
     guard self.isPossible != isPossible else { return }
     self.isPossible = isPossible

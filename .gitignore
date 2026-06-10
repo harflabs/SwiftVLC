@@ -28,3 +28,6 @@ coverage-report/
 # IDE
 *.swp
 *~
+
+# Device-validation harness stream config (operator-supplied, never committed)
+Showcase/iOS/ValidationHarness/streams.local.json

@@ -14,6 +14,10 @@ struct RootView: View {
 
   private var rootForm: some View {
     Form {
+      Section("Validation Harness") {
+        NavigationLink("Device validation") { HarnessHome() }
+      }
+
       Section("Apps") {
         NavigationLink("Video Player") { VideoPlayerApp() }
         NavigationLink("Music Player") { MusicPlayerApp() }
