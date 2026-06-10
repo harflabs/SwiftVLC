@@ -8,35 +8,63 @@ import Foundation
 
 extension PiPController: AVPictureInPictureControllerDelegate {
   /// Synchronizes playback state just before AVKit transitions into
-  /// Picture in Picture.
+  /// Picture in Picture, emits ``PiPEvent/willStart``, and clears any
+  /// stale stop reason left by a previous failed or aborted attempt.
   public nonisolated func pictureInPictureControllerWillStartPictureInPicture(
     _: AVPictureInPictureController
   ) {
     pipMainActorSync {
+      pendingStopReason = nil
+      // Auto-PiP starts arrive from AVKit without start() or an intent
+      // transition — last chance to issue the deferred session
+      // activation before the PiP window owns playback.
+      activateAudioSessionIfNeeded()
       syncPlaybackStateForPictureInPicture()
       invalidatePictureInPicturePlaybackState()
+      pipEventBroadcaster.broadcast(.willStart)
     }
   }
 
   /// Mirrors AVKit's active flag into Observation so SwiftUI can keep
-  /// button labels and status UI in sync with system-driven PiP changes.
+  /// button labels and status UI in sync with system-driven PiP
+  /// changes, and emits ``PiPEvent/didStart``.
   public nonisolated func pictureInPictureControllerDidStartPictureInPicture(
     _: AVPictureInPictureController
   ) {
     pipMainActorSync {
+      pendingStopReason = nil
       syncPlaybackStateForPictureInPicture()
       invalidatePictureInPicturePlaybackState()
       updatePiPActive(true)
+      pipEventBroadcaster.broadcast(.didStart)
+    }
+  }
+
+  /// Emits ``PiPEvent/willStop(reason:)`` with the best-known reason at
+  /// this instant. AVKit does not document whether the restore callback
+  /// precedes this method, so the reason here may still be
+  /// ``PiPStopReason/userClosed`` for a restore-driven stop; the reason
+  /// on the matching `didStop` is authoritative.
+  public nonisolated func pictureInPictureControllerWillStopPictureInPicture(
+    _: AVPictureInPictureController
+  ) {
+    pipMainActorSync {
+      pipEventBroadcaster.broadcast(.willStop(reason: resolveStopReason()))
     }
   }
 
   /// Mirrors AVKit's active flag into Observation when PiP exits from
-  /// either our own controls or the system's close affordance.
+  /// either our own controls or the system's close affordance, and
+  /// emits ``PiPEvent/didStop(reason:)`` with the resolved stop reason
+  /// (see ``PiPController/pipEvents``), consuming the pending reason.
   public nonisolated func pictureInPictureControllerDidStopPictureInPicture(
     _: AVPictureInPictureController
   ) {
     pipMainActorSync {
+      let reason = resolveStopReason()
+      pendingStopReason = nil
       updatePiPActive(false)
+      pipEventBroadcaster.broadcast(.didStop(reason: reason))
     }
   }
 
@@ -53,6 +81,10 @@ extension PiPController: AVPictureInPictureControllerDelegate {
     restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping @Sendable (Bool) -> Void
   ) {
     pipMainActorSync {
+      // Record the reason before the host app's restore hook runs, so
+      // the stop delegate callbacks see it no matter how AVKit orders
+      // them relative to the hook's completion.
+      notePendingStopReason(.restoreRequested)
       guard let onRestoreUserInterface else {
         completionHandler(true)
         return
@@ -63,15 +95,19 @@ extension PiPController: AVPictureInPictureControllerDelegate {
     }
   }
 
-  /// `AVPictureInPictureControllerDelegate` hook. SwiftVLC does not
-  /// propagate PiP start failures; we still resync the observed flags so
-  /// the UI doesn't stay stuck in a stale "starting" state.
+  /// `AVPictureInPictureControllerDelegate` hook. Emits
+  /// ``PiPEvent/failedToStart(_:)`` carrying the AVKit error, records
+  /// ``PiPStopReason/failure`` for any stop callbacks that follow, and
+  /// resyncs the observed flags so the UI doesn't stay stuck in a stale
+  /// "starting" state.
   public nonisolated func pictureInPictureController(
     _: AVPictureInPictureController,
-    failedToStartPictureInPictureWithError _: Error
+    failedToStartPictureInPictureWithError error: Error
   ) {
     pipMainActorSync {
+      notePendingStopReason(.failure)
       updatePiPActive(false)
+      pipEventBroadcaster.broadcast(.failedToStart(error))
     }
   }
 }

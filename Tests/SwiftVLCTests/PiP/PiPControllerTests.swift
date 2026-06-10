@@ -248,6 +248,108 @@ extension Integration {
       #expect(recorder.seekTargets.count == 1)
     }
 
+    @Test
+    func `public init defaults both policy knobs to true`() {
+      let player = Player(instance: TestInstance.shared)
+      let controller = PiPController(player: player)
+      #expect(controller.startsAutomaticallyFromInline == true)
+      #expect(controller.managesAudioSession == true)
+    }
+
+    @Test
+    func `internal init stores both policy knobs and does not crash`() {
+      let player = Player(instance: TestInstance.shared)
+      let recorder = PlaybackRecorder()
+      let controller = PiPController(
+        player: player,
+        playbackDriver: recorder.driver,
+        pauseDebounce: .milliseconds(250),
+        startsAutomaticallyFromInline: false,
+        managesAudioSession: false
+      )
+      #expect(controller.startsAutomaticallyFromInline == false)
+      #expect(controller.managesAudioSession == false)
+      controller.start()
+      controller.stop()
+    }
+
+    #if os(iOS)
+    /// With `managesAudioSession: false` neither init nor `start()` may
+    /// touch the shared audio session — category and activation both
+    /// stay exactly as they were.
+    @Test
+    func `managesAudioSession false leaves the audio session untouched`() {
+      let session = AVAudioSession.sharedInstance()
+      let categoryBefore = session.category
+      let modeBefore = session.mode
+
+      let player = Player(instance: TestInstance.shared)
+      let recorder = PlaybackRecorder()
+      let controller = PiPController(
+        player: player,
+        playbackDriver: recorder.driver,
+        pauseDebounce: .milliseconds(250),
+        managesAudioSession: false
+      )
+      controller.start()
+
+      #expect(session.category == categoryBefore)
+      #expect(session.mode == modeBefore)
+      #expect(controller.hasActivatedAudioSession == false)
+    }
+
+    /// With `managesAudioSession: true` the category is set at init but
+    /// activation is deferred: constructing the controller never grabs
+    /// audio focus, `start()` does.
+    @Test
+    func `managesAudioSession true defers activation out of init`() {
+      let player = Player(instance: TestInstance.shared)
+      let recorder = PlaybackRecorder()
+      let controller = PiPController(
+        player: player,
+        playbackDriver: recorder.driver,
+        pauseDebounce: .milliseconds(250),
+        managesAudioSession: true
+      )
+
+      #expect(AVAudioSession.sharedInstance().category == .playback)
+      #expect(controller.hasActivatedAudioSession == false)
+
+      controller.start()
+      #expect(controller.hasActivatedAudioSession == true)
+    }
+
+    /// The sample-buffer path mirrors the knob onto AVKit's
+    /// `canStartPictureInPictureAutomaticallyFromInline`. The AVKit
+    /// controller only exists where PiP is supported, so assert through
+    /// it conditionally.
+    @Test
+    func `startsAutomaticallyFromInline reaches the AVKit controller`() {
+      let player = Player(instance: TestInstance.shared)
+      let recorder = PlaybackRecorder()
+
+      let disabled = PiPController(
+        player: player,
+        playbackDriver: recorder.driver,
+        pauseDebounce: .milliseconds(250),
+        startsAutomaticallyFromInline: false
+      )
+      if let avController = disabled.pipController {
+        #expect(avController.canStartPictureInPictureAutomaticallyFromInline == false)
+      }
+
+      let enabled = PiPController(
+        player: player,
+        playbackDriver: recorder.driver,
+        pauseDebounce: .milliseconds(250),
+        startsAutomaticallyFromInline: true
+      )
+      if let avController = enabled.pipController {
+        #expect(avController.canStartPictureInPictureAutomaticallyFromInline == true)
+      }
+    }
+    #endif
+
     /// `allowsPrivateMacOSAPI` is a simple atomic-backed property; the
     /// only contract is that reads see the most recent write. The flag
     /// defaults to `false` and roundtrips through `true` and back.

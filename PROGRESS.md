@@ -178,7 +178,24 @@ Recorded test-plan deviations: no synthetic HLS-live unit test (valid HLS
 needs real TS/fMP4 segments; live behavior is covered by the harness live
 screens on hardware — matrix (f) + smoke screens).
 
-## M4 — PiP — PENDING (spike-independent items only; native-path is device-gated)
+## M4 — PiP — DONE (spike-independent scope; device-gated rest in PENDING-DEVICE)
+
+| Item | Status | Evidence / notes |
+|---|---|---|
+| P0.6 restore hook — API + sample-buffer impl | DONE (landed upstream pre-rebase) | `onRestoreUserInterface` + the sample-buffer delegate restore method shipped on main in #54 (completion-handler shape, adopted as-is). Native-path interception is **spike-gated**: no implementation merged, per §4 rule 5. Spike steps 1–2 instrumentation ships in harness screen (c) (delegate-probe SPI). |
+| P1.11 startsAutomaticallyFromInline | DONE | `PiPVideoView` knob plumbed to BOTH sites: the native drawable protocol method (was a literal `true`; now nonisolated, immutable-after-init) and the sample-buffer AVKit flag. Defaults preserve behavior. macOS accepts the knobs for symmetry, documented inert. |
+| P2.16 managesAudioSession | DONE | `false` → category and activation both skipped; `true` → category at init, `setActive(true)` one-shot deferred to `start()` / first active intent / a willStart auto-PiP / an already-active-at-construction seed (the seed and willStart legs were review findings — the intent stream has no current-value replay). iOS-sim test suites assert no-touch and deferred activation. |
+| P1.12 lifecycle events (sample-buffer half) | DONE | `PiPStopReason`/`PiPEvent` + `pipEvents` (Broadcaster-backed, unbounded, finished on deinit). `failedToStart` carries the previously-discarded error. Reasons: restore recorded before `onRestoreUserInterface` (sample-buffer path discriminates restore vs close TODAY thanks to the upstream hook); programmatic `stop()` records `.unknown` unconditionally (review fix — the start-animation window); `player.didReachEnd` → `.mediaEnded`; first-wins precedence documented + tested. Native path: synthesized `didStart`/`didStop(.unknown)` from the active flips; will/failed unavailable pending the spike — documented. recast/handle replacement → `didStop(.unknown)`, documented on `pipEvents` and `recast`. |
+| F061 | DONE | The three @objc drawable selectors are `nonisolated`, bodies read immutable-after-init Sendable state, off-main contract documented; mutable access now fails to compile. |
+
+AVKit ordering note (verified from the SDK header): restore is documented
+before didStop; restore-vs-willStop ordering is undocumented — willStop
+carries the best-known reason, didStop's is authoritative.
+
+M4 verification: strict 0 warnings; 1502 tests green (CI + local); TSan/
+ASan green (earlier in chain); Showcase iOS/macOS schemes build; tvOS
+build-for-testing green; compact adversarial review (2 confirmed findings,
+both fixed: activation seed hole, stop-reason gating window).
 
 ## M5b — Full harness + validation — PENDING
 

@@ -23,21 +23,55 @@ import UIKit
 public struct PiPVideoView: UIViewRepresentable {
   private let player: Player
   private let controllerBinding: Binding<PiPController?>?
+  private let startsAutomaticallyFromInline: Bool
+  private let managesAudioSession: Bool
 
   /// Creates a PiP-capable video view.
+  ///
+  /// Both policy knobs are captured when the underlying view is built
+  /// (`makeUIView`); SwiftUI updates that merely re-render this struct
+  /// with different knob values do not reconfigure an existing view.
+  ///
   /// - Parameters:
   ///   - player: The player whose video output to display.
   ///   - controller: Optional binding to receive the `PiPController` for external control.
-  public init(_ player: Player, controller: Binding<PiPController?>? = nil) {
+  ///   - startsAutomaticallyFromInline: Whether the system may start PiP
+  ///     automatically when the app moves to the background while this
+  ///     view's video is playing inline. Defaults to `true`, the
+  ///     historical behavior. Apps that gate playback (parental
+  ///     controls, kiosk lockdowns, watch-time policies) should pass
+  ///     `false` so video never escapes to an OS-owned window.
+  ///   - managesAudioSession: Whether SwiftVLC configures the shared
+  ///     `AVAudioSession` (`.playback` category) and activates it on the
+  ///     first PiP start or active-playback signal. Defaults to `true`.
+  ///     Pass `false` if your app owns its audio-session policy; SwiftVLC
+  ///     then never touches the session. Constructing the view never
+  ///     activates the session either way, so other apps' audio focus is
+  ///     not stolen at view-build time.
+  public init(
+    _ player: Player,
+    controller: Binding<PiPController?>? = nil,
+    startsAutomaticallyFromInline: Bool = true,
+    managesAudioSession: Bool = true
+  ) {
     self.player = player
     controllerBinding = controller
+    self.startsAutomaticallyFromInline = startsAutomaticallyFromInline
+    self.managesAudioSession = managesAudioSession
   }
 
   public func makeUIView(context: Context) -> UIView {
-    let container = IOSNativePiPHostView()
+    let container = IOSNativePiPHostView(
+      startsAutomaticallyFromInline: startsAutomaticallyFromInline
+    )
     container.attach(to: player)
 
-    let controller = PiPController(player: player, nativeBackend: container.nativePiPBackend)
+    let controller = PiPController(
+      player: player,
+      nativeBackend: container.nativePiPBackend,
+      startsAutomaticallyFromInline: startsAutomaticallyFromInline,
+      managesAudioSession: managesAudioSession
+    )
 
     context.coordinator.pipController = controller
     context.coordinator.player = player
@@ -55,7 +89,12 @@ public struct PiPVideoView: UIViewRepresentable {
       container.detach()
       container.attach(to: player)
 
-      let controller = PiPController(player: player, nativeBackend: container.nativePiPBackend)
+      let controller = PiPController(
+        player: player,
+        nativeBackend: container.nativePiPBackend,
+        startsAutomaticallyFromInline: startsAutomaticallyFromInline,
+        managesAudioSession: managesAudioSession
+      )
 
       context.coordinator.player = player
       context.coordinator.pipController = controller
@@ -105,14 +144,17 @@ public struct PiPVideoView: UIViewRepresentable {
 }
 
 final class IOSNativePiPHostView: UIView {
-  let drawableView = IOSNativePiPDrawableView()
+  let drawableView: IOSNativePiPDrawableView
 
   var nativePiPBackend: IOSNativePiPBackend {
     drawableView.nativePiPBackend
   }
 
-  override init(frame: CGRect) {
-    super.init(frame: frame)
+  init(startsAutomaticallyFromInline: Bool = true) {
+    drawableView = IOSNativePiPDrawableView(
+      startsAutomaticallyFromInline: startsAutomaticallyFromInline
+    )
+    super.init(frame: .zero)
     backgroundColor = .black
     clipsToBounds = true
 
@@ -173,10 +215,17 @@ private protocol IOSNativePiPMediaControlling: NSObjectProtocol {
 @MainActor
 final class IOSNativePiPDrawableView: UIView, IOSNativePiPDrawable {
   let nativePiPBackend = IOSNativePiPBackend()
+
+  /// Answer for libVLC's auto-PiP probe. Immutable after init and of a
+  /// `Sendable` type, so the nonisolated drawable-protocol method below
+  /// can read it from libVLC's vout thread without synchronization.
+  let startsAutomaticallyFromInline: Bool
+
   private weak var attachedPlayer: Player?
 
-  override init(frame: CGRect) {
-    super.init(frame: frame)
+  init(startsAutomaticallyFromInline: Bool = true) {
+    self.startsAutomaticallyFromInline = startsAutomaticallyFromInline
+    super.init(frame: .zero)
     backgroundColor = .black
     clipsToBounds = true
     nativePiPBackend.drawableView = self
@@ -241,23 +290,41 @@ final class IOSNativePiPDrawableView: UIView, IOSNativePiPDrawable {
     }
   }
 
+  // The three VLCPictureInPictureDrawable methods below are invoked by
+  // libVLC from its vout thread, not the main actor, so they are
+  // `nonisolated`. Their bodies may only touch immutable-after-init
+  // `let` state of `Sendable` type (enforced by the compiler); any
+  // future mutable access must hop to the main actor or go through a
+  // lock.
+
+  /// Off-main contract: called from libVLC's vout thread. Reads only
+  /// the immutable `nativePiPBackend` reference and its immutable
+  /// `mediaController`.
   @objc(mediaController)
-  func mediaController() -> AnyObject {
+  nonisolated func mediaController() -> AnyObject {
     nativePiPBackend.mediaController
   }
 
+  /// Off-main contract: called from libVLC's vout thread. Builds a
+  /// block that hops to the main actor before touching the backend.
   @objc(pictureInPictureReady)
-  func pictureInPictureReady() -> IOSNativePictureInPictureReadyBlock {
+  nonisolated func pictureInPictureReady() -> IOSNativePictureInPictureReadyBlock {
     { [weak nativePiPBackend] windowController in
+      // libVLC hands its freshly created PiP window controller across
+      // this nonisolated block; it is not used until the main-actor hop
+      // below, where all subsequent access stays.
+      nonisolated(unsafe) let windowController = windowController
       Task { @MainActor in
         nativePiPBackend?.handlePictureInPictureReady(windowController)
       }
     }
   }
 
+  /// Off-main contract: called from libVLC's vout thread. Reads only
+  /// the immutable ``startsAutomaticallyFromInline`` flag.
   @objc(canStartPictureInPictureAutomaticallyFromInline)
-  func canStartPictureInPictureAutomaticallyFromInline() -> Bool {
-    true
+  nonisolated func canStartPictureInPictureAutomaticallyFromInline() -> Bool {
+    startsAutomaticallyFromInline
   }
 
   private var hasDrawableBounds: Bool {
@@ -631,21 +698,45 @@ import SwiftUI
 public struct PiPVideoView: NSViewRepresentable {
   private let player: Player
   private let controllerBinding: Binding<PiPController?>?
+  private let startsAutomaticallyFromInline: Bool
+  private let managesAudioSession: Bool
 
   /// Creates a PiP-capable video view.
+  ///
+  /// Both policy knobs exist for API symmetry with the iOS overload and
+  /// are **inert on macOS**: auto-PiP-from-inline is an iOS AVKit
+  /// concept with no counterpart in the macOS backend, and macOS has no
+  /// `AVAudioSession` for SwiftVLC to manage.
+  ///
   /// - Parameters:
   ///   - player: The player whose video output to display.
   ///   - controller: Optional binding to receive the `PiPController` for external control.
-  public init(_ player: Player, controller: Binding<PiPController?>? = nil) {
+  ///   - startsAutomaticallyFromInline: Accepted for cross-platform call
+  ///     sites; no effect on macOS.
+  ///   - managesAudioSession: Accepted for cross-platform call sites; no
+  ///     effect on macOS.
+  public init(
+    _ player: Player,
+    controller: Binding<PiPController?>? = nil,
+    startsAutomaticallyFromInline: Bool = true,
+    managesAudioSession: Bool = true
+  ) {
     self.player = player
     controllerBinding = controller
+    self.startsAutomaticallyFromInline = startsAutomaticallyFromInline
+    self.managesAudioSession = managesAudioSession
   }
 
   public func makeNSView(context: Context) -> NSView {
     let container = MacNativePiPHostView()
     container.attach(to: player)
 
-    let controller = PiPController(player: player, nativeBackend: container.nativePiPBackend)
+    let controller = PiPController(
+      player: player,
+      nativeBackend: container.nativePiPBackend,
+      startsAutomaticallyFromInline: startsAutomaticallyFromInline,
+      managesAudioSession: managesAudioSession
+    )
 
     context.coordinator.pipController = controller
     context.coordinator.player = player
@@ -661,7 +752,12 @@ public struct PiPVideoView: NSViewRepresentable {
       container.detach()
       container.attach(to: player)
 
-      let controller = PiPController(player: player, nativeBackend: container.nativePiPBackend)
+      let controller = PiPController(
+        player: player,
+        nativeBackend: container.nativePiPBackend,
+        startsAutomaticallyFromInline: startsAutomaticallyFromInline,
+        managesAudioSession: managesAudioSession
+      )
 
       context.coordinator.player = player
       context.coordinator.pipController = controller

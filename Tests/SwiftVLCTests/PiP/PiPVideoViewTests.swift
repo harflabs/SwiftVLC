@@ -131,6 +131,76 @@ extension Integration {
       }
     }
 
+    /// The VLCPictureInPictureDrawable selectors are invoked by libVLC
+    /// from its vout thread; their bodies are `nonisolated` and must be
+    /// callable (and return correct values) off the main actor.
+    @Test
+    func `iOS native PiP drawable selectors are callable off the main actor`() async {
+      let view = IOSNativePiPDrawableView(startsAutomaticallyFromInline: false)
+
+      struct Refs: @unchecked Sendable {
+        let view: IOSNativePiPDrawableView
+      }
+      let refs = Refs(view: view)
+
+      let (canStart, hasMediaController) = await withCheckedContinuation { (continuation: CheckedContinuation<(Bool, Bool), Never>) in
+        DispatchQueue.global().async {
+          let canStart = refs.view.canStartPictureInPictureAutomaticallyFromInline()
+          let mediaController = refs.view.mediaController()
+          // Building the ready block off-main must also be safe; it only
+          // captures a weak backend reference.
+          _ = refs.view.pictureInPictureReady()
+          continuation.resume(returning: (canStart, mediaController is IOSNativePiPMediaController))
+        }
+      }
+
+      #expect(canStart == false)
+      #expect(hasMediaController)
+    }
+
+    @Test
+    func `iOS native PiP drawable reports the configured auto-start flag`() {
+      #expect(
+        IOSNativePiPDrawableView(startsAutomaticallyFromInline: true)
+          .canStartPictureInPictureAutomaticallyFromInline() == true
+      )
+      #expect(
+        IOSNativePiPDrawableView(startsAutomaticallyFromInline: false)
+          .canStartPictureInPictureAutomaticallyFromInline() == false
+      )
+      // The default preserves the historical always-true behavior.
+      #expect(
+        IOSNativePiPDrawableView()
+          .canStartPictureInPictureAutomaticallyFromInline() == true
+      )
+    }
+
+    @Test
+    func `iOS native PiP host propagates the auto-start flag to its drawable`() {
+      let host = IOSNativePiPHostView(startsAutomaticallyFromInline: false)
+      #expect(host.drawableView.canStartPictureInPictureAutomaticallyFromInline() == false)
+
+      let defaultHost = IOSNativePiPHostView()
+      #expect(defaultHost.drawableView.canStartPictureInPictureAutomaticallyFromInline() == true)
+    }
+    #endif
+
+    @Test
+    func `Init with policy knobs does not crash`() {
+      let player = Player(instance: TestInstance.shared)
+      _ = PiPVideoView(
+        player,
+        startsAutomaticallyFromInline: false,
+        managesAudioSession: false
+      )
+      _ = PiPVideoView(
+        player,
+        startsAutomaticallyFromInline: true,
+        managesAudioSession: true
+      )
+    }
+
+    #if canImport(UIKit)
     @Test
     func `iOS native PiP drawable sizes VLC content to its bounds`() {
       let view = IOSNativePiPDrawableView()
