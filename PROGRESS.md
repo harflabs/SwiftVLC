@@ -38,7 +38,40 @@ Known flake watch: one full-suite run crashed (SIGSEGV-style abrupt end) inside
 2× full-suite green afterwards). Matches the documented cross-test libVLC
 state-bleed class in TestInstance.swift. Watching on every milestone run.
 
-## M5a — Harness skeleton + screens (a)/(c) — IN-PROGRESS (next)
+## Rebase onto moved main (2026-06-10, user-requested)
+
+origin/main moved past v0.9.1 by three commits; `v0.10.0-dev` was rebased onto
+it cleanly (no conflicts), local `main` fast-forwarded. Upstream deltas that
+affect the plan:
+
+- `c14a508` (#54) lands **P0.6's spike-independent half** on main: public
+  `PiPController.onRestoreUserInterface` (completion-handler shape, not the
+  async-closure shape PLAN sketched) plus the sample-buffer-path delegate
+  `restoreUserInterfaceForPictureInPictureStop…` implementation, with tests.
+  M4 builds on the landed shape; remaining P0.6 scope = native-path
+  interception (spike-gated), P1.12 stream, F061. The PLAN.md statement
+  "grep -rn restoreUserInterface Sources/ = zero hits" is now stale.
+- `51ace97` reworked `10-Diagnostics-Events.swift` / `MultiConsumer` — F023
+  (M1) applies to the updated file.
+- `d800654` chapter-title guards — no overlap with v0.10.0 surfaces.
+
+Post-rebase evidence: strict build 0 warnings; CI suite green (1405 tests);
+local playback suite green (one unidentified single-issue run did not
+reproduce — logged under flake watch).
+
+## M5a — Harness skeleton + screens (a)/(c) — DONE
+
+Showcase iOS "Validation Harness" section: `HarnessStreams` config loader
+(bundled gitignored `streams.local.json` → Documents fallback; example file
+committed), `HarnessResultStore` (persisted PASS/FAIL/observation + JSON
+export), `HarnessHome` with the full (a)–(g)+smoke matrix (config-gated rows),
+screen (a) same-Player zap-under-PiP with timestamped event log, screen (c)
+restore/X baseline with `@_spi(ValidationHarness)`
+`PiPController.nativeValidationProbe` (window-controller class, AV controller
+presence, delegate class + 5-selector respondsToSelector table). Showcase iOS
+scheme builds for the simulator; package strict build stays at 0 warnings.
+Screens' PASS/FAIL outcomes are device-gated (PiP is simulator-blind) —
+recorded under PENDING-DEVICE at the end.
 
 ## M1 — Event delivery (P2.14 + F001/F004/F009/F037/F023) — PENDING
 
