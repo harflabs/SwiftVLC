@@ -233,6 +233,32 @@ Showcase schemes build; DynamicHost fixture verify.sh PASS (both
 platforms + launch leg); tvOS simulator suite green (plus the one-off
 ungated playback run for the §3.3 matrix).
 
+## Branch hygiene pass (post-plan, user-requested)
+
+A 7-group fan-out review of the full branch diff (dead code / stale
+comments / transitional narration / scaffolding; every finding
+adversarially verified) confirmed 30 findings, all fixed: unused imports
+and never-exercised default parameters removed (EventBridge's coordinator
+plumbing de-optionalized; single-caller timeout parameters inlined); every
+"historical"/"this release"/"widened"/past-tense-narration comment
+rewritten to the standing contract; stale docs corrected (close-button
+delegate routing, `.unknown` reason clause, `hasVideoOutput` cross-ref,
+vendor-manifest workflow comment); the misnamed shutdown-timing test
+renamed; the undocumented lifetime-extension `_ =` replaced; the
+`HarnessHome` route given its documented launch instruction; and
+Package.swift restored to the pinned v0.9.1 url+checksum binaryTarget (the
+local-path form was committed dev-state — `setup-dev.sh` applies it
+uncommitted; a fresh clone now resolves, and the workflows'
+`hashFiles('Package.swift')` cache keys carry the pin again). The earlier
+"Local-dev note" about committing the flipped references is superseded for
+Package.swift; the Showcase local-package reference remains committed (CI
+runs `setup-dev.sh`, which tolerates both forms, and the local reference
+builds everywhere now that the manifest is pinned).
+
+Post-fix verification: strict build 0 warnings; 1502 tests green (CI and
+local playback); TSan/ASan green; lint/format clean; docc --analyze 0
+warnings; iOS Showcase scheme builds against the pinned manifest.
+
 ## Deviations log
 
 1. §3.14 fixture uses two local packages instead of the single package PLAN

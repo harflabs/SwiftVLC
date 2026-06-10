@@ -73,9 +73,10 @@ extension PiPController: AVPictureInPictureControllerDelegate {
   /// host app can bring its player UI back, then completes the AVKit
   /// transition. If no hook is set, completes immediately.
   ///
-  /// The close (X) button does **not** route through here — it only fires
-  /// ``pictureInPictureControllerDidStopPictureInPicture(_:)`` — which is
-  /// how callers distinguish "restore" from "close".
+  /// The close (X) button does **not** route through here — it fires only
+  /// the will-stop/did-stop callbacks (resolving to
+  /// ``PiPStopReason/userClosed``) — which is how callers distinguish
+  /// "restore" from "close".
   public nonisolated func pictureInPictureController(
     _: AVPictureInPictureController,
     restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping @Sendable (Bool) -> Void

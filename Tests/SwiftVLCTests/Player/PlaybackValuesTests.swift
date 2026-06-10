@@ -54,7 +54,7 @@ extension Logic {
       #expect(Volume(2.0).rawValue == 2.0)
     }
 
-    @Test func `Volume preserves former 1.25 ceiling values unchanged`() {
+    @Test func `Volume passes through mid-range values like 1.25 unchanged`() {
       #expect(Volume(1.25).rawValue == 1.25)
     }
 

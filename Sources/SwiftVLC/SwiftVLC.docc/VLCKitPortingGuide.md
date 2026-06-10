@@ -202,8 +202,8 @@ meant 100% (0 dB) and values above it were software gain.
 
 SwiftVLC's ``Volume`` is the same scale divided by 100: a `Float` in
 `0.0 ... 2.0`, where `1.0` is 100% — unity gain, 0 dB — and the
-ceiling (widened to `2.0` this release) is the same +6 dB software
-boost VLCKit's `200` gave you. Out-of-range values clamp on
+ceiling (`2.0`) is the same +6 dB software boost VLCKit's `200`
+gave you. Out-of-range values clamp on
 construction, so the translation is mechanical:
 
 ```swift

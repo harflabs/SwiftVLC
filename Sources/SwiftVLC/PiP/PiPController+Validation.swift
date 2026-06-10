@@ -1,6 +1,4 @@
-#if os(iOS) || os(macOS)
-import AVKit
-import Foundation
+#if os(iOS)
 
 /// A snapshot of libVLC's private native PiP machinery on iOS.
 ///
@@ -37,7 +35,6 @@ public struct NativePiPProbe: Sendable {
   public let isActive: Bool
 }
 
-#if os(iOS)
 extension PiPController {
   /// A snapshot of the iOS native PiP backend's private wiring, or
   /// `nil` when this controller doesn't drive the native backend (the
@@ -52,6 +49,5 @@ extension PiPController {
     nativeBackend?.makeValidationProbe()
   }
 }
-#endif
 
 #endif

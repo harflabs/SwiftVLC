@@ -1,5 +1,4 @@
 #if os(iOS) || os(macOS)
-import Foundation
 
 /// The reason a Picture-in-Picture window stopped (or is stopping).
 ///
@@ -27,10 +26,9 @@ public enum PiPStopReason: Sendable, Equatable {
   case mediaEnded
 
   /// No discriminating signal was available. Reported for programmatic
-  /// ``PiPController/stop()`` calls, for every stop on the native
+  /// ``PiPController/stop()`` calls and for every stop on the native
   /// drawable path (including PiP torn down by a native-handle
-  /// replacement such as a player swap or renderer recast), and for any
-  /// stop AVKit performs without a delegate signal SwiftVLC can read.
+  /// replacement such as a player swap or renderer recast).
   case unknown
 }
 

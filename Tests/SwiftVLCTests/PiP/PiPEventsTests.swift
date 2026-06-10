@@ -86,7 +86,7 @@ extension Integration {
       let nsError = error as NSError
       #expect(nsError.domain == "swiftvlc.test.pip")
       #expect(nsError.code == 42)
-      // The flag resync that predates the event stream must survive.
+      // failedToStart must also resync isActive to false.
       #expect(controller.isActive == false)
     }
 

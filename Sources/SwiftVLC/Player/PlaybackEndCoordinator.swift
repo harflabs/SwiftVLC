@@ -4,16 +4,17 @@ import Synchronization
 /// natural end-of-media.
 ///
 /// libVLC 4 collapses natural end and requested stop into the same
-/// `Stopped` event. The player records every cause it knows about —
+/// `Stopped` event. Every cause that should suppress synthesis —
 /// a library-issued `stop()`, a decoding error, an attached
-/// ``MediaListPlayer`` driving the handle — and the event callback
-/// synthesizes ``PlayerEvent/endReached`` only when a `stopped` arrives
-/// with none of them pending.
+/// ``MediaListPlayer`` driving the handle — is recorded here, and the
+/// event callback synthesizes ``PlayerEvent/endReached`` only when a
+/// `stopped` arrives with none of them pending.
 ///
-/// Shared between the `@MainActor` player (writer) and the C-callback
-/// context (consumer); every access goes through one `Mutex`, and the
-/// event thread's ordering is authoritative: causes are recorded *before*
-/// the native call that will eventually produce the `Stopped`.
+/// Causes are recorded by `@MainActor` callers (`Player`'s library
+/// stop, `MediaListPlayer`'s suppression) and by the event callback
+/// itself (errors); the callback consumes them on `stopped`. Every
+/// access goes through one `Mutex`, and main-actor causes are recorded
+/// *before* the native call that will eventually produce the `Stopped`.
 final class PlaybackEndCoordinator: Sendable {
   private struct EndState {
     /// A library-issued stop is in flight; the next `stopped` is not a

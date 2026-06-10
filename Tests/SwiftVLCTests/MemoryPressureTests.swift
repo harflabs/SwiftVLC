@@ -672,7 +672,7 @@ extension Integration {
     /// keeps playing after the user has left the screen — the
     /// user-reported "player keeps running" is exactly this delay.
     @Test(.enabled(if: TestCondition.canPlayMedia))
-    func `Player cleanup after drop completes within a reasonable window`() async throws {
+    func `Player shutdown completes within a reasonable window`() async throws {
       let instance = TestInstance.makeAudioOnly()
       let player = Player(instance: instance)
       try player.play(url: TestMedia.twosecURL)

@@ -16,7 +16,7 @@ final class EventBridge: Sendable {
   private nonisolated(unsafe) var attachedEventTypes: [Int32]
   private let invalidated = Mutex(false)
 
-  init(eventManager: OpaquePointer, endCoordinator: PlaybackEndCoordinator? = nil) {
+  init(eventManager: OpaquePointer, endCoordinator: PlaybackEndCoordinator) {
     self.eventManager = eventManager
 
     let context = EventBridgeCallbackContext(endCoordinator: endCoordinator)
@@ -68,13 +68,13 @@ final class EventBridge: Sendable {
   /// Each stream receives all events broadcast after creation that pass
   /// its filter, buffered per `policy`.
   func makeStream(
-    policy: EventBufferingPolicy? = nil,
-    filter: (@Sendable (PlayerEvent) -> Bool)? = nil
+    policy: EventBufferingPolicy?,
+    filter: (@Sendable (PlayerEvent) -> Bool)?
   ) -> AsyncStream<PlayerEvent> {
     context.makeStream(policy: policy, filter: filter)
   }
 
-  func makeSourcedStream(policy: EventBufferingPolicy? = nil) -> AsyncStream<SourcedPlayerEvent> {
+  func makeSourcedStream(policy: EventBufferingPolicy) -> AsyncStream<SourcedPlayerEvent> {
     context.makeSourcedStream(policy: policy)
   }
 
@@ -154,9 +154,9 @@ struct SourcedPlayerEvent {
 private final class EventBridgeCallbackContext: Sendable {
   private let events = Broadcaster<PlayerEvent>(defaultBufferSize: 64)
   private let sourcedEvents = Broadcaster<SourcedPlayerEvent>(defaultBufferSize: 64)
-  let endCoordinator: PlaybackEndCoordinator?
+  let endCoordinator: PlaybackEndCoordinator
 
-  init(endCoordinator: PlaybackEndCoordinator?) {
+  init(endCoordinator: PlaybackEndCoordinator) {
     self.endCoordinator = endCoordinator
   }
 
@@ -167,7 +167,7 @@ private final class EventBridgeCallbackContext: Sendable {
     events.subscribe(policy: policy, filter: filter)
   }
 
-  func makeSourcedStream(policy: EventBufferingPolicy?) -> AsyncStream<SourcedPlayerEvent> {
+  func makeSourcedStream(policy: EventBufferingPolicy) -> AsyncStream<SourcedPlayerEvent> {
     sourcedEvents.subscribe(policy: policy)
   }
 
@@ -215,7 +215,7 @@ private func playerEventCallback(
   // after the `stopped` broadcast: every subscriber observes `.stopped`
   // then `.endReached` from the same source, with no consumer-lag race
   // and internal source filtering working unchanged.
-  guard let coordinator = context.endCoordinator else { return }
+  let coordinator = context.endCoordinator
   switch mapped {
   case .encounteredError:
     coordinator.markError()

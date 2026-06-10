@@ -37,10 +37,10 @@ public struct PiPVideoView: UIViewRepresentable {
   ///   - controller: Optional binding to receive the `PiPController` for external control.
   ///   - startsAutomaticallyFromInline: Whether the system may start PiP
   ///     automatically when the app moves to the background while this
-  ///     view's video is playing inline. Defaults to `true`, the
-  ///     historical behavior. Apps that gate playback (parental
-  ///     controls, kiosk lockdowns, watch-time policies) should pass
-  ///     `false` so video never escapes to an OS-owned window.
+  ///     view's video is playing inline. Defaults to `true`. Apps that
+  ///     gate playback (parental controls, kiosk lockdowns, watch-time
+  ///     policies) should pass `false` so video never escapes to an
+  ///     OS-owned window.
   ///   - managesAudioSession: Whether SwiftVLC configures the shared
   ///     `AVAudioSession` (`.playback` category) and activates it on the
   ///     first PiP start or active-playback signal. Defaults to `true`.

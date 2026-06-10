@@ -1,5 +1,4 @@
 #if os(iOS) || os(macOS)
-import AVFoundation
 import AVKit
 import CoreMedia
 import Synchronization

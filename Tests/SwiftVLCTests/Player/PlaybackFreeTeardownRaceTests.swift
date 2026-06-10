@@ -6,10 +6,10 @@ import Testing
 /// Teardown-path races that reproduce without any playback, so they run
 /// under `CI=true` and therefore under the TSan/ASan jobs in
 /// `sanitize.yml`. The playback-driven race suites are gated on
-/// `TestCondition.canPlayMedia` and self-skip on CI, which left the
+/// `TestCondition.canPlayMedia` and self-skip on CI, which leaves the
 /// stop path, the native-handle swap, the offloaded `isolated deinit`,
-/// and EventBridge attach/detach churn invisible to the sanitizers.
-/// Each test here drives one of those surfaces with lifecycle-only
+/// and EventBridge attach/detach churn invisible to the sanitizers;
+/// each test here drives one of those surfaces with lifecycle-only
 /// players that never reach `.playing`.
 extension Integration {
   @Suite(.tags(.mainActor, .async), .serialized)
@@ -62,7 +62,8 @@ extension Integration {
         }
         await group.waitForAll()
       }
-      _ = player.state
+      // Keep the player alive past the churn so deinit does not overlap it.
+      withExtendedLifetime(player) {}
     }
 
     // MARK: - Native-handle swap without playback

@@ -57,8 +57,7 @@ extension Player {
 
   private static func awaitTerminalStop(
     on stream: AsyncStream<SourcedPlayerEvent>,
-    source: UInt,
-    timeout: Duration = .seconds(10)
+    source: UInt
   )
     async {
     await withTaskGroup(of: Bool.self) { group in
@@ -74,7 +73,7 @@ extension Player {
         return false
       }
       group.addTask {
-        try? await Task.sleep(for: timeout)
+        try? await Task.sleep(for: .seconds(10))
         return false
       }
       if let first = await group.next(), !first {

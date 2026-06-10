@@ -86,8 +86,8 @@ extension Integration {
 
     @Test
     func `Init without identity parameters stays source compatible`() throws {
-      // A nil-free call site: the widened initializer must keep
-      // accepting the original single-argument spelling unambiguously.
+      // A nil-free call site: the identity parameters are defaulted, so
+      // the single-argument spelling must resolve unambiguously.
       let instance = try VLCInstance(arguments: Self.quietArguments)
       #expect(!instance.version.isEmpty)
     }

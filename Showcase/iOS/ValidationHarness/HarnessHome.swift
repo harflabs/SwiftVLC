@@ -81,7 +81,9 @@ struct HarnessHome: View {
         Showcase/iOS/ValidationHarness/ before building (gitignored, \
         auto-bundled), or drop streams.local.json into this app's \
         Documents folder via the Files app. Screens whose streams are \
-        missing are disabled.
+        missing are disabled. Launch the app with -UITestRoute \
+        HarnessHome to open this screen directly (used for scripted \
+        device runs).
         """
       )
     }

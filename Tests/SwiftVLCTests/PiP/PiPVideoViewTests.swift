@@ -168,7 +168,7 @@ extension Integration {
         IOSNativePiPDrawableView(startsAutomaticallyFromInline: false)
           .canStartPictureInPictureAutomaticallyFromInline() == false
       )
-      // The default preserves the historical always-true behavior.
+      // Omitting the argument defaults to auto-start enabled.
       #expect(
         IOSNativePiPDrawableView()
           .canStartPictureInPictureAutomaticallyFromInline() == true

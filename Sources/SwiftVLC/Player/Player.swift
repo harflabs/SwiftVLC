@@ -1,7 +1,6 @@
 import CLibVLC
 import Foundation
 import Observation
-import os
 
 /// An observable media player.
 ///
@@ -56,7 +55,8 @@ public final class Player {
   /// Mirrors libVLC's video-output count as reported by
   /// ``PlayerEvent/voutChanged(_:)``. Stays `0` for audio-only media
   /// and resets when media is loaded or replaced. See also
-  /// ``hasVideoOutput`` for a live read of the same condition.
+  /// ``hasVideoOutput`` for a live probe of whether a video track is
+  /// selected and decoding.
   public internal(set) var activeVideoOutputs: Int = 0
 
   /// The currently loaded media.

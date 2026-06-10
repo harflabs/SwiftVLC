@@ -131,15 +131,14 @@ public final class PiPController: NSObject {
   /// Whether AVKit may start PiP automatically when the app moves to
   /// the background while this controller's video is playing inline.
   /// Set by ``PiPVideoView``'s `startsAutomaticallyFromInline` knob;
-  /// the direct public ``init(player:)`` path keeps the historical
-  /// default of `true`.
+  /// the direct public ``init(player:)`` path uses `true`.
   @ObservationIgnored
   let startsAutomaticallyFromInline: Bool
 
   /// Whether this controller configures and activates the shared
   /// `AVAudioSession` (iOS only). Set by ``PiPVideoView``'s
   /// `managesAudioSession` knob; the direct public ``init(player:)``
-  /// path keeps the historical default of `true`. When `true`, the
+  /// path uses `true`. When `true`, the
   /// `.playback` category is set at init but `setActive(true)` is
   /// deferred to ``start()`` or the first active-playback signal, so
   /// constructing a controller never re-grabs audio focus from other

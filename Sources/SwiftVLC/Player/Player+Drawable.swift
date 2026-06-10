@@ -1,5 +1,4 @@
 import CLibVLC
-import Foundation
 
 /// Platform-drawable attachment and the lazy native-handle replacement
 /// it requires after stopped drawable-hosted playback.

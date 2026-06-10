@@ -145,11 +145,7 @@ extension Player {
     }
   }
 
-  private static func awaitPlaying(
-    on transitions: AsyncStream<PlayerState>,
-    timeout: Duration = .seconds(10)
-  )
-    async {
+  private static func awaitPlaying(on transitions: AsyncStream<PlayerState>) async {
     await withTaskGroup(of: Void.self) { group in
       group.addTask {
         for await state in transitions where state == .playing || state == .error {
@@ -157,15 +153,17 @@ extension Player {
         }
       }
       group.addTask {
-        try? await Task.sleep(for: timeout)
+        // Defensive ceiling so a session that never reaches `.playing`
+        // cannot hang the caller.
+        try? await Task.sleep(for: .seconds(10))
       }
       await group.next()
       group.cancelAll()
     }
   }
 
-  private func awaitSeekability(timeout: Duration = .seconds(2)) async -> Bool {
-    let deadline = ContinuousClock.now + timeout
+  private func awaitSeekability() async -> Bool {
+    let deadline = ContinuousClock.now + .seconds(2)
     while !isSeekable {
       if ContinuousClock.now >= deadline { return false }
       try? await Task.sleep(for: .milliseconds(50))
