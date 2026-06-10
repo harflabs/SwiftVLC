@@ -31,3 +31,8 @@ coverage-report/
 
 # Device-validation harness stream config (operator-supplied, never committed)
 Showcase/iOS/ValidationHarness/streams.local.json
+
+# Local working documents (not part of the repo)
+CLAUDE.md
+PLAN.md
+PROGRESS.md
