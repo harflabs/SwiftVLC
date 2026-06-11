@@ -45,8 +45,35 @@ extension Integration {
       #expect(displayFit(player) == libvlc_video_fit_larger)
     }
 
+    @Test
+    func `ratio after fill forces the aspect and resets the fit`() {
+      let player = Player(instance: TestInstance.shared)
+      player.aspectRatio = .fill
+      player.aspectRatio = .ratio(16, 9)
+      #expect(aspectString(player) == "16:9")
+      #expect(displayFit(player) == libvlc_video_fit_smaller)
+    }
+
+    @Test
+    func `fill after ratio clears the aspect and requests the larger fit`() {
+      let player = Player(instance: TestInstance.shared)
+      player.aspectRatio = .ratio(4, 3)
+      player.aspectRatio = .fill
+      #expect(aspectString(player) == nil)
+      #expect(displayFit(player) == libvlc_video_fit_larger)
+    }
+
+    @Test
+    func `default after ratio clears the aspect and restores the smaller fit`() {
+      let player = Player(instance: TestInstance.shared)
+      player.aspectRatio = .ratio(4, 3)
+      player.aspectRatio = .default
+      #expect(aspectString(player) == nil)
+      #expect(displayFit(player) == libvlc_video_fit_smaller)
+    }
+
     /// The aspect mode must reapply to the replacement handle so a stop/play
-    /// or recast keeps `.fill` covering rather than reverting to letterbox.
+    /// or recast keeps the setting rather than reverting.
     @Test
     func `fill survives a native handle swap`() throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
@@ -57,6 +84,18 @@ extension Integration {
       try player.prepareDrawableForPlayback()
       try #require(player.pointer != old, "swap did not replace the native handle")
       #expect(displayFit(player) == libvlc_video_fit_larger)
+    }
+
+    @Test
+    func `ratio survives a native handle swap`() throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      player.aspectRatio = .ratio(16, 9)
+      let old = player.pointer
+      player.setDrawable(NSObject())
+      player.stop()
+      try player.prepareDrawableForPlayback()
+      try #require(player.pointer != old, "swap did not replace the native handle")
+      #expect(aspectString(player) == "16:9")
     }
   }
 }

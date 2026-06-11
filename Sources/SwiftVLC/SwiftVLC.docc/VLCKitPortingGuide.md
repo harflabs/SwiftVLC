@@ -249,8 +249,37 @@ The awaitable forms are the port targets:
   it when the player's end-of-life must complete *before* something
   else, rather than on `deinit`'s background schedule.
 
+## Aspect ratio and fill
+
+VLCKit drove the picture shape through `videoAspectRatio` (a `"w:h"`
+C string) and `videoCropGeometry`. SwiftVLC replaces both with the
+typed ``Player/aspectRatio`` / ``AspectRatio``:
+
+| VLCKit | SwiftVLC |
+| --- | --- |
+| `videoAspectRatio = nil` (source shape) | ``AspectRatio/default`` |
+| `videoAspectRatio = "16:9"` (force shape) | ``AspectRatio/ratio(_:_:)`` |
+| Fill/cover the view | ``AspectRatio/fill`` |
+
+The semantics match VLCKit/libVLC 3:
+
+- ``AspectRatio/default`` keeps the source aspect, fitted inside the
+  view with letterbox/pillarbox bars.
+- ``AspectRatio/ratio(_:_:)`` forces the display aspect, **stretching**
+  the source to that shape (so `.ratio(4, 3)` on a 2.40:1 source shows a
+  distorted 4:3 picture), then fits the shaped picture in the view.
+- ``AspectRatio/fill`` covers the view, preserving the source aspect and
+  cropping the overflow — no distortion.
+
+The mode is a `Player` property: it survives the native-handle swaps that
+back ``Player/recast(to:)`` and a stopped drawable-hosted restart, and it
+tracks live drawable-size changes (rotation, split-screen) — set it once
+and it sticks.
+
 ## Topics
 
+- ``Player/aspectRatio``
+- ``AspectRatio``
 - ``Player/seek(toPosition:fast:)``
 - ``Player/jump(by:)``
 - ``PlayerEvent/endReached-enum.case``

@@ -1,5 +1,5 @@
 diff --git a/modules/video_output/apple/VLCSampleBufferDisplay.m b/modules/video_output/apple/VLCSampleBufferDisplay.m
-index f13a4f4f8a..d26f365703 100644
+index f13a4f4f8a..96a55172f7 100644
 --- a/modules/video_output/apple/VLCSampleBufferDisplay.m
 +++ b/modules/video_output/apple/VLCSampleBufferDisplay.m
 @@ -140,7 +140,7 @@ typedef NS_ENUM(NSUInteger, VLCSampleBufferPixelFlip) {
@@ -20,7 +20,7 @@ index f13a4f4f8a..d26f365703 100644
              kCFBooleanTrue
  #endif
          };
-@@ -660,6 +660,17 @@ shouldInheritContentsScale:(CGFloat)newScale
+@@ -660,8 +660,50 @@ shouldInheritContentsScale:(CGFloat)newScale
      - (instancetype)initWithVoutDisplay:(vout_display_t *)vd;
  @end
  
@@ -37,16 +37,50 @@ index f13a4f4f8a..d26f365703 100644
 +
  @implementation VLCSampleBufferDisplay
  
++/* A forced display aspect (libvlc_video_set_aspect_ratio) reaches the layer as
++ * a place rectangle at the requested aspect, but the layer fits the source
++ * inside it instead of filling it. Stretch the placed content to the box by
++ * scaling the deficient axis so the displayed picture takes the requested
++ * shape. The fill (cover) path keeps its identity transform. */
++- (void)applyAspectStretch
++{
++    VLCSampleBufferDisplayView *view = self.displayView;
++    if (!view)
++        return;
++    const vout_display_place_t *p = self.vd->place;
++    const double rawW = self.vd->source->i_visible_width;
++    const double rawH = self.vd->source->i_visible_height;
++    CGAffineTransform t = CGAffineTransformIdentity;
++    if (p->width > 0 && p->height > 0 && rawW > 0 && rawH > 0
++        && self.vd->cfg->display.fitting != VLC_VIDEO_FIT_LARGER)
++    {
++        const double rawAR = rawW / rawH;
++        const double placeAR = (double)p->width / (double)p->height;
++        if (placeAR < rawAR)
++            t = CGAffineTransformMakeScale(1.0, rawAR / placeAR);
++        else if (placeAR > rawAR)
++            t = CGAffineTransformMakeScale(placeAR / rawAR, 1.0);
++    }
++#if TARGET_OS_OSX
++    view.layer.affineTransform = t;
++#else
++    view.transform = t;
++#endif
++}
++
  - (id<VLCPixelBufferRotationContext>)rotationContext
-@@ -742,6 +753,7 @@ shouldInheritContentsScale:(CGFloat)newScale
+ {
+     if (_rotationContext)
+@@ -742,6 +784,8 @@ shouldInheritContentsScale:(CGFloat)newScale
          @synchronized(sys.displayLayer) {
              sys.displayLayer = displayView.displayLayer;
          }
 +        sys.displayLayer.videoGravity = VLCGravityForDisplayCfg(sys.vd->cfg);
++        [sys applyAspectStretch];
          [sys preparePictureInPicture];
      });
  }
-@@ -1055,7 +1067,15 @@ static int Control (vout_display_t *vd, int query)
+@@ -1055,7 +1099,16 @@ static int Control (vout_display_t *vd, int query)
          case VOUT_DISPLAY_CHANGE_SOURCE_ASPECT:
          case VOUT_DISPLAY_CHANGE_SOURCE_CROP:
          case VOUT_DISPLAY_CHANGE_SOURCE_PLACE:
@@ -56,6 +90,7 @@ index f13a4f4f8a..d26f365703 100644
 +                @synchronized(sys.displayLayer) {
 +                    sys.displayLayer.videoGravity = gravity;
 +                }
++                [sys applyAspectStretch];
 +            });
              break;
 +        }
