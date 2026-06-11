@@ -1,0 +1,64 @@
+diff --git a/modules/video_output/apple/VLCSampleBufferDisplay.m b/modules/video_output/apple/VLCSampleBufferDisplay.m
+index f13a4f4f8a..d26f365703 100644
+--- a/modules/video_output/apple/VLCSampleBufferDisplay.m
++++ b/modules/video_output/apple/VLCSampleBufferDisplay.m
+@@ -140,7 +140,7 @@ typedef NS_ENUM(NSUInteger, VLCSampleBufferPixelFlip) {
+             kCVPixelBufferMetalCompatibilityKey,
+ #if TARGET_OS_OSX
+             kCVPixelBufferOpenGLCompatibilityKey,
+-#elif !defined(TARGET_OS_VISION) || !TARGET_OS_VISION
++#elif (!defined(TARGET_OS_VISION) || !TARGET_OS_VISION) && !TARGET_OS_MACCATALYST
+             kCVPixelBufferOpenGLESCompatibilityKey,
+ #endif
+         };
+@@ -151,7 +151,7 @@ typedef NS_ENUM(NSUInteger, VLCSampleBufferPixelFlip) {
+             (__bridge CFNumberRef)(@(dstHeight)),
+             (__bridge CFDictionaryRef)@{},
+             kCFBooleanTrue,
+-#if !defined(TARGET_OS_VISION) || !TARGET_OS_VISION
++#if (!defined(TARGET_OS_VISION) || !TARGET_OS_VISION) && !TARGET_OS_MACCATALYST
+             kCFBooleanTrue
+ #endif
+         };
+@@ -660,6 +660,17 @@ shouldInheritContentsScale:(CGFloat)newScale
+     - (instancetype)initWithVoutDisplay:(vout_display_t *)vd;
+ @end
+ 
++/* The sample-buffer layer fits its enqueued frames by gravity, not by the
++ * core-computed place rectangle, so the display fitting mode is mapped to a
++ * gravity: the larger ("fit outside") mode covers and crops, every other mode
++ * preserves aspect inside the surface. */
++static AVLayerVideoGravity VLCGravityForDisplayCfg(const vout_display_cfg_t *cfg)
++{
++    if (cfg->display.fitting == VLC_VIDEO_FIT_LARGER)
++        return AVLayerVideoGravityResizeAspectFill;
++    return AVLayerVideoGravityResizeAspect;
++}
++
+ @implementation VLCSampleBufferDisplay
+ 
+ - (id<VLCPixelBufferRotationContext>)rotationContext
+@@ -742,6 +753,7 @@ shouldInheritContentsScale:(CGFloat)newScale
+         @synchronized(sys.displayLayer) {
+             sys.displayLayer = displayView.displayLayer;
+         }
++        sys.displayLayer.videoGravity = VLCGravityForDisplayCfg(sys.vd->cfg);
+         [sys preparePictureInPicture];
+     });
+ }
+@@ -1055,7 +1067,15 @@ static int Control (vout_display_t *vd, int query)
+         case VOUT_DISPLAY_CHANGE_SOURCE_ASPECT:
+         case VOUT_DISPLAY_CHANGE_SOURCE_CROP:
+         case VOUT_DISPLAY_CHANGE_SOURCE_PLACE:
++        {
++            AVLayerVideoGravity gravity = VLCGravityForDisplayCfg(vd->cfg);
++            dispatch_async(dispatch_get_main_queue(), ^{
++                @synchronized(sys.displayLayer) {
++                    sys.displayLayer.videoGravity = gravity;
++                }
++            });
+             break;
++        }
+         default:
+             msg_Err (vd, "Unhandled request %d", query);
+             return VLC_EGENERIC;

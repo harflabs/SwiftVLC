@@ -1,5 +1,6 @@
 @testable import SwiftVLC
 import CLibVLC
+import Foundation
 import Testing
 
 /// Characterizes the libVLC video-configuration state each `AspectRatio` case
@@ -41,6 +42,20 @@ extension Integration {
     func `fill requests the larger fit`() {
       let player = Player(instance: TestInstance.shared)
       player.aspectRatio = .fill
+      #expect(displayFit(player) == libvlc_video_fit_larger)
+    }
+
+    /// The aspect mode must reapply to the replacement handle so a stop/play
+    /// or recast keeps `.fill` covering rather than reverting to letterbox.
+    @Test
+    func `fill survives a native handle swap`() throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      player.aspectRatio = .fill
+      let old = player.pointer
+      player.setDrawable(NSObject())
+      player.stop()
+      try player.prepareDrawableForPlayback()
+      try #require(player.pointer != old, "swap did not replace the native handle")
       #expect(displayFit(player) == libvlc_video_fit_larger)
     }
   }
