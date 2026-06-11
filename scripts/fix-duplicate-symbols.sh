@@ -5,7 +5,16 @@
 # Two VLC plugins (ytdl and chromecast) each compile their own copy of
 # json_parse_error and json_read. The Apple linker in Xcode 16+ treats
 # duplicate global symbols as errors (especially on Mac Catalyst). This
-# script localizes the duplicates in the chromecast plugin using nmedit.
+# script localizes one copy with nmedit so only a single global definition
+# remains.
+#
+# The localization targets the ytdl object, never the chromecast one.
+# nmedit rewrites the symbol table of whatever object it edits, which can
+# disturb that object's exception-handling sections (__eh_frame,
+# __gcc_except_tab, __compact_unwind). The chromecast control object carries
+# the C++ catch frames on the cast path (intf_sys_t, reinit,
+# ChromecastThread); ytdl is pure C with no exception handling. Editing the
+# pure-C copy resolves the duplicate without touching any unwind tables.
 #
 # Usage:
 #   ./scripts/fix-duplicate-symbols.sh path/to/libvlc.xcframework
@@ -51,7 +60,7 @@ fix_static_lib() {
     local COUNT
     COUNT=$(nm "$THIN" 2>/dev/null | grep -c 'T _json_parse_error' || true)
     if [[ "$COUNT" -gt 1 ]]; then
-      local OBJ="libstream_out_chromecast_plugin_la-chromecast_ctrl.o"
+      local OBJ="libytdl_plugin_la-ytdl.o"
       (cd "$WORK_DIR" && ar x "$THIN" "$OBJ" 2>/dev/null) || continue
       nmedit -R "$SYMS_FILE" "${WORK_DIR}/${OBJ}" 2>/dev/null || continue
       (cd "$WORK_DIR" && ar r "$THIN" "$OBJ" 2>/dev/null) || continue

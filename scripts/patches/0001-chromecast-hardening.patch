@@ -1,0 +1,189 @@
+diff --git a/modules/stream_out/chromecast/cast.cpp b/modules/stream_out/chromecast/cast.cpp
+index e5b67fc6da..15e1d2e3df 100644
+--- a/modules/stream_out/chromecast/cast.cpp
++++ b/modules/stream_out/chromecast/cast.cpp
+@@ -46,10 +46,12 @@
+ #define TRANSCODING_VIDEO 0x1
+ #define TRANSCODING_AUDIO 0x2
+ 
+-#if 0
+-/* TODO: works only with internal spu and transcoding/blending for now */
++/* Enable subtitle support on the cast path. A selected SPU track forces a
++ * video transcode and is blended into the picture (soverlay), so subtitles
++ * burn into the stream the receiver plays. Upstream gates this off because
++ * it only covers internally-decoded subtitles blended via transcode — which
++ * is the path used here. */
+ #define CC_ENABLE_SPU
+-#endif
+ 
+ namespace {
+ 
+@@ -1324,6 +1326,16 @@ static int Open(vlc_object_t *p_this)
+         goto error;
+     }
+ 
++    /* The controller is constructed even when the receiver is
++     * unreachable (connecting does not throw). Fail the sout here so
++     * libVLC keeps playing locally instead of routing to a dead cast
++     * session. */
++    if (!p_intf->isConnected())
++    {
++        msg_Err( p_this, "Chromecast receiver is unreachable" );
++        goto error;
++    }
++
+     b_supports_video = var_GetBool(p_stream, SOUT_CFG_PREFIX "video");
+ 
+     try
+diff --git a/modules/stream_out/chromecast/chromecast.h b/modules/stream_out/chromecast/chromecast.h
+index f27c89fd8e..c316f70b80 100644
+--- a/modules/stream_out/chromecast/chromecast.h
++++ b/modules/stream_out/chromecast/chromecast.h
+@@ -137,6 +137,14 @@ public:
+     {
+         return m_serverIp;
+     }
++
++    /* True once the control connection to the receiver is established. A
++     * constructor that fails to connect leaves this false instead of
++     * throwing. */
++    bool isConnected() const
++    {
++        return m_tls != NULL;
++    }
+ private:
+     int sendMessage(const castchannel::CastMessage &msg);
+ 
+@@ -173,6 +181,15 @@ struct intf_sys_t
+                int device_port, httpd_host_t *);
+     ~intf_sys_t();
+ 
++    /* True when the control connection to the receiver came up. The
++     * constructor leaves it false rather than throwing when the receiver
++     * is unreachable, so Open() can fail cleanly and fall back to local
++     * playback. */
++    bool isConnected() const
++    {
++        return m_communication != NULL && m_communication->isConnected();
++    }
++
+     void setRetryOnFail(bool);
+     void setHasInput(const std::string mime_type = "");
+ 
+diff --git a/modules/stream_out/chromecast/chromecast_communication.cpp b/modules/stream_out/chromecast/chromecast_communication.cpp
+index 71bf51be75..5cf5d13521 100644
+--- a/modules/stream_out/chromecast/chromecast_communication.cpp
++++ b/modules/stream_out/chromecast/chromecast_communication.cpp
+@@ -47,21 +47,38 @@ ChromecastCommunication::ChromecastCommunication( vlc_object_t* p_module,
+     if (devicePort == 0)
+         devicePort = CHROMECAST_CONTROL_PORT;
+ 
++    /* A failed connection leaves the object disconnected (m_tls == NULL)
++     * rather than throwing: callers check isConnected(). Throwing here
++     * aborts the host process on this build — the exception is not caught
++     * across the cast thread/sout boundary — and an unreachable or
++     * sleeping receiver is a routine condition, not a fatal error. */
+     m_creds = vlc_tls_ClientCreate( vlc_object_parent(m_module) );
+     if (m_creds == NULL)
+-        throw std::runtime_error( "Failed to create TLS client" );
++    {
++        msg_Err( m_module, "Failed to create TLS client for Chromecast" );
++        return;
++    }
+ 
+     m_tls = vlc_tls_SocketOpenTLS( m_creds, targetIP, devicePort, "tcps",
+                                    NULL, NULL );
+     if (m_tls == NULL)
+     {
++        msg_Err( m_module, "Failed to connect to Chromecast receiver" );
+         vlc_tls_ClientDelete(m_creds);
+-        throw std::runtime_error( "Failed to create client session" );
++        m_creds = NULL;
++        return;
+     }
+ 
+     char psz_localIP[NI_MAXNUMERICHOST];
+     if (net_GetSockAddress( vlc_tls_GetFD(m_tls), psz_localIP, NULL ))
+-        throw std::runtime_error( "Cannot get local IP address" );
++    {
++        msg_Err( m_module, "Cannot get local IP address for Chromecast" );
++        vlc_tls_Close(m_tls);
++        m_tls = NULL;
++        vlc_tls_ClientDelete(m_creds);
++        m_creds = NULL;
++        return;
++    }
+ 
+     m_serverIp = psz_localIP;
+ }
+@@ -120,6 +137,9 @@ int ChromecastCommunication::buildMessage(const std::string & namespace_,
+  */
+ ssize_t ChromecastCommunication::receive( uint8_t *p_data, size_t i_size, int i_timeout, bool *pb_timeout )
+ {
++    if (m_tls == NULL)
++        return -1;
++
+     ssize_t i_received = 0;
+ 
+     struct iovec iov;
+@@ -437,6 +457,9 @@ unsigned ChromecastCommunication::msgPlayerSetVolume( const std::string& destina
+  */
+ int ChromecastCommunication::sendMessage( const castchannel::CastMessage &msg )
+ {
++    if (m_tls == NULL)
++        return VLC_EGENERIC;
++
+     size_t i_size = msg.ByteSizeLong();
+     uint8_t *p_data = new(std::nothrow) uint8_t[PACKET_HEADER_LEN + i_size];
+     if (p_data == NULL)
+diff --git a/modules/stream_out/chromecast/chromecast_ctrl.cpp b/modules/stream_out/chromecast/chromecast_ctrl.cpp
+index f2729c8c25..af8ba6d655 100644
+--- a/modules/stream_out/chromecast/chromecast_ctrl.cpp
++++ b/modules/stream_out/chromecast/chromecast_ctrl.cpp
+@@ -269,6 +269,14 @@ void intf_sys_t::reinit()
+         return;
+     }
+ 
++    if( !m_communication->isConnected() )
++    {
++        msg_Warn( m_module, "failed to reconnect to Chromecast receiver" );
++        delete m_communication;
++        m_communication = NULL;
++        return;
++    }
++
+     m_state = Authenticating;
+     if( vlc_clone( &m_chromecastThread, ChromecastThread, this) )
+     {
+@@ -671,7 +679,13 @@ void* intf_sys_t::ChromecastThread(void* p_data)
+     vlc_thread_set_name("vlc-chromecast");
+ 
+     intf_sys_t *p_sys = static_cast<intf_sys_t*>(p_data);
+-    p_sys->mainLoop();
++    try {
++        p_sys->mainLoop();
++    } catch (const std::exception& e) {
++        msg_Err(p_sys->m_module, "chromecast thread aborted: %s", e.what());
++    } catch (...) {
++        msg_Err(p_sys->m_module, "chromecast thread aborted");
++    }
+     return NULL;
+ }
+ 
+diff --git a/modules/stream_out/chromecast/chromecast_demux.cpp b/modules/stream_out/chromecast/chromecast_demux.cpp
+index 3a3dd072db..7a44bc17ea 100644
+--- a/modules/stream_out/chromecast/chromecast_demux.cpp
++++ b/modules/stream_out/chromecast/chromecast_demux.cpp
+@@ -89,7 +89,11 @@ struct demux_cc
+ 
+         if (demux_Control( p_demux->s, DEMUX_CAN_SEEK, &m_can_seek ) != VLC_SUCCESS)
+             m_can_seek = false;
+-        if (demux_Control( p_demux->s, DEMUX_GET_LENGTH, &m_length ) != VLC_SUCCESS)
++        /* DEMUX_GET_LENGTH takes two arguments (vlc_tick_t *, bool *live);
++         * the adaptive demuxer reads both, so the live flag must be passed
++         * or it reads a stray stack slot and writes through it. */
++        bool b_unused_live;
++        if (demux_Control( p_demux->s, DEMUX_GET_LENGTH, &m_length, &b_unused_live ) != VLC_SUCCESS)
+             m_length = -1;
+ 
+         int i_current_title;

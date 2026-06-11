@@ -11,6 +11,10 @@ item (d′); item (d) — starting a cast while the PiP window is up — is \
 observational on this same screen. On tvOS the bundled libVLC ships no \
 renderer output backends, so this screen is meaningful on iOS devices \
 only.
+
+Selecting a subtitle track forces the cast pipeline to transcode the \
+video and burn the subtitle in (the receiver has no subtitle track of \
+its own), so it appears on the TV at the cost of an on-device encode.
 """
 
 struct MatrixScreenD: View {
@@ -31,6 +35,8 @@ struct MatrixScreenD: View {
   }
 
   var body: some View {
+    @Bindable var bindable = player
+
     Form {
       Section { AboutView(readMe: readMe) }
 
@@ -63,6 +69,17 @@ struct MatrixScreenD: View {
           Button("Load \(target.key.rawValue)") {
             append("load() → \(target.key.rawValue)")
             try? player.play(url: target.url)
+          }
+        }
+      }
+
+      if !player.subtitleTracks.isEmpty {
+        Section("Subtitles") {
+          Picker("Track", selection: $bindable.selectedSubtitleTrack) {
+            Text("Off").tag(Track?.none)
+            ForEach(player.subtitleTracks) { track in
+              Text(track.name).tag(Track?.some(track))
+            }
           }
         }
       }

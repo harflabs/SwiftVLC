@@ -32,8 +32,10 @@ VLC_BRANCH="master"
 # Update this hash when upgrading libVLC
 VLC_HASH="c833c4be0"
 
-# Directory containing patches from VLCKit (optional, user must opt in)
-PATCHES_DIR=""
+# Directory containing source patches applied to the VLC checkout before
+# configure. Defaults to the in-repo patch set (chromecast hardening) and can
+# be overridden or cleared with --patches-dir=DIR.
+PATCHES_DIR="${REPO_ROOT}/scripts/patches"
 
 BUILD_IOS=yes
 BUILD_TVOS=no

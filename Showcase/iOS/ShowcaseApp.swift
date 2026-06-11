@@ -9,6 +9,7 @@ struct ShowcaseApp: App {
     try? AVAudioSession.sharedInstance().setCategory(.playback)
     try? AVAudioSession.sharedInstance().setActive(true)
     UITestSupport.startLogMirrorIfRequested()
+    CastTrustResponder.shared.start()
   }
 
   var body: some Scene {

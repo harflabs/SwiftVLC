@@ -18,8 +18,17 @@ enum UITestSupport {
       let path = LaunchArguments.logPathValue
     else { return }
 
-    let url = URL(fileURLWithPath: path)
-    FileManager.default.createFile(atPath: path, contents: nil)
+    // A relative path is resolved under Documents so the device's log file
+    // can be pulled back with `devicectl device copy from`, whose
+    // appDataContainer domain is rooted at the app container.
+    let url: URL
+    if path.hasPrefix("/") {
+      url = URL(fileURLWithPath: path)
+    } else {
+      let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+      url = documents.appendingPathComponent(path)
+    }
+    FileManager.default.createFile(atPath: url.path, contents: nil)
 
     Task.detached(priority: .utility) {
       guard let handle = try? FileHandle(forWritingTo: url) else { return }

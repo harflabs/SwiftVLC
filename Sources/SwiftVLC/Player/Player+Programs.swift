@@ -86,11 +86,14 @@ extension Player {
   /// are unobservable; use ``stopAndWait()`` for the explicit-stop path.
   ///
   /// If libVLC rejects the renderer the call throws with the prior
-  /// renderer and local playback left intact. A-B loop bounds,
-  /// track/chapter/title selection, and DVB program selection reset with
-  /// the new session — elementary-stream and program ids can differ per
-  /// session, so re-selection is app policy. System Picture-in-Picture
-  /// backed by the replaced handle stops when the handle is torn down.
+  /// renderer and local playback left intact. The audio and subtitle
+  /// selection carry over best-effort — ids are session-scoped, so the
+  /// match falls back to language then name, and an unmatched track stays
+  /// at the new session's default. A-B loop bounds, chapter/title
+  /// selection, and DVB program selection reset with the new session —
+  /// their ids can differ per session, so re-selection is app policy.
+  /// System Picture-in-Picture backed by the replaced handle stops when
+  /// the handle is torn down.
   ///
   /// > Note: On tvOS the bundled libVLC ships no renderer output
   /// > backends — see ``setRenderer(_:)``.
@@ -115,6 +118,8 @@ extension Player {
     let priorPointer = pointer
     let priorNeedsReplacement = nativePlayerNeedsReplacementBeforePlayback
     let priorNeedsRebind = needsDrawableRebindForPlayback
+    let priorSubtitle = selectedSubtitleTrack
+    let priorAudio = selectedAudioTrack
 
     selectedRenderer = renderer
     nativePlayerNeedsReplacementBeforePlayback = true
@@ -140,9 +145,58 @@ extension Player {
     if resumeTime > .zero, await awaitSeekability() {
       try? seek(to: resumeTime)
     }
+    await restoreTrackSelection(audio: priorAudio, subtitle: priorSubtitle)
     if !wasPlaying {
       pause()
     }
+  }
+
+  /// Reapplies the audio and subtitle selection a prior session carried.
+  ///
+  /// Track ids are session-scoped, so the new session publishes different
+  /// ids for the same logical tracks; matching falls back to language then
+  /// name. The new session auto-selects its default audio, so a track is
+  /// only reapplied when it differs from what is already selected. Tracks
+  /// arrive after the session reaches `.playing` (adaptive renditions parse
+  /// late), so this waits briefly for the lists to populate.
+  private func restoreTrackSelection(audio: Track?, subtitle: Track?) async {
+    guard audio != nil || subtitle != nil else { return }
+
+    let deadline = ContinuousClock.now + .seconds(3)
+    while ContinuousClock.now < deadline {
+      let audioReady = audio == nil || !audioTracks.isEmpty
+      let subtitleReady = subtitle == nil || !subtitleTracks.isEmpty
+      if audioReady && subtitleReady { break }
+      try? await Task.sleep(for: .milliseconds(50))
+    }
+
+    if let audio, let match = Self.matchingTrack(for: audio, in: audioTracks),
+      match.id != selectedAudioTrack?.id
+    {
+      selectedAudioTrack = match
+    }
+    if let subtitle, let match = Self.matchingTrack(for: subtitle, in: subtitleTracks),
+      match.id != selectedSubtitleTrack?.id
+    {
+      selectedSubtitleTrack = match
+    }
+  }
+
+  /// Finds the track in `candidates` that best corresponds to `track` from a
+  /// previous session: an exact id match, else the same language, else the
+  /// same name.
+  static func matchingTrack(for track: Track, in candidates: [Track]) -> Track? {
+    if let exact = candidates.first(where: { $0.id == track.id }) {
+      return exact
+    }
+    if let language = track.language, !language.isEmpty,
+      let byLanguage = candidates.first(where: {
+        $0.language?.lowercased() == language.lowercased()
+      })
+    {
+      return byLanguage
+    }
+    return candidates.first { $0.name == track.name }
   }
 
   private static func awaitPlaying(on transitions: AsyncStream<PlayerState>) async {
