@@ -35,7 +35,7 @@ extension Integration {
       let prior = track(id: "spu/auto/4", name: "English", language: "en")
       let candidates = [
         track(id: "spu/auto/4", name: "Different", language: "fr"),
-        track(id: "spu/auto/9", name: "English", language: "en"),
+        track(id: "spu/auto/9", name: "English", language: "en")
       ]
       #expect(Player.matchingTrack(for: prior, in: candidates)?.id == "spu/auto/4")
     }
@@ -45,7 +45,7 @@ extension Integration {
       let prior = track(id: "spu/auto/4", name: "English", language: "en")
       let candidates = [
         track(id: "spu/auto/9", name: "Anglais", language: "EN"),
-        track(id: "spu/auto/10", name: "French", language: "fr"),
+        track(id: "spu/auto/10", name: "French", language: "fr")
       ]
       let match = Player.matchingTrack(for: prior, in: candidates)
       #expect(match?.id == "spu/auto/9", "case-insensitive language match expected")
@@ -56,7 +56,7 @@ extension Integration {
       let prior = track(id: "spu/auto/4", name: "Commentary", language: nil)
       let candidates = [
         track(id: "spu/auto/9", name: "Forced", language: nil),
-        track(id: "spu/auto/10", name: "Commentary", language: nil),
+        track(id: "spu/auto/10", name: "Commentary", language: nil)
       ]
       #expect(Player.matchingTrack(for: prior, in: candidates)?.id == "spu/auto/10")
     }
@@ -66,7 +66,7 @@ extension Integration {
       let prior = track(id: "spu/auto/4", name: "English", language: "en")
       let candidates = [
         track(id: "spu/auto/9", name: "French", language: "fr"),
-        track(id: "spu/auto/10", name: "German", language: "de"),
+        track(id: "spu/auto/10", name: "German", language: "de")
       ]
       #expect(Player.matchingTrack(for: prior, in: candidates) == nil)
     }

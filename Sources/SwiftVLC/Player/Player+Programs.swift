@@ -170,14 +170,14 @@ extension Player {
       try? await Task.sleep(for: .milliseconds(50))
     }
 
-    if let audio, let match = Self.matchingTrack(for: audio, in: audioTracks),
-      match.id != selectedAudioTrack?.id
-    {
+    if
+      let audio, let match = Self.matchingTrack(for: audio, in: audioTracks),
+      match.id != selectedAudioTrack?.id {
       selectedAudioTrack = match
     }
-    if let subtitle, let match = Self.matchingTrack(for: subtitle, in: subtitleTracks),
-      match.id != selectedSubtitleTrack?.id
-    {
+    if
+      let subtitle, let match = Self.matchingTrack(for: subtitle, in: subtitleTracks),
+      match.id != selectedSubtitleTrack?.id {
       selectedSubtitleTrack = match
     }
   }
@@ -189,11 +189,11 @@ extension Player {
     if let exact = candidates.first(where: { $0.id == track.id }) {
       return exact
     }
-    if let language = track.language, !language.isEmpty,
+    if
+      let language = track.language, !language.isEmpty,
       let byLanguage = candidates.first(where: {
         $0.language?.lowercased() == language.lowercased()
-      })
-    {
+      }) {
       return byLanguage
     }
     return candidates.first { $0.name == track.name }
