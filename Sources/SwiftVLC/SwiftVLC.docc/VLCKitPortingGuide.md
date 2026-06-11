@@ -129,16 +129,39 @@ before playback starts**: once the player is `.playing`, later
 ``Player/bufferFill`` without demoting the lifecycle state, so a
 brief network stall does not bounce your UI through a state change.
 
-Derive mid-playback rebuffer spinners from the fill level instead:
+Derive mid-playback rebuffer spinners from the fill level instead.
+``Player/bufferFill`` is published continuously and is not gated by the
+state enum, so it covers the initial load too. A bare
+`bufferFill < 1` check flickers, though: ``Player/bufferFill`` updates
+constantly during playback and a healthy live stream hovers a little
+below `1.0`. Use hysteresis — demote on a clear dip, promote at full or
+as soon as playback advances:
 
 ```swift
-var isRebuffering: Bool {
-  player.state == .playing && player.bufferFill < 1
+@Observable @MainActor
+final class RebufferModel {
+  private(set) var isRebuffering = false
+  private var lastTime: Duration = .zero
+
+  func update(state: PlayerState, event: PlayerEvent) {
+    guard state == .playing else { isRebuffering = false; return }
+    switch event {
+    case .bufferingProgress(let fill):
+      if fill < 0.9 { isRebuffering = true }       // clear dip: show
+      else if fill >= 1.0 { isRebuffering = false } // full: hide
+    case .timeChanged(let time):
+      if time > lastTime { isRebuffering = false }  // advanced: not stalled
+      lastTime = time
+    default:
+      break
+    }
+  }
 }
 ```
 
-``Player/bufferFill`` is published continuously and is not gated by
-the state enum, so this works for the initial load too.
+The split thresholds (`0.9` down, `1.0` up) keep a value oscillating
+around one level from toggling the spinner, and the `timeChanged`
+promotion hides it for live streams that play steadily below `1.0`.
 
 ## Live metadata
 
@@ -276,10 +299,49 @@ back ``Player/recast(to:)`` and a stopped drawable-hosted restart, and it
 tracks live drawable-size changes (rotation, split-screen) — set it once
 and it sticks.
 
+## Subtitle auto-selection
+
+libVLC picks a subtitle track on each load, following its own
+preferences: a stream's *forced* or *default* subtitle flag, then the
+`sub-language` preference, then the `sub-track` index. SwiftVLC does
+not override this, so by default a freshly loaded media may come up with
+a subtitle already showing — ``Player/selectedSubtitleTrack`` is
+non-`nil` after the track list arrives.
+
+Two ways to get "off unless the user asks":
+
+- **Bias the instance.** Leave `sub-language` empty and `sub-track`
+  at `-1` (both are the libVLC defaults), and disable external-file
+  detection if you never side-load `.srt` files:
+
+  ```swift
+  let instance = try VLCInstance(
+    arguments: VLCInstance.defaultArguments + ["--no-sub-autodetect-file"]
+  )
+  ```
+
+  This suppresses language/index/file-driven selection, but a stream that
+  flags a *forced* or *default* subtitle can still auto-select it.
+
+- **Deselect per media (authoritative).** When the subtitle tracks first
+  appear for a media, clear the selection unless the user has chosen one:
+
+  ```swift
+  for await event in player.events {
+    if case .tracksChanged = event, !userPickedSubtitle {
+      player.selectedSubtitleTrack = nil
+    }
+  }
+  ```
+
+  This is the only way to guarantee "off" regardless of stream flags;
+  set ``Player/selectedSubtitleTrack`` again when the user opts in.
+
 ## Topics
 
 - ``Player/aspectRatio``
 - ``AspectRatio``
+- ``Player/selectedSubtitleTrack``
 - ``Player/seek(toPosition:fast:)``
 - ``Player/jump(by:)``
 - ``PlayerEvent/endReached-enum.case``
