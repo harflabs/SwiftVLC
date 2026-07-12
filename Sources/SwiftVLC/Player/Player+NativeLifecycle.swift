@@ -49,6 +49,19 @@ final class NativePlayerHandleLifetime: @unchecked Sendable {
       }
       return objects.isEmpty ? nil : RetainedObjects(objects)
     }
+
+    /// Releases the retained objects on the calling thread. Callers invoke this
+    /// on the main thread so platform views (UIKit/AppKit) deinitialize there.
+    /// The objects are moved out under the lock and dropped after it is
+    /// released, so no deinitializer runs while the lock is held.
+    func releaseContents() {
+      let objects = contents.withLock { contents -> [AnyObject] in
+        let objects = contents.objects
+        contents.objects = []
+        return objects
+      }
+      withExtendedLifetime(objects) {}
+    }
   }
 
   let pointer: OpaquePointer
@@ -149,17 +162,17 @@ final class NativePlayerHandleLifetime: @unchecked Sendable {
     let retained = RetainedObjects(objects)
     whenReleased { [retained] in
       guard let releaseOwner = retained.takeContents() else { return }
+      // The box commonly holds UIKit/AppKit drawables, whose deinit must run on
+      // the main thread. `takeContents` moved them out of the release action's
+      // long-lived capture (released on a teardown queue) into `releaseOwner`,
+      // the sole remaining owner. Release them from within the main-thread
+      // work, rather than relying on ARC to tear down the dispatched block's
+      // capture — which can happen off the main thread.
       if Thread.isMainThread {
-        withExtendedLifetime(releaseOwner) {}
+        releaseOwner.releaseContents()
       } else {
-        // The box commonly holds UIKit/AppKit drawables. Native ownership can
-        // end on either teardown utility queue, but the final strong reference
-        // must not deinitialize a platform view there. `takeContents` emptied
-        // the release action's long-lived capture; this nested closure is now
-        // the sole lifetime owner and drops it on the main queue after the
-        // exact native lifetime has ended.
-        DispatchQueue.main.async { [releaseOwner] in
-          withExtendedLifetime(releaseOwner) {}
+        DispatchQueue.main.async {
+          releaseOwner.releaseContents()
         }
       }
     }
