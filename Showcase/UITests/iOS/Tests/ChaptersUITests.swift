@@ -22,7 +22,9 @@ final class ChaptersUITests: ShowcaseIOSTestCase {
     // Scroll so the Chapters section is in view.
     for _ in 0..<4 where !emptyLabel.exists {
       let pickerID = AccessibilityID.Chapters.picker
-      if app.descendants(matching: .any)[pickerID].firstMatch.exists { break }
+      if app.descendants(matching: .any)[pickerID].firstMatch.exists {
+        break
+      }
       app.swipeUp()
       Thread.sleep(forTimeInterval: 0.3)
     }

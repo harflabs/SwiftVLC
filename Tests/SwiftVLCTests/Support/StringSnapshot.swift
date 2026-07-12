@@ -79,7 +79,9 @@ func renderUnifiedDiff(expected: String, actual: String) -> String {
 private func longestCommonSubsequence(_ a: [String], _ b: [String]) -> [String] {
   let m = a.count
   let n = b.count
-  if m == 0 || n == 0 { return [] }
+  if m == 0 || n == 0 {
+    return []
+  }
   var dp = Array(repeating: Array(repeating: 0, count: n + 1), count: m + 1)
   for i in 1...m {
     for j in 1...n {

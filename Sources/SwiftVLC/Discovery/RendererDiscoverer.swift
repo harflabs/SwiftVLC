@@ -184,12 +184,20 @@ public enum RendererEvent: Sendable {
 extension RendererEvent {
   /// `RendererItem` if this event is `.itemAdded`, otherwise `nil`.
   public var itemAdded: RendererItem? {
-    if case .itemAdded(let value) = self { value } else { nil }
+    if case .itemAdded(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// `RendererItem` if this event is `.itemDeleted`, otherwise `nil`.
   public var itemDeleted: RendererItem? {
-    if case .itemDeleted(let value) = self { value } else { nil }
+    if case .itemDeleted(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 }
 

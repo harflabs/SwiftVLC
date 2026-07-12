@@ -125,6 +125,7 @@ extension UITestRoute {
     case .multiTrackSelection: MultiTrackSelectionCase()
     case .multiConsumer: MultiConsumerEventsCase()
     case .harnessHome: HarnessHome()
+    case .pipLiveValidation: PiPLiveValidationCase()
     }
   }
 }

@@ -1,7 +1,9 @@
+// swiftlint:disable file_length
 #if os(iOS) || os(macOS)
 @testable import SwiftVLC
 import AVFoundation
 import AVKit
+import CLibVLC
 import CoreMedia
 import CustomDump
 import Synchronization
@@ -550,6 +552,39 @@ extension Integration {
     }
 
     @Test
+    func `skip interval conversion rejects nonnumeric Core Media times`() {
+      #expect(PiPController.skipOffsetMilliseconds(.invalid) == nil)
+      #expect(PiPController.skipOffsetMilliseconds(.indefinite) == nil)
+      #expect(PiPController.skipOffsetMilliseconds(.positiveInfinity) == nil)
+      #expect(PiPController.skipOffsetMilliseconds(.negativeInfinity) == nil)
+    }
+
+    @Test
+    func `skip target arithmetic saturates before timeline clamp`() {
+      #expect(
+        PiPController.clampedSkipTargetMilliseconds(
+          current: Int64.max - 5,
+          offset: 10,
+          duration: nil
+        ) == Int64.max
+      )
+      #expect(
+        PiPController.clampedSkipTargetMilliseconds(
+          current: 5,
+          offset: Int64.min,
+          duration: nil
+        ) == 0
+      )
+      #expect(
+        PiPController.clampedSkipTargetMilliseconds(
+          current: Int64.max,
+          offset: Int64.max,
+          duration: 10000
+        ) == 10000
+      )
+    }
+
+    @Test
     func `playback delegate proxy forwards setPlaying to owner`() {
       let player = Player(instance: TestInstance.shared)
       player._setStateForTesting(state: .playing)
@@ -614,32 +649,192 @@ extension Integration {
 
     // MARK: - Delegate TimeRangeForPlayback
 
-    /// Without a known duration, the delegate must report a 24-hour
-    /// sentinel so the PiP scrubber doesn't collapse to 100%.
+    /// With no media loaded there is no playable content. AVKit's
+    /// sample-buffer playback-delegate contract requires an invalid range
+    /// for this state.
     @Test
-    func `timeRangeForPlayback reports sentinel when duration is unknown`() {
+    func `timeRangeForPlayback is invalid when no media is loaded`() {
+      let expected = PiPPlaybackDelegateProxy.playbackTimeRange(
+        hasMedia: false,
+        duration: nil
+      )
+      #expect(!expected.isValid)
+
       let player = Player(instance: TestInstance.shared)
       let controller = PiPController(player: player)
       guard let pip = makePictureInPictureController(for: controller) else { return }
 
       let range = controller._timeRangeForPlaybackForTesting(pip)
 
-      #expect(range.start == .zero)
-      #expect(range.duration.seconds >= 86399, "Should be approximately 24 hours")
+      #expect(range == expected)
     }
 
-    /// When a duration is set, the delegate reports the matching range.
+    /// A loaded input whose duration is still unknown is live/indefinite
+    /// content, not an empty controller. AVKit requires an infinite duration
+    /// so it renders linear live controls instead of a fabricated VOD range.
     @Test
-    func `timeRangeForPlayback reports real duration when known`() {
+    func `timeRangeForPlayback is infinite when loaded media duration is unknown`() throws {
+      let expected = PiPPlaybackDelegateProxy.playbackTimeRange(
+        hasMedia: true,
+        duration: nil
+      )
+      #expect(expected.isValid)
+      #expect(expected.duration.isPositiveInfinity)
+
       let player = Player(instance: TestInstance.shared)
-      player._setStateForTesting(duration: .seconds(120))
+      try player.load(Media(url: TestMedia.twosecURL))
       let controller = PiPController(player: player)
       guard let pip = makePictureInPictureController(for: controller) else { return }
 
       let range = controller._timeRangeForPlaybackForTesting(pip)
+
+      #expect(range == expected)
+    }
+
+    /// The repository's released v0.10 binary predates the additive atomic
+    /// symbol. After parsing and loading a real VOD, the compatibility path
+    /// must still report the duration stored on that retained media object.
+    @Test(.tags(.async, .media))
+    func `released binary fallback reports loaded parsed VOD duration`() async throws {
+      guard !swiftvlc_media_length_snapshot_available() else { return }
+
+      let media = try Media(url: TestMedia.twosecURL)
+      _ = try await media.parse(timeout: .seconds(5), instance: TestInstance.shared)
+      let expectedMilliseconds = libvlc_media_get_duration(media.pointer)
+      #expect(expectedMilliseconds > 0)
+
+      let player = Player(instance: TestInstance.shared)
+      player.load(media)
+      let range = PiPPlaybackDelegateProxy.nativePlaybackTimeRange(
+        playerPointer: player.pointer
+      )
+
+      #expect(range.isValid)
+      #expect(range.duration.isNumeric)
+      #expect(
+        abs(range.duration.seconds - Double(expectedMilliseconds) / 1000) < 0.001
+      )
+    }
+
+    /// An unparsed network input has no finite duration. The same released-
+    /// binary fallback must distinguish that loaded identity from no media and
+    /// report a live/indefinite range.
+    @Test(.tags(.media))
+    func `released binary fallback reports loaded unknown stream as live`() throws {
+      guard !swiftvlc_media_length_snapshot_available() else { return }
+
+      let url = try #require(URL(string: "http://127.0.0.1:1/swiftvlc-live-proof"))
+      let media = try Media(url: url)
+      #expect(libvlc_media_get_duration(media.pointer) <= 0)
+
+      let player = Player(instance: TestInstance.shared)
+      player.load(media)
+      let range = PiPPlaybackDelegateProxy.nativePlaybackTimeRange(
+        playerPointer: player.pointer
+      )
+
+      #expect(range.isValid)
+      #expect(range.duration.isPositiveInfinity)
+    }
+
+    /// A retained native media snapshot with a finite libVLC length maps to
+    /// the matching AVKit playback range and balances the media reference.
+    @Test
+    func `timeRangeForPlayback reports native duration when known`() throws {
+      let retainedMedia = try #require(OpaquePointer(bitPattern: 0x1))
+      var releaseCount = 0
+      let range = try PiPPlaybackDelegateProxy.playbackTimeRange(
+        playerPointer: #require(OpaquePointer(bitPattern: 0x2)),
+        getSnapshot: { _ in (retainedMedia, 120_000) },
+        releaseMedia: { media in
+          #expect(media == retainedMedia)
+          releaseCount += 1
+        }
+      )
 
       #expect(range.start == .zero)
       #expect(abs(range.duration.seconds - 120) < 0.01)
+      #expect(releaseCount == 1)
+    }
+
+    /// When the additive atomic symbol is absent, the compatibility path must
+    /// ask duration about the same retained media object returned by the
+    /// player. Calling the independent player-length API would reintroduce the
+    /// replacement race this snapshot is designed to remove.
+    @Test
+    func `legacy snapshot reads duration from the retained media identity`() throws {
+      let player = try #require(OpaquePointer(bitPattern: 0x10))
+      let retainedMedia = try #require(OpaquePointer(bitPattern: 0x20))
+      var atomicCalls = 0
+      var durationInputs: [OpaquePointer] = []
+
+      let snapshot = PiPPlaybackDelegateProxy.retainedMediaLengthSnapshot(
+        playerPointer: player,
+        atomicSnapshotAvailable: false,
+        getAtomicSnapshot: { _ in
+          atomicCalls += 1
+          return nil
+        },
+        getRetainedMedia: { receivedPlayer in
+          #expect(receivedPlayer == player)
+          return retainedMedia
+        },
+        getMediaDuration: { media in
+          durationInputs.append(media)
+          return 120_000
+        }
+      )
+
+      #expect(snapshot?.media == retainedMedia)
+      #expect(snapshot?.length == 120_000)
+      #expect(atomicCalls == 0)
+      #expect(durationInputs == [retainedMedia])
+    }
+
+    /// Once the additive symbol exists, a failed atomic query means no loaded
+    /// media. Falling through to legacy calls could mix identities across a
+    /// concurrent replacement, so the operation must fail closed.
+    @Test
+    func `available atomic snapshot never falls through to legacy calls`() throws {
+      let player = try #require(OpaquePointer(bitPattern: 0x10))
+      var retainedMediaCalls = 0
+
+      let snapshot = PiPPlaybackDelegateProxy.retainedMediaLengthSnapshot(
+        playerPointer: player,
+        atomicSnapshotAvailable: true,
+        getAtomicSnapshot: { receivedPlayer in
+          #expect(receivedPlayer == player)
+          return nil
+        },
+        getRetainedMedia: { _ in
+          retainedMediaCalls += 1
+          return OpaquePointer(bitPattern: 0x20)
+        },
+        getMediaDuration: { _ in 120_000 }
+      )
+
+      #expect(snapshot == nil)
+      #expect(retainedMediaCalls == 0)
+    }
+
+    /// Core Media ranges exclude their end. A timebase exactly at duration,
+    /// or a briefly advanced timebase awaiting the terminal player event,
+    /// therefore requires a minimally extended finite answer for AVKit's
+    /// documented contains-current-time invariant.
+    @Test(arguments: [120.0, 120.25])
+    func `finite playback range contains timebase at and beyond nominal end`(
+      currentSeconds: Double
+    ) {
+      let current = CMTime(seconds: currentSeconds, preferredTimescale: 1000)
+      let range = PiPPlaybackDelegateProxy.playbackTimeRange(
+        hasMedia: true,
+        duration: .seconds(120),
+        currentTime: current
+      )
+
+      #expect(range.isValid)
+      #expect(range.duration.isNumeric)
+      #expect(CMTimeRangeContainsTime(range, time: current))
     }
 
     // MARK: - Delegate size transition hook

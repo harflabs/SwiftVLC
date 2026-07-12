@@ -214,8 +214,12 @@ extension Integration {
       try player.play(Media(url: TestMedia.twosecURL))
       // Rapidly poll for opening/buffering
       for _ in 0..<100 {
-        if player.state == .opening { _ = player.isActive; break }
-        if player.state == .playing { break }
+        if player.state == .opening {
+          _ = player.isActive; break
+        }
+        if player.state == .playing {
+          break
+        }
         try await Task.sleep(for: .milliseconds(10))
       }
       player.stop()

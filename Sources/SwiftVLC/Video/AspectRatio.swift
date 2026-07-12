@@ -4,14 +4,17 @@
 /// player.aspectRatio = .ratio(16, 9)
 /// ```
 public enum AspectRatio: Sendable, Hashable, CustomStringConvertible {
-  /// Preserve the source aspect ratio by fitting into the smaller dimension
-  /// of the display (may add letterbox/pillarbox bars).
+  /// Preserve the source aspect ratio, fitted inside the display
+  /// (letterbox/pillarbox bars where the shapes differ).
   case `default`
 
-  /// Force a specific aspect ratio (e.g. `.ratio(16, 9)`).
+  /// Force the picture to a specific display aspect ratio, stretching the
+  /// source to that shape (e.g. `.ratio(16, 9)`); the shaped picture is then
+  /// fitted inside the display.
   case ratio(Int, Int)
 
-  /// Fill the display by fitting to the larger dimension (may crop content).
+  /// Fill the display, preserving the source aspect and cropping the
+  /// overflow (cover).
   case fill
 
   public var description: String {

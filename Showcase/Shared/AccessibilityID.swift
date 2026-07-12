@@ -151,6 +151,17 @@ enum AccessibilityID {
     static let preparingLabel = "pip.preparing"
   }
 
+  enum PiPLiveValidation {
+    static let videoView = "pipLive.videoView"
+    static let stateLabel = "pipLive.state"
+    static let durationLabel = "pipLive.duration"
+    static let displayedPicturesLabel = "pipLive.displayedPictures"
+    static let possibleLabel = "pipLive.possible"
+    static let activeLabel = "pipLive.active"
+    static let toggleButton = "pipLive.toggle"
+    static let errorLabel = "pipLive.error"
+  }
+
   enum AudioOutputs {
     static let videoView = "audioout.videoView"
     static let playPauseButton = "audioout.playPause"

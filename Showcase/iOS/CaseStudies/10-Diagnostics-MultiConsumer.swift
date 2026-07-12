@@ -86,7 +86,9 @@ struct MultiConsumerEventsCase: View {
       }
       if let text {
         lifecycleLog.insert(LogLine(text: text), at: 0)
-        if lifecycleLog.count > 25 { lifecycleLog.removeLast() }
+        if lifecycleLog.count > 25 {
+          lifecycleLog.removeLast()
+        }
       }
     }
   }
@@ -103,7 +105,9 @@ struct MultiConsumerEventsCase: View {
       }
       if let text {
         trackLog.insert(LogLine(text: text), at: 0)
-        if trackLog.count > 25 { trackLog.removeLast() }
+        if trackLog.count > 25 {
+          trackLog.removeLast()
+        }
       }
     }
   }

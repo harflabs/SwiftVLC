@@ -191,7 +191,9 @@ extension Integration {
           // Simulate a slow consumer — 5ms per event is slower than
           // VLC's timeChanged cadence, so the buffer will churn.
           try? await Task.sleep(for: .milliseconds(5))
-          if n > 200 { break }
+          if n > 200 {
+            break
+          }
         }
         consumed.withLock { $0 = n }
       }
@@ -227,7 +229,9 @@ extension Integration {
             var count = 0
             for await _ in stream {
               count += 1
-              if count > 10 { break }
+              if count > 10 {
+                break
+              }
             }
             finished.withLock { $0 += 1 }
           }
@@ -435,7 +439,9 @@ extension Integration {
           var n = 0
           for await _ in stream {
             n += 1
-            if n > 5 { break }
+            if n > 5 {
+              break
+            }
           }
         }
         try? await Task.sleep(for: .milliseconds(40))
@@ -942,7 +948,9 @@ extension Integration {
           var n = 0
           for await _ in logStream {
             n += 1
-            if n > 3 { break }
+            if n > 3 {
+              break
+            }
           }
         }
 
@@ -951,7 +959,9 @@ extension Integration {
           var n = 0
           for await _ in eventStream {
             n += 1
-            if n > 5 { break }
+            if n > 5 {
+              break
+            }
           }
         }
 

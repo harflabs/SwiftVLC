@@ -19,17 +19,16 @@
 
 set -e
 
-# --- Error trap for better failure reporting ---
-trap 'error "Build failed at line $LINENO (exit code $?)"' ERR
-
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/.build-libvlc"
 OUTPUT_DIR="${REPO_ROOT}/Vendor"
 VLC_REPO="https://code.videolan.org/videolan/vlc.git"
 VLC_BRANCH="master"
-# Pin to a known-good commit for reproducible builds (same as VLCKit)
-# Update this hash when upgrading libVLC
+# Pin to a known-good commit for reproducible builds. This intentionally does
+# not track VLCKit's moving pin: newer libVLC revisions changed libvlc_time_t
+# from milliseconds to microseconds and require a coordinated wrapper migration.
+# Update this hash only as part of an audited libVLC API upgrade.
 VLC_HASH="c833c4be0"
 
 # Directory containing source patches applied to the VLC checkout before
@@ -67,8 +66,15 @@ if [ -z "$MAKEFLAGS" ]; then
 fi
 
 # --- Terminal color support ---
-# Guard tput calls for non-terminal contexts (CI runners, piped output)
-if [ -t 1 ] && command -v tput >/dev/null 2>&1 && tput colors >/dev/null 2>&1; then
+# Guard tput calls for non-terminal and colorless contexts. `TERM=dumb`
+# reports `tput colors` as -1 with a successful exit status, while `setaf`
+# still fails; checking the numeric capability prevents the ERR trap from
+# masking the real build before logging has even initialized.
+TPUT_COLORS=0
+if [ -t 1 ] && command -v tput >/dev/null 2>&1; then
+    TPUT_COLORS=$(tput colors 2>/dev/null || echo 0)
+fi
+if [ "${TPUT_COLORS}" -ge 8 ] 2>/dev/null; then
     COLOR_GREEN=$(tput setaf 2)
     COLOR_RED=$(tput setaf 1)
     COLOR_YELLOW=$(tput setaf 3)
@@ -100,6 +106,11 @@ error() {
     echo "[${COLOR_RED}error${COLOR_RESET}] [$(elapsed)] $1" >&2
     exit 1
 }
+
+# --- Error trap for better failure reporting ---
+# Install only after `error` and its formatting dependencies are defined so a
+# startup failure cannot be replaced by `error: command not found`.
+trap 'error "Build failed at line $LINENO (exit code $?)"' ERR
 
 # --- Prerequisite validation ---
 # Maps a missing command to the Homebrew formula that provides it.
@@ -619,11 +630,12 @@ if [ ! -d "vlc" ]; then
     cd ..
 else
     cd vlc
-    # Only reset if HEAD isn't already at the pinned commit. An unconditional
-    # `git reset --hard` wipes our in-tree patches every run, forcing every
-    # downstream patch function to re-apply and all per-platform build dirs
-    # to rebuild. VideoLAN's GitLab also doesn't allow fetching by raw SHA,
-    # so skip the fetch unless the commit is missing locally.
+    # Only reset the whole checkout if HEAD isn't already at the pinned commit.
+    # Step 1b verifies the exact ordered patch result and restores only
+    # mismatching patch-owned paths, preserving source mtimes, unrelated
+    # generated build-system changes, and per-platform build directories.
+    # VideoLAN's GitLab also doesn't allow fetching by raw SHA, so skip the
+    # fetch unless the commit is missing locally.
     CURRENT_HEAD=$(git rev-parse --verify HEAD 2>/dev/null || echo "")
     TARGET_SHA=$(git rev-parse --verify "${VLC_HASH}^{commit}" 2>/dev/null || echo "")
     if [ -z "$TARGET_SHA" ]; then
@@ -642,21 +654,133 @@ fi
 
 VLC_SRC="${BUILD_DIR}/vlc"
 
+# Resolve the requested revision to a full commit ID before applying any
+# uncommitted source patches. This keeps build logs auditable even when VLC_HASH
+# is abbreviated or overridden with --hash.
+TARGET_SHA=$(git -C "${VLC_SRC}" rev-parse --verify "${VLC_HASH}^{commit}")
+SOURCE_SHA=$(git -C "${VLC_SRC}" rev-parse --verify HEAD)
+if [ "${SOURCE_SHA}" != "${TARGET_SHA}" ]; then
+    error "VLC source revision mismatch: expected ${TARGET_SHA}, found ${SOURCE_SHA}"
+fi
+info "VLC source provenance: ${SOURCE_SHA}"
+
 # --- Step 1b: Apply patches ---
 if [ -n "${PATCHES_DIR}" ] && [ -d "${PATCHES_DIR}" ]; then
     info "Applying patches from ${PATCHES_DIR}..."
     cd "${VLC_SRC}"
+
+    # Ordered patches can intentionally overlap (0003 refines code introduced
+    # by 0002), which makes a per-patch reverse-check ambiguous on a subsequent
+    # run. Build the expected final tree in a temporary Git index first. If the
+    # working files already match that exact ordered result, leave them and their
+    # mtimes untouched so an incremental invocation remains incremental. Only a
+    # mismatch restores patch-owned paths to the pinned base and reapplies the
+    # complete series. Build directories and unrelated source changes remain
+    # intact.
+    patch_files=()
+    patch_paths=()
     for patch in "${PATCHES_DIR}"/*.patch; do
         if [ -f "$patch" ]; then
-            patch_name=$(basename "$patch")
-            if git apply --check "$patch" 2>/dev/null; then
-                git apply "$patch"
-                info "  Applied: ${patch_name}"
-            else
-                info "  Skipped (already applied or conflicts): ${patch_name}"
-            fi
+            patch_files+=("$patch")
+            patch_numstat=$(git apply --numstat "$patch") \
+                || error "Could not parse patch metadata: $(basename "$patch")"
+            while IFS=$'\t' read -r _added _deleted patch_path; do
+                [ -n "$patch_path" ] || continue
+                case "$patch_path" in
+                    /*|..|../*|*/..|*/../*) error "Unsafe path in patch $(basename "$patch"): ${patch_path}" ;;
+                esac
+                already_listed=no
+                for existing_path in "${patch_paths[@]}"; do
+                    if [ "$existing_path" = "$patch_path" ]; then
+                        already_listed=yes
+                        break
+                    fi
+                done
+                if [ "$already_listed" = no ]; then
+                    patch_paths+=("$patch_path")
+                fi
+            done <<< "$patch_numstat"
         fi
     done
+
+    expected_index=$(mktemp "${TMPDIR:-/tmp}/swiftvlc-patches.XXXXXX")
+    rm -f -- "$expected_index"
+    if ! GIT_INDEX_FILE="$expected_index" git read-tree HEAD; then
+        rm -f -- "$expected_index" "$expected_index.lock"
+        error "Could not create the expected patch-series index"
+    fi
+    for patch in "${patch_files[@]}"; do
+        if ! GIT_INDEX_FILE="$expected_index" git apply --cached "$patch"; then
+            rm -f -- "$expected_index" "$expected_index.lock"
+            error "Ordered patch series does not apply to ${SOURCE_SHA}: $(basename "$patch")"
+        fi
+    done
+
+    patch_series_matches=yes
+    for patch_path in "${patch_paths[@]}"; do
+        expected_entry=$(GIT_INDEX_FILE="$expected_index" git ls-files -s -- "$patch_path")
+        if [ -z "$expected_entry" ]; then
+            if [ -e "$patch_path" ] || [ -L "$patch_path" ]; then
+                patch_series_matches=no
+                break
+            fi
+            continue
+        fi
+
+        expected_metadata=${expected_entry%%$'\t'*}
+        read -r expected_mode expected_blob _stage <<< "$expected_metadata"
+        if [ ! -e "$patch_path" ] && [ ! -L "$patch_path" ]; then
+            patch_series_matches=no
+            break
+        fi
+        current_blob=$(git hash-object -- "$patch_path")
+        if [ "$current_blob" != "$expected_blob" ]; then
+            patch_series_matches=no
+            break
+        fi
+        case "$expected_mode" in
+            100644) [ ! -x "$patch_path" ] || patch_series_matches=no ;;
+            100755) [ -x "$patch_path" ] || patch_series_matches=no ;;
+            120000) [ -L "$patch_path" ] || patch_series_matches=no ;;
+        esac
+        [ "$patch_series_matches" = yes ] || break
+    done
+    rm -f -- "$expected_index" "$expected_index.lock"
+
+    if [ "$patch_series_matches" = yes ]; then
+        for patch in "${patch_files[@]}"; do
+            patch_name=$(basename "$patch")
+            patch_sha=$(shasum -a 256 "$patch" | awk '{print $1}')
+            info "  Verified in applied series: ${patch_name} (sha256 ${patch_sha})"
+        done
+    else
+        for patch_path in "${patch_paths[@]}"; do
+            if git cat-file -e "HEAD:${patch_path}" 2>/dev/null; then
+                git checkout HEAD -- "$patch_path"
+            else
+                rm -f -- "$patch_path"
+            fi
+        done
+        info "  Restored ${#patch_paths[@]} patch-owned source path(s) to ${SOURCE_SHA}"
+
+        for patch in "${patch_files[@]}"; do
+            patch_name=$(basename "$patch")
+            patch_sha=$(shasum -a 256 "$patch" | awk '{print $1}')
+            if git apply --check "$patch" 2>/dev/null; then
+                git apply "$patch"
+                if ! git apply --reverse --check "$patch" 2>/dev/null; then
+                    error "Patch verification failed after apply: ${patch_name}"
+                fi
+                info "  Applied: ${patch_name} (sha256 ${patch_sha})"
+            elif git apply --reverse --check "$patch" 2>/dev/null; then
+                info "  Already applied: ${patch_name} (sha256 ${patch_sha})"
+            else
+                warn "Patch is neither applicable nor already applied: ${patch_name}"
+                git apply --check "$patch" 2>&1 || true
+                error "Refusing to build with a conflicted or partially applied patch: ${patch_name}"
+            fi
+        done
+    fi
     cd "${BUILD_DIR}"
 fi
 
@@ -894,10 +1018,9 @@ patch_vlc_xros_deployment_target
 
 patch_vlc_deployment_targets() {
     local BUILD_CONF="${VLC_SRC}/extras/package/apple/build.conf"
+    local deployment_result
 
-    info "Patching VLC deployment targets to match SwiftVLC's supported minimums..."
-
-    python3 - "$BUILD_CONF" \
+    deployment_result=$(python3 - "$BUILD_CONF" \
         "$SWIFTVLC_MIN_MACOS" \
         "$SWIFTVLC_MIN_IOS" \
         "$SWIFTVLC_MIN_TVOS" \
@@ -910,6 +1033,7 @@ build_conf_path, macos, ios, tvos, catalyst, visionos = sys.argv[1:]
 
 with open(build_conf_path, 'r') as f:
     content = f.read()
+original = content
 
 replacements = {
     r'^export VLC_DEPLOYMENT_TARGET_MACOSX=.*$': f'export VLC_DEPLOYMENT_TARGET_MACOSX="{macos}"',
@@ -931,13 +1055,22 @@ if re.search(r'^export VLC_DEPLOYMENT_TARGET_CATALYST=.*$', content, flags=re.MU
         flags=re.MULTILINE
     )
 
-with open(build_conf_path, 'w') as f:
-    f.write(content)
-
-print('Deployment targets patched successfully')
+if content == original:
+    print('unchanged')
+else:
+    with open(build_conf_path, 'w') as f:
+        f.write(content)
+    print('changed')
 PYEOF
+    )
 
-    info "VLC deployment targets patched"
+    if [ "$deployment_result" = "changed" ]; then
+        info "VLC deployment targets patched to SwiftVLC minimums"
+    elif [ "$deployment_result" = "unchanged" ]; then
+        info "VLC deployment targets already match SwiftVLC minimums"
+    else
+        error "Unexpected deployment-target patch result: ${deployment_result}"
+    fi
 }
 
 patch_vlc_deployment_targets

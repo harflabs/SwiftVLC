@@ -113,7 +113,9 @@ struct SimplePlaybackView: View {
 
 private enum VisionTestMedia {
   static var demo: URL {
-    if let override = LaunchArguments.fixtureURLValue { return override }
+    if let override = LaunchArguments.fixtureURLValue {
+      return override
+    }
     guard let url = Bundle.main.url(forResource: "demo", withExtension: "mkv") else {
       preconditionFailure("Missing bundled media resource: demo.mkv")
     }

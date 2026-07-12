@@ -176,7 +176,9 @@ private final class UserAgentProbeServer: @unchecked Sendable {
   private static func acceptLoop(socketFD: Int32, state: StateBox) {
     while true {
       let client = accept(socketFD, nil, nil)
-      if client < 0 { return }
+      if client < 0 {
+        return
+      }
       handle(client: client, state: state)
       close(client)
     }
@@ -217,7 +219,9 @@ private final class UserAgentProbeServer: @unchecked Sendable {
       let count = recv(client, &buffer, buffer.count, 0)
       guard count > 0 else { break }
       bytes.append(contentsOf: buffer.prefix(count))
-      if bytes.containsCRLFCRLF { break }
+      if bytes.containsCRLFCRLF {
+        break
+      }
     }
 
     return String(bytes: bytes, encoding: .utf8) ?? ""

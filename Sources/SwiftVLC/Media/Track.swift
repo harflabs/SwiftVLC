@@ -20,7 +20,11 @@ public struct Track: Sendable, Identifiable, Hashable {
   /// Human-readable track name.
   public let name: String
 
-  /// Codec identifier as libVLC's raw FourCC integer.
+  /// Codec as libVLC's raw FourCC integer, packed little-endian: `'h264'`
+  /// is `0x34363268` (`'h' | '2' << 8 | '6' << 16 | '4' << 24`). The first
+  /// character is the low byte. Decode it with ``codecString`` rather than
+  /// reading the bytes most-significant-first, which yields the reversed
+  /// `"462h"`.
   public let codec: Int
 
   /// ISO 639 language code (e.g. `"eng"`, `"fra"`, `"ja"`) as declared
@@ -59,6 +63,26 @@ public struct Track: Sendable, Identifiable, Hashable {
 
   /// Subtitle text encoding (`nil` for non-subtitle tracks).
   public let encoding: String?
+
+  /// The ``codec`` FourCC decoded to its text form (e.g. `"h264"`,
+  /// `"mp4a"`), or `nil` when the bytes are not a printable FourCC.
+  ///
+  /// Bytes are read low-to-high (little-endian); trailing NUL padding ends
+  /// the string, and any embedded NUL or non-printable byte yields `nil`.
+  public var codecString: String? {
+    let value = UInt32(truncatingIfNeeded: codec)
+    let bytes = stride(from: 0, through: 24, by: 8).map {
+      UInt8((value >> $0) & 0xFF)
+    }
+    let end = bytes.firstIndex(of: 0) ?? bytes.endIndex
+    guard bytes[end...].allSatisfy({ $0 == 0 }) else { return nil }
+    let payload = bytes[..<end]
+    guard
+      !payload.isEmpty,
+      payload.allSatisfy({ $0 >= 0x20 && $0 < 0x7F })
+    else { return nil }
+    return String(validating: payload, as: UTF8.self)
+  }
 
   public static func == (lhs: Track, rhs: Track) -> Bool {
     lhs.id == rhs.id

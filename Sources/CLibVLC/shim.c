@@ -6,6 +6,43 @@
 #include <string.h>
 #include "CLibVLC.h"
 
+#if defined(__APPLE__)
+/*
+ * The released static archive predates these symbols. Weak definitions keep
+ * that archive linkable; a patched archive's strong definitions win because
+ * the same media_player.o is already selected by SwiftVLC's standard player
+ * API references. The version function makes fallback vs. strong selection
+ * observable without relying on weak-import behavior (which still requires a
+ * provider dylib at static-link time on Darwin).
+ */
+__attribute__((weak))
+unsigned swiftvlc_libvlc_pip_extensions_version(void) {
+    return 0;
+}
+
+__attribute__((weak))
+void swiftvlc_libvlc_video_set_format_callbacks_ex(
+    libvlc_media_player_t *player,
+    swiftvlc_video_format_ex_cb setup,
+    libvlc_video_cleanup_cb cleanup) {
+    (void)player;
+    (void)setup;
+    (void)cleanup;
+}
+
+__attribute__((weak))
+bool swiftvlc_libvlc_media_player_get_media_length_snapshot(
+    libvlc_media_player_t *player,
+    swiftvlc_media_player_media_length_snapshot_t *snapshot) {
+    (void)player;
+    if (snapshot != NULL) {
+        snapshot->media = NULL;
+        snapshot->length = -1;
+    }
+    return false;
+}
+#endif
+
 /// Wrapper for libvlc_log_set that formats the va_list message in C
 /// and calls a simpler Swift-compatible callback with the formatted string.
 ///
@@ -59,4 +96,58 @@ void *swiftvlc_log_set(libvlc_instance_t *instance,
 void swiftvlc_log_unset(libvlc_instance_t *instance, void *context) {
     libvlc_log_unset(instance);
     free(context);
+}
+
+bool swiftvlc_video_set_format_callbacks_ex_if_available(
+    libvlc_media_player_t *player,
+    swiftvlc_video_format_ex_cb setup,
+    libvlc_video_cleanup_cb cleanup) {
+#if defined(__APPLE__)
+    if (swiftvlc_libvlc_pip_extensions_version() < 1) {
+        return false;
+    }
+    swiftvlc_libvlc_video_set_format_callbacks_ex(player, setup, cleanup);
+    return true;
+#else
+    (void)player;
+    (void)setup;
+    (void)cleanup;
+    return false;
+#endif
+}
+
+bool swiftvlc_video_format_callbacks_ex_available(void) {
+#if defined(__APPLE__)
+    return swiftvlc_libvlc_pip_extensions_version() >= 1;
+#else
+    return false;
+#endif
+}
+
+bool swiftvlc_media_player_get_media_length_snapshot_if_available(
+    libvlc_media_player_t *player,
+    swiftvlc_media_player_media_length_snapshot_t *snapshot) {
+    if (snapshot == NULL) {
+        return false;
+    }
+    snapshot->media = NULL;
+    snapshot->length = -1;
+#if defined(__APPLE__)
+    if (swiftvlc_libvlc_pip_extensions_version() < 1) {
+        return false;
+    }
+    return swiftvlc_libvlc_media_player_get_media_length_snapshot(
+        player, snapshot);
+#else
+    (void)player;
+    return false;
+#endif
+}
+
+bool swiftvlc_media_length_snapshot_available(void) {
+#if defined(__APPLE__)
+    return swiftvlc_libvlc_pip_extensions_version() >= 1;
+#else
+    return false;
+#endif
 }

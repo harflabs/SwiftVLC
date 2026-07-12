@@ -1,0 +1,193 @@
+# Backports VideoLAN VLC commits da8b3130c0, af61becb6c, 82803f4e26,
+# and 1729b74116 onto SwiftVLC's pinned c833c4be0 source.
+# Adapted to c833's Control callback and the preceding SwiftVLC aspect patch.
+diff --git a/modules/video_output/apple/VLCSampleBufferDisplay.m b/modules/video_output/apple/VLCSampleBufferDisplay.m
+index 567a03a..2d90143 100644
+--- a/modules/video_output/apple/VLCSampleBufferDisplay.m
++++ b/modules/video_output/apple/VLCSampleBufferDisplay.m
+@@ -563,23 +563,20 @@ - (void)drawRect:(CGRect)dirtyRect {
+ #pragma mark -
+ 
+ @interface VLCSampleBufferDisplayView: VLCView <CALayerDelegate>
+-@property (nonatomic, readonly) vout_display_t *vd;
+-- (instancetype)initWithVoutDisplay:(vout_display_t *)vd;
+ - (AVSampleBufferDisplayLayer *)displayLayer;
+ @end
+ 
+ @implementation VLCSampleBufferDisplayView
+ 
+-- (instancetype)initWithVoutDisplay:(vout_display_t *)vd {
++- (instancetype)init {
+     self = [super init];
+     if (!self)
+         return nil;
+-    _vd = vd;
+ #if TARGET_OS_OSX
+-    self.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
++    self.autoresizingMask = NSViewNotSizable;
+     self.wantsLayer = YES;
+ #else
+-    self.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
++    self.autoresizingMask = UIViewAutoresizingNone;
+ #endif
+     return self;
+ }
+@@ -642,7 +639,6 @@ - (BOOL)acceptsFirstResponder
+ @interface VLCSampleBufferDisplay: NSObject
+ {
+     @public
+-    vout_display_place_t place;
+     filter_t *converter;
+ }
+     @property (nonatomic, readonly, weak) VLCView *window;
+@@ -658,6 +654,7 @@ @interface VLCSampleBufferDisplay: NSObject
+     - (instancetype)init NS_UNAVAILABLE;
+     + (instancetype)new NS_UNAVAILABLE;
+     - (instancetype)initWithVoutDisplay:(vout_display_t *)vd;
++    - (void)placeVideo:(vout_display_place_t)newPlace;
+ @end
+ 
+ /* The sample-buffer layer fits its enqueued frames by gravity, not by the
+@@ -671,29 +668,28 @@ static AVLayerVideoGravity VLCGravityForDisplayCfg(const vout_display_cfg_t *cfg
+     return AVLayerVideoGravityResizeAspect;
+ }
+ 
+-@implementation VLCSampleBufferDisplay
+-
+ /* A forced display aspect (libvlc_video_set_aspect_ratio) reaches the vout as a
+  * target place rectangle, but AVSampleBufferDisplayLayer still fits the natural
+  * pixel shape. Scale the natural aspect-fit box into VLC's computed place box so
+  * forced ratios visibly stretch while the default path remains identity. The
+- * fill (cover) path keeps its identity transform and uses layer gravity. */
+-- (void)applyAspectStretch
++ * fill (cover) path keeps its identity transform and uses layer gravity.
++ *
++ * Compute the transform on the vout thread. A vout_display_t must never be
++ * retained or dereferenced by the asynchronous main-queue presentation block. */
++static CGAffineTransform VLCAspectStretchForDisplay(const vout_display_t *vd)
+ {
+-    AVSampleBufferDisplayLayer *layer = self.displayLayer;
+-    if (!layer)
+-        return;
+-    const vout_display_place_t *p = self.vd->place;
+-    const video_format_t *source = self.vd->source;
+-    const vout_display_cfg_t *cfg = self.vd->cfg;
++    const vout_display_place_t *p = vd->place;
++    const video_format_t *source = vd->source;
++    const vout_display_cfg_t *cfg = vd->cfg;
+     CGAffineTransform t = CGAffineTransformIdentity;
+     if (source && cfg && p->width > 0 && p->height > 0
+-        && cfg->display.width > 0 && cfg->display.height > 0
+         && source->i_visible_width > 0 && source->i_visible_height > 0
+         && cfg->display.fitting != VLC_VIDEO_FIT_LARGER)
+     {
+-        const double displayW = (double)cfg->display.width;
+-        const double displayH = (double)cfg->display.height;
++        /* The display view is placed in p, so calculate the natural aspect-fit
++         * box in that coordinate space before stretching it to the full box. */
++        const double displayW = (double)p->width;
++        const double displayH = (double)p->height;
+         const double naturalAR =
+             (double)source->i_visible_width / (double)source->i_visible_height;
+         const double displayAR = displayW / displayH;
+@@ -710,9 +706,11 @@ - (void)applyAspectStretch
+             t = CGAffineTransformMakeScale((double)p->width / naturalW,
+                                            (double)p->height / naturalH);
+     }
+-    layer.affineTransform = t;
++    return t;
+ }
+ 
++@implementation VLCSampleBufferDisplay
++
+ - (id<VLCPixelBufferRotationContext>)rotationContext
+ {
+     if (_rotationContext)
+@@ -763,6 +761,23 @@ - (void)preparePictureInPicture {
+     }
+ }
+ 
++- (CGRect)frameForPlace:(const vout_display_place_t *)place
++{
++    VLCView *window = self.window;
++    CGRect frame = CGRectMake(place->x, place->y, place->width, place->height);
++#if TARGET_OS_OSX
++    frame = [window convertRectFromBacking:frame];
++    frame.origin.y = window.bounds.size.height - frame.origin.y - frame.size.height;
++#else
++    CGFloat scale = window.contentScaleFactor;
++    frame.origin.x /= scale;
++    frame.origin.y /= scale;
++    frame.size.width /= scale;
++    frame.size.height /= scale;
++#endif
++    return frame;
++}
++
+ - (void)prepareDisplay {
+     @synchronized(_displayLayer) {
+         if (_displayLayer)
+@@ -770,6 +785,9 @@ - (void)prepareDisplay {
+     }
+ 
+     VLCSampleBufferDisplay *sys = self;
++    vout_display_place_t place = *_vd->place;
++    AVLayerVideoGravity gravity = VLCGravityForDisplayCfg(_vd->cfg);
++    CGAffineTransform aspectStretch = VLCAspectStretchForDisplay(_vd);
+     dispatch_async(dispatch_get_main_queue(), ^{
+         if (sys.displayView)
+             return;
+@@ -778,27 +796,29 @@ - (void)prepareDisplay {
+         VLCSampleBufferSubpictureView *spuView;
+         VLCView *window = sys.window;
+ 
+-        displayView =
+-            [[VLCSampleBufferDisplayView alloc] initWithVoutDisplay:sys.vd];
++        displayView = [[VLCSampleBufferDisplayView alloc] init];
+         spuView = [VLCSampleBufferSubpictureView new];
+         [window addSubview:displayView];
+         [window addSubview:spuView];
+-        [displayView setFrame:[window bounds]];
++        displayView.frame = [sys frameForPlace:&place];
+         [spuView setFrame:[window bounds]];
+ 
+-        sys->place = *sys.vd->place;
+-
+         sys.displayView = displayView;
+         sys.spuView = spuView;
+         @synchronized(sys.displayLayer) {
+             sys.displayLayer = displayView.displayLayer;
+         }
+-        sys.displayLayer.videoGravity = VLCGravityForDisplayCfg(sys.vd->cfg);
+-        [sys applyAspectStretch];
++        sys.displayLayer.videoGravity = gravity;
++        sys.displayLayer.affineTransform = aspectStretch;
+         [sys preparePictureInPicture];
+     });
+ }
+ 
++- (void)placeVideo:(vout_display_place_t)newPlace
++{
++    self.displayView.frame = [self frameForPlace:&newPlace];
++}
++
+ - (void)close {
+     VLCSampleBufferDisplay *sys = self;
+     dispatch_async(dispatch_get_main_queue(), ^{
+@@ -1109,12 +1129,15 @@ static int Control (vout_display_t *vd, int query)
+         case VOUT_DISPLAY_CHANGE_SOURCE_CROP:
+         case VOUT_DISPLAY_CHANGE_SOURCE_PLACE:
+         {
++            vout_display_place_t newPlace = *vd->place;
+             AVLayerVideoGravity gravity = VLCGravityForDisplayCfg(vd->cfg);
++            CGAffineTransform aspectStretch = VLCAspectStretchForDisplay(vd);
+             dispatch_async(dispatch_get_main_queue(), ^{
++                [sys placeVideo:newPlace];
+                 @synchronized(sys.displayLayer) {
+                     sys.displayLayer.videoGravity = gravity;
++                    sys.displayLayer.affineTransform = aspectStretch;
+                 }
+-                [sys applyAspectStretch];
+             });
+             break;
+         }

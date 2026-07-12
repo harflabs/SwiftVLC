@@ -74,7 +74,9 @@ extension Integration {
         for await event in stream {
           if case .mediaChanged = event {
             let c = mediaChangedCount.withLock { $0 += 1; return $0 }
-            if c >= 2 { break }
+            if c >= 2 {
+              break
+            }
           }
         }
       }
@@ -237,7 +239,9 @@ extension Integration {
           if case .tracksChanged = event {
             let c = tracksCount.withLock { $0 += 1; return $0 }
             // ESAdded fires for each track (audio + video), so we expect multiple
-            if c >= 2 { break }
+            if c >= 2 {
+              break
+            }
           }
         }
       }
@@ -287,7 +291,9 @@ extension Integration {
               && receivedMedia.withLock { $0 }
               && receivedTime.withLock { $0 }
               && receivedLength.withLock { $0 }
-          if allCore { break }
+          if allCore {
+            break
+          }
         }
       }
 

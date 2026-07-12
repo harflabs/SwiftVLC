@@ -8,8 +8,11 @@ working native backend uses private Apple framework symbols.
 
 ``PiPVideoView`` replaces ``VideoView`` and configures the PiP-capable
 surface on your behalf. On iOS it attaches libVLC's native drawable and
-implements libVLC's Picture in Picture selectors, so the bundled iOS
-video output owns the `AVPictureInPictureController` integration.
+implements libVLC's Picture in Picture selectors. The bundled iOS video
+output renders inline into that drawable and owns the system
+`AVPictureInPictureController`; SwiftVLC receives the native controller
+only for control and observable state. ``PiPVideoView`` does not place
+``PiPController/layer`` in its view hierarchy.
 
 On macOS, ``PiPVideoView`` still hosts libVLC's native drawable for
 inline playback. Its native PiP start path remains unavailable unless
@@ -35,10 +38,10 @@ struct PlayerScreen: View {
 ```
 
 The `controller` binding is populated during view construction and
-stays in sync with the view's lifetime. It's `nil` on platforms that
-don't expose SwiftVLC's PiP APIs (e.g. tvOS and visionOS). On macOS the
-binding is non-`nil`, but ``PiPController/isPossible`` remains `false`
-unless the SPI native backend is enabled and available at runtime.
+stays in sync with the view's lifetime. On macOS the binding is non-`nil`,
+but ``PiPController/isPossible`` remains `false` unless the SPI native
+backend is enabled and available at runtime. SwiftVLC's PiP types are not
+compiled on tvOS or visionOS.
 
 Use the binding's controller for PiP *control and state*
 (``PiPController/toggle()``, ``PiPController/isPossible``,
@@ -52,17 +55,42 @@ instantiate ``PiPController`` yourself and host the layer directly.
 On iOS Simulator, SwiftVLC reports native PiP as unavailable. Simulator
 AVSampleBufferDisplayLayer PiP can reach `isPictureInPictureActive` while
 rendering a black system PiP window, so validate iOS PiP rendering on
-device.
+a physical device. Simulator success is not evidence that frames reach
+the system PiP window.
+
+### Native PiP subtitle limitation
+
+The bundled native iOS PiP route does not currently include VLC-rendered
+subtitles, bitmap subpictures, or on-screen-display regions in the system PiP
+video. VLC draws those regions into a sibling overlay view for inline playback,
+while AVKit receives only the video sample-buffer layer. Core Animation
+sublayers and sibling views are not composited into that content source.
+
+Supporting subtitles without degrading the zero-copy and HDR paths requires a
+separate, same-format burn-in stage before sample enqueue. That compositor is
+not part of SwiftVLC today. Do not rely on an inline subtitle appearing in the
+system PiP window; validate the exact subtitle behavior your app requires on a
+physical device.
 
 ## Audio session (iOS only)
 
 PiP requires a playback-category audio session. ``PiPController``
-configures one automatically on `init`:
+sets the `.playback` category automatically when it is constructed, but
+direct controller construction and native-view construction for an inactive
+Player deliberately do not activate the session. Merely building an idle view
+therefore does not take audio focus.
 
-```swift
-try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
-try? AVAudioSession.sharedInstance().setActive(true)
-```
+`setActive(true)` is deferred until ``PiPController/start()`` or the
+first active-playback signal. When a native iOS view adopts an already-playing
+Player, SwiftVLC activates before publishing the successor controller as the
+native backend owner; libVLC's AVKit controller may otherwise auto-start
+without SwiftVLC receiving a will-start callback. The direct route retries at
+will-start, and the native route retries when it observes did-start. If
+activation fails transiently, SwiftVLC leaves it pending for either fallback.
+
+Pass `managesAudioSession: false` to ``PiPVideoView`` when your app owns
+audio-session policy. In that mode SwiftVLC neither changes the category
+nor activates the shared session.
 
 Your app must also declare background modes in its Info.plist:
 
@@ -91,6 +119,32 @@ sample-buffer path may reflect system support but is not the recommended
 production path because it can crop video incorrectly on supported macOS
 releases.
 
+The direct renderer asks libVLC for 8-bit BGRA frames and uses an SDR RGB
+conversion path when AVKit requests resized output. It does not preserve
+HDR or wide-color metadata; use it only when that limitation is acceptable.
+
+## Playback ranges and live media
+
+The direct public sample-buffer route distinguishes three AVKit
+playback-range states:
+
+- No loaded media produces an invalid range because there is no content.
+- Loaded media with no positive native duration produces an indefinite
+  range with positive-infinite duration. Live playback can render before
+  a duration is known.
+- A positive native duration produces a finite range of that length.
+
+Media, length, and seekability event payloads invalidate AVKit's playback
+state so it re-queries the current native media handle. SwiftVLC uses the
+event payload rather than a potentially stale ``Player`` property because
+the player and PiP observers consume independent event streams. Seekability
+also keeps AVKit's `requiresLinearPlayback` setting synchronized on both
+iOS PiP routes. A successor controller adopting a preserved native attachment
+also re-samples current seekability under the backend's owner and attachment-
+generation checks, covering events that arrived while no controller owned the
+backend. Playback-state transitions provide a conservative fallback
+invalidation.
+
 ## Common pitfalls
 
 - **Never mix rendering paths.** A player attached to direct
@@ -100,6 +154,14 @@ releases.
 - **Put the PiP surface on screen before calling `player.play()`.**
   libVLC creates the native PiP controller after the visible drawable's
   video output opens.
+- **Do not wait for a duration before showing live PiP.** A loaded input
+  with an unknown duration is reported to AVKit as indefinite content,
+  not as an empty or fabricated finite range.
+- **Validate system PiP video on a physical iOS device.** Simulator PiP
+  state can become active while its system window remains black.
+- **Native PiP does not currently carry VLC's subtitle overlay.** Inline
+  subtitle visibility is not evidence that the same region reaches AVKit's
+  system PiP video.
 - **Keep the macOS PiP-safe VLC defaults if you opt into SPI.** Passing
   a completely custom ``VLCInstance`` argument list on macOS can disable
   video output or force an unsupported vout. Start from

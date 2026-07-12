@@ -16,7 +16,9 @@ extension Integration {
         Task.detached { @Sendable in
           for await _ in streams[i] {
             let c = counts.withLock { $0[i] += 1; return $0[i] }
-            if c >= 3 { break }
+            if c >= 3 {
+              break
+            }
           }
         }
       }
@@ -123,7 +125,9 @@ extension Integration {
       let fastTask = Task.detached { @Sendable in
         for await _ in fastStream {
           let c = fastCount.withLock { $0 += 1; return $0 }
-          if c >= 5 { break }
+          if c >= 5 {
+            break
+          }
         }
       }
 
@@ -132,7 +136,9 @@ extension Integration {
           // Simulate slow processing
           try? await Task.sleep(for: .milliseconds(200))
           let c = slowCount.withLock { $0 += 1; return $0 }
-          if c >= 2 { break }
+          if c >= 2 {
+            break
+          }
         }
       }
 
@@ -199,7 +205,9 @@ extension Integration {
               && (receivedTracks.withLock { $0 } || receivedMedia.withLock { $0 })
               && receivedBuffering.withLock { $0 }
 
-          if allReceived { break }
+          if allReceived {
+            break
+          }
         }
       }
 
@@ -253,7 +261,9 @@ extension Integration {
             }
             return $0.count >= 3
           }
-          if shouldBreak { break }
+          if shouldBreak {
+            break
+          }
         }
       }
       let task2 = Task.detached { @Sendable in
@@ -266,7 +276,9 @@ extension Integration {
             }
             return $0.count >= 3
           }
-          if shouldBreak { break }
+          if shouldBreak {
+            break
+          }
         }
       }
 
@@ -301,7 +313,9 @@ extension Integration {
         for await event in stream {
           if case .mediaChanged = event {
             let c = mediaChangedCount.withLock { $0 += 1; return $0 }
-            if c >= 2 { break }
+            if c >= 2 {
+              break
+            }
           }
         }
       }

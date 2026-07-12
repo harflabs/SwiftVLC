@@ -4,44 +4,16 @@ import CLibVLC
 import CoreImage
 import CoreMedia
 import CoreVideo
-import Darwin
 import Foundation
 import os
 import Synchronization
 
-/// Number of in-flight pictures libVLC's vmem output allocates, returned
-/// from the format callback. Higher gives the decoder more headroom and
-/// smoother playback; it is the dominant driver of peak in-flight memory.
-private let pixelBufferRendererPictureBufferCount: UInt32 = 12
-
-/// Soft cap on the bytes a single `CVPixelBufferPool` keeps resident as
-/// its recycled floor. Decode headroom (above) governs peak in-flight
-/// memory; this governs how many *returned* buffers the pool retains.
-/// Without it, a 4K BGRA pool with a 12-buffer floor pins ~380 MiB even
-/// when idle. ~96 MiB keeps HD/SD generously buffered while letting 4K
-/// drain its recycled buffers.
-private let pixelBufferRendererPoolMaximumResidentBytes = 96 * 1024 * 1024
-
-/// Byte-budgeted resident floor for a BGRA pool of the given dimensions:
-/// at most the picture count, at least 3, capped by the resident budget.
-/// Decoupled from `pixelBufferRendererPictureBufferCount` so smoothness
-/// (decode headroom) and idle memory footprint can be tuned independently.
-private func pixelBufferRendererPoolMinimumBufferCount(width: Int, height: Int) -> Int {
-  let bytesPerBuffer = max(1, width * height * 4)
-  let budgeted = pixelBufferRendererPoolMaximumResidentBytes / bytesPerBuffer
-  return max(3, min(Int(pixelBufferRendererPictureBufferCount), budgeted))
-}
-
-/// Carries media objects onto the serial enqueue queue. The queue only reads
-/// these references; ownership is transferred to the layer when enqueued.
-private final class EnqueuedSampleBuffer: @unchecked Sendable {
-  let layer: AVSampleBufferDisplayLayer
-  let sample: CMSampleBuffer
-
-  init(layer: AVSampleBufferDisplayLayer, sample: CMSampleBuffer) {
-    self.layer = layer
-    self.sample = sample
-  }
+/// Core Image objects shared by every scaled frame produced by one renderer.
+/// Kept in a reference type so tests can verify identity reuse and `State`
+/// copies never duplicate resource ownership.
+final class PixelBufferScalingResources: @unchecked Sendable {
+  let context = CIContext(options: [.cacheIntermediates: false])
+  let colorSpace = CGColorSpaceCreateDeviceRGB()
 }
 
 /// Renders libVLC video frames into `CVPixelBuffer`s via vmem callbacks,
@@ -54,6 +26,11 @@ final class PixelBufferRenderer: Sendable {
   /// Sendable conformance. Thread safety is guaranteed by the enclosing
   /// Mutex.
   struct State: @unchecked Sendable {
+    struct CachedFormatDescription: @unchecked Sendable {
+      let generation: UInt64
+      let description: CMVideoFormatDescription
+    }
+
     var pool: CVPixelBufferPool?
     var width: Int = 0
     var height: Int = 0
@@ -62,6 +39,9 @@ final class PixelBufferRenderer: Sendable {
     var renderPoolWidth: Int = 0
     var renderPoolHeight: Int = 0
     var renderGeneration: UInt64 = 0
+    var cachedFormatDescription: CachedFormatDescription?
+    var formatDescriptionCreationCount: UInt64 = 0
+    var scalingResources: PixelBufferScalingResources?
     /// The display layer is held inside a class box rather than as a
     /// direct `weak var` on the struct. `Mutex` stores `State` in raw
     /// managed memory and any `withLock { $0 }` read produces a struct
@@ -75,15 +55,28 @@ final class PixelBufferRenderer: Sendable {
     init(displayLayer: AVSampleBufferDisplayLayer?) {
       self.displayLayer = DisplayLayerBox(displayLayer)
     }
+
+    mutating func advanceRenderGeneration() {
+      renderGeneration &+= 1
+      cachedFormatDescription = nil
+    }
   }
 
   let state: Mutex<State>
-  private let ciContext = CIContext(options: [.cacheIntermediates: false])
-  private let colorSpace = CGColorSpaceCreateDeviceRGB()
-  private let enqueueQueue = DispatchQueue(label: "org.swiftvlc.pixel-buffer-renderer.enqueue")
+  let enqueueQueue: DispatchQueue
+  let enqueueState = Mutex(PixelBufferEnqueueState())
+  let displayLayerAPI: PixelBufferDisplayLayerAPI
 
-  init(displayLayer: AVSampleBufferDisplayLayer) {
+  init(
+    displayLayer: AVSampleBufferDisplayLayer? = nil,
+    enqueueQueue: DispatchQueue? = nil,
+    displayLayerAPI: PixelBufferDisplayLayerAPI = .live
+  ) {
     state = Mutex(State(displayLayer: displayLayer))
+    self.enqueueQueue = enqueueQueue ?? DispatchQueue(
+      label: "org.swiftvlc.pixel-buffer-renderer.enqueue"
+    )
+    self.displayLayerAPI = displayLayerAPI
   }
 
   func setDisplayLayer(_ layer: AVSampleBufferDisplayLayer?) {
@@ -103,7 +96,7 @@ final class PixelBufferRenderer: Sendable {
       $0.renderPool = nil
       $0.renderPoolWidth = 0
       $0.renderPoolHeight = 0
-      $0.renderGeneration &+= 1
+      $0.advanceRenderGeneration()
     }
   }
 
@@ -163,33 +156,24 @@ final class PixelBufferRenderer: Sendable {
       .transformed(by: transform)
       .composited(over: background)
 
-    ciContext.render(image, to: output, bounds: frame, colorSpace: colorSpace)
+    let resources = scalingResourcesForResize()
+    resources.context.render(
+      image,
+      to: output,
+      bounds: frame,
+      colorSpace: resources.colorSpace
+    )
     return (output, generation)
   }
 
-  func canEnqueueFrame(generation: UInt64, on layer: AVSampleBufferDisplayLayer) -> Bool {
-    state.withLock {
-      $0.renderGeneration == generation && $0.displayLayer.layer === layer
-    }
-  }
-
-  func enqueue(
-    _ sample: CMSampleBuffer,
-    generation: UInt64,
-    on layer: AVSampleBufferDisplayLayer
-  ) {
-    let enqueued = EnqueuedSampleBuffer(layer: layer, sample: sample)
-
-    enqueueQueue.async { [enqueued, self] in
-      guard canEnqueueFrame(generation: generation, on: enqueued.layer) else { return }
-
-      let sampleBufferRenderer = enqueued.layer.sampleBufferRenderer
-      if sampleBufferRenderer.status == .failed || sampleBufferRenderer.requiresFlushToResumeDecoding {
-        sampleBufferRenderer.flush()
+  private func scalingResourcesForResize() -> PixelBufferScalingResources {
+    state.withLock { state in
+      if let resources = state.scalingResources {
+        return resources
       }
-      guard sampleBufferRenderer.isReadyForMoreMediaData else { return }
-
-      sampleBufferRenderer.enqueue(enqueued.sample)
+      let resources = PixelBufferScalingResources()
+      state.scalingResources = resources
+      return resources
     }
   }
 
@@ -228,42 +212,236 @@ final class PixelBufferRenderer: Sendable {
     }
 
     guard let pool else { return nil }
-    var pixelBuffer: CVPixelBuffer?
-    let status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pixelBuffer)
-    guard status == kCVReturnSuccess else { return nil }
-    return pixelBuffer
+    let allocation = pixelBufferRendererAllocatePixelBuffer(
+      from: pool,
+      width: width,
+      height: height
+    )
+    guard allocation.status == kCVReturnSuccess else { return nil }
+    return allocation.buffer
+  }
+}
+
+/// Injectable native registration operations. Production uses libVLC; tests
+/// record the exact handle each install/clear targets without requiring a
+/// timing-sensitive video output.
+struct DirectPiPVideoCallbackAPI {
+  let install: @MainActor (OpaquePointer, UnsafeMutableRawPointer) -> Void
+  let clear: @MainActor (OpaquePointer) -> Void
+
+  static var live: Self {
+    Self(
+      install: { player, opaque in
+        libvlc_video_set_callbacks(
+          player,
+          pixelBufferLockCallback,
+          pixelBufferUnlockCallback,
+          pixelBufferDisplayCallback,
+          opaque
+        )
+        let installedExtended = swiftvlc_video_set_format_callbacks_ex_if_available(
+          player,
+          pixelBufferFormatCallbackEx,
+          pixelBufferCleanupCallback
+        )
+        if !installedExtended {
+          // A libVLC binary without the extended `_ex` format callbacks cannot
+          // supply atomic vmem geometry. Fall back to the legacy callback,
+          // which cannot prove crop/PAR.
+          libvlc_video_set_format_callbacks(
+            player,
+            pixelBufferFormatCallback,
+            pixelBufferCleanupCallback
+          )
+        }
+      },
+      clear: { player in
+        libvlc_video_set_callbacks(player, nil, nil, nil, nil)
+        if !swiftvlc_video_set_format_callbacks_ex_if_available(player, nil, nil) {
+          libvlc_video_set_format_callbacks(player, nil, nil)
+        }
+      }
+    )
+  }
+}
+
+/// The stable callback slot for one exact native-player handle.
+///
+/// libVLC copies `vmem` callbacks and their opaque value when a video output
+/// opens. Replacing the media-player variables does not update that copy, so
+/// every controller using the same native handle must share this slot. The
+/// copied handle opaque routes display to the current controller; setup then
+/// replaces each vout's copy with a retained per-vout opaque and decode pool.
+/// A replacement native handle receives a new slot and handle opaque.
+@MainActor
+final class DirectPiPVideoCallbackSlot {
+  let lifetime: NativePlayerHandleLifetime
+  let context: PixelBufferRendererCallbackContext
+  let opaque: UnsafeMutableRawPointer
+  private let api: DirectPiPVideoCallbackAPI
+  private var callbacksInstalled = false
+  private(set) var isRetired = false
+
+  init(
+    lifetime: NativePlayerHandleLifetime,
+    decodeRenderer: PixelBufferRenderer,
+    api: DirectPiPVideoCallbackAPI
+  ) {
+    precondition(!lifetime.isReleased)
+    self.lifetime = lifetime
+    self.api = api
+    let context = PixelBufferRendererCallbackContext(renderer: decodeRenderer)
+    self.context = context
+    let retained = Unmanaged.passRetained(context)
+    let opaque = retained.toOpaque()
+    self.opaque = opaque
+    nonisolated(unsafe) let callbackOpaque = opaque
+    let accepted = lifetime.whenReleased { [context] in
+      context.nativePlayerHandleDidRelease(opaque: callbackOpaque)
+    }
+    precondition(accepted, "Cannot create callbacks for a released native player handle")
+  }
+
+  /// Makes `renderer` the destination for this handle's frames and restores
+  /// the same handle opaque into the media-player variables for future vouts.
+  /// An already-open vout owns a child opaque that resolves through this same
+  /// handle context and observes the handoff on its next display callback.
+  func activate(renderer: PixelBufferRenderer) {
+    precondition(!isRetired && !lifetime.isReleased)
+    precondition(context.setDisplayRenderer(renderer))
+    if !callbacksInstalled {
+      api.install(lifetime.pointer, opaque)
+      callbacksInstalled = true
+    }
+  }
+
+  /// Removes the controller target while preserving the per-handle slot.
+  /// A later controller can reactivate this same opaque, including when an
+  /// already-open vout still holds it. The media-player variables are cleared
+  /// while the slot is dormant and reinstalled with this same opaque on the
+  /// next activation.
+  func deactivate() {
+    guard !isRetired else { return }
+    _ = context.setDisplayRenderer(nil)
+    clearCallbacksIfInstalled()
+  }
+
+  /// Permanently retires the slot because its exact handle is being replaced
+  /// or released. The opaque remains retained by `lifetime` until native
+  /// teardown has joined that handle's vout.
+  func retire() {
+    guard !isRetired else { return }
+    isRetired = true
+    context.requestRetirement()
+    clearCallbacksIfInstalled()
+  }
+
+  private func clearCallbacksIfInstalled() {
+    guard callbacksInstalled else { return }
+    callbacksInstalled = false
+    api.clear(lifetime.pointer)
+  }
+}
+
+/// One logical direct-PiP controller claim. The Player binds it to the stable
+/// slot for the current native handle and uses the generation to reject stale
+/// teardown from a superseded controller.
+@MainActor
+final class DirectPiPVideoCallbackRegistration {
+  private struct Binding {
+    let slot: DirectPiPVideoCallbackSlot
+    let generation: UInt64
+  }
+
+  private let renderer: PixelBufferRenderer
+  private let api: DirectPiPVideoCallbackAPI
+  private var current: Binding?
+
+  init(
+    renderer: PixelBufferRenderer,
+    api: DirectPiPVideoCallbackAPI = .live
+  ) {
+    self.renderer = renderer
+    self.api = api
+  }
+
+  func makeSlot(on lifetime: NativePlayerHandleLifetime) -> DirectPiPVideoCallbackSlot {
+    DirectPiPVideoCallbackSlot(
+      lifetime: lifetime,
+      decodeRenderer: renderer,
+      api: api
+    )
+  }
+
+  func bind(to slot: DirectPiPVideoCallbackSlot, generation: UInt64) {
+    slot.activate(renderer: renderer)
+    current = Binding(slot: slot, generation: generation)
+  }
+
+  func unbind(generation: UInt64) {
+    guard current?.generation == generation else { return }
+    current = nil
+  }
+
+  var currentGeneration: UInt64? {
+    current?.generation
+  }
+
+  var currentLifetime: NativePlayerHandleLifetime? {
+    current?.slot.lifetime
+  }
+
+  var currentSlot: DirectPiPVideoCallbackSlot? {
+    current?.slot
+  }
+
+  var currentContextForTesting: PixelBufferRendererCallbackContext? {
+    current?.slot.context
+  }
+
+  var currentOpaqueForTesting: UnsafeMutableRawPointer? {
+    current?.slot.opaque
   }
 }
 
 /// Stable object passed to libVLC's vmem callbacks.
 ///
-/// libVLC copies the callback function pointers and `opaque` value into
-/// the vmem video output when that output opens. Clearing the media
-/// player's callback variables later does not update an already-open
-/// vout, so this context must stay alive until that vout calls the
-/// cleanup callback.
+/// libVLC copies the callback function pointers and `opaque` value into a
+/// video output while it opens. Clearing or replacing the media-player
+/// variables cannot prove that no future callback will use that copy. The
+/// opaque retain is therefore released only when its exact
+/// ``NativePlayerHandleLifetime`` ends, never from a timeout or a transient
+/// `voutOpen == false` observation.
 final class PixelBufferRendererCallbackContext: Sendable {
   private struct CallbackEntry {
-    var renderer: PixelBufferRenderer?
+    let displayRenderer: PixelBufferRenderer?
   }
 
   private struct State: @unchecked Sendable {
-    var renderer: PixelBufferRenderer?
+    var displayRenderer: PixelBufferRenderer?
     var activeCallbacks = 0
-    var voutOpen = false
+    var openVoutCount = 0
     var retirementRequested = false
-    var deferReleaseUntilQuiescent = false
+    var nativePlayerHandleReleased = false
     var opaqueRetainReleased = false
   }
 
   private let state: Mutex<State>
 
   init(renderer: PixelBufferRenderer) {
-    state = Mutex(State(renderer: renderer))
+    state = Mutex(State(displayRenderer: renderer))
   }
 
   var hasOpenVoutForTesting: Bool {
-    state.withLock { $0.voutOpen }
+    state.withLock { $0.openVoutCount > 0 }
+  }
+
+  var retirementRequestedForTesting: Bool {
+    state.withLock { $0.retirementRequested }
+  }
+
+  var nativePlayerHandleReleasedForTesting: Bool {
+    state.withLock { $0.nativePlayerHandleReleased }
   }
 
   func withRenderer<T>(
@@ -272,40 +450,81 @@ final class PixelBufferRendererCallbackContext: Sendable {
   ) -> T? {
     guard let entry = beginCallback() else { return nil }
     defer { endCallback(opaque: opaque) }
-    guard let renderer = entry.renderer else { return nil }
+    guard let renderer = entry.displayRenderer else { return nil }
     return body(renderer)
   }
 
-  func noteVoutOpened() {
-    state.withLock {
-      guard !$0.opaqueRetainReleased else { return }
-      $0.voutOpen = true
+  /// Atomically hands an already-open vout's future display callbacks to a
+  /// successor controller. Returns `false` only after permanent retirement
+  /// or exact native-handle release.
+  @discardableResult
+  func setDisplayRenderer(_ renderer: PixelBufferRenderer?) -> Bool {
+    state.withLock { state -> Bool in
+      guard
+        !state.retirementRequested,
+        !state.nativePlayerHandleReleased,
+        !state.opaqueRetainReleased
+      else { return false }
+      state.displayRenderer = renderer
+      return true
     }
   }
 
-  func noteVoutClosed(opaque: UnsafeMutableRawPointer) {
-    state.withLock {
-      $0.voutOpen = false
+  /// Creates the callback object for one negotiated vout. Every vout owns a
+  /// separate decode renderer/pool, while display forwarding remains dynamic
+  /// through this handle context so a successor PiPController can take over an
+  /// already-open output.
+  func makeVoutContext(
+    handleOpaque: UnsafeMutableRawPointer,
+    decodeRenderer: PixelBufferRenderer,
+    sourceGeometry: PixelBufferSourceGeometry
+  ) -> PixelBufferRendererVoutCallbackContext? {
+    let accepted = state.withLock { state -> Bool in
+      guard !state.nativePlayerHandleReleased, !state.opaqueRetainReleased else {
+        return false
+      }
+      state.openVoutCount += 1
+      return true
     }
-    releaseOpaqueRetainIfNeeded(opaque: opaque)
+    guard accepted else { return nil }
+    return PixelBufferRendererVoutCallbackContext(
+      handleContext: self,
+      handleOpaque: handleOpaque,
+      decodeRenderer: decodeRenderer,
+      sourceGeometry: sourceGeometry
+    )
   }
 
-  func requestRetirement(
-    opaque: UnsafeMutableRawPointer,
-    deferIfVoutMayBeOpening: Bool
-  ) {
+  func noteVoutClosed() {
+    state.withLock {
+      $0.openVoutCount = max(0, $0.openVoutCount - 1)
+    }
+  }
+
+  /// Permanently removes the display target and suppresses future display
+  /// work. Decode storage remains available to a vout that already copied the
+  /// callbacks, and cleanup can still return its pool. In-flight callbacks
+  /// retain their captured renderer(s) until they return. The opaque itself
+  /// stays retained until
+  /// `nativePlayerHandleDidRelease`, because an opening vout may have copied
+  /// it before this retirement became visible.
+  func requestRetirement() {
+    state.withLock { state in
+      state.retirementRequested = true
+      state.displayRenderer = nil
+    }
+  }
+
+  /// Called only after `libvlc_media_player_release` for the exact handle
+  /// carrying this opaque has returned. No new callback can begin after this
+  /// point. If a callback was already in flight, it performs the balancing
+  /// release on exit.
+  func nativePlayerHandleDidRelease(opaque: UnsafeMutableRawPointer) {
     let shouldRelease = state.withLock { state -> Bool in
       guard !state.opaqueRetainReleased else { return false }
-      state.retirementRequested = true
-      state.deferReleaseUntilQuiescent =
-        state.deferReleaseUntilQuiescent || deferIfVoutMayBeOpening
-      // In-flight callbacks already hold a strong local renderer from
-      // `beginCallback`. Future callbacks should see a live context but no
-      // renderer, so a late libVLC call becomes a no-op instead of touching
-      // deinitializing PiP state.
-      state.renderer = nil
-      guard !state.deferReleaseUntilQuiescent else { return false }
-      guard state.activeCallbacks == 0, !state.voutOpen else { return false }
+      state.nativePlayerHandleReleased = true
+      state.displayRenderer = nil
+      guard state.activeCallbacks == 0 else { return false }
       state.opaqueRetainReleased = true
       return true
     }
@@ -314,66 +533,13 @@ final class PixelBufferRendererCallbackContext: Sendable {
     }
   }
 
-  func requestDeferredRetirement() {
-    state.withLock { state in
-      guard !state.opaqueRetainReleased else { return }
-      state.retirementRequested = true
-      state.deferReleaseUntilQuiescent = true
-    }
-  }
-
-  @discardableResult
-  func releaseRetiredOpaqueRetainIfNoOpenVout(opaque: UnsafeMutableRawPointer) -> Bool {
-    releaseOpaqueRetainIfNeeded(opaque: opaque)
-  }
-
-  func releaseRetiredOpaqueRetainWhenPlayerIsQuiescent(
-    opaque: UnsafeMutableRawPointer,
-    player: OpaquePointer
-  ) {
-    let deadline = CFAbsoluteTimeGetCurrent() + 5
-    var quiescentSince: CFAbsoluteTime?
-    while CFAbsoluteTimeGetCurrent() < deadline {
-      let nativeState = PlayerState(from: libvlc_media_player_get_state(player))
-      let isStopped = switch nativeState {
-      case .idle, .stopped, .error:
-        true
-      case .opening, .buffering, .playing, .paused, .stopping:
-        false
-      }
-
-      if isStopped, libvlc_media_player_has_vout(player) == 0 {
-        let now = CFAbsoluteTimeGetCurrent()
-        let started = quiescentSince ?? now
-        quiescentSince = started
-        if now - started >= 0.5 {
-          libvlc_video_set_callbacks(player, nil, nil, nil, nil)
-          libvlc_video_set_format_callbacks(player, nil, nil)
-          releaseRetiredOpaqueRetainAfterPlayerQuiesced(opaque: opaque)
-          return
-        }
-      } else {
-        quiescentSince = nil
-      }
-
-      usleep(20000)
-    }
-
-    // Deadline elapsed without ever observing a clean quiescent window
-    // (the player never reported stopped with no open vout). Fall back to
-    // the vout-gated release so the retained context is still relinquished
-    // instead of leaking. The guard inside ensures we never release while
-    // a vout still holds the callbacks — that would reintroduce the
-    // use-after-free this deferral exists to prevent; in that case the
-    // later cleanup callback performs the release.
-    releaseRetiredOpaqueRetainIfNoOpenVout(opaque: opaque)
-  }
-
   private func beginCallback() -> CallbackEntry? {
     state.withLock { state -> CallbackEntry? in
       guard !state.opaqueRetainReleased else { return nil }
       state.activeCallbacks += 1
-      return CallbackEntry(renderer: state.renderer)
+      return CallbackEntry(
+        displayRenderer: state.displayRenderer
+      )
     }
   }
 
@@ -381,11 +547,7 @@ final class PixelBufferRendererCallbackContext: Sendable {
     let shouldRelease = state.withLock { state -> Bool in
       state.activeCallbacks -= 1
       guard state.activeCallbacks == 0 else { return false }
-      guard state.retirementRequested, !state.voutOpen, !state.opaqueRetainReleased else {
-        return false
-      }
-      guard !state.deferReleaseUntilQuiescent else { return false }
-      state.renderer = nil
+      guard state.nativePlayerHandleReleased, !state.opaqueRetainReleased else { return false }
       state.opaqueRetainReleased = true
       return true
     }
@@ -393,40 +555,137 @@ final class PixelBufferRendererCallbackContext: Sendable {
       Unmanaged<PixelBufferRendererCallbackContext>.fromOpaque(opaque).release()
     }
   }
+}
 
-  @discardableResult
-  private func releaseOpaqueRetainIfNeeded(
-    opaque: UnsafeMutableRawPointer
-  ) -> Bool {
-    let shouldRelease = state.withLock { state -> Bool in
-      guard state.retirementRequested, !state.opaqueRetainReleased else { return false }
-      guard state.activeCallbacks == 0, !state.voutOpen else { return false }
-      state.deferReleaseUntilQuiescent = false
-      state.renderer = nil
-      state.opaqueRetainReleased = true
-      return true
-    }
-    if shouldRelease {
-      Unmanaged<PixelBufferRendererCallbackContext>.fromOpaque(opaque).release()
-    }
-    return shouldRelease
+/// Callback storage owned by one exact pinned-vmem vout.
+///
+/// The media-player variables contain a handle-level context before setup.
+/// The format callback replaces that vout's copied opaque with a retained
+/// instance of this class. Its decode pool therefore cannot be replaced or
+/// cleared by an overlapping vout, while display callbacks still consult the
+/// handle context's current controller target.
+final class PixelBufferRendererVoutCallbackContext: @unchecked Sendable {
+  private struct PendingPicture: @unchecked Sendable {
+    let buffer: CVPixelBuffer
+    let opaque: UnsafeMutableRawPointer
+    var isLocked: Bool
   }
 
-  private func releaseRetiredOpaqueRetainAfterPlayerQuiesced(
-    opaque: UnsafeMutableRawPointer
+  private struct LifecycleState: @unchecked Sendable {
+    var isCleaned = false
+    var pendingPicture: PendingPicture?
+  }
+
+  let decodeRenderer: PixelBufferRenderer
+  let sourceGeometry: PixelBufferSourceGeometry
+  private let handleContext: PixelBufferRendererCallbackContext
+  private let handleOpaque: UnsafeMutableRawPointer
+  private let lifecycleState = Mutex(LifecycleState())
+
+  init(
+    handleContext: PixelBufferRendererCallbackContext,
+    handleOpaque: UnsafeMutableRawPointer,
+    decodeRenderer: PixelBufferRenderer,
+    sourceGeometry: PixelBufferSourceGeometry
   ) {
-    let shouldRelease = state.withLock { state -> Bool in
-      guard state.retirementRequested, !state.opaqueRetainReleased else { return false }
-      state.voutOpen = false
-      state.deferReleaseUntilQuiescent = false
-      state.renderer = nil
-      guard state.activeCallbacks == 0 else { return false }
-      state.opaqueRetainReleased = true
+    self.handleContext = handleContext
+    self.handleOpaque = handleOpaque
+    self.decodeRenderer = decodeRenderer
+    self.sourceGeometry = sourceGeometry
+  }
+
+  func withDisplayRenderer<T>(
+    _ body: (PixelBufferRenderer) -> T
+  ) -> T? {
+    handleContext.withRenderer(opaque: handleOpaque, body)
+  }
+
+  /// Pins one callback picture until display consumes it, a later lock
+  /// supersedes it, or vout cleanup drains it. Pinned vmem exposes only one
+  /// `pic_opaque` slot, so a second successful lock proves the predecessor can
+  /// no longer be delivered by that vout. If a malformed callback sequence
+  /// skipped unlock as well as display, drain also balances the Core Video
+  /// base-address lock before releasing the final strong reference.
+  func installPendingPicture(
+    _ buffer: CVPixelBuffer,
+    isLocked: Bool
+  ) -> UnsafeMutableRawPointer? {
+    let opaque = Unmanaged.passUnretained(buffer as AnyObject).toOpaque()
+    let accepted = lifecycleState.withLock { state -> Bool in
+      guard !state.isCleaned else { return false }
+      drainPendingPicture(&state)
+      state.pendingPicture = PendingPicture(
+        buffer: buffer,
+        opaque: opaque,
+        isLocked: isLocked
+      )
       return true
     }
-    if shouldRelease {
-      Unmanaged<PixelBufferRendererCallbackContext>.fromOpaque(opaque).release()
+    return accepted ? opaque : nil
+  }
+
+  /// Balances the base-address lock only for the currently owned picture.
+  /// A stale unlock after replacement is ignored without dereferencing its
+  /// potentially deallocated opaque pointer.
+  func unlockPendingPicture(matching opaque: UnsafeMutableRawPointer) {
+    lifecycleState.withLock { state in
+      guard
+        state.pendingPicture?.opaque == opaque,
+        state.pendingPicture?.isLocked == true
+      else { return }
+      CVPixelBufferUnlockBaseAddress(state.pendingPicture!.buffer, [])
+      state.pendingPicture!.isLocked = false
     }
+  }
+
+  /// Transfers the exact pending buffer to display. A duplicate or stale
+  /// display callback observes no match and therefore cannot over-release or
+  /// dereference an already-drained picture.
+  func consumePendingPicture(
+    matching opaque: UnsafeMutableRawPointer
+  ) -> CVPixelBuffer? {
+    lifecycleState.withLock { state -> CVPixelBuffer? in
+      guard state.pendingPicture?.opaque == opaque else { return nil }
+      if state.pendingPicture?.isLocked == true {
+        CVPixelBufferUnlockBaseAddress(state.pendingPicture!.buffer, [])
+      }
+      let buffer = state.pendingPicture?.buffer
+      state.pendingPicture = nil
+      return buffer
+    }
+  }
+
+  var hasPendingPictureForTesting: Bool {
+    lifecycleState.withLock { $0.pendingPicture != nil }
+  }
+
+  func cleanupDecodeStorage() {
+    let shouldClean = lifecycleState.withLock { state -> Bool in
+      guard !state.isCleaned else { return false }
+      state.isCleaned = true
+      drainPendingPicture(&state)
+      return true
+    }
+    guard shouldClean else { return }
+
+    decodeRenderer.state.withLock {
+      $0.pool = nil
+      $0.width = 0
+      $0.height = 0
+      $0.renderPool = nil
+      $0.renderPoolWidth = 0
+      $0.renderPoolHeight = 0
+      $0.advanceRenderGeneration()
+    }
+    handleContext.noteVoutClosed()
+  }
+
+  private func drainPendingPicture(_ state: inout LifecycleState) {
+    guard let pending = state.pendingPicture else { return }
+    if pending.isLocked {
+      CVPixelBufferUnlockBaseAddress(pending.buffer, [])
+    }
+    state.pendingPicture = nil
   }
 }
 
@@ -442,88 +701,20 @@ final class DisplayLayerBox: @unchecked Sendable {
 
 // MARK: - Free Function Callbacks
 
-private func pixelBufferCallbackContext(
+func pixelBufferHandleCallbackContext(
   from opaque: UnsafeMutableRawPointer?
 ) -> PixelBufferRendererCallbackContext? {
   guard let opaque else { return nil }
-  return Unmanaged<PixelBufferRendererCallbackContext>.fromOpaque(opaque).takeUnretainedValue()
+  let object = Unmanaged<AnyObject>.fromOpaque(opaque).takeUnretainedValue()
+  return object as? PixelBufferRendererCallbackContext
 }
 
-/// Format callback, invoked by libVLC when video format is negotiated.
-/// Overrides chroma to BGRA and creates a `CVPixelBufferPool`.
-func pixelBufferFormatCallback(
-  opaque: UnsafeMutablePointer<UnsafeMutableRawPointer?>?,
-  chroma: UnsafeMutablePointer<CChar>?,
-  width: UnsafeMutablePointer<UInt32>?,
-  height: UnsafeMutablePointer<UInt32>?,
-  pitches: UnsafeMutablePointer<UInt32>?,
-  lines: UnsafeMutablePointer<UInt32>?
-) -> UInt32 {
-  guard
-    let opaque, let chroma, let width, let height,
-    let pitches, let lines else { return 0 }
-
-  // libVLC populates `*opaque` with the context we passed to
-  // `libvlc_video_set_callbacks`. Guard against an unattached context.
-  guard
-    let contextOpaque = opaque.pointee,
-    let context = pixelBufferCallbackContext(from: contextOpaque)
-  else { return 0 }
-
-  return context.withRenderer(opaque: contextOpaque) { renderer -> UInt32 in
-    let w = Int(width.pointee)
-    let h = Int(height.pointee)
-
-    // Force BGRA: native to iOS, no color space conversion needed.
-    let bgra: (CChar, CChar, CChar, CChar) = (0x42, 0x47, 0x52, 0x41) // "BGRA"
-    chroma[0] = bgra.0
-    chroma[1] = bgra.1
-    chroma[2] = bgra.2
-    chroma[3] = bgra.3
-
-    // Create CVPixelBufferPool. The pool's resident floor is byte-budgeted
-    // (small at 4K), decoupled from the decode headroom returned below
-    // which stays at the full picture count for smooth playback.
-    let poolAttrs: [String: Any] = [
-      kCVPixelBufferPoolMinimumBufferCountKey as String:
-        pixelBufferRendererPoolMinimumBufferCount(width: w, height: h)
-    ]
-    let pixelBufferAttrs: [String: Any] = [
-      kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-      kCVPixelBufferWidthKey as String: w,
-      kCVPixelBufferHeightKey as String: h,
-      kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any],
-      kCVPixelBufferCGImageCompatibilityKey as String: true,
-      kCVPixelBufferCGBitmapContextCompatibilityKey as String: true
-    ]
-
-    var newPool: CVPixelBufferPool?
-    let status = CVPixelBufferPoolCreate(
-      kCFAllocatorDefault,
-      poolAttrs as CFDictionary,
-      pixelBufferAttrs as CFDictionary,
-      &newPool
-    )
-    guard status == kCVReturnSuccess, let pool = newPool else { return 0 }
-
-    // Get actual bytesPerRow from a real buffer so VLC pitch matches exactly
-    var testBuffer: CVPixelBuffer?
-    CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &testBuffer)
-    guard let tb = testBuffer else { return 0 }
-    let actualPitch = CVPixelBufferGetBytesPerRow(tb)
-
-    pitches.pointee = UInt32(actualPitch)
-    lines.pointee = UInt32(h)
-
-    renderer.state.withLock {
-      $0.pool = pool
-      $0.width = w
-      $0.height = h
-    }
-    context.noteVoutOpened()
-
-    return pixelBufferRendererPictureBufferCount
-  } ?? 0
+func pixelBufferVoutCallbackContext(
+  from opaque: UnsafeMutableRawPointer?
+) -> PixelBufferRendererVoutCallbackContext? {
+  guard let opaque else { return nil }
+  let object = Unmanaged<AnyObject>.fromOpaque(opaque).takeUnretainedValue()
+  return object as? PixelBufferRendererVoutCallbackContext
 }
 
 /// Lock callback. Dequeues a `CVPixelBuffer` from the pool for libVLC to write into.
@@ -532,37 +723,46 @@ func pixelBufferLockCallback(
   planes: UnsafeMutablePointer<UnsafeMutableRawPointer?>?
 ) -> UnsafeMutableRawPointer? {
   guard let opaque, let planes else { return nil }
-  guard let context = pixelBufferCallbackContext(from: opaque) else { return nil }
+  guard let context = pixelBufferVoutCallbackContext(from: opaque) else { return nil }
 
-  return context.withRenderer(opaque: opaque) { renderer -> UnsafeMutableRawPointer? in
-    let pool = renderer.state.withLock { $0.pool }
+  let renderer = context.decodeRenderer
+  let storage = renderer.state.withLock { ($0.pool, $0.width, $0.height) }
+  guard let pool = storage.0 else { return nil }
 
-    guard let pool else { return nil }
+  let allocation = pixelBufferRendererAllocatePixelBuffer(
+    from: pool,
+    width: storage.1,
+    height: storage.2
+  )
+  guard allocation.status == kCVReturnSuccess, let pb = allocation.buffer else { return nil }
 
-    var pixelBuffer: CVPixelBuffer?
-    let status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pixelBuffer)
-    guard status == kCVReturnSuccess, let pb = pixelBuffer else { return nil }
+  let lockStatus = CVPixelBufferLockBaseAddress(pb, [])
+  guard lockStatus == kCVReturnSuccess, let baseAddress = CVPixelBufferGetBaseAddress(pb) else {
+    if lockStatus == kCVReturnSuccess {
+      CVPixelBufferUnlockBaseAddress(pb, [])
+    }
+    return nil
+  }
 
-    CVPixelBufferLockBaseAddress(pb, [])
-    planes[0] = CVPixelBufferGetBaseAddress(pb)
-
-    let retained = Unmanaged.passRetained(pb as AnyObject)
-    return retained.toOpaque()
-  } ?? nil
+  guard let picture = context.installPendingPicture(pb, isLocked: true) else {
+    CVPixelBufferUnlockBaseAddress(pb, [])
+    return nil
+  }
+  planes[0] = baseAddress
+  return picture
 }
 
 /// Unlock callback. Unlocks the `CVPixelBuffer` base address.
 func pixelBufferUnlockCallback(
-  opaque _: UnsafeMutableRawPointer?,
+  opaque: UnsafeMutableRawPointer?,
   picture: UnsafeMutableRawPointer?,
   planes _: UnsafePointer<UnsafeMutableRawPointer?>?
 ) {
-  guard let picture else { return }
-
-  // `as!` (not `as?`): the compiler emits "conditional downcast will
-  // always succeed" for CoreFoundation bridged types.
-  let pb = Unmanaged<AnyObject>.fromOpaque(picture).takeUnretainedValue() as! CVPixelBuffer
-  CVPixelBufferUnlockBaseAddress(pb, [])
+  guard
+    let picture,
+    let context = pixelBufferVoutCallbackContext(from: opaque)
+  else { return }
+  context.unlockPendingPicture(matching: picture)
 }
 
 /// Display callback. Wraps the `CVPixelBuffer` in a `CMSampleBuffer`
@@ -571,27 +771,26 @@ func pixelBufferDisplayCallback(
   opaque: UnsafeMutableRawPointer?,
   picture: UnsafeMutableRawPointer?
 ) {
-  guard let picture else { return }
-  // `takeRetainedValue` balances the `passRetained` in `pixelBufferLockCallback`.
-  let pb = Unmanaged<AnyObject>.fromOpaque(picture).takeRetainedValue() as! CVPixelBuffer
-  guard let opaque, let context = pixelBufferCallbackContext(from: opaque) else { return }
+  guard
+    let picture,
+    let context = pixelBufferVoutCallbackContext(from: opaque),
+    let pb = context.consumePendingPicture(matching: picture)
+  else { return }
 
-  _ = context.withRenderer(opaque: opaque) { renderer in
+  _ = context.withDisplayRenderer { renderer in
     guard let output = renderer.outputPixelBuffer(from: pb) else { return }
     let outputBuffer = output.buffer
     let renderGeneration = output.generation
 
-    var formatDesc: CMVideoFormatDescription?
-    let fmtStatus = CMVideoFormatDescriptionCreateForImageBuffer(
-      allocator: kCFAllocatorDefault,
-      imageBuffer: outputBuffer,
-      formatDescriptionOut: &formatDesc
-    )
-    guard fmtStatus == noErr, let desc = formatDesc else { return }
-
     let (timebase, layer) = renderer.state.withLock { ($0.timebase, $0.displayLayer.layer) }
 
     guard let layer else { return }
+    guard
+      let desc = renderer.formatDescription(
+        for: outputBuffer,
+        generation: renderGeneration
+      )
+    else { return }
 
     let pts: CMTime = if let timebase {
       CMTimebaseGetTime(timebase)
@@ -638,18 +837,14 @@ func pixelBufferDisplayCallback(
 
 /// Cleanup callback. Releases the pixel buffer pool.
 func pixelBufferCleanupCallback(opaque: UnsafeMutableRawPointer?) {
-  guard let opaque, let context = pixelBufferCallbackContext(from: opaque) else { return }
+  guard
+    let opaque,
+    let context = pixelBufferVoutCallbackContext(from: opaque)
+  else { return }
 
-  _ = context.withRenderer(opaque: opaque) { renderer in
-    renderer.state.withLock {
-      $0.pool = nil
-      $0.renderPool = nil
-      $0.renderPoolWidth = 0
-      $0.renderPoolHeight = 0
-      $0.renderGeneration &+= 1
-    }
-  }
-  context.noteVoutClosed(opaque: opaque)
+  context.cleanupDecodeStorage()
+  // Balance the per-vout retain installed by the successful format callback.
+  Unmanaged<PixelBufferRendererVoutCallbackContext>.fromOpaque(opaque).release()
 }
 
 #endif

@@ -26,6 +26,10 @@ public final class MediaListPlayer {
   // `nonisolated(unsafe) let oldPointer` capture.
   nonisolated(unsafe) var pointer: OpaquePointer // libvlc_media_list_player_t*
   private var _mediaPlayer: Player?
+  /// Counted ownership matching the native retain performed by
+  /// `libvlc_media_list_player_set_media_player`. It moves with the exact
+  /// native list-player handle that owns that retain.
+  private var nativePlayerBindingLease: NativePlayerHandleLease?
   private var _mediaList: MediaList?
   private var _playbackMode: PlaybackMode = .default
   private let instance: VLCInstance
@@ -52,9 +56,11 @@ public final class MediaListPlayer {
     // Release off the main actor. `stop_async` and `release` can block
     // waiting for VLC's internal threads, stalling all async work.
     nonisolated(unsafe) let p = pointer
+    let bindingLease = nativePlayerBindingLease
     DispatchQueue.global(qos: .utility).async {
       libvlc_media_list_player_stop_async(p)
       libvlc_media_list_player_release(p)
+      bindingLease?.endAfterNativeOwnerRelease()
     }
   }
 
@@ -65,44 +71,63 @@ public final class MediaListPlayer {
   /// handle
   /// between items through list-player C calls the player cannot tell
   /// apart from a natural end. Observe list-level completion instead.
+  /// A player has one live list-player owner: assigning a player already
+  /// attached elsewhere transfers it from the previous list player without
+  /// stopping the shared native playback handle.
   public var mediaPlayer: Player? {
     get { _mediaPlayer }
     set {
-      if let previous = _mediaPlayer, previous !== newValue {
-        detachForEndSynthesis(previous)
+      guard _mediaPlayer !== newValue else { return }
+
+      if
+        let newValue,
+        let previousOwner = newValue.attachedMediaListPlayer,
+        previousOwner !== self {
+        previousOwner.detachForOwnershipTransfer(newValue)
       }
-      _mediaPlayer = newValue
+
+      let previous = _mediaPlayer
       if let newValue {
+        let replacementLease = newValue.nativeHandleLifetime.acquireNativeOwnerLease()
+        let previousLease = nativePlayerBindingLease
+        libvlc_media_list_player_set_media_player(pointer, newValue.pointer)
+        nativePlayerBindingLease = replacementLease
+        previousLease?.endAfterNativeOwnerRelease()
+
+        if let previous {
+          detachForEndSynthesis(previous, nativeStopWillFollow: false)
+        }
+        _mediaPlayer = newValue
         newValue.endCoordinator.setSuppressed(true)
         newValue.attachedMediaListPlayer = self
-        libvlc_media_list_player_set_media_player(pointer, newValue.pointer)
       } else {
-        rebuildNativePlayer()
+        if let previous {
+          detachForEndSynthesis(previous, nativeStopWillFollow: true)
+        }
+        _mediaPlayer = nil
+        rebuildNativePlayer(stopSharedPlayerBeforeDetaching: true)
       }
     }
   }
 
   /// Detach-time end-synthesis bookkeeping for a previously attached
-  /// player. The native list player's teardown (rebuild or replacement)
-  /// stops the still-bound handle on a background queue *after* this
-  /// runs, so a mid-playback detach must record that stop as
-  /// library-initiated before lifting suppression — otherwise the
-  /// deferred `Stopped` lands un-suppressed and unmarked and reads as a
-  /// natural end of the item the user detached. Suppression is lifted
-  /// unless another list player has since taken over the attachment: a
-  /// stale detach must not un-suppress a player that is still being
-  /// driven. The back-reference is `weak`, and weak references to an
-  /// object read `nil` once its deinit has begun — so on the deinit
-  /// path `attachedMediaListPlayer === self` can never hold and `nil`
-  /// must also count as "ours"; a `nil` that instead came from a third
-  /// list player's earlier teardown already lifted suppression, making
-  /// the repeat lift a no-op.
-  private func detachForEndSynthesis(_ previous: Player) {
-    switch previous.nativePlaybackState {
-    case .idle, .stopped, .error:
-      break
-    default:
-      previous.endCoordinator.markLibraryStop()
+  /// player. A nil detach or final list-player teardown stops the still-bound
+  /// handle later, so it records that stop as library-initiated before lifting
+  /// suppression. Replacing or transferring an attachment does not stop the
+  /// old player and must not leave a stale stop mark that can swallow its next
+  /// genuine end. Suppression is lifted unless another list player has since
+  /// taken over the attachment.
+  private func detachForEndSynthesis(
+    _ previous: Player,
+    nativeStopWillFollow: Bool = true
+  ) {
+    if nativeStopWillFollow {
+      switch previous.nativePlaybackState {
+      case .idle, .stopped, .error:
+        break
+      default:
+        previous.endCoordinator.markLibraryStop()
+      }
     }
     let owner = previous.attachedMediaListPlayer
     guard owner === self || owner == nil else { return }
@@ -116,10 +141,18 @@ public final class MediaListPlayer {
   /// without it the list player keeps driving the released handle.
   func rebindMediaPlayerHandle() {
     guard let player = _mediaPlayer else { return }
+    let replacementLease = player.nativeHandleLifetime.acquireNativeOwnerLease()
+    let previousLease = nativePlayerBindingLease
     libvlc_media_list_player_set_media_player(pointer, player.pointer)
+    nativePlayerBindingLease = replacementLease
+    previousLease?.endAfterNativeOwnerRelease()
   }
 
   /// The media list to play.
+  ///
+  /// Clearing the list rebuilds this wrapper because libVLC has no nullable
+  /// list setter. If a media player is attached, its current playback keeps
+  /// running on the replacement wrapper's shared native handle.
   public var mediaList: MediaList? {
     get { _mediaList }
     set {
@@ -127,7 +160,9 @@ public final class MediaListPlayer {
       if let newValue {
         libvlc_media_list_player_set_media_list(pointer, newValue.pointer)
       } else {
-        rebuildNativePlayer()
+        // The successor retains and adopts the same media-player handle. The
+        // retiring wrapper must release without stopping that shared handle.
+        rebuildNativePlayer(stopSharedPlayerBeforeDetaching: _mediaPlayer == nil)
       }
     }
   }
@@ -240,21 +275,55 @@ public final class MediaListPlayer {
     }
   }
 
-  private func rebuildNativePlayer() {
+  /// Relinquishes a player that another list player is about to adopt. Keep
+  /// end synthesis suppressed across the atomic main-actor transfer, and do
+  /// not stop the shared native player from the retiring wrapper.
+  private func detachForOwnershipTransfer(_ player: Player) {
+    guard _mediaPlayer === player else { return }
+    _mediaPlayer = nil
+    if player.attachedMediaListPlayer === self {
+      player.attachedMediaListPlayer = nil
+    }
+    rebuildNativePlayer(stopSharedPlayerBeforeDetaching: false)
+  }
+
+  private func rebuildNativePlayer(stopSharedPlayerBeforeDetaching: Bool) {
     guard let replacement = libvlc_media_list_player_new(instance.pointer) else {
       preconditionFailure("Failed to rebuild libvlc media list player. Is the libvlc.xcframework linked correctly?")
     }
 
     libvlc_media_list_player_set_playback_mode(replacement, _playbackMode.cValue)
+    var replacementLease: NativePlayerHandleLease?
     if let mediaPlayer = _mediaPlayer {
+      let lease = mediaPlayer.nativeHandleLifetime.acquireNativeOwnerLease()
       libvlc_media_list_player_set_media_player(replacement, mediaPlayer.pointer)
+      replacementLease = lease
     }
     if let mediaList = _mediaList {
       libvlc_media_list_player_set_media_list(replacement, mediaList.pointer)
     }
 
     let previous = pointer
+    let previousLease = nativePlayerBindingLease
+    if let previousLease {
+      // `release` is intentionally off-main, but merely queueing it leaves the
+      // retiring list player able to receive an end callback and advance the
+      // shared player after this method returns. Rebind it synchronously to an
+      // independent neutral player: pinned libVLC removes the old observer and
+      // releases the old player inside this call. Subsequent stop/release work
+      // can then affect only the neutral handle.
+      if stopSharedPlayerBeforeDetaching {
+        libvlc_media_list_player_stop_async(previous)
+      }
+      guard let neutralPlayer = libvlc_media_player_new(instance.pointer) else {
+        preconditionFailure("Failed to create a neutral libVLC media player during list-player rebuild.")
+      }
+      libvlc_media_list_player_set_media_player(previous, neutralPlayer)
+      previousLease.endAfterNativeOwnerRelease()
+      libvlc_media_player_release(neutralPlayer)
+    }
     pointer = replacement
+    nativePlayerBindingLease = replacementLease
     nonisolated(unsafe) let oldPointer = previous
     DispatchQueue.global(qos: .utility).async {
       libvlc_media_list_player_stop_async(oldPointer)

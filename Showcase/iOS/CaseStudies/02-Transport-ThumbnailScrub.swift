@@ -56,7 +56,9 @@ struct ThumbnailScrubCase: View {
         in: 0...1,
         onEditingChanged: { editing in
           withAnimation(.easeOut(duration: 0.12)) { isScrubbing = editing }
-          if !editing { try? player.seek(to: PlaybackPosition(previewPosition)) }
+          if !editing {
+            try? player.seek(to: PlaybackPosition(previewPosition))
+          }
         }
       )
     }

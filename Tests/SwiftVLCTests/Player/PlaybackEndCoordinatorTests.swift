@@ -120,8 +120,12 @@ extension Logic {
     )
     func `Full decision table`(libraryStop: Bool, error: Bool, suppressed: Bool) {
       let coordinator = PlaybackEndCoordinator()
-      if libraryStop { coordinator.markLibraryStop() }
-      if error { coordinator.markError() }
+      if libraryStop {
+        coordinator.markLibraryStop()
+      }
+      if error {
+        coordinator.markError()
+      }
       coordinator.setSuppressed(suppressed)
 
       let expected = !libraryStop && !error && !suppressed

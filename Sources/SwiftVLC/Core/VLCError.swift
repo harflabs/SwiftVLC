@@ -76,46 +76,82 @@ public enum VLCError: Error, Sendable, Equatable, Hashable, LocalizedError, Cust
 extension VLCError {
   /// `Void` if this error is `.instanceCreationFailed`, otherwise `nil`.
   public var instanceCreationFailed: Void? {
-    if case .instanceCreationFailed = self { () } else { nil }
+    if case .instanceCreationFailed = self {
+      ()
+    } else {
+      nil
+    }
   }
 
   /// Source string if this error is `.mediaCreationFailed`, otherwise `nil`.
   public var mediaCreationFailed: String? {
-    if case .mediaCreationFailed(let value) = self { value } else { nil }
+    if case .mediaCreationFailed(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// Reason string if this error is `.playbackFailed`, otherwise `nil`.
   public var playbackFailed: String? {
-    if case .playbackFailed(let value) = self { value } else { nil }
+    if case .playbackFailed(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// Reason string if this error is `.parseFailed`, otherwise `nil`.
   public var parseFailed: String? {
-    if case .parseFailed(let value) = self { value } else { nil }
+    if case .parseFailed(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// `Void` if this error is `.parseTimeout`, otherwise `nil`.
   public var parseTimeout: Void? {
-    if case .parseTimeout = self { () } else { nil }
+    if case .parseTimeout = self {
+      ()
+    } else {
+      nil
+    }
   }
 
   /// Track id string if this error is `.trackNotFound`, otherwise `nil`.
   public var trackNotFound: String? {
-    if case .trackNotFound(let value) = self { value } else { nil }
+    if case .trackNotFound(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// Constraint message if this error is `.invalidState`, otherwise `nil`.
   public var invalidState: String? {
-    if case .invalidState(let value) = self { value } else { nil }
+    if case .invalidState(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// Validation message if this error is `.invalidInput`, otherwise `nil`.
   public var invalidInput: String? {
-    if case .invalidInput(let value) = self { value } else { nil }
+    if case .invalidInput(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// Operation name if this error is `.operationFailed`, otherwise `nil`.
   public var operationFailed: String? {
-    if case .operationFailed(let value) = self { value } else { nil }
+    if case .operationFailed(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 }

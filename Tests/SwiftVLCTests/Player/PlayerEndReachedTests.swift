@@ -6,14 +6,22 @@ import Testing
 /// Indices of `.endReached` deliveries in a collected raw sequence.
 private func endReachedIndices(in events: [PlayerEvent]) -> [Int] {
   events.indices.filter { index in
-    if case .endReached = events[index] { true } else { false }
+    if case .endReached = events[index] {
+      true
+    } else {
+      false
+    }
   }
 }
 
 /// Index of the first `.stateChanged(.stopped)` in a collected raw sequence.
 private func firstStoppedIndex(in events: [PlayerEvent]) -> Int? {
   events.firstIndex { event in
-    if case .stateChanged(.stopped) = event { true } else { false }
+    if case .stateChanged(.stopped) = event {
+      true
+    } else {
+      false
+    }
   }
 }
 

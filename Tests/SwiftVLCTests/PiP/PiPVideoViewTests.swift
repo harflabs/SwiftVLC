@@ -1,6 +1,7 @@
 #if os(iOS) || os(macOS)
 @_spi(PrivateMacOSPiP) @testable import SwiftVLC
 import AVFoundation
+import CLibVLC
 import SwiftUI
 import Testing
 
@@ -90,101 +91,6 @@ extension Integration {
       #expect(coordinator.pipController == nil)
     }
 
-    #if canImport(UIKit)
-    @Test
-    func `iOS native PiP host attaches drawable child`() {
-      let player = Player(instance: TestInstance.shared)
-      let host = IOSNativePiPHostView()
-
-      host.attach(to: player)
-      #expect(player.drawable === host.drawableView)
-
-      host.detach()
-      #expect(player.drawable == nil)
-    }
-
-    @Test
-    func `iOS native PiP drawable exposes VLC PiP selectors`() {
-      let view = IOSNativePiPDrawableView()
-
-      #expect(view.responds(to: NSSelectorFromString("mediaController")))
-      #expect(view.responds(to: NSSelectorFromString("pictureInPictureReady")))
-      #expect(view.responds(to: NSSelectorFromString("canStartPictureInPictureAutomaticallyFromInline")))
-      if let protocolObject = NSProtocolFromString("VLCPictureInPictureDrawable") {
-        // Bind `conforms(to:)` to a plain Bool first. Calling it through an
-        // `AnyObject` (below) inside the `#expect` autoclosure makes SILGen
-        // emit a reabstraction thunk that crashes the iOS compiler (Swift
-        // 6.3.2); hoisting the call out of the autoclosure sidesteps it, and
-        // we keep both conformance checks consistent.
-        let conformsToDrawable = view.conforms(to: protocolObject)
-        #expect(conformsToDrawable)
-      } else {
-        Issue.record("VLCPictureInPictureDrawable protocol is not registered")
-      }
-
-      let mediaController = view.mediaController()
-      if let protocolObject = NSProtocolFromString("VLCPictureInPictureMediaControlling") {
-        let conformsToMediaControlling = mediaController.conforms(to: protocolObject)
-        #expect(conformsToMediaControlling)
-      } else {
-        Issue.record("VLCPictureInPictureMediaControlling protocol is not registered")
-      }
-    }
-
-    /// The VLCPictureInPictureDrawable selectors are invoked by libVLC
-    /// from its vout thread; their bodies are `nonisolated` and must be
-    /// callable (and return correct values) off the main actor.
-    @Test
-    func `iOS native PiP drawable selectors are callable off the main actor`() async {
-      let view = IOSNativePiPDrawableView(startsAutomaticallyFromInline: false)
-
-      struct Refs: @unchecked Sendable {
-        let view: IOSNativePiPDrawableView
-      }
-      let refs = Refs(view: view)
-
-      let (canStart, hasMediaController) = await withCheckedContinuation { (continuation: CheckedContinuation<(Bool, Bool), Never>) in
-        DispatchQueue.global().async {
-          let canStart = refs.view.canStartPictureInPictureAutomaticallyFromInline()
-          let mediaController = refs.view.mediaController()
-          // Building the ready block off-main must also be safe; it only
-          // captures a weak backend reference.
-          _ = refs.view.pictureInPictureReady()
-          continuation.resume(returning: (canStart, mediaController is IOSNativePiPMediaController))
-        }
-      }
-
-      #expect(canStart == false)
-      #expect(hasMediaController)
-    }
-
-    @Test
-    func `iOS native PiP drawable reports the configured auto-start flag`() {
-      #expect(
-        IOSNativePiPDrawableView(startsAutomaticallyFromInline: true)
-          .canStartPictureInPictureAutomaticallyFromInline() == true
-      )
-      #expect(
-        IOSNativePiPDrawableView(startsAutomaticallyFromInline: false)
-          .canStartPictureInPictureAutomaticallyFromInline() == false
-      )
-      // Omitting the argument defaults to auto-start enabled.
-      #expect(
-        IOSNativePiPDrawableView()
-          .canStartPictureInPictureAutomaticallyFromInline() == true
-      )
-    }
-
-    @Test
-    func `iOS native PiP host propagates the auto-start flag to its drawable`() {
-      let host = IOSNativePiPHostView(startsAutomaticallyFromInline: false)
-      #expect(host.drawableView.canStartPictureInPictureAutomaticallyFromInline() == false)
-
-      let defaultHost = IOSNativePiPHostView()
-      #expect(defaultHost.drawableView.canStartPictureInPictureAutomaticallyFromInline() == true)
-    }
-    #endif
-
     @Test
     func `Init with policy knobs does not crash`() {
       let player = Player(instance: TestInstance.shared)
@@ -200,132 +106,6 @@ extension Integration {
       )
     }
 
-    #if canImport(UIKit)
-    @Test
-    func `iOS native PiP drawable sizes VLC content to its bounds`() {
-      let view = IOSNativePiPDrawableView()
-      view.frame = CGRect(x: 0, y: 0, width: 640, height: 360)
-      let vlcSubview = UIView()
-      view.addSubview(vlcSubview)
-      view.layoutIfNeeded()
-
-      #expect(vlcSubview.frame.size == CGSize(width: 640, height: 360))
-      #expect(vlcSubview.autoresizingMask == [.flexibleWidth, .flexibleHeight])
-
-      view.frame = CGRect(x: 0, y: 0, width: 480, height: 270)
-      view.layoutIfNeeded()
-
-      #expect(vlcSubview.frame.size == CGSize(width: 480, height: 270))
-      #expect(vlcSubview.autoresizingMask == [.flexibleWidth, .flexibleHeight])
-    }
-
-    @Test
-    func `iOS native PiP media controller reports playback intent`() {
-      let player = Player(instance: TestInstance.shared)
-      let mediaController = IOSNativePiPMediaController()
-      mediaController.player = player
-
-      #expect(mediaController.isMediaPlaying() == false)
-
-      player.setPlaybackIntentFromExternalControl(true)
-      #expect(mediaController.isMediaPlaying() == true)
-
-      player.setPlaybackIntentFromExternalControl(false)
-      #expect(mediaController.isMediaPlaying() == false)
-    }
-
-    @Test
-    func `iOS native PiP controller delegates to native backend`() {
-      let player = Player(instance: TestInstance.shared)
-      let backend = IOSNativePiPBackend()
-      let controller = PiPController(player: player, nativeBackend: backend)
-
-      controller.start()
-      controller.invalidatePictureInPicturePlaybackState()
-      controller.stop()
-      controller.handleNativePictureInPictureReady()
-      controller.handleNativePictureInPictureActiveChanged(true)
-      #expect(controller.isActive == true)
-      controller.handleNativePictureInPictureActiveChanged(false)
-      #expect(controller.isActive == false)
-      controller.handleNativePictureInPictureSetPlaying(true)
-      #expect(controller._pipPlaybackActiveForTesting() == true)
-    }
-
-    /// Regression: a player swap builds a new controller on the *same*
-    /// shared native backend, then releases the old controller. The old
-    /// controller's deinit must not null the successor's ownership, or the
-    /// new controller's PiP state callbacks go silently dead.
-    @Test
-    func `Controller deinit does not clobber a successor's backend claim`() async {
-      let player = Player(instance: TestInstance.shared)
-      let backend = IOSNativePiPBackend()
-
-      var first: PiPController? = PiPController(player: player, nativeBackend: backend)
-      #expect(backend.owner === first)
-
-      let second = PiPController(player: player, nativeBackend: backend)
-      #expect(backend.owner === second)
-
-      first = nil
-      await Task.yield()
-
-      #expect(backend.owner === second)
-      withExtendedLifetime(second) {}
-    }
-
-    /// Teardown of the native backend's window-controller wiring must be
-    /// idempotent, and every private selector / KVC access must be gated by
-    /// `responds(to:)` so a non-conforming controller (or none) never
-    /// crashes. After `detach()` readiness is cleared regardless of whether
-    /// a controller was installed.
-    @Test
-    func `iOS native backend teardown is idempotent and selector-gated`() {
-      let player = Player(instance: TestInstance.shared)
-      let backend = IOSNativePiPBackend()
-      backend.attach(to: player)
-
-      // A non-conforming controller must not crash.
-      backend.handlePictureInPictureReady(NSObject())
-
-      // Start/stop/invalidate are safe whether or not a controller installed.
-      backend.start()
-      backend.stop()
-      backend.invalidatePlaybackState()
-
-      // Detach clears readiness and is idempotent.
-      backend.detach()
-      backend.detach()
-      #expect(backend.isPossible == false)
-      #expect(backend.isActive == false)
-    }
-
-    /// iOS native play/pause must route through the controller — engaging
-    /// the AVKit-transient pause debouncer and PiP playback-state
-    /// reconciliation — rather than poking the player directly. Verifies the
-    /// shared media controller is wired to its owning controller and that a
-    /// native pause flows through it.
-    @Test
-    func `iOS media controller routes pause through the controller`() async {
-      let player = Player(instance: TestInstance.shared)
-      let backend = IOSNativePiPBackend()
-      let controller = PiPController(player: player, nativeBackend: backend)
-
-      #expect(backend.mediaController.owner === controller)
-
-      // Prime PiP playback state to "playing", then a native pause must flow
-      // through the controller and flip it back off.
-      controller.handleNativePictureInPictureSetPlaying(true)
-      #expect(controller._pipPlaybackActiveForTesting() == true)
-
-      backend.mediaController.pause()
-      await Task.yield()
-      #expect(controller._pipPlaybackActiveForTesting() == false)
-
-      withExtendedLifetime(controller) {}
-    }
-    #endif
-
     @Test
     func `dismantle fallback stops controller and clears binding`() async {
       #if canImport(AppKit)
@@ -339,12 +119,13 @@ extension Integration {
       let coordinator = view.makeCoordinator()
       let controller = PiPController(player: player)
 
-      storage.value = controller
       coordinator.pipController = controller
-      coordinator.controllerBinding = binding
+      coordinator.publishController(controller, to: binding)
+      await coordinator.waitForControllerBindingPublication()
+      #expect(storage.value === controller)
 
       PiPVideoView.dismantleNSView(NSView(), coordinator: coordinator)
-      await Task.yield()
+      await coordinator.waitForControllerBindingPublication()
 
       #expect(coordinator.pipController == nil)
       #expect(coordinator.controllerBinding == nil)
@@ -355,6 +136,259 @@ extension Integration {
     }
 
     #if canImport(AppKit)
+    private func nativeDrawable(of player: Player) -> UnsafeMutableRawPointer? {
+      libvlc_media_player_get_nsobject(player.pointer)
+    }
+
+    /// Pinned libVLC's `macosx` vout copies `drawable-nsobject` into its
+    /// strong `sys->container` once at vout open. Replacing the Player
+    /// variable cannot redirect that open vout, so this probe models the
+    /// immutable native reference without depending on decoder timing.
+    @Test
+    func `macOS same-player make before dismantle reparents the vout-latched drawable`() {
+      let player = Player(instance: TestInstance.shared)
+      let originalHost = MacNativePiPHostView()
+      originalHost.attach(to: player)
+      let originalDrawable = originalHost.drawableView
+      let originalBackend = originalHost.nativePiPBackend
+      let openVout = OpenMacVoutContainerProbe(container: originalDrawable)
+      let nativeHandle = player.pointer
+      player.nativePlayerHasStartedPlayback = true
+
+      let successorHost = MacNativePiPHostView()
+      successorHost.attach(to: player)
+      originalHost.detach()
+
+      #expect(successorHost.drawableView === openVout.container)
+      #expect(successorHost.drawableView === originalDrawable)
+      #expect(originalDrawable.superview === successorHost)
+      #expect(successorHost.nativePiPBackend === originalBackend)
+      #expect(originalBackend.hostView === successorHost)
+      #expect(originalBackend.drawableView === originalDrawable)
+      #expect(player.drawable === originalDrawable)
+      #expect(nativeDrawable(of: player) == Unmanaged.passUnretained(originalDrawable).toOpaque())
+      #expect(player.pointer == nativeHandle)
+    }
+
+    @Test
+    func `macOS same-player dismantle before make preserves and reparents the vout-latched drawable`() {
+      let player = Player(instance: TestInstance.shared)
+      let originalHost = MacNativePiPHostView()
+      originalHost.attach(to: player)
+      let originalDrawable = originalHost.drawableView
+      let originalBackend = originalHost.nativePiPBackend
+      let openVout = OpenMacVoutContainerProbe(container: originalDrawable)
+      let nativeHandle = player.pointer
+      player.nativePlayerHasStartedPlayback = true
+
+      originalHost.detach()
+
+      #expect(player.drawable === openVout.container)
+      #expect(originalDrawable.superview == nil)
+
+      let successorHost = MacNativePiPHostView()
+      successorHost.attach(to: player)
+
+      #expect(successorHost.drawableView === openVout.container)
+      #expect(successorHost.drawableView === originalDrawable)
+      #expect(originalDrawable.superview === successorHost)
+      #expect(successorHost.nativePiPBackend === originalBackend)
+      #expect(originalBackend.hostView === successorHost)
+      #expect(originalBackend.drawableView === originalDrawable)
+      #expect(player.drawable === originalDrawable)
+      #expect(nativeDrawable(of: player) == Unmanaged.passUnretained(originalDrawable).toOpaque())
+      #expect(player.pointer == nativeHandle)
+    }
+
+    @Test
+    func `macOS observed external vout also leases the exact drawable`() {
+      let player = Player(instance: TestInstance.shared)
+      let originalHost = MacNativePiPHostView()
+      originalHost.attach(to: player)
+      let originalDrawable = originalHost.drawableView
+      let originalBackend = originalHost.nativePiPBackend
+      player.activeVideoOutputs = 1
+
+      originalHost.detach()
+
+      #expect(player.drawable === originalDrawable)
+      #expect(originalDrawable.superview == nil)
+
+      let successorHost = MacNativePiPHostView()
+      successorHost.attach(to: player)
+
+      #expect(successorHost.drawableView === originalDrawable)
+      #expect(successorHost.nativePiPBackend === originalBackend)
+      #expect(originalDrawable.superview === successorHost)
+    }
+
+    @Test
+    func `macOS active same-player host churn keeps one drawable and backend`() {
+      let player = Player(instance: TestInstance.shared)
+      let result = churnMacHosts(for: player, count: 128)
+
+      #expect(result.currentHost.drawableView === result.originalDrawable)
+      #expect(result.currentHost.nativePiPBackend === result.originalBackend)
+      #expect(player.drawable === result.originalDrawable)
+      #expect(nativeDrawable(of: player) == Unmanaged.passUnretained(result.originalDrawable).toOpaque())
+      #expect(player.pointer == result.nativeHandle)
+      #expect(player.retainedDrawablesUntilNativePlayerRelease.isEmpty)
+      #expect(
+        result.retiredHosts.enumerated().compactMap { index, host in
+          host.value == nil ? nil : index
+        } == []
+      )
+      withExtendedLifetime(result.currentHost) {}
+    }
+
+    @Test
+    func `macOS host churn releases drawables when no vout can have opened`() {
+      let player = Player(instance: TestInstance.shared)
+      var retiredDrawables: [MacWeakBox<MacNativePiPDrawableView>] = []
+
+      for _ in 0..<64 {
+        autoreleasepool {
+          let host = MacNativePiPHostView()
+          host.attach(to: player)
+          let drawable = host.drawableView
+          host.detach()
+          retiredDrawables.append(MacWeakBox(drawable))
+        }
+      }
+
+      #expect(retiredDrawables.allSatisfy { $0.value == nil })
+      #expect(player.drawable == nil)
+      #expect(nativeDrawable(of: player) == nil)
+      #expect(player.retainedDrawablesUntilNativePlayerRelease.isEmpty)
+      withExtendedLifetime(player) {}
+    }
+
+    @Test
+    func `macOS different-player update isolates drawable backend and native pointer`() {
+      let firstPlayer = Player(instance: TestInstance.shared)
+      let secondPlayer = Player(instance: TestInstance.shared)
+      let host = MacNativePiPHostView()
+      host.attach(to: firstPlayer)
+      let firstDrawable = host.drawableView
+      let firstBackend = host.nativePiPBackend
+      let openVout = OpenMacVoutContainerProbe(container: firstDrawable)
+      firstPlayer.nativePlayerHasStartedPlayback = true
+
+      host.attach(to: secondPlayer)
+      let secondDrawable = host.drawableView
+      let secondBackend = host.nativePiPBackend
+
+      #expect(firstDrawable === openVout.container)
+      #expect(firstDrawable !== secondDrawable)
+      #expect(firstBackend !== secondBackend)
+      #expect(firstPlayer.drawable == nil)
+      #expect(nativeDrawable(of: firstPlayer) == nil)
+      #expect(firstBackend.mediaController.player == nil)
+      #expect(firstBackend.hostView == nil)
+      #expect(firstBackend.drawableView == nil)
+      #expect(firstPlayer.retainedDrawablesUntilNativePlayerRelease.count == 1)
+      #expect(secondPlayer.drawable === secondDrawable)
+      #expect(nativeDrawable(of: secondPlayer) == Unmanaged.passUnretained(secondDrawable).toOpaque())
+      #expect(secondBackend.mediaController.player === secondPlayer)
+      #expect(secondBackend.hostView === host)
+      #expect(secondBackend.drawableView === secondDrawable)
+
+      host.detach()
+    }
+
+    @Test
+    func `macOS detached stale host cannot repurpose an orphaned backend`() {
+      let firstPlayer = Player(instance: TestInstance.shared)
+      let secondPlayer = Player(instance: TestInstance.shared)
+      let host = MacNativePiPHostView()
+      host.attach(to: firstPlayer)
+      let firstDrawable = host.drawableView
+      let firstBackend = host.nativePiPBackend
+      firstPlayer.nativePlayerHasStartedPlayback = true
+      host.detach()
+
+      host.attach(to: secondPlayer)
+      let secondDrawable = host.drawableView
+
+      #expect(firstPlayer.drawable === firstDrawable)
+      #expect(nativeDrawable(of: firstPlayer) == Unmanaged.passUnretained(firstDrawable).toOpaque())
+      #expect(firstBackend.mediaController.player === firstPlayer)
+      #expect(firstBackend.hostView == nil)
+      #expect(firstBackend.drawableView == nil)
+      #expect(host.nativePiPBackend !== firstBackend)
+      #expect(secondDrawable !== firstDrawable)
+      #expect(secondPlayer.drawable === secondDrawable)
+      #expect(host.nativePiPBackend.mediaController.player === secondPlayer)
+    }
+
+    @Test
+    func `macOS orphaned active drawable does not retain controller or player`() async throws {
+      weak var releasedController: PiPController?
+      weak var releasedPlayer: Player?
+
+      do {
+        var player: Player? = Player(instance: TestInstance.shared)
+        releasedPlayer = player
+        let requiredPlayer = try #require(player)
+        let host = MacNativePiPHostView()
+        host.attach(to: requiredPlayer)
+        requiredPlayer.nativePlayerHasStartedPlayback = true
+
+        var controller: PiPController? = PiPController(
+          player: requiredPlayer,
+          nativeBackend: host.nativePiPBackend
+        )
+        releasedController = controller
+
+        host.detach()
+        controller = nil
+        await Task.yield()
+
+        #expect(releasedController == nil)
+        #expect(host.nativePiPBackend.owner == nil)
+        player = nil
+      }
+
+      #expect(releasedPlayer == nil)
+    }
+
+    @Test
+    func `macOS successor controller claims adopted backend and requested policy`() async {
+      let player = Player(instance: TestInstance.shared)
+      let originalHost = MacNativePiPHostView()
+      originalHost.attach(to: player)
+      let backend = originalHost.nativePiPBackend
+      var originalController: PiPController? = PiPController(
+        player: player,
+        nativeBackend: backend
+      )
+      weak var releasedController: PiPController?
+      releasedController = originalController
+      player.nativePlayerHasStartedPlayback = true
+
+      originalHost.detach()
+      originalController = nil
+      await Task.yield()
+
+      #expect(releasedController == nil)
+      #expect(backend.owner == nil)
+
+      let successorHost = MacNativePiPHostView()
+      successorHost.attach(to: player)
+      let successorController = PiPController(
+        player: player,
+        nativeBackend: successorHost.nativePiPBackend,
+        startsAutomaticallyFromInline: false,
+        managesAudioSession: false
+      )
+
+      #expect(successorHost.nativePiPBackend === backend)
+      #expect(backend.owner === successorController)
+      #expect(successorController.startsAutomaticallyFromInline == false)
+      #expect(successorController.managesAudioSession == false)
+      withExtendedLifetime(successorController) {}
+    }
+
     @Test
     func `macOS native PiP host attaches drawable child`() {
       let player = Player(instance: TestInstance.shared)
@@ -365,6 +399,13 @@ extension Integration {
 
       host.detach()
       #expect(player.drawable == nil)
+
+      host.attach(to: player)
+      #expect(player.drawable === host.drawableView)
+      #expect(host.nativePiPBackend.hostView === host)
+      #expect(host.nativePiPBackend.drawableView === host.drawableView)
+
+      host.detach()
     }
 
     @Test
@@ -769,6 +810,78 @@ private final class PiPReshapeProbeView: NSView {
   func reshapeForTesting() {
     reshapeCount += 1
   }
+}
+
+private final class OpenMacVoutContainerProbe {
+  let container: MacNativePiPDrawableView
+
+  init(container: MacNativePiPDrawableView) {
+    self.container = container
+  }
+}
+
+private final class MacWeakBox<T: AnyObject> {
+  weak var value: T?
+
+  init(_ value: T?) {
+    self.value = value
+  }
+}
+
+private struct MacHostChurnResult {
+  let currentHost: MacNativePiPHostView
+  let originalDrawable: MacNativePiPDrawableView
+  let originalBackend: MacNativePiPBackend
+  let nativeHandle: OpaquePointer
+  let retiredHosts: [MacWeakBox<MacNativePiPHostView>]
+}
+
+@MainActor
+private func churnMacHosts(
+  for player: Player,
+  count: Int
+) -> MacHostChurnResult {
+  var currentHost = autoreleasepool {
+    let host = MacNativePiPHostView()
+    host.attach(to: player)
+    return host
+  }
+  let originalDrawable = currentHost.drawableView
+  let originalBackend = currentHost.nativePiPBackend
+  let nativeHandle = player.pointer
+  player.nativePlayerHasStartedPlayback = true
+  var retiredHosts: [MacWeakBox<MacNativePiPHostView>] = []
+
+  for _ in 0..<count {
+    currentHost = autoreleasepool {
+      replaceMacHost(
+        currentHost,
+        for: player,
+        recording: &retiredHosts
+      )
+    }
+  }
+
+  return MacHostChurnResult(
+    currentHost: currentHost,
+    originalDrawable: originalDrawable,
+    originalBackend: originalBackend,
+    nativeHandle: nativeHandle,
+    retiredHosts: retiredHosts
+  )
+}
+
+@MainActor
+private func replaceMacHost(
+  _ retiredHost: MacNativePiPHostView,
+  for player: Player,
+  recording retiredHosts: inout [MacWeakBox<MacNativePiPHostView>]
+) -> MacNativePiPHostView {
+  let successorHost = MacNativePiPHostView()
+  successorHost.attach(to: player)
+  retiredHost.detach()
+  retiredHosts.append(MacWeakBox(retiredHost))
+  return successorHost
 }
 #endif
 #endif

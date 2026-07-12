@@ -11,9 +11,15 @@ extension Text {
 
     func flush() {
       var text = Text(buffer)
-      if marks.contains(.code) { text = text.font(.system(style, design: .monospaced)) }
-      if marks.contains(.italic) { text = text.italic() }
-      if marks.contains(.bold) { text = text.bold() }
+      if marks.contains(.code) {
+        text = text.font(.system(style, design: .monospaced))
+      }
+      if marks.contains(.italic) {
+        text = text.italic()
+      }
+      if marks.contains(.bold) {
+        text = text.bold()
+      }
       parts.append(text)
       buffer.removeAll()
     }
