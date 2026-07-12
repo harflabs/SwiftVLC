@@ -124,27 +124,47 @@ public enum DialogEvent: Sendable {
 extension DialogEvent {
   /// `LoginRequest` if this event is `.login`, otherwise `nil`.
   public var login: LoginRequest? {
-    if case .login(let value) = self { value } else { nil }
+    if case .login(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// `QuestionRequest` if this event is `.question`, otherwise `nil`.
   public var question: QuestionRequest? {
-    if case .question(let value) = self { value } else { nil }
+    if case .question(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// `ProgressInfo` if this event is `.progress`, otherwise `nil`.
   public var progress: ProgressInfo? {
-    if case .progress(let value) = self { value } else { nil }
+    if case .progress(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// `ProgressUpdate` if this event is `.progressUpdated`, otherwise `nil`.
   public var progressUpdated: ProgressUpdate? {
-    if case .progressUpdated(let value) = self { value } else { nil }
+    if case .progressUpdated(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// `DialogID` if this event is `.cancel`, otherwise `nil`.
   public var cancel: DialogID? {
-    if case .cancel(let value) = self { value } else { nil }
+    if case .cancel(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// Tuple of `(title: String, message: String)` if this event is

@@ -505,7 +505,8 @@ extension TVShowcase {
          .pip,
          .discoveryRenderers,
          .multiConsumer,
-         .harnessHome:
+         .harnessHome,
+         .pipLiveValidation:
       return nil
     }
   }

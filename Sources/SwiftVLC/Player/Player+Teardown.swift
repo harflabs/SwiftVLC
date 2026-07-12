@@ -104,6 +104,10 @@ extension Player {
     if let listPlayer = attachedMediaListPlayer {
       listPlayer.mediaPlayer = nil
     }
+    // Capture before the transition state is cleared below. The native
+    // `.paused` event can lag a just-issued pause command, so consulting only
+    // `nativePlaybackState` afterwards loses the race signal.
+    let resumeBeforeRelease = shouldResumeNativePlayerBeforeStop
     publishPlaybackIntent(false)
     pauseTransition = nil
     deferredPauseCommand = nil
@@ -118,15 +122,22 @@ extension Player {
       drawable.map { retainedDrawablesUntilNativePlayerRelease + [$0] }
         ?? retainedDrawablesUntilNativePlayerRelease
     nonisolated(unsafe) let p = pointer
-    let resumeBeforeRelease = pauseTransition == .pausing || nativePlaybackState == .paused
+    let lifetime = nativeHandleLifetime
     drawable = nil
     retainedDrawablesUntilNativePlayerRelease.removeAll()
-    pointer = Self.makeNativePlayer(instance: instance)
+    #if os(iOS) || os(macOS)
+    retireDirectPiPVideoCallbacksForHandleEnd()
+    #endif
+    let replacement = Self.makeNativePlayer(instance: instance)
+    let replacementLifetime = NativePlayerHandleLifetime(pointer: replacement)
+    pointer = replacement
+    nativeHandleLifetime = replacementLifetime
 
     await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
       DispatchQueue.global(qos: .utility).async {
         Self.teardownNativePlayer(
           p,
+          lifetime: lifetime,
           bridge: bridge,
           retainedDrawables: drawables,
           resumeBeforeStop: resumeBeforeRelease
@@ -134,6 +145,11 @@ extension Player {
         continuation.resume()
       }
     }
+    // `libvlc_media_player_release` only decrements a reference count. A
+    // retiring MediaListPlayer can still own this exact handle after our own
+    // release returns, so the full-teardown contract requires every counted
+    // native owner to finish releasing before shutdown returns.
+    await lifetime.waitUntilReleased()
     publishPlaybackState(.idle)
     currentMedia = nil
   }
@@ -147,14 +163,17 @@ extension Player {
   /// ``shutdown()``.
   nonisolated static func teardownNativePlayer(
     _ pointer: OpaquePointer,
+    lifetime: NativePlayerHandleLifetime,
     bridge: EventBridge,
     retainedDrawables: [AnyObject],
     resumeBeforeStop: Bool
   ) {
+    precondition(lifetime.pointer == pointer)
+    lifetime.retainUntilReleased(retainedDrawables)
     bridge.invalidate()
     stopNativePlayerBeforeRelease(pointer, resumeBeforeStop: resumeBeforeStop)
     libvlc_media_player_release(pointer)
-    _ = retainedDrawables
+    lifetime.initialOwnerDidRelease()
   }
 
   /// Re-applies per-player state that lives on the native handle and

@@ -11,7 +11,9 @@ func poll(
   async throws -> Bool {
   let deadline = ContinuousClock.now + timeout
   while !condition() {
-    if ContinuousClock.now >= deadline { return false }
+    if ContinuousClock.now >= deadline {
+      return false
+    }
     try await Task.sleep(for: interval)
   }
   return true

@@ -58,7 +58,9 @@ struct EventsCase: View {
     try? player.play(url: TestMedia.demo)
     for await event in events {
       log.insert(LogLine(text: describe(event)), at: 0)
-      if log.count > 50 { log.removeLast() }
+      if log.count > 50 {
+        log.removeLast()
+      }
     }
   }
 

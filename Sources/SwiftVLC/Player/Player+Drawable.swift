@@ -51,17 +51,20 @@ extension Player {
   }
 
   func applyDrawable(_ newDrawable: AnyObject?) {
-    // Bind the outgoing reference to a local so it outlives the libVLC
-    // call. After the ivar is reassigned, ARC would otherwise release
-    // the previous view immediately; the vout thread could still be
-    // mid-deref of that `drawable-nsobject` pointer. `previous`
-    // keeps the previous view alive until this function returns, by which
-    // point libVLC has atomically swapped the variable.
+    // libVLC stores `drawable-nsobject` as a raw pointer. Once this exact
+    // handle has started, replacing the variable cannot revoke a pointer an
+    // opening or draining vout already copied. Retain every outgoing drawable
+    // until that handle is released; the replacement/shutdown/deinit paths
+    // move this array into the closure that performs the native release.
+    //
+    // Before first playback there is no vout, so the local `previous` retain
+    // only needs to cover libVLC's synchronous variable swap.
     let previous = drawable
     if
       let previous,
-      nativePlayerNeedsReplacementBeforePlayback,
-      newDrawable.map({ previous !== $0 }) ?? true {
+      nativePlayerHasStartedPlayback || nativePlayerNeedsReplacementBeforePlayback,
+      newDrawable.map({ previous !== $0 }) ?? true,
+      !retainedDrawablesUntilNativePlayerRelease.contains(where: { $0 === previous }) {
       retainedDrawablesUntilNativePlayerRelease.append(previous)
     }
     drawable = newDrawable
@@ -95,6 +98,7 @@ extension Player {
   )
     throws(VLCError) {
     let oldPointer = pointer
+    let oldLifetime = nativeHandleLifetime
     let newPointer = Self.makeNativePlayer(instance: instance)
     guard let newEventManager = libvlc_media_player_event_manager(newPointer) else {
       libvlc_media_player_release(newPointer)
@@ -106,7 +110,18 @@ extension Player {
     let audioDelay = libvlc_audio_get_delay(oldPointer)
     let subtitleDelay = libvlc_video_get_spu_delay(oldPointer)
     let subtitleScale = libvlc_video_get_spu_text_scale(oldPointer)
-    let retainedDrawables = retainedDrawablesUntilNativePlayerRelease
+    // The outgoing handle may already have copied `target` into an opening or
+    // draining vout. The successor's strong drawable reference is not a lease
+    // for that predecessor: its teardown runs independently and can finish
+    // first. Charge the current target to the exact outgoing lifetime, just as
+    // shutdown/deinit do, so rapid replacements cannot release it out of
+    // generation order.
+    var retainedDrawables = retainedDrawablesUntilNativePlayerRelease
+    if
+      let target,
+      !retainedDrawables.contains(where: { $0 === target }) {
+      retainedDrawables.append(target)
+    }
 
     if let currentMedia {
       libvlc_media_player_set_media(newPointer, currentMedia.pointer)
@@ -115,6 +130,7 @@ extension Player {
       libvlc_media_player_release(newPointer)
       throw .operationFailed("Set renderer")
     }
+    let newLifetime = NativePlayerHandleLifetime(pointer: newPointer)
     _ = libvlc_audio_set_volume(newPointer, Int32(_volume * 100))
     libvlc_audio_set_mute(newPointer, _isMuted ? 1 : 0)
     _ = libvlc_media_player_set_rate(newPointer, playbackRate)
@@ -139,7 +155,11 @@ extension Player {
     // leaving it pinned to the dead handle's outputs.
     endCoordinator.clearForHandleReplacement()
     activeVideoOutputs = 0
+    #if os(iOS) || os(macOS)
+    moveDirectPiPVideoCallbacks(to: newLifetime)
+    #endif
     pointer = newPointer
+    nativeHandleLifetime = newLifetime
     attachedMediaListPlayer?.rebindMediaPlayerHandle()
     applyAspectRatio()
 
@@ -151,6 +171,7 @@ extension Player {
 
     releaseNativePlayer(
       oldPointer,
+      lifetime: oldLifetime,
       retaining: retainedDrawables,
       resumeBeforeStop: resumeBeforeRelease
     )

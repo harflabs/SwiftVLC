@@ -2,14 +2,16 @@
 """Reads `sweep.sh` output (lines "<opt> <json>") and asserts the corrected
 aspect geometry: .fill covers the surface, and .ratio(w,h) forces the picture
 to the requested display aspect. Exits non-zero with a report if any case is
-wrong (the failing state on a binary without the A1/A2 fixes)."""
+wrong (the failing state on a binary without the aspect cover/stretch fixes)."""
 import sys, json
 
-TARGET = {  # picture aspect each option must produce in a 16:9 (1.778) surface
-    "fill": ("cover", None),   # picture aspect ~= surface aspect (full cover)
+SURFACE_AR = 16 / 9
+TARGET = {  # picture aspect each option must produce in a 16:9 surface
+    "fill": ("cover", SURFACE_AR),   # picture aspect ~= surface aspect (full cover)
     "r169": ("ar", 16 / 9),
     "r43":  ("ar", 4 / 3),
     "r11":  ("ar", 1.0),
+    "r219": ("ar", 21 / 9),
 }
 TOL = 0.06
 
@@ -28,8 +30,8 @@ for opt, (kind, want) in TARGET.items():
     row = rows.get(opt)
     if not row or row.get("picture_ar") is None:
         print(f"FAIL {opt}: no measurement"); ok = False; continue
-    got = row["picture_ar"]; surf = row["surface_ar"]
-    target = surf if kind == "cover" else want
+    got = row["picture_ar"]
+    target = want
     passed = abs(got - target) <= TOL
     if kind == "cover":
         # also reject the letterboxed-equals-default state explicitly

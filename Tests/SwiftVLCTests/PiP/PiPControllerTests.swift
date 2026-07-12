@@ -273,7 +273,63 @@ extension Integration {
       controller.stop()
     }
 
+    @Test
+    func `audio session activation retries after failure and is idempotent after success`() {
+      enum ActivationError: Error {
+        case rejected
+      }
+
+      let player = Player(instance: TestInstance.shared)
+      let recorder = PlaybackRecorder()
+      let controller = PiPController(
+        player: player,
+        playbackDriver: recorder.driver,
+        pauseDebounce: .milliseconds(250),
+        managesAudioSession: true
+      )
+      var activationAttempts = 0
+      let activate: () throws -> Void = {
+        activationAttempts += 1
+        if activationAttempts == 1 {
+          throw ActivationError.rejected
+        }
+      }
+
+      controller.activateAudioSessionIfNeeded(using: activate)
+      #expect(activationAttempts == 1)
+      #expect(controller.hasActivatedAudioSession == false)
+
+      controller.activateAudioSessionIfNeeded(using: activate)
+      #expect(activationAttempts == 2)
+      #expect(controller.hasActivatedAudioSession == true)
+
+      controller.activateAudioSessionIfNeeded(using: activate)
+      #expect(activationAttempts == 2)
+      #expect(controller.hasActivatedAudioSession == true)
+    }
+
     #if os(iOS)
+    /// A start request cannot open PiP without loaded media and therefore
+    /// must not activate the shared audio session or take audio focus.
+    @Test
+    func `start without media does not activate the audio session`() {
+      let player = Player(instance: TestInstance.shared)
+      let recorder = PlaybackRecorder()
+      let controller = PiPController(
+        player: player,
+        playbackDriver: recorder.driver,
+        pauseDebounce: .milliseconds(250),
+        managesAudioSession: true
+      )
+
+      #expect(player.currentMedia == nil)
+      #expect(controller.hasActivatedAudioSession == false)
+
+      controller.start()
+
+      #expect(controller.hasActivatedAudioSession == false)
+    }
+
     /// With `managesAudioSession: false` neither init nor `start()` may
     /// touch the shared audio session — category and activation both
     /// stay exactly as they were.
@@ -300,10 +356,13 @@ extension Integration {
 
     /// With `managesAudioSession: true` the category is set at init but
     /// activation is deferred: constructing the controller never grabs
-    /// audio focus, `start()` does.
+    /// audio focus. A start request activates only when AVKit supplied a
+    /// controller that can actually receive it; generic/simulator test
+    /// destinations legitimately have no PiP controller.
     @Test
-    func `managesAudioSession true defers activation out of init`() {
+    func `managesAudioSession true defers activation until a viable start`() throws {
       let player = Player(instance: TestInstance.shared)
+      try player.load(Media(url: TestMedia.twosecURL))
       let recorder = PlaybackRecorder()
       let controller = PiPController(
         player: player,
@@ -315,8 +374,25 @@ extension Integration {
       #expect(AVAudioSession.sharedInstance().category == .playback)
       #expect(controller.hasActivatedAudioSession == false)
 
+      let hasViableBackend = controller.pipController != nil
       controller.start()
-      #expect(controller.hasActivatedAudioSession == true)
+      #expect(controller.hasActivatedAudioSession == hasViableBackend)
+    }
+
+    @Test
+    func `constructing a direct controller during active intent does not activate audio session`() {
+      let player = Player(instance: TestInstance.shared)
+      player.setPlaybackIntentFromExternalControl(true)
+
+      let controller = PiPController(
+        player: player,
+        playbackDriver: PlaybackRecorder().driver,
+        pauseDebounce: .milliseconds(250),
+        managesAudioSession: true
+      )
+
+      #expect(player.isPlaybackRequestedActive)
+      #expect(controller.hasActivatedAudioSession == false)
     }
 
     /// The sample-buffer path mirrors the knob onto AVKit's

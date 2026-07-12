@@ -166,7 +166,9 @@ extension Player {
     while ContinuousClock.now < deadline {
       let audioReady = audio == nil || !audioTracks.isEmpty
       let subtitleReady = subtitle == nil || !subtitleTracks.isEmpty
-      if audioReady && subtitleReady { break }
+      if audioReady && subtitleReady {
+        break
+      }
       try? await Task.sleep(for: .milliseconds(50))
     }
 
@@ -219,7 +221,9 @@ extension Player {
   private func awaitSeekability() async -> Bool {
     let deadline = ContinuousClock.now + .seconds(2)
     while !isSeekable {
-      if ContinuousClock.now >= deadline { return false }
+      if ContinuousClock.now >= deadline {
+        return false
+      }
       try? await Task.sleep(for: .milliseconds(50))
     }
     return true

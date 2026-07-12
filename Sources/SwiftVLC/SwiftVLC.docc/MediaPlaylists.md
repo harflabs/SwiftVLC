@@ -46,6 +46,12 @@ listPlayer.playbackMode = .loop
 listPlayer.play()
 ```
 
+A `Player` has one live list-player owner. Assigning the same player to a
+second `MediaListPlayer` transfers ownership without stopping its current
+playback. Setting `mediaList = nil` also leaves the attached player's current
+playback running; set `mediaPlayer = nil` or call `stop()` when the player
+itself should stop.
+
 Control is per-item:
 
 ```swift

@@ -142,7 +142,9 @@ struct MarqueeCase: View {
 
   private func dragChanged(_ value: DragGesture.Value) {
     let origin = dragOrigin ?? CGPoint(x: x, y: y)
-    if dragOrigin == nil { dragOrigin = origin }
+    if dragOrigin == nil {
+      dragOrigin = origin
+    }
     x = (origin.x + value.translation.width).clamped(to: -400...400)
     y = (origin.y + value.translation.height).clamped(to: -400...400)
   }

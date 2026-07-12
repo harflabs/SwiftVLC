@@ -57,7 +57,9 @@ func subscribeAndAwait(
     await withTaskGroup(of: Bool.self) { group in
       group.addTask {
         for await event in stream {
-          if case .stateChanged(let s) = event, s == state { return true }
+          if case .stateChanged(let s) = event, s == state {
+            return true
+          }
         }
         return false
       }

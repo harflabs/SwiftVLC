@@ -33,7 +33,9 @@ extension Integration {
       var collected: [PiPEvent] = []
       for await event in stream {
         collected.append(event)
-        if collected.count == count { break }
+        if collected.count == count {
+          break
+        }
       }
       return collected
     }

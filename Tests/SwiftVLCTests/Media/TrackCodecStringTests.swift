@@ -52,8 +52,15 @@ extension Logic {
 
     @Test
     func `a non-printable non-trailing byte yields nil`() {
-      // 'h', 0xFF, '6', '4' — the 0xFF is not a printable FourCC byte.
+      // 'h', 0xFF, '6', '4': the 0xFF is not a printable FourCC byte.
       let codec = Int(UInt32(0x68) | (UInt32(0xFF) << 8) | (UInt32(0x36) << 16) | (UInt32(0x34) << 24))
+      #expect(track(codec: codec).codecString == nil)
+    }
+
+    @Test
+    func `an embedded NUL with later bytes yields nil`() {
+      // 'h', 0x00, '6', '4': the NUL is not trailing padding.
+      let codec = Int(UInt32(0x68) | (UInt32(0x36) << 16) | (UInt32(0x34) << 24))
       #expect(track(codec: codec).codecString == nil)
     }
 

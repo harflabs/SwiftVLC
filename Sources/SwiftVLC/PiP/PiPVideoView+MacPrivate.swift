@@ -20,13 +20,39 @@ final class MacNativePiPBackend: NSObject, @unchecked Sendable {
   private(set) var isPossible = false
   private(set) var isActive = false
 
+  func adopt(
+    hostView: MacNativePiPHostView,
+    drawableView: MacNativePiPDrawableView
+  ) {
+    self.hostView = hostView
+    self.drawableView = drawableView
+    presenter.adopt(hostView: hostView, drawableView: drawableView)
+  }
+
+  func relinquish(
+    hostView: MacNativePiPHostView,
+    drawableView: MacNativePiPDrawableView
+  ) {
+    guard self.hostView === hostView, self.drawableView === drawableView else { return }
+    self.hostView = nil
+    self.drawableView = nil
+    presenter.relinquish(hostView: hostView, drawableView: drawableView)
+  }
+
   func attach(to player: Player) {
     mediaController.player = player
     refreshPossible()
   }
 
   func detach() {
+    // A full surface retirement means this host is either disappearing with
+    // no open vout or has been repurposed for a different Player. Do not let
+    // an asynchronous private-PiP close restore the retired drawable into a
+    // host that now belongs to another Player.
+    presenter.abandonRestorationTarget()
     presenter.stop()
+    hostView = nil
+    drawableView = nil
     mediaController.player = nil
     setPossible(false)
     setActive(false)
@@ -136,6 +162,28 @@ private final class MacPrivatePiPPresenter {
 
   var isActive: Bool {
     pictureInPictureViewController != nil && !isClosing
+  }
+
+  func adopt(
+    hostView: MacNativePiPHostView,
+    drawableView: MacNativePiPDrawableView
+  ) {
+    self.hostView = hostView
+    self.drawableView = drawableView
+  }
+
+  func abandonRestorationTarget() {
+    hostView = nil
+    drawableView = nil
+  }
+
+  func relinquish(
+    hostView: MacNativePiPHostView,
+    drawableView: MacNativePiPDrawableView
+  ) {
+    guard self.hostView === hostView, self.drawableView === drawableView else { return }
+    self.hostView = nil
+    self.drawableView = nil
   }
 
   func start(
@@ -484,8 +532,11 @@ final class MacNativePiPMediaController: NSObject, @unchecked Sendable {
         return
       }
 
-      let duration = player.duration?.milliseconds ?? Int64.max
-      let target = max(0, min(player.currentTime.milliseconds + offset, duration))
+      let target = PiPController.clampedSkipTargetMilliseconds(
+        current: player.currentTime.milliseconds,
+        offset: offset,
+        duration: player.duration?.milliseconds
+      )
       try? player.seek(to: .milliseconds(target))
       completion?()
     }

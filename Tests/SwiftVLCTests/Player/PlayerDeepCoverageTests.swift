@@ -251,8 +251,12 @@ extension Integration {
       try player.play(Media(url: TestMedia.twosecURL))
       var sawBuffering = false
       for _ in 0..<40 {
-        if case .buffering = player.state { sawBuffering = true; break }
-        if player.state == .playing { break }
+        if case .buffering = player.state {
+          sawBuffering = true; break
+        }
+        if player.state == .playing {
+          break
+        }
         try await Task.sleep(for: .milliseconds(25))
       }
       _ = sawBuffering

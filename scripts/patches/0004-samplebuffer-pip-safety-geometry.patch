@@ -1,0 +1,2568 @@
+diff --git a/include/meson.build b/include/meson.build
+index a28298687a..7f7b951758 100644
+--- a/include/meson.build
++++ b/include/meson.build
+@@ -9,6 +9,7 @@ install_headers(
+     'vlc/libvlc_media_list.h',
+     'vlc/libvlc_media_list_player.h',
+     'vlc/libvlc_media_player.h',
++    'vlc/swiftvlc_vmem.h',
+     'vlc/libvlc_media_track.h',
+     'vlc/libvlc_picture.h',
+     'vlc/libvlc_renderer_discoverer.h',
+diff --git a/include/vlc/libvlc_media_player.h b/include/vlc/libvlc_media_player.h
+index 7e28aeda59..c8e6b0fc45 100644
+--- a/include/vlc/libvlc_media_player.h
++++ b/include/vlc/libvlc_media_player.h
+@@ -29,6 +29,7 @@
+ 
+ /* Definitions of enum properties for video */
+ #include "libvlc_video.h"
++#include "swiftvlc_vmem.h"
+ 
+ # ifdef __cplusplus
+ extern "C" {
+@@ -258,6 +259,37 @@ LIBVLC_API void libvlc_media_player_set_media( libvlc_media_player_t *p_mi,
+  */
+ LIBVLC_API libvlc_media_t * libvlc_media_player_get_media( libvlc_media_player_t *p_mi );
+ 
++/**
++ * Atomic retained-media and playback-length snapshot.
++ *
++ * Both fields are captured while holding the media player's internal player
++ * lock, so the media identity cannot change between the retained reference and
++ * its associated playback length. The caller owns one reference to @a media
++ * on success and must release it with libvlc_media_release().
++ *
++ * \param p_mi the media player
++ * \param[out] snapshot destination for the retained media and length
++ * \retval true a media was captured; both output fields are initialized
++ * \retval false no media is associated; both output fields are initialized
++ */
++typedef struct swiftvlc_media_player_media_length_snapshot_t
++{
++    libvlc_media_t *media;
++    libvlc_time_t length;
++} swiftvlc_media_player_media_length_snapshot_t;
++
++/**
++ * Version of SwiftVLC's additive pinned-libVLC extensions.
++ *
++ * Version 1 provides the geometry-aware vmem callback and atomic retained
++ * media/length snapshot.
++ */
++LIBVLC_API unsigned swiftvlc_libvlc_pip_extensions_version( void );
++
++LIBVLC_API bool swiftvlc_libvlc_media_player_get_media_length_snapshot(
++    libvlc_media_player_t *p_mi,
++    swiftvlc_media_player_media_length_snapshot_t *snapshot );
++
+ /**
+  * Get the Event Manager from which the media player send event.
+  *
+@@ -447,6 +479,31 @@ typedef unsigned (*libvlc_video_format_cb)(void **opaque, char *chroma,
+                                            unsigned *pitches,
+                                            unsigned *lines);
+ 
++/**
++ * Atomic source geometry supplied to @ref swiftvlc_video_format_ex_cb.
++ *
++ * The size, crop and sample-aspect fields describe one post-rotation
++ * video_format_ApplyRotation() snapshot. @a source_orientation records the
++ * original pre-rotation source orientation for diagnostics only.
++ */
++/**
++ * Extended callback to configure custom-memory picture buffers.
++ *
++ * Unlike @ref libvlc_video_format_cb, @a source_geometry preserves the exact
++ * coded, visible, crop, sample-aspect and original-orientation state seen by
++ * the vmem output. @a output_width and @a output_height select the delivered
++ * full-visible, zero-offset surface. The extended vmem path accepts only an
++ * exact square-pixel output aspect; an incompatible result fails setup.
++ *
++ * \param[in,out] opaque callback private pointer
++ * \param[in,out] chroma four-byte video format identifier
++ * \param[in] source_geometry atomic post-rotation source geometry
++ * \param[in,out] output_width delivered full-visible width
++ * \param[in,out] output_height delivered full-visible height
++ * \param[out] pitches scanline pitches for every plane
++ * \param[out] lines scanline counts for every plane
++ * \return a positive setup success count, or zero on failure
++ */
+ /**
+  * Callback prototype to configure picture buffers format.
+  *
+@@ -535,6 +592,23 @@ void libvlc_video_set_format_callbacks( libvlc_media_player_t *mp,
+                                         libvlc_video_format_cb setup,
+                                         libvlc_video_cleanup_cb cleanup );
+ 
++/**
++ * Set the additive extended decoded-video format callback.
++ *
++ * This is mutually exclusive with libvlc_video_set_format_callbacks(). Calling
++ * either setter clears the other setup callback. Legacy callback semantics are
++ * otherwise unchanged.
++ *
++ * \param mp the media player
++ * \param setup extended setup callback, or NULL to clear it
++ * \param cleanup callback to release setup resources, or NULL
++ */
++LIBVLC_API
++void swiftvlc_libvlc_video_set_format_callbacks_ex(
++    libvlc_media_player_t *mp,
++    swiftvlc_video_format_ex_cb setup,
++    libvlc_video_cleanup_cb cleanup );
++
+ 
+ typedef struct libvlc_video_setup_device_cfg_t
+ {
+diff --git a/include/vlc/swiftvlc_vmem.h b/include/vlc/swiftvlc_vmem.h
+new file mode 100644
+index 0000000000..1e141bf17b
+--- /dev/null
++++ b/include/vlc/swiftvlc_vmem.h
+@@ -0,0 +1,69 @@
++/*****************************************************************************
++ * swiftvlc_vmem.h: SwiftVLC geometry-aware vmem callback ABI
++ *****************************************************************************
++ * This header intentionally depends only on fixed-width C types so the vmem
++ * core module can consume the ABI without importing LibVLC's public API.
++ *****************************************************************************/
++
++#ifndef VLC_SWIFTVLC_VMEM_H
++#define VLC_SWIFTVLC_VMEM_H 1
++
++#include <stddef.h>
++#include <stdint.h>
++
++/**
++ * One atomic post-rotation source-geometry snapshot.
++ *
++ * source_orientation is the numeric value of libvlc_video_orient_t before
++ * rotation was applied. It is fixed-width here so this ABI is independent of
++ * compiler enum representation.
++ */
++typedef struct swiftvlc_video_format_geometry_t
++{
++    uint32_t coded_width;
++    uint32_t coded_height;
++    uint32_t visible_width;
++    uint32_t visible_height;
++    uint32_t x_offset;
++    uint32_t y_offset;
++    uint32_t sar_num;
++    uint32_t sar_den;
++    uint32_t source_orientation;
++} swiftvlc_video_format_geometry_t;
++
++/** Geometry-aware custom-memory format callback. */
++typedef unsigned (*swiftvlc_video_format_ex_cb)(
++    void **opaque, char *chroma,
++    const swiftvlc_video_format_geometry_t *source_geometry,
++    unsigned *output_width, unsigned *output_height,
++    unsigned *pitches, unsigned *lines);
++
++#if defined(__cplusplus)
++# define SWIFTVLC_VMEM_STATIC_ASSERT(condition, message) \
++    static_assert(condition, message)
++#else
++# define SWIFTVLC_VMEM_STATIC_ASSERT(condition, message) \
++    _Static_assert(condition, message)
++#endif
++
++SWIFTVLC_VMEM_STATIC_ASSERT(sizeof(swiftvlc_video_format_geometry_t) == 36,
++    "SwiftVLC vmem geometry ABI size changed");
++SWIFTVLC_VMEM_STATIC_ASSERT(
++    offsetof(swiftvlc_video_format_geometry_t, coded_width) == 0,
++    "SwiftVLC vmem coded_width offset changed");
++SWIFTVLC_VMEM_STATIC_ASSERT(
++    offsetof(swiftvlc_video_format_geometry_t, visible_width) == 8,
++    "SwiftVLC vmem visible_width offset changed");
++SWIFTVLC_VMEM_STATIC_ASSERT(
++    offsetof(swiftvlc_video_format_geometry_t, x_offset) == 16,
++    "SwiftVLC vmem x_offset offset changed");
++SWIFTVLC_VMEM_STATIC_ASSERT(
++    offsetof(swiftvlc_video_format_geometry_t, sar_num) == 24,
++    "SwiftVLC vmem sar_num offset changed");
++SWIFTVLC_VMEM_STATIC_ASSERT(
++    offsetof(swiftvlc_video_format_geometry_t, source_orientation) == 32,
++    "SwiftVLC vmem source_orientation offset changed");
++
++#undef SWIFTVLC_VMEM_STATIC_ASSERT
++
++#endif /* VLC_SWIFTVLC_VMEM_H */
+diff --git a/lib/Makefile.am b/lib/Makefile.am
+index 4fe7af932f..ed985db86b 100644
+--- a/lib/Makefile.am
++++ b/lib/Makefile.am
+@@ -21,6 +21,7 @@ pkginclude_HEADERS = \
+ 	../include/vlc/libvlc_picture.h \
+ 	../include/vlc/libvlc_version.h \
+ 	../include/vlc/libvlc_video.h \
++	../include/vlc/swiftvlc_vmem.h \
+ 	../include/vlc/vlc.h
+ 
+ lib_LTLIBRARIES = libvlc.la
+diff --git a/lib/libvlc.sym b/lib/libvlc.sym
+index f92df6b013..d2d1374b80 100644
+--- a/lib/libvlc.sym
++++ b/lib/libvlc.sym
+@@ -137,6 +137,8 @@ libvlc_media_player_get_full_title_descriptions
+ libvlc_media_player_get_hwnd
+ libvlc_media_player_get_length
+ libvlc_media_player_get_media
++swiftvlc_libvlc_media_player_get_media_length_snapshot
++swiftvlc_libvlc_pip_extensions_version
+ libvlc_media_player_get_nsobject
+ libvlc_media_player_get_position
+ libvlc_media_player_get_rate
+@@ -264,6 +266,7 @@ libvlc_video_set_display_fit
+ libvlc_video_set_deinterlace
+ libvlc_video_set_format
+ libvlc_video_set_format_callbacks
++swiftvlc_libvlc_video_set_format_callbacks_ex
+ libvlc_video_set_output_callbacks
+ libvlc_video_set_key_input
+ libvlc_video_set_logo_int
+diff --git a/lib/media_player.c b/lib/media_player.c
+index 73c0b54d71..2fe615d2e4 100644
+--- a/lib/media_player.c
++++ b/lib/media_player.c
+@@ -654,6 +654,7 @@ libvlc_media_player_new( libvlc_instance_t *instance )
+     var_Create (mp, "vmem-display", VLC_VAR_ADDRESS);
+     var_Create (mp, "vmem-data", VLC_VAR_ADDRESS);
+     var_Create (mp, "vmem-setup", VLC_VAR_ADDRESS);
++    var_Create (mp, "vmem-setup-ex", VLC_VAR_ADDRESS);
+     var_Create (mp, "vmem-cleanup", VLC_VAR_ADDRESS);
+     var_Create (mp, "vmem-chroma", VLC_VAR_STRING);
+     var_Create (mp, "vmem-width", VLC_VAR_INTEGER);
+@@ -967,6 +968,35 @@ libvlc_media_player_get_media( libvlc_media_player_t *p_mi )
+     return p_m;
+ }
+ 
++unsigned swiftvlc_libvlc_pip_extensions_version( void )
++{
++    return 1;
++}
++
++bool
++swiftvlc_libvlc_media_player_get_media_length_snapshot(
++    libvlc_media_player_t *p_mi,
++    swiftvlc_media_player_media_length_snapshot_t *snapshot )
++{
++    if (snapshot == NULL)
++        return false;
++
++    vlc_player_t *player = p_mi->player;
++    vlc_player_Lock(player);
++
++    libvlc_media_t *media = p_mi->p_md;
++    if (media != NULL)
++        libvlc_media_retain(media);
++
++    snapshot->media = media;
++    snapshot->length = media != NULL
++        ? libvlc_time_from_vlc_tick(vlc_player_GetLength(player))
++        : -1;
++
++    vlc_player_Unlock(player);
++    return media != NULL;
++}
++
+ /**************************************************************************
+  * Get the event Manager.
+  **************************************************************************/
+@@ -1090,6 +1120,17 @@ void libvlc_video_set_format_callbacks( libvlc_media_player_t *mp,
+                                         libvlc_video_cleanup_cb cleanup )
+ {
+     var_SetAddress( mp, "vmem-setup", setup );
++    var_SetAddress( mp, "vmem-setup-ex", NULL );
++    var_SetAddress( mp, "vmem-cleanup", cleanup );
++}
++
++void swiftvlc_libvlc_video_set_format_callbacks_ex(
++    libvlc_media_player_t *mp,
++    swiftvlc_video_format_ex_cb setup,
++    libvlc_video_cleanup_cb cleanup )
++{
++    var_SetAddress( mp, "vmem-setup", NULL );
++    var_SetAddress( mp, "vmem-setup-ex", setup );
+     var_SetAddress( mp, "vmem-cleanup", cleanup );
+ }
+ 
+diff --git a/modules/video_output/Makefile.am b/modules/video_output/Makefile.am
+index 62808377ed..bca97ac800 100644
+--- a/modules/video_output/Makefile.am
++++ b/modules/video_output/Makefile.am
+@@ -81,7 +81,10 @@ endif
+ 
+ if HAVE_DARWIN
+ if !HAVE_WATCHOS
+-libsamplebufferdisplay_plugin_la_SOURCES = video_output/apple/VLCSampleBufferDisplay.m codec/vt_utils.c codec/vt_utils.h
++libsamplebufferdisplay_plugin_la_SOURCES = \
++	video_output/apple/VLCSampleBufferDisplay.m \
++	video_output/apple/VLCSampleBufferGeometry.h \
++	codec/vt_utils.c codec/vt_utils.h
+ libsamplebufferdisplay_plugin_la_OBJCFLAGS = $(AM_OBJCFLAGS) -fobjc-arc
+ if HAVE_OSX
+ libsamplebufferdisplay_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(voutdir)' \
+@@ -422,3 +425,14 @@ vout_LTLIBRARIES += \
+ 	libwextern_plugin.la \
+ 	libvgl_plugin.la \
+ 	libyuv_plugin.la
++
++# libtool 2.5+ cannot infer the tag for .m compiles; force CC.
++libcaeagl_ios_plugin_la_LIBTOOLFLAGS = --tag=CC
++libcaopengllayer_plugin_la_LIBTOOLFLAGS = --tag=CC
++libcvpx_gl_plugin_la_LIBTOOLFLAGS = --tag=CC
++libglinterop_cvpx_plugin_la_LIBTOOLFLAGS = --tag=CC
++libpictureinpicturecontroller_plugin_la_LIBTOOLFLAGS = --tag=CC
++libsamplebufferdisplay_plugin_la_LIBTOOLFLAGS = --tag=CC
++libuiview_window_plugin_la_LIBTOOLFLAGS = --tag=CC
++libvout_macosx_plugin_la_LIBTOOLFLAGS = --tag=CC
++libwindow_macosx_plugin_la_LIBTOOLFLAGS = --tag=CC
+diff --git a/modules/video_output/apple/VLCPictureInPictureController.m b/modules/video_output/apple/VLCPictureInPictureController.m
+index ff3b7f9985..3926844c81 100644
+--- a/modules/video_output/apple/VLCPictureInPictureController.m
++++ b/modules/video_output/apple/VLCPictureInPictureController.m
+@@ -33,7 +33,9 @@
+ #import <TargetConditionals.h>
+ #import <Foundation/Foundation.h>
+ #import <AVKit/AVKit.h>
++#include <math.h>
+ #import <AVFoundation/AVFoundation.h>
++#import <stdatomic.h>
+ #import "VLCDrawable.h"
+ 
+ #include "vlc_pip_controller.h"
+@@ -42,15 +44,21 @@
+ @interface VLCPictureInPictureController: NSObject
+     <AVPictureInPictureSampleBufferPlaybackDelegate, 
+      AVPictureInPictureControllerDelegate,
+-     VLCPictureInPictureWindowControlling>
++     VLCPictureInPictureWindowControlling> {
++    atomic_bool _closed;
++    BOOL _observingPictureInPicturePossible;
++    id<VLCPictureInPictureMediaControlling> _mediaController;
++    void (^_pictureInPictureReady)(id<VLCPictureInPictureWindowControlling>);
++    BOOL _canStartAutomaticallyFromInline;
++    AVSampleBufferDisplayLayer *_displayLayer;
++}
+ 
+ @property (nonatomic, readonly) NSObject *avPipController;
+-@property (nonatomic, readonly) pip_controller_t *pipcontroller;
+-@property (nonatomic, readonly, weak) id<VLCPictureInPictureDrawable> drawable;
+ @property (nonatomic) void(^stateChangeEventHandler)(BOOL isStarted);
+ 
+ - (instancetype)initWithPipController:(pip_controller_t *)pipcontroller;
+ - (void)invalidatePlaybackState;
++- (void)close;
+ 
+ @end
+ 
+@@ -60,25 +68,36 @@ - (instancetype)initWithPipController:(pip_controller_t *)pipcontroller {
+     self = [super init];
+     if (!self)
+         return nil;
+-    _pipcontroller = pipcontroller;
++    atomic_init(&_closed, false);
+ 
+-    id drawable = (__bridge id)var_InheritAddress (pipcontroller, "drawable-nsobject");
++    id<VLCPictureInPictureDrawable> drawable =
++        (__bridge id)var_InheritAddress (pipcontroller, "drawable-nsobject");
+     
+     if (![drawable conformsToProtocol:@protocol(VLCPictureInPictureDrawable)])
+         return nil;
+     
+-    _drawable = drawable;
++    _mediaController = drawable.mediaController;
++    _pictureInPictureReady = [drawable.pictureInPictureReady copy];
++    if ([drawable respondsToSelector:@selector(canStartPictureInPictureAutomaticallyFromInline)])
++        _canStartAutomaticallyFromInline =
++            [drawable canStartPictureInPictureAutomaticallyFromInline];
++    else
++        _canStartAutomaticallyFromInline = YES;
+ 
+     return self;
+ }
+ 
+ - (void)prepare:(AVSampleBufferDisplayLayer *)layer {
+-    if (![AVPictureInPictureController isPictureInPictureSupported]) {
+-        msg_Err(_pipcontroller, "Picture In Picture isn't supported");
++    NSAssert([NSThread isMainThread], @"PiP preparation must run on the main thread");
++    if (atomic_load_explicit(&_closed, memory_order_acquire))
++        return;
++    if (![AVPictureInPictureController isPictureInPictureSupported])
++        return;
++    if (_avPipController != nil)
+         return;
+-    }
+         
+     assert(layer);
++    _displayLayer = layer;
+     AVPictureInPictureControllerContentSource *avPipSource;
+     avPipSource = [
+         [AVPictureInPictureControllerContentSource alloc]
+@@ -89,20 +108,11 @@ - (void)prepare:(AVSampleBufferDisplayLayer *)layer {
+         [AVPictureInPictureController alloc]
+             initWithContentSource:avPipSource
+     ];
+-    void *mediaController = (__bridge void*)_drawable.mediaController;
+-    BOOL isMediaSeekable = (BOOL)_pipcontroller->media_cbs->is_media_seekable(mediaController);
+-    avPipController.requiresLinearPlayback = !isMediaSeekable;
++    avPipController.requiresLinearPlayback = ![_mediaController isMediaSeekable];
+     avPipController.delegate = self;
+ #if TARGET_OS_IOS
+-    // Check if the drawable implements the new method to Controls whether PiP 
+-    // can start automatically when video enters inline mode
+-    if ([_drawable respondsToSelector:@selector(canStartPictureInPictureAutomaticallyFromInline)]) {
+-        avPipController.canStartPictureInPictureAutomaticallyFromInline = 
+-            [_drawable canStartPictureInPictureAutomaticallyFromInline];
+-    } else {
+-        // Use default value if method not implemented
+-        avPipController.canStartPictureInPictureAutomaticallyFromInline = YES;
+-    }
++    avPipController.canStartPictureInPictureAutomaticallyFromInline =
++        _canStartAutomaticallyFromInline;
+ #endif
+     _avPipController = avPipController;
+ 
+@@ -111,29 +121,43 @@ - (void)prepare:(AVSampleBufferDisplayLayer *)layer {
+                        forKeyPath:@"isPictureInPicturePossible"
+                           options:NSKeyValueObservingOptionInitial|NSKeyValueObservingOptionNew
+                           context:NULL];
++    _observingPictureInPicturePossible = YES;
+ 
+-    _drawable.pictureInPictureReady(self);
++    if (!atomic_load_explicit(&_closed, memory_order_acquire) && _pictureInPictureReady)
++        _pictureInPictureReady(self);
+ }
+ 
+ - (void)close {
+-    AVPictureInPictureController *avPipController =
+-        (AVPictureInPictureController *)_avPipController;
+-    NSObject *observer = self;
+-    dispatch_async(dispatch_get_main_queue(),^{
++    if (atomic_exchange_explicit(&_closed, true, memory_order_acq_rel))
++        return;
++
++    dispatch_block_t cleanup = ^{
++        AVPictureInPictureController *avPipController =
++            (AVPictureInPictureController *)self->_avPipController;
++        if (avPipController.isPictureInPictureActive)
++            [avPipController stopPictureInPicture];
++        if (self->_observingPictureInPicturePossible) {
++            [avPipController removeObserver:self
++                                 forKeyPath:@"isPictureInPicturePossible"];
++            self->_observingPictureInPicturePossible = NO;
++        }
++        avPipController.delegate = nil;
+         avPipController.contentSource = nil;
+-        [avPipController removeObserver:observer forKeyPath:@"isPictureInPicturePossible"];
+-    });
+-    _avPipController = nil;
++        self.stateChangeEventHandler = nil;
++        self->_avPipController = nil;
++    };
++
++    if ([NSThread isMainThread])
++        cleanup();
++    else
++        dispatch_async(dispatch_get_main_queue(), cleanup);
+ }
+ 
+ - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object
+                         change:(NSDictionary<NSKeyValueChangeKey,id> *)change
+                        context:(void *)context {
+-    if (object==_avPipController) {
+-        if ([keyPath isEqualToString:@"isPictureInPicturePossible"]) {
+-            msg_Dbg(_pipcontroller, "isPictureInPicturePossible:%d", [change[NSKeyValueChangeNewKey] boolValue]);
+-        }
+-    } else {
++    if (object != _avPipController ||
++        ![keyPath isEqualToString:@"isPictureInPicturePossible"]) {
+         [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+     }
+ }
+@@ -147,49 +171,81 @@ - (void)pictureInPictureController:(AVPictureInPictureController *)pictureInPict
+ 
+ - (void)pictureInPictureController:(AVPictureInPictureController *)pictureInPictureController
+                         setPlaying:(BOOL)playing {
+-    assert(_pipcontroller->media_cbs);
+-    void *mediaController = (__bridge void*)_drawable.mediaController;
+-    bool isPlaying = _pipcontroller->media_cbs->is_media_playing(mediaController);
++    if (atomic_load_explicit(&_closed, memory_order_acquire))
++        return;
++    id<VLCPictureInPictureMediaControlling> mediaController = _mediaController;
++    if (!mediaController)
++        return;
++    BOOL isPlaying = mediaController.isMediaPlaying;
+     if(isPlaying && !playing)
+-        _pipcontroller->media_cbs->pause(mediaController);    
++        [mediaController pause];
+     if(!isPlaying && playing)
+-        _pipcontroller->media_cbs->play(mediaController);
++        [mediaController play];
+ }
+ 
+ - (void)pictureInPictureController:(AVPictureInPictureController *)pictureInPictureController
+                     skipByInterval:(CMTime)skipInterval
+                  completionHandler:(void (^)(void))completionHandler {
+-    assert(_pipcontroller->media_cbs);
++    if (atomic_load_explicit(&_closed, memory_order_acquire)) {
++        completionHandler();
++        return;
++    }
++    id<VLCPictureInPictureMediaControlling> mediaController = _mediaController;
++    if (!mediaController) {
++        completionHandler();
++        return;
++    }
++    if (!CMTIME_IS_NUMERIC(skipInterval)) {
++        completionHandler();
++        return;
++    }
+     Float64 time_sec = CMTimeGetSeconds(skipInterval);
+-    
+-    void *mediaController = (__bridge void*)_drawable.mediaController;
+-    int64_t offset = time_sec * 1e3;
+-    _pipcontroller->media_cbs->seek_by(offset, completionHandler, mediaController);
++    if (!isfinite(time_sec)) {
++        completionHandler();
++        return;
++    }
++    int64_t offset;
++    if (time_sec >= (Float64)INT64_MAX / 1e3)
++        offset = INT64_MAX;
++    else if (time_sec <= (Float64)INT64_MIN / 1e3)
++        offset = INT64_MIN;
++    else
++        offset = (int64_t)(time_sec * 1e3);
++    [mediaController seekBy:offset completion:completionHandler];
+ }
+ 
+ - (BOOL)pictureInPictureControllerIsPlaybackPaused:(AVPictureInPictureController *)pictureInPictureController {
+-    assert(_pipcontroller->media_cbs);
+-    void *mediaController = (__bridge void*)_drawable.mediaController;
+-    return ! _pipcontroller->media_cbs->is_media_playing(mediaController);
++    if (atomic_load_explicit(&_closed, memory_order_acquire))
++        return YES;
++    id<VLCPictureInPictureMediaControlling> mediaController = _mediaController;
++    return mediaController ? !mediaController.isMediaPlaying : YES;
+ }
+ 
+ - (CMTimeRange)pictureInPictureControllerTimeRangeForPlayback:(AVPictureInPictureController *)pictureInPictureController {
+-    assert(_pipcontroller->media_cbs);
+-    //TODO: Handle media duration
+-    void *mediaController = (__bridge void*)_drawable.mediaController;
+-    const CMTimeRange live = CMTimeRangeMake(kCMTimeNegativeInfinity, kCMTimePositiveInfinity);
+-    
+-    int64_t length = _pipcontroller->media_cbs->media_length(mediaController);
+-    if (length == VLC_TICK_INVALID)
++    if (atomic_load_explicit(&_closed, memory_order_acquire))
++        return kCMTimeRangeInvalid;
++    id<VLCPictureInPictureMediaControlling> mediaController = _mediaController;
++    if (!mediaController)
++        return kCMTimeRangeInvalid;
++    const CMTimeRange live = CMTimeRangeMake(kCMTimeZero, kCMTimePositiveInfinity);
++
++    int64_t length = mediaController.mediaLength;
++    if (length <= 0)
+         return live;
+ 
+-    int64_t time = _pipcontroller->media_cbs->media_time(mediaController);
+-
+-    CFTimeInterval ca_now = CACurrentMediaTime();
+-    CFTimeInterval time_sec = ((Float64)time) * 1e-3;
+-    CFTimeInterval start = ca_now - time_sec;
+-    CFTimeInterval duration = ((Float64)length) * 1e-3;
+-    return CMTimeRangeMake(CMTimeMakeWithSeconds(start, 1000000), CMTimeMakeWithSeconds(duration, 1000000));
++    int64_t time = mediaController.mediaTime;
++    if (time < 0)
++        time = 0;
++    else if (time >= length)
++        time = length - 1;
++
++    CMTime current =
++        CMTimebaseGetTime(_displayLayer.sampleBufferRenderer.timebase);
++    if (!CMTIME_IS_NUMERIC(current))
++        current = CMClockGetTime(CMClockGetHostTimeClock());
++    CMTime start = CMTimeSubtract(current, CMTimeMake(time, 1000));
++    CMTime duration = CMTimeMake(length, 1000);
++    return CMTimeRangeMake(start, duration);
+ }
+ 
+ - (BOOL)pictureInPictureControllerShouldProhibitBackgroundAudioPlayback:(AVPictureInPictureController *)pictureInPictureController {
+@@ -204,34 +260,41 @@ - (void)pictureInPictureControllerWillStartPictureInPicture:(AVPictureInPictureC
+      * pictureInPictureControllerTimeRangeForPlayback: isn't automatically
+      * called each time PiP is activated
+      */
+-    [self invalidatePlaybackState];
++    if (!atomic_load_explicit(&_closed, memory_order_acquire))
++        [self invalidatePlaybackState];
+ }
+ 
+ - (void)pictureInPictureControllerDidStartPictureInPicture:(AVPictureInPictureController *)pictureInPictureController {
+-    if (_stateChangeEventHandler)
++    if (!atomic_load_explicit(&_closed, memory_order_acquire) && _stateChangeEventHandler)
+         _stateChangeEventHandler(YES);
+ }
+ 
+ - (void)pictureInPictureControllerDidStopPictureInPicture:(AVPictureInPictureController *)pictureInPictureController {
+-    if(_stateChangeEventHandler)
++    if (!atomic_load_explicit(&_closed, memory_order_acquire) && _stateChangeEventHandler)
+         _stateChangeEventHandler(NO);
+ }
+ 
+ #pragma mark - VLCDisplayPictureInPictureControlling
+ 
+ - (void)startPictureInPicture {
++    if (atomic_load_explicit(&_closed, memory_order_acquire))
++        return;
+     AVPictureInPictureController *avPipController =
+         (AVPictureInPictureController *)_avPipController;
+     [avPipController startPictureInPicture];
+ }
+ 
+ - (void)stopPictureInPicture {
++    if (atomic_load_explicit(&_closed, memory_order_acquire))
++        return;
+     AVPictureInPictureController *avPipController =
+         (AVPictureInPictureController *)_avPipController;
+     [avPipController stopPictureInPicture];
+ }
+ 
+ - (void)invalidatePlaybackState {
++    if (atomic_load_explicit(&_closed, memory_order_acquire))
++        return;
+     AVPictureInPictureController *avPipController =
+         (AVPictureInPictureController *)_avPipController;
+     [avPipController invalidatePlaybackState];
+@@ -239,58 +302,28 @@ - (void)invalidatePlaybackState {
+ 
+ @end
+ 
+-static void SetDisplayLayer( pip_controller_t *pipcontroller, void *layer) {
++static void *HoldPresentationContext(pip_controller_t *pipcontroller) {
++    if (pipcontroller->p_sys == NULL)
++        return NULL;
++    id context = (__bridge id)pipcontroller->p_sys;
++    return (__bridge_retained void *)context;
++}
++
++static void SetDisplayLayerOnContext(void *opaque, void *layer) {
+     if (@available(macOS 12.0, iOS 15.0, tvos 15.0, *)) {
+-        VLCPictureInPictureController *sys = 
+-            (__bridge VLCPictureInPictureController*)pipcontroller->p_sys;
+-        
++        VLCPictureInPictureController *sys =
++            (__bridge VLCPictureInPictureController *)opaque;
+         AVSampleBufferDisplayLayer *displayLayer =
+             (__bridge AVSampleBufferDisplayLayer *)layer;
+-        
+         [sys prepare:displayLayer];
+     }
+ }
+ 
+-static void PipControllerMediaPlay(void *opaque) {
+-    id<VLCPictureInPictureMediaControlling> mediaController;
+-    mediaController = (__bridge id<VLCPictureInPictureMediaControlling>)opaque;
+-    [mediaController play];
+-}
+-
+-static void PipControllerMediaPause(void *opaque) {
+-    id<VLCPictureInPictureMediaControlling> mediaController;
+-    mediaController = (__bridge id<VLCPictureInPictureMediaControlling>)opaque;
+-    [mediaController pause];
+-}
+-
+-static void PipControllerMediaSeekBy(vlc_tick_t time, dispatch_block_t completion, void *opaque) {
+-    id<VLCPictureInPictureMediaControlling> mediaController;
+-    mediaController = (__bridge id<VLCPictureInPictureMediaControlling>)opaque;
+-    [mediaController seekBy:time completion:completion];
+-}
+-
+-static vlc_tick_t PipControllerMediaGetLength(void *opaque) {
+-    id<VLCPictureInPictureMediaControlling> mediaController;
+-    mediaController = (__bridge id<VLCPictureInPictureMediaControlling>)opaque;
+-    return [mediaController mediaLength];
+-}
+-
+-static vlc_tick_t PipControllerMediaGetTime(void *opaque) {
+-    id<VLCPictureInPictureMediaControlling> mediaController;
+-    mediaController = (__bridge id<VLCPictureInPictureMediaControlling>)opaque;
+-    return [mediaController mediaTime];
+-}
+-
+-static bool PipControllerMediaIsSeekable(void *opaque) {
+-    id<VLCPictureInPictureMediaControlling> mediaController;
+-    mediaController = (__bridge id<VLCPictureInPictureMediaControlling>)opaque;
+-    return (bool)[mediaController isMediaSeekable];
+-}
+-
+-static bool PipControllerMediaIsPlaying(void *opaque) {
+-    id<VLCPictureInPictureMediaControlling> mediaController;
+-    mediaController = (__bridge id<VLCPictureInPictureMediaControlling>)opaque;
+-    return [mediaController isMediaPlaying];
++static void ReleasePresentationContext(void *opaque) {
++    if (opaque != NULL) {
++        id context = (__bridge_transfer id)opaque;
++        (void)context;
++    }
+ }
+ 
+ static int CloseController( pip_controller_t *pipcontroller )
+@@ -298,6 +331,7 @@ static int CloseController( pip_controller_t *pipcontroller )
+     if (@available(macOS 12.0, iOS 15.0, tvos 15.0, *)) {
+         VLCPictureInPictureController *sys = 
+             (__bridge_transfer VLCPictureInPictureController*)pipcontroller->p_sys;
++        pipcontroller->p_sys = NULL;
+ 
+         [sys close];
+     }
+@@ -308,24 +342,14 @@ static int CloseController( pip_controller_t *pipcontroller )
+ static int OpenController( pip_controller_t *pipcontroller )
+ {
+     static const struct pip_controller_operations ops = {
+-        SetDisplayLayer, 
+-        CloseController
++        .hold_presentation_context = HoldPresentationContext,
++        .set_display_layer_on_context = SetDisplayLayerOnContext,
++        .release_presentation_context = ReleasePresentationContext,
++        .close = CloseController,
+     };
+ 
+     pipcontroller->ops = &ops;
+ 
+-    static const struct pip_controller_media_callbacks cbs = {
+-        PipControllerMediaPlay,
+-        PipControllerMediaPause,
+-        PipControllerMediaSeekBy,
+-        PipControllerMediaGetLength,
+-        PipControllerMediaGetTime,
+-        PipControllerMediaIsSeekable,
+-        PipControllerMediaIsPlaying
+-    };
+-    
+-    pipcontroller->media_cbs = &cbs;
+-
+     if (@available(macOS 12.0, iOS 15.0, tvos 15.0, *)) {
+         VLCPictureInPictureController *sys = 
+         [[VLCPictureInPictureController alloc] 
+diff --git a/modules/video_output/apple/VLCSampleBufferDisplay.m b/modules/video_output/apple/VLCSampleBufferDisplay.m
+index 2d90143261..ebe5a3be95 100644
+--- a/modules/video_output/apple/VLCSampleBufferDisplay.m
++++ b/modules/video_output/apple/VLCSampleBufferDisplay.m
+@@ -33,6 +33,8 @@
+ #include <vlc_atomic.h>
+ #include <vlc_modules.h>
+ 
++#include <limits.h>
++
+ #import "VLCDrawable.h"
+ 
+ #import <AVFoundation/AVFoundation.h>
+@@ -40,6 +42,7 @@
+ 
+ #include "../../codec/vt_utils.h"
+ #include "vlc_pip_controller.h"
++#include "VLCSampleBufferGeometry.h"
+ 
+ #import <VideoToolbox/VideoToolbox.h>
+ 
+@@ -70,7 +73,8 @@ typedef NS_ENUM(NSUInteger, VLCSampleBufferPixelFlip) {
+ 
+ @interface VLCRotatedPixelBufferProvider : NSObject
+ - (CVPixelBufferRef)provideFromBuffer:(CVPixelBufferRef)pixelBuffer
+-                             rotation:(VLCSampleBufferPixelRotation)rotation;
++                          outputWidth:(size_t)outputWidth
++                         outputHeight:(size_t)outputHeight;
+ @end
+ 
+ @implementation VLCRotatedPixelBufferProvider
+@@ -78,40 +82,40 @@ @implementation VLCRotatedPixelBufferProvider
+     CVPixelBufferPoolRef _rotationPool;
+ }
+ 
+-- (BOOL)_validateRotationPoolWithBuffer:(CVPixelBufferRef)pixelBuffer
+-                               rotation:(VLCSampleBufferPixelRotation)rotation
++- (BOOL)_validatePoolWithBuffer:(CVPixelBufferRef)pixelBuffer
++                     outputWidth:(size_t)outputWidth
++                    outputHeight:(size_t)outputHeight
+ {
+     if (!_rotationPool)
+         return NO;
+ 
+-    uint32_t poolWidth, poolHeigth, bufferWidth, bufferHeight;
+-
+-    bufferWidth = (uint32_t)CVPixelBufferGetWidth(pixelBuffer);
+-    bufferHeight = (uint32_t)CVPixelBufferGetHeight(pixelBuffer);
+-    if (rotation == kVLCSampleBufferPixelRotation_90CW || rotation == kVLCSampleBufferPixelRotation_90CCW)
+-    {
+-        uint32_t swap = bufferWidth;
+-        bufferWidth = bufferHeight;
+-        bufferHeight = swap;
+-    }
+-
+     CFDictionaryRef poolAttr = CVPixelBufferPoolGetPixelBufferAttributes(_rotationPool);
+     if (!poolAttr) {
+         return NO;
+     }
+     CFTypeRef value;
++    int64_t poolValue;
+     value = CFDictionaryGetValue(poolAttr, kCVPixelBufferWidthKey);
+     if (!value || CFGetTypeID(value) != CFNumberGetTypeID()
+-        || !CFNumberGetValue(value, kCFNumberIntType, &poolWidth)
+-        || poolWidth != bufferWidth)
++        || !CFNumberGetValue(value, kCFNumberSInt64Type, &poolValue)
++        || poolValue < 0 || (uint64_t)poolValue != outputWidth)
+     {
+         return NO;
+     }
+ 
+     value = CFDictionaryGetValue(poolAttr, kCVPixelBufferHeightKey);
+     if (!value || CFGetTypeID(value) != CFNumberGetTypeID()
+-        || !CFNumberGetValue(value, kCFNumberIntType, &poolHeigth)
+-        || poolHeigth != bufferHeight)
++        || !CFNumberGetValue(value, kCFNumberSInt64Type, &poolValue)
++        || poolValue < 0 || (uint64_t)poolValue != outputHeight)
++    {
++        return NO;
++    }
++
++    value = CFDictionaryGetValue(poolAttr, kCVPixelBufferPixelFormatTypeKey);
++    if (!value || CFGetTypeID(value) != CFNumberGetTypeID()
++        || !CFNumberGetValue(value, kCFNumberSInt64Type, &poolValue)
++        || poolValue < 0
++        || (OSType)poolValue != CVPixelBufferGetPixelFormatType(pixelBuffer))
+     {
+         return NO;
+     }
+@@ -120,18 +124,21 @@ - (BOOL)_validateRotationPoolWithBuffer:(CVPixelBufferRef)pixelBuffer
+ }
+ 
+ - (CVPixelBufferRef)provideFromBuffer:(CVPixelBufferRef)pixelBuffer
+-                             rotation:(VLCSampleBufferPixelRotation)rotation
++                          outputWidth:(size_t)outputWidth
++                         outputHeight:(size_t)outputHeight
+ {
+-    if (![self _validateRotationPoolWithBuffer:pixelBuffer rotation:rotation])
++    if (outputWidth == 0 || outputHeight == 0 ||
++        outputWidth > INT64_MAX || outputHeight > INT64_MAX)
++        return NULL;
++
++    if (![self _validatePoolWithBuffer:pixelBuffer
++                            outputWidth:outputWidth
++                           outputHeight:outputHeight]) {
+         CVPixelBufferPoolRelease(_rotationPool);
++        _rotationPool = NULL;
++    }
+ 
+     if (!_rotationPool) {
+-        bool rotated = rotation == kVLCSampleBufferPixelRotation_90CW || rotation == kVLCSampleBufferPixelRotation_90CCW;
+-        uint32_t srcWidth = CVPixelBufferGetWidth(pixelBuffer);
+-        uint32_t srcHeight = CVPixelBufferGetHeight(pixelBuffer);
+-        uint32_t dstWidth = rotated ? srcHeight : srcWidth;
+-        uint32_t dstHeight = rotated ? srcWidth : srcHeight;
+-
+         CFTypeRef keys[] = {
+             kCVPixelBufferPixelFormatTypeKey,
+             kCVPixelBufferWidthKey,
+@@ -147,8 +154,8 @@ - (CVPixelBufferRef)provideFromBuffer:(CVPixelBufferRef)pixelBuffer
+ 
+         CFTypeRef values[] = {
+             (__bridge CFNumberRef)(@(CVPixelBufferGetPixelFormatType(pixelBuffer))),
+-            (__bridge CFNumberRef)(@(dstWidth)),
+-            (__bridge CFNumberRef)(@(dstHeight)),
++            (__bridge CFNumberRef)(@(outputWidth)),
++            (__bridge CFNumberRef)(@(outputHeight)),
+             (__bridge CFDictionaryRef)@{},
+             kCFBooleanTrue,
+ #if (!defined(TARGET_OS_VISION) || !TARGET_OS_VISION) && !TARGET_OS_MACCATALYST
+@@ -171,16 +178,6 @@ - (CVPixelBufferRef)provideFromBuffer:(CVPixelBufferRef)pixelBuffer
+     if (status != noErr) {
+         return NULL;
+     }
+-    CFDictionaryRef attachments;
+-    if (@available(iOS 15.0, tvOS 15.0, macOS 12.0, *)) {
+-        attachments = CVBufferCopyAttachments(pixelBuffer, kCVAttachmentMode_ShouldPropagate);
+-    } else {
+-        attachments = CVBufferGetAttachments(pixelBuffer, kCVAttachmentMode_ShouldPropagate);
+-    }
+-    CVBufferSetAttachments(rotated, attachments, kCVAttachmentMode_ShouldPropagate);
+-    if (@available(iOS 15.0, tvOS 15.0, macOS 12.0, *)) {
+-        CFRelease(attachments);
+-    }
+     return rotated;
+ }
+ 
+@@ -190,6 +187,113 @@ - (void)dealloc
+ }
+ @end
+ 
++#pragma mark - VLCPixelBufferCropContext
++
++@interface VLCPixelBufferCropContext : NSObject
++- (CVPixelBufferRef)crop:(CVPixelBufferRef)pixelBuffer
++                    rect:(vlc_samplebuffer_crop)crop;
++@end
++
++@implementation VLCPixelBufferCropContext
++{
++    VLCRotatedPixelBufferProvider *_bufferProvider;
++    VTPixelTransferSessionRef _transferSession;
++}
++
++- (instancetype)init
++{
++    self = [super init];
++    if (!self)
++        return nil;
++
++    OSStatus status = VTPixelTransferSessionCreate(NULL, &_transferSession);
++    if (status != noErr)
++        return nil;
++
++    status = VTSessionSetProperty(_transferSession,
++                                  kVTPixelTransferPropertyKey_ScalingMode,
++                                  kVTScalingMode_CropSourceToCleanAperture);
++    if (status == noErr)
++        status = VTSessionSetProperty(
++            _transferSession, kVTPixelTransferPropertyKey_RealTime,
++            kCFBooleanTrue);
++    if (status != noErr)
++    {
++        VTPixelTransferSessionInvalidate(_transferSession);
++        CFRelease(_transferSession);
++        _transferSession = NULL;
++        return nil;
++    }
++
++    _bufferProvider = [VLCRotatedPixelBufferProvider new];
++    return self;
++}
++
++- (CVPixelBufferRef)crop:(CVPixelBufferRef)pixelBuffer
++                    rect:(vlc_samplebuffer_crop)crop
++{
++    if (_transferSession == NULL)
++        return NULL;
++
++    CVPixelBufferRef cropped =
++        [_bufferProvider provideFromBuffer:pixelBuffer
++                               outputWidth:crop.width
++                              outputHeight:crop.height];
++    if (cropped == NULL)
++        return NULL;
++
++    size_t sourceWidth = CVPixelBufferGetWidth(pixelBuffer);
++    size_t sourceHeight = CVPixelBufferGetHeight(pixelBuffer);
++    NSDictionary *cleanAperture = @{
++        (__bridge NSString *)kCVImageBufferCleanApertureWidthKey:
++            @(crop.width),
++        (__bridge NSString *)kCVImageBufferCleanApertureHeightKey:
++            @(crop.height),
++        (__bridge NSString *)kCVImageBufferCleanApertureHorizontalOffsetKey:
++            @((double)crop.x + (double)crop.width / 2.0 -
++              (double)sourceWidth / 2.0),
++        (__bridge NSString *)kCVImageBufferCleanApertureVerticalOffsetKey:
++            @((double)crop.y + (double)crop.height / 2.0 -
++              (double)sourceHeight / 2.0),
++    };
++
++    CVAttachmentMode previousMode = kCVAttachmentMode_ShouldPropagate;
++    CFTypeRef previousAperture =
++        CVBufferCopyAttachment(pixelBuffer, kCVImageBufferCleanApertureKey,
++                               &previousMode);
++    CVBufferSetAttachment(pixelBuffer, kCVImageBufferCleanApertureKey,
++                          (__bridge CFDictionaryRef)cleanAperture,
++                          kCVAttachmentMode_ShouldPropagate);
++    OSStatus status = VTPixelTransferSessionTransferImage(
++        _transferSession, pixelBuffer, cropped);
++    CVBufferRemoveAttachment(pixelBuffer, kCVImageBufferCleanApertureKey);
++    if (previousAperture != NULL)
++    {
++        CVBufferSetAttachment(pixelBuffer, kCVImageBufferCleanApertureKey,
++                              previousAperture, previousMode);
++        CFRelease(previousAperture);
++    }
++
++    if (status != noErr)
++    {
++        CVPixelBufferRelease(cropped);
++        return NULL;
++    }
++
++    return cropped;
++}
++
++- (void)dealloc
++{
++    if (_transferSession != NULL)
++    {
++        VTPixelTransferSessionInvalidate(_transferSession);
++        CFRelease(_transferSession);
++    }
++}
++
++@end
++
+ #pragma mark - VLCPixelBufferRotationContext
+ 
+ @protocol VLCPixelBufferRotationContext
+@@ -210,6 +314,8 @@ @implementation VLCPixelBufferRotationContextVT
+ {
+     VLCRotatedPixelBufferProvider *_bufferProvider;
+     VTPixelRotationSessionRef _rotationSession;
++    BOOL _rotationValid;
++    BOOL _flipValid;
+ }
+ 
+ @synthesize rotation = _rotation, flip = _flip;
+@@ -222,6 +328,8 @@ - (instancetype)init
+             OSStatus status = VTPixelRotationSessionCreate(NULL, &_rotationSession);
+             if (status != noErr)
+                 return nil;
++            _rotationValid = YES;
++            _flipValid = YES;
+         } else {
+             return nil;
+         }
+@@ -230,40 +338,67 @@ - (instancetype)init
+ }
+ 
+ - (void)setRotation:(VLCSampleBufferPixelRotation)rotation {
+-    if (_rotation == rotation)
++    if (_rotation == rotation && _rotationValid)
+         return;
+-    _rotation = rotation;
++    OSStatus status;
+     switch (rotation) {
+         case kVLCSampleBufferPixelRotation_90CW:
+-            VTSessionSetProperty(_rotationSession, kVTPixelRotationPropertyKey_Rotation, kVTRotation_CW90);
++            status = VTSessionSetProperty(_rotationSession,
++                                          kVTPixelRotationPropertyKey_Rotation,
++                                          kVTRotation_CW90);
+             break;
+         case kVLCSampleBufferPixelRotation_180:
+-            VTSessionSetProperty(_rotationSession, kVTPixelRotationPropertyKey_Rotation, kVTRotation_180);
++            status = VTSessionSetProperty(_rotationSession,
++                                          kVTPixelRotationPropertyKey_Rotation,
++                                          kVTRotation_180);
+             break;
+         case kVLCSampleBufferPixelRotation_90CCW:
+-            VTSessionSetProperty(_rotationSession, kVTPixelRotationPropertyKey_Rotation, kVTRotation_CCW90);
++            status = VTSessionSetProperty(_rotationSession,
++                                          kVTPixelRotationPropertyKey_Rotation,
++                                          kVTRotation_CCW90);
+             break;
+         case kVLCSampleBufferPixelRotation_0:
+         default:
+-            VTSessionSetProperty(_rotationSession, kVTPixelRotationPropertyKey_Rotation, kVTRotation_0);
++            status = VTSessionSetProperty(_rotationSession,
++                                          kVTPixelRotationPropertyKey_Rotation,
++                                          kVTRotation_0);
+             break;
+     }
++    _rotationValid = status == noErr;
++    if (_rotationValid)
++        _rotation = rotation;
+ }
+ 
+ - (void)setFlip:(VLCSampleBufferPixelFlip)flip {
+-    if (_flip == flip)
++    if (_flip == flip && _flipValid)
+         return;
+-    _flip = flip;
+-    VTSessionSetProperty(_rotationSession, kVTPixelRotationPropertyKey_FlipHorizontalOrientation, flip & kVLCSampleBufferPixelFlip_H ? kCFBooleanTrue : kCFBooleanFalse);
+-    VTSessionSetProperty(_rotationSession, kVTPixelRotationPropertyKey_FlipVerticalOrientation, flip & kVLCSampleBufferPixelFlip_V ? kCFBooleanTrue : kCFBooleanFalse);
++    OSStatus horizontalStatus = VTSessionSetProperty(
++        _rotationSession, kVTPixelRotationPropertyKey_FlipHorizontalOrientation,
++        flip & kVLCSampleBufferPixelFlip_H ? kCFBooleanTrue : kCFBooleanFalse);
++    OSStatus verticalStatus = VTSessionSetProperty(
++        _rotationSession, kVTPixelRotationPropertyKey_FlipVerticalOrientation,
++        flip & kVLCSampleBufferPixelFlip_V ? kCFBooleanTrue : kCFBooleanFalse);
++    _flipValid = horizontalStatus == noErr && verticalStatus == noErr;
++    if (_flipValid)
++        _flip = flip;
+ }
+ 
+ - (CVPixelBufferRef)rotate:(CVPixelBufferRef)pixelBuffer {
++    if (!_rotationValid || !_flipValid)
++        return NULL;
++
+     if (!_bufferProvider)
+         _bufferProvider = [VLCRotatedPixelBufferProvider new];
+ 
++    bool swapsAxes =
++        _rotation == kVLCSampleBufferPixelRotation_90CW ||
++        _rotation == kVLCSampleBufferPixelRotation_90CCW;
++    size_t sourceWidth = CVPixelBufferGetWidth(pixelBuffer);
++    size_t sourceHeight = CVPixelBufferGetHeight(pixelBuffer);
+     CVPixelBufferRef rotated;
+-    rotated = [_bufferProvider provideFromBuffer:pixelBuffer rotation:_rotation];
++    rotated = [_bufferProvider provideFromBuffer:pixelBuffer
++                                     outputWidth:swapsAxes ? sourceHeight : sourceWidth
++                                    outputHeight:swapsAxes ? sourceWidth : sourceHeight];
+     if (!rotated)
+         return NULL;
+ 
+@@ -288,124 +423,14 @@ - (void)dealloc
+ 
+ #endif // IS_VT_ROTATION_API_AVAILABLE
+ 
+-#pragma mark - VLCPixelBufferRotationContextCI
+-
+-@interface VLCPixelBufferRotationContextCI : NSObject <VLCPixelBufferRotationContext>
+-
+-@end
+-
+-@implementation VLCPixelBufferRotationContextCI
+-{
+-    VLCRotatedPixelBufferProvider *_bufferProvider;
+-    CIContext *_rotationContext;
+-    CGImagePropertyOrientation _orientation;
+-}
+-
+-@synthesize rotation = _rotation, flip = _flip;
+-
+-- (instancetype)init
+-{
+-    self = [super init];
+-    if (self) {
+-        _rotationContext = [[CIContext alloc] initWithOptions:nil];
+-        if (!_rotationContext)
+-            return nil;
+-    }
+-    return self;
+-}
+-
+-- (void)_updateOrientation {
+-    switch (_rotation) {
+-        case kVLCSampleBufferPixelRotation_90CW:
+-        {
+-            if (_flip == kVLCSampleBufferPixelFlip_None)
+-                _orientation = kCGImagePropertyOrientationRight;
+-            if (_flip == kVLCSampleBufferPixelFlip_H)
+-                _orientation = kCGImagePropertyOrientationLeftMirrored;
+-            if (_flip == kVLCSampleBufferPixelFlip_V)
+-                _orientation = kCGImagePropertyOrientationRightMirrored;
+-            if (_flip == (kVLCSampleBufferPixelFlip_H | kVLCSampleBufferPixelFlip_V))
+-                _orientation = kCGImagePropertyOrientationLeft;
+-            break;
+-        }
+-        case kVLCSampleBufferPixelRotation_180:
+-        {
+-            if (_flip == kVLCSampleBufferPixelFlip_None)
+-                _orientation = kCGImagePropertyOrientationDown;
+-            if (_flip == kVLCSampleBufferPixelFlip_H)
+-                _orientation = kCGImagePropertyOrientationDownMirrored;
+-            if (_flip == kVLCSampleBufferPixelFlip_V)
+-                _orientation = kCGImagePropertyOrientationUpMirrored;
+-            if (_flip == (kVLCSampleBufferPixelFlip_H | kVLCSampleBufferPixelFlip_V))
+-                _orientation = kCGImagePropertyOrientationUp;
+-            break;
+-        }
+-        case kVLCSampleBufferPixelRotation_90CCW:
+-        {
+-            if (_flip == kVLCSampleBufferPixelFlip_None)
+-                _orientation = kCGImagePropertyOrientationLeft;
+-            if (_flip == kVLCSampleBufferPixelFlip_H)
+-                _orientation = kCGImagePropertyOrientationRightMirrored;
+-            if (_flip == kVLCSampleBufferPixelFlip_V)
+-                _orientation = kCGImagePropertyOrientationLeftMirrored;
+-            if (_flip == (kVLCSampleBufferPixelFlip_H | kVLCSampleBufferPixelFlip_V))
+-                _orientation = kCGImagePropertyOrientationRight;
+-            break;
+-        }
+-        case kVLCSampleBufferPixelRotation_0:
+-        default:
+-        {
+-            if (_flip == kVLCSampleBufferPixelFlip_None)
+-                _orientation = kCGImagePropertyOrientationUp;
+-            if (_flip == kVLCSampleBufferPixelFlip_H)
+-                _orientation = kCGImagePropertyOrientationUpMirrored;
+-            if (_flip == kVLCSampleBufferPixelFlip_V)
+-                _orientation = kCGImagePropertyOrientationDownMirrored;
+-            if (_flip == (kVLCSampleBufferPixelFlip_H | kVLCSampleBufferPixelFlip_V))
+-                _orientation = kCGImagePropertyOrientationDown;
+-            break;
+-        }
+-    }
+-}
+-
+-- (void)setRotation:(VLCSampleBufferPixelRotation)rotation {
+-    if (_rotation == rotation)
+-        return;
+-    _rotation = rotation;
+-    [self _updateOrientation];
+-}
+-
+-- (void)setFlip:(VLCSampleBufferPixelFlip)flip {
+-    if (_flip == flip)
+-        return;
+-    _flip = flip;
+-    [self _updateOrientation];
+-}
+-
+-- (CVPixelBufferRef)rotate:(CVPixelBufferRef)pixelBuffer {
+-    if (!_bufferProvider)
+-        _bufferProvider = [VLCRotatedPixelBufferProvider new];
+-
+-    CVPixelBufferRef rotated;
+-    rotated = [_bufferProvider provideFromBuffer:pixelBuffer rotation:_rotation];
+-    if (!rotated)
+-        return NULL;
+-
+-    CIImage *image = [[CIImage alloc] initWithCVPixelBuffer:pixelBuffer];
+-    image = [image imageByApplyingOrientation:_orientation];
+-    [_rotationContext render:image toCVPixelBuffer:rotated];
+-
+-    return rotated;
+-}
+-
+-@end
+-
+ static vlc_decoder_device * CVPXHoldDecoderDevice(vlc_object_t *o, void *sys)
+ {
+     VLC_UNUSED(o);
+     vout_display_t *vd = sys;
+     vlc_decoder_device *device =
+         vlc_decoder_device_Create(VLC_OBJECT(vd), vd->cfg->window);
++    if (device == NULL)
++        return NULL;
+     static const struct vlc_decoder_device_operations ops =
+     {
+         NULL,
+@@ -465,30 +490,75 @@ static void DeleteCVPXConverter( filter_t * p_converter )
+ static void DeletePipController( pip_controller_t * pipcontroller );
+ 
+ #pragma mark -
+-@class VLCSampleBufferSubpicture, VLCSampleBufferDisplay;
++@class VLCSampleBufferSubpicture;
+ 
+ @interface VLCSampleBufferSubpictureRegion: NSObject
+-@property (nonatomic, weak) VLCSampleBufferSubpicture *subpicture;
+-@property (nonatomic) CGRect backingFrame;
+-@property (nonatomic) CGImageRef image;
+-@property (nonatomic) CGFloat    alpha;
++{
++    CGRect _backingFrame;
++    CGImageRef _image;
++    CGFloat _alpha;
++}
++@property (nonatomic, readonly) CGRect backingFrame;
++@property (nonatomic, readonly) CGImageRef image;
++@property (nonatomic, readonly) CGFloat alpha;
++- (instancetype)initWithBackingFrame:(CGRect)backingFrame
++                                image:(CGImageRef)image
++                                alpha:(CGFloat)alpha;
+ @end
+ 
+ @implementation VLCSampleBufferSubpictureRegion
++@synthesize backingFrame = _backingFrame;
++@synthesize image = _image;
++@synthesize alpha = _alpha;
++
++- (instancetype)initWithBackingFrame:(CGRect)backingFrame
++                                image:(CGImageRef)image
++                                alpha:(CGFloat)alpha
++{
++    self = [super init];
++    if (!self)
++        return nil;
++
++    _backingFrame = backingFrame;
++    _image = CGImageRetain(image);
++    _alpha = alpha;
++    return self;
++}
++
+ - (void)dealloc {
+-    CGImageRelease(_image);
++    if (_image != NULL)
++        CGImageRelease(_image);
+ }
+ @end
+ 
+ #pragma mark -
+ 
+ @interface VLCSampleBufferSubpicture: NSObject
+-@property (nonatomic, weak) VLCSampleBufferDisplay *sys;
+-@property (nonatomic) NSArray<VLCSampleBufferSubpictureRegion *> *regions;
+-@property (nonatomic) int64_t order;
++{
++    NSArray<VLCSampleBufferSubpictureRegion *> *_regions;
++    int64_t _order;
++}
++@property (nonatomic, copy, readonly) NSArray<VLCSampleBufferSubpictureRegion *> *regions;
++@property (nonatomic, readonly) int64_t order;
++- (instancetype)initWithOrder:(int64_t)order
++                       regions:(NSArray<VLCSampleBufferSubpictureRegion *> *)regions;
+ @end
+ 
+ @implementation VLCSampleBufferSubpicture
++@synthesize regions = _regions;
++@synthesize order = _order;
++
++- (instancetype)initWithOrder:(int64_t)order
++                       regions:(NSArray<VLCSampleBufferSubpictureRegion *> *)regions
++{
++    self = [super init];
++    if (!self)
++        return nil;
++
++    _order = order;
++    _regions = [regions copy];
++    return self;
++}
+ 
+ @end
+ 
+@@ -640,14 +710,24 @@ @interface VLCSampleBufferDisplay: NSObject
+ {
+     @public
+     filter_t *converter;
++    atomic_uint geometryFailureCount;
++    CMSampleBufferRef pendingSampleBuffer;
+ }
+     @property (nonatomic, readonly, weak) VLCView *window;
+     @property (nonatomic, readonly) vout_display_t *vd;
++    @property (nonatomic) VLCView *displayClipView;
+     @property (nonatomic) VLCSampleBufferDisplayView *displayView;
+     @property (nonatomic) AVSampleBufferDisplayLayer *displayLayer;
++    @property (nonatomic, readonly) NSObject *displayLayerLock;
++    @property (nonatomic) BOOL displayClosed;
++    @property (nonatomic) BOOL displayPreparationScheduled;
+     @property (nonatomic) VLCSampleBufferSubpictureView *spuView;
+-    @property (nonatomic) VLCSampleBufferSubpicture *subpicture;
++    /* Producer-thread-only reference to the last immutable subtitle snapshot.
++     * Main-queue drawing receives the exact triggering snapshot through its
++     * block capture and never reads this mutable publication slot. */
++    @property (nonatomic, strong) VLCSampleBufferSubpicture *subpicture;
+     @property (nonatomic) id<VLCPixelBufferRotationContext> rotationContext;
++    @property (nonatomic) VLCPixelBufferCropContext *cropContext;
+ 
+     @property (nonatomic, readonly) pip_controller_t *pipcontroller;
+ 
+@@ -657,57 +737,11 @@ - (instancetype)initWithVoutDisplay:(vout_display_t *)vd;
+     - (void)placeVideo:(vout_display_place_t)newPlace;
+ @end
+ 
+-/* The sample-buffer layer fits its enqueued frames by gravity, not by the
+- * core-computed place rectangle, so the display fitting mode is mapped to a
+- * gravity: the larger ("fit outside") mode covers and crops, every other mode
+- * preserves aspect inside the surface. */
+-static AVLayerVideoGravity VLCGravityForDisplayCfg(const vout_display_cfg_t *cfg)
+-{
+-    if (cfg->display.fitting == VLC_VIDEO_FIT_LARGER)
+-        return AVLayerVideoGravityResizeAspectFill;
+-    return AVLayerVideoGravityResizeAspect;
+-}
+-
+-/* A forced display aspect (libvlc_video_set_aspect_ratio) reaches the vout as a
+- * target place rectangle, but AVSampleBufferDisplayLayer still fits the natural
+- * pixel shape. Scale the natural aspect-fit box into VLC's computed place box so
+- * forced ratios visibly stretch while the default path remains identity. The
+- * fill (cover) path keeps its identity transform and uses layer gravity.
+- *
+- * Compute the transform on the vout thread. A vout_display_t must never be
+- * retained or dereferenced by the asynchronous main-queue presentation block. */
+-static CGAffineTransform VLCAspectStretchForDisplay(const vout_display_t *vd)
+-{
+-    const vout_display_place_t *p = vd->place;
+-    const video_format_t *source = vd->source;
+-    const vout_display_cfg_t *cfg = vd->cfg;
+-    CGAffineTransform t = CGAffineTransformIdentity;
+-    if (source && cfg && p->width > 0 && p->height > 0
+-        && source->i_visible_width > 0 && source->i_visible_height > 0
+-        && cfg->display.fitting != VLC_VIDEO_FIT_LARGER)
+-    {
+-        /* The display view is placed in p, so calculate the natural aspect-fit
+-         * box in that coordinate space before stretching it to the full box. */
+-        const double displayW = (double)p->width;
+-        const double displayH = (double)p->height;
+-        const double naturalAR =
+-            (double)source->i_visible_width / (double)source->i_visible_height;
+-        const double displayAR = displayW / displayH;
+-        double naturalW;
+-        double naturalH;
+-        if (naturalAR > displayAR) {
+-            naturalW = displayW;
+-            naturalH = displayW / naturalAR;
+-        } else {
+-            naturalW = displayH * naturalAR;
+-            naturalH = displayH;
+-        }
+-        if (naturalW > 0.0 && naturalH > 0.0)
+-            t = CGAffineTransformMakeScale((double)p->width / naturalW,
+-                                           (double)p->height / naturalH);
+-    }
+-    return t;
+-}
++/* VLC core already computes the final video rectangle in `vd->place`,
++ * including fitting, alignment, source SAR, rotation and forced DAR. Resize
++ * the sample to that one authoritative rectangle instead of interpreting its
++ * aspect a second time in AVSampleBufferDisplayLayer. The host clips an
++ * oversized place rectangle for cover/width/height fitting modes. */
+ 
+ @implementation VLCSampleBufferDisplay
+ 
+@@ -719,11 +753,16 @@ @implementation VLCSampleBufferDisplay
+     if (@available(iOS 16.0, tvOS 16.0, macOS 13.0, *))
+         _rotationContext = [VLCPixelBufferRotationContextVT new];
+ #endif
+-    if (!_rotationContext)
+-        _rotationContext = [VLCPixelBufferRotationContextCI new];
+     return _rotationContext;
+ }
+ 
++- (VLCPixelBufferCropContext *)cropContext
++{
++    if (!_cropContext)
++        _cropContext = [VLCPixelBufferCropContext new];
++    return _cropContext;
++}
++
+ 
+ - (instancetype)initWithVoutDisplay:(vout_display_t *)vd
+ {
+@@ -741,35 +780,30 @@ - (instancetype)initWithVoutDisplay:(vout_display_t *)vd
+     }
+ 
+     _window = window;
++    _displayLayerLock = [NSObject new];
+ 
+     _pipcontroller = CreatePipController(vd, (__bridge void *)self);
+ 
+     _vd = vd;
++    atomic_init(&geometryFailureCount, 0);
+ 
+     return self;
+ }
+ 
+-- (void)preparePictureInPicture {
+-    if ( !_pipcontroller)
+-        return;
+-
+-    if ( _pipcontroller->ops->set_display_layer ) {
+-        _pipcontroller->ops->set_display_layer(
+-            _pipcontroller,
+-            (__bridge void*)_displayView.displayLayer
+-        );
+-    }
+-}
+-
+ - (CGRect)frameForPlace:(const vout_display_place_t *)place
+ {
+     VLCView *window = self.window;
++    if (window == nil)
++        return CGRectZero;
++
+     CGRect frame = CGRectMake(place->x, place->y, place->width, place->height);
+ #if TARGET_OS_OSX
+     frame = [window convertRectFromBacking:frame];
+     frame.origin.y = window.bounds.size.height - frame.origin.y - frame.size.height;
+ #else
+     CGFloat scale = window.contentScaleFactor;
++    if (scale <= 0.0)
++        scale = 1.0;
+     frame.origin.x /= scale;
+     frame.origin.y /= scale;
+     frame.size.width /= scale;
+@@ -779,38 +813,94 @@ - (CGRect)frameForPlace:(const vout_display_place_t *)place
+ }
+ 
+ - (void)prepareDisplay {
+-    @synchronized(_displayLayer) {
+-        if (_displayLayer)
++    @synchronized(_displayLayerLock) {
++        if (_displayClosed || _displayLayer || _displayPreparationScheduled)
+             return;
++        _displayPreparationScheduled = YES;
+     }
+ 
+     VLCSampleBufferDisplay *sys = self;
+     vout_display_place_t place = *_vd->place;
+-    AVLayerVideoGravity gravity = VLCGravityForDisplayCfg(_vd->cfg);
+-    CGAffineTransform aspectStretch = VLCAspectStretchForDisplay(_vd);
++    void *presentationContext = NULL;
++    void (*preparePresentationContext)(void *, void *) = NULL;
++    void (*releasePresentationContext)(void *) = NULL;
++    if (_pipcontroller != NULL &&
++        _pipcontroller->ops->hold_presentation_context != NULL &&
++        _pipcontroller->ops->set_display_layer_on_context != NULL &&
++        _pipcontroller->ops->release_presentation_context != NULL) {
++        presentationContext =
++            _pipcontroller->ops->hold_presentation_context(_pipcontroller);
++        preparePresentationContext =
++            _pipcontroller->ops->set_display_layer_on_context;
++        releasePresentationContext =
++            _pipcontroller->ops->release_presentation_context;
++    }
+     dispatch_async(dispatch_get_main_queue(), ^{
+-        if (sys.displayView)
+-            return;
+-
+-        VLCSampleBufferDisplayView *displayView;
+-        VLCSampleBufferSubpictureView *spuView;
+-        VLCView *window = sys.window;
+-
+-        displayView = [[VLCSampleBufferDisplayView alloc] init];
+-        spuView = [VLCSampleBufferSubpictureView new];
+-        [window addSubview:displayView];
+-        [window addSubview:spuView];
+-        displayView.frame = [sys frameForPlace:&place];
+-        [spuView setFrame:[window bounds]];
+-
+-        sys.displayView = displayView;
+-        sys.spuView = spuView;
+-        @synchronized(sys.displayLayer) {
+-            sys.displayLayer = displayView.displayLayer;
++        @try {
++            if (sys.displayView)
++                return;
++
++            VLCSampleBufferDisplayView *displayView;
++            VLCView *displayClipView;
++            VLCSampleBufferSubpictureView *spuView;
++            VLCView *window = sys.window;
++
++            displayClipView = [VLCView new];
++            displayView = [[VLCSampleBufferDisplayView alloc] init];
++            spuView = [VLCSampleBufferSubpictureView new];
++#if TARGET_OS_OSX
++            displayClipView.wantsLayer = YES;
++            displayClipView.layer.masksToBounds = YES;
++            displayClipView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
++#else
++            displayClipView.clipsToBounds = YES;
++            displayClipView.autoresizingMask =
++                UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
++#endif
++            AVSampleBufferDisplayLayer *displayLayer = displayView.displayLayer;
++            displayLayer.videoGravity = AVLayerVideoGravityResize;
++            @synchronized(sys.displayLayerLock) {
++                if (sys.displayClosed)
++                    return;
++                displayClipView.frame = window.bounds;
++                [window addSubview:displayClipView];
++                [displayClipView addSubview:displayView];
++                [window addSubview:spuView];
++                displayView.frame = [sys frameForPlace:&place];
++                [spuView setFrame:[window bounds]];
++
++                sys.displayClipView = displayClipView;
++                sys.displayView = displayView;
++                sys.spuView = spuView;
++                sys.displayLayer = displayLayer;
++                if (sys->pendingSampleBuffer != NULL)
++                {
++                    AVSampleBufferVideoRenderer *renderer =
++                        displayLayer.sampleBufferRenderer;
++                    if (renderer.requiresFlushToResumeDecoding ||
++                        renderer.status ==
++                            AVQueuedSampleBufferRenderingStatusFailed)
++                        [renderer flush];
++                    /* AVQueuedSampleBufferRendering explicitly permits enqueue
++                     * while not ready. This is exactly one bounded startup
++                     * sample, never an unbounded producer queue. */
++                    [renderer enqueueSampleBuffer:sys->pendingSampleBuffer];
++                    CFRelease(sys->pendingSampleBuffer);
++                    sys->pendingSampleBuffer = NULL;
++                }
++            }
++            if (presentationContext != NULL)
++                preparePresentationContext(
++                    presentationContext,
++                    (__bridge void *)displayLayer
++                );
++        } @finally {
++            @synchronized(sys.displayLayerLock) {
++                sys.displayPreparationScheduled = NO;
++            }
++            if (presentationContext != NULL)
++                releasePresentationContext(presentationContext);
+         }
+-        sys.displayLayer.videoGravity = gravity;
+-        sys.displayLayer.affineTransform = aspectStretch;
+-        [sys preparePictureInPicture];
+     });
+ }
+ 
+@@ -821,8 +911,17 @@ - (void)placeVideo:(vout_display_place_t)newPlace
+ 
+ - (void)close {
+     VLCSampleBufferDisplay *sys = self;
++    @synchronized(_displayLayerLock) {
++        _displayClosed = YES;
++        _displayLayer = nil;
++        if (pendingSampleBuffer != NULL)
++        {
++            CFRelease(pendingSampleBuffer);
++            pendingSampleBuffer = NULL;
++        }
++    }
+     dispatch_async(dispatch_get_main_queue(), ^{
+-        [sys.displayView removeFromSuperview];
++        [sys.displayClipView removeFromSuperview];
+         [sys.spuView removeFromSuperview];
+     });
+     DeletePipController(_pipcontroller);
+@@ -844,11 +943,76 @@ static void Close(vout_display_t *vd)
+     [sys close];
+ }
+ 
++static vlc_samplebuffer_geometry
++SampleBufferGeometryFromFormat(const video_format_t *format)
++{
++    return (vlc_samplebuffer_geometry) {
++        .width = format->i_width,
++        .height = format->i_height,
++        .x_offset = format->i_x_offset,
++        .y_offset = format->i_y_offset,
++        .visible_width = format->i_visible_width,
++        .visible_height = format->i_visible_height,
++        .sar_num = format->i_sar_num,
++        .sar_den = format->i_sar_den,
++    };
++}
++
++static void ReportGeometryFailure(vout_display_t *vd,
++                                  VLCSampleBufferDisplay *sys,
++                                  const char *reason)
++{
++    unsigned occurrence = atomic_fetch_add_explicit(
++        &sys->geometryFailureCount, 1, memory_order_relaxed) + 1;
++    if (occurrence <= 4 || (occurrence & (occurrence - 1)) == 0)
++        msg_Warn(vd, "Dropping sample-buffer frame: %s (occurrence %u)",
++                 reason, occurrence);
++}
++
+ static void RenderPicture(vout_display_t *vd, picture_t *pic, vlc_tick_t date) {
+     VLCSampleBufferDisplay *sys;
+     sys = (__bridge VLCSampleBufferDisplay*)vd->sys;
+ 
+-    switch (vd->fmt->orientation) {
++    video_orientation_t orientation = vd->fmt->orientation;
++    vlc_samplebuffer_geometry sourceGeometry =
++        SampleBufferGeometryFromFormat(vd->source);
++
++    /* Avoid conversion/crop/rotation work when an installed renderer cannot
++     * accept a frame. A missing layer is different: retain the latest fully
++     * constructed sample below so a one-frame or paused source is not lost
++     * while main installs the view asynchronously. */
++    BOOL layerWasMissingAtStart = NO;
++    @synchronized(sys.displayLayerLock) {
++        if (sys.displayClosed)
++            return;
++        AVSampleBufferDisplayLayer *displayLayer = sys.displayLayer;
++        if (displayLayer == nil)
++            layerWasMissingAtStart = YES;
++        else
++        {
++            AVSampleBufferVideoRenderer *renderer =
++                displayLayer.sampleBufferRenderer;
++            if (renderer.requiresFlushToResumeDecoding ||
++                renderer.status == AVQueuedSampleBufferRenderingStatusFailed)
++            {
++                NSError *error = renderer.error;
++                msg_Warn(vd, "Flushing failed sample-buffer renderer%s%s",
++                         error ? ": " : "",
++                         error ? error.description.UTF8String : "");
++                [renderer flush];
++            }
++            if (sys->pendingSampleBuffer != NULL)
++            {
++                [renderer enqueueSampleBuffer:sys->pendingSampleBuffer];
++                CFRelease(sys->pendingSampleBuffer);
++                sys->pendingSampleBuffer = NULL;
++            }
++            if (!renderer.isReadyForMoreMediaData)
++                return;
++        }
++    }
++
++    switch (orientation) {
+     case ORIENT_HFLIPPED:
+         sys.rotationContext.flip = kVLCSampleBufferPixelFlip_H;
+         sys.rotationContext.rotation = kVLCSampleBufferPixelRotation_0;
+@@ -870,32 +1034,32 @@ static void RenderPicture(vout_display_t *vd, picture_t *pic, vlc_tick_t date) {
+         sys.rotationContext.rotation = kVLCSampleBufferPixelRotation_90CCW;
+         break;
+     case ORIENT_TRANSPOSED:
+-        sys.rotationContext.flip = kVLCSampleBufferPixelFlip_V;
++        sys.rotationContext.flip = kVLCSampleBufferPixelFlip_H;
+         sys.rotationContext.rotation = kVLCSampleBufferPixelRotation_90CW;
+         break;
+     case ORIENT_ANTI_TRANSPOSED:
+-        sys.rotationContext.flip = kVLCSampleBufferPixelFlip_H;
++        sys.rotationContext.flip = kVLCSampleBufferPixelFlip_V;
+         sys.rotationContext.rotation = kVLCSampleBufferPixelRotation_90CW;
++        break;
+     case ORIENT_NORMAL:
+     default:
+         sys.rotationContext = nil;
+         break;
+     }
+ 
+-    @synchronized(sys.displayLayer) {
+-        if (sys.displayLayer == nil)
+-            return;
+-    }
+-
+     picture_Hold(pic);
+ 
+     picture_t *dst = pic;
+-    if (sys->converter) {
++    if (sys->converter)
+         dst = sys->converter->ops->filter_video(sys->converter, pic);
+-    }
++    if (dst == NULL)
++        return;
+ 
++    vlc_samplebuffer_geometry deliveredGeometry =
++        SampleBufferGeometryFromFormat(&dst->format);
+     CVPixelBufferRef pixelBuffer = cvpxpic_get_ref(dst);
+-    CVPixelBufferRetain(pixelBuffer);
++    if (pixelBuffer != NULL)
++        CVPixelBufferRetain(pixelBuffer);
+     picture_Release(dst);
+ 
+     if (pixelBuffer == NULL) {
+@@ -903,33 +1067,102 @@ static void RenderPicture(vout_display_t *vd, picture_t *pic, vlc_tick_t date) {
+         return;
+     }
+ 
+-    if (vd->fmt->orientation != ORIENT_NORMAL) {
++    CFDictionaryRef sourceAttachments =
++        CVBufferCopyAttachments(pixelBuffer, kCVAttachmentMode_ShouldPropagate);
++    vlc_samplebuffer_crop crop;
++    size_t pixelWidth = CVPixelBufferGetWidth(pixelBuffer);
++    size_t pixelHeight = CVPixelBufferGetHeight(pixelBuffer);
++    if (!vlc_samplebuffer_map_crop(&sourceGeometry, &deliveredGeometry,
++                                   pixelWidth, pixelHeight, &crop))
++    {
++        if (sourceAttachments != NULL)
++            CFRelease(sourceAttachments);
++        CVPixelBufferRelease(pixelBuffer);
++        ReportGeometryFailure(vd, sys, "source crop cannot be mapped exactly");
++        return;
++    }
++
++    if (crop.x != 0 || crop.y != 0 || crop.width != pixelWidth ||
++        crop.height != pixelHeight)
++    {
++        CVPixelBufferRef cropped = [sys.cropContext crop:pixelBuffer rect:crop];
++        if (cropped == NULL)
++        {
++            if (sourceAttachments != NULL)
++                CFRelease(sourceAttachments);
++            CVPixelBufferRelease(pixelBuffer);
++            ReportGeometryFailure(vd, sys, "VideoToolbox crop failed");
++            return;
++        }
++        CVPixelBufferRelease(pixelBuffer);
++        pixelBuffer = cropped;
++    }
++
++    if (orientation != ORIENT_NORMAL) {
+         CVPixelBufferRef rotated = [sys.rotationContext rotate:pixelBuffer];
+-        if (rotated) {
++        if (rotated == NULL) {
++            if (sourceAttachments != NULL)
++                CFRelease(sourceAttachments);
+             CVPixelBufferRelease(pixelBuffer);
+-            pixelBuffer = rotated;
++            ReportGeometryFailure(vd, sys, "pixel rotation failed");
++            return;
+         }
++        CVPixelBufferRelease(pixelBuffer);
++        pixelBuffer = rotated;
+     }
+ 
+-    id aspectRatio = @{
++    if (sourceAttachments != NULL)
++    {
++        CVBufferSetAttachments(pixelBuffer, sourceAttachments,
++                               kCVAttachmentMode_ShouldPropagate);
++        CFRelease(sourceAttachments);
++    }
++
++    pixelWidth = CVPixelBufferGetWidth(pixelBuffer);
++    pixelHeight = CVPixelBufferGetHeight(pixelBuffer);
++    uint64_t horizontalSpacing;
++    uint64_t verticalSpacing;
++    if (!vlc_samplebuffer_pixel_aspect(
++            &sourceGeometry, ORIENT_IS_SWAP(orientation), &horizontalSpacing,
++            &verticalSpacing))
++    {
++        CVPixelBufferRelease(pixelBuffer);
++        ReportGeometryFailure(vd, sys, "pixel aspect ratio is invalid");
++        return;
++    }
++
++    NSDictionary *aspectRatio = @{
+         (__bridge NSString*)kCVImageBufferPixelAspectRatioHorizontalSpacingKey:
+-            @(vd->source->i_sar_num),
++            @(horizontalSpacing),
+         (__bridge NSString*)kCVImageBufferPixelAspectRatioVerticalSpacingKey:
+-            @(vd->source->i_sar_den)
++            @(verticalSpacing)
++    };
++    NSDictionary *cleanAperture = @{
++        (__bridge NSString *)kCVImageBufferCleanApertureWidthKey:
++            @(pixelWidth),
++        (__bridge NSString *)kCVImageBufferCleanApertureHeightKey:
++            @(pixelHeight),
++        (__bridge NSString *)kCVImageBufferCleanApertureHorizontalOffsetKey:
++            @0,
++        (__bridge NSString *)kCVImageBufferCleanApertureVerticalOffsetKey:
++            @0,
+     };
+ 
+-    CVBufferSetAttachment(
+-        pixelBuffer,
+-        kCVImageBufferPixelAspectRatioKey,
+-        (__bridge CFDictionaryRef)aspectRatio,
+-        kCVAttachmentMode_ShouldPropagate
+-    );
++    /* Keep image-buffer attachments consistent with the format description
++     * while the renderer retains the asynchronous sample. Decoder buffers are
++     * not recycled until that sample releases its CVPixelBuffer. */
++    CVBufferSetAttachment(pixelBuffer, kCVImageBufferPixelAspectRatioKey,
++                          (__bridge CFDictionaryRef)aspectRatio,
++                          kCVAttachmentMode_ShouldPropagate);
++    CVBufferSetAttachment(pixelBuffer, kCVImageBufferCleanApertureKey,
++                          (__bridge CFDictionaryRef)cleanAperture,
++                          kCVAttachmentMode_ShouldPropagate);
+ 
+     CMSampleBufferRef sampleBuffer = NULL;
+     CMVideoFormatDescriptionRef formatDesc = NULL;
+     OSStatus err = CMVideoFormatDescriptionCreateForImageBuffer(kCFAllocatorDefault, pixelBuffer, &formatDesc);
+     if (err != noErr) {
+-        msg_Err(vd, "Image buffer format desciption creation failed!");
++        msg_Err(vd, "Image buffer format description creation failed!");
+         CVPixelBufferRelease(pixelBuffer);
+         return;
+     }
+@@ -953,11 +1186,41 @@ static void RenderPicture(vout_display_t *vd, picture_t *pic, vlc_tick_t date) {
+         return;
+     }
+ 
+-    @synchronized(sys.displayLayer) {
+-        [sys.displayLayer enqueueSampleBuffer:sampleBuffer];
++    @synchronized(sys.displayLayerLock) {
++        AVSampleBufferDisplayLayer *displayLayer = sys.displayLayer;
++        if (displayLayer == nil)
++        {
++            if (!sys.displayClosed)
++            {
++                if (sys->pendingSampleBuffer != NULL)
++                    CFRelease(sys->pendingSampleBuffer);
++                sys->pendingSampleBuffer = sampleBuffer;
++                sampleBuffer = NULL;
++            }
++        }
++        else
++        {
++            AVSampleBufferVideoRenderer *renderer =
++                displayLayer.sampleBufferRenderer;
++            if (renderer.requiresFlushToResumeDecoding ||
++                renderer.status == AVQueuedSampleBufferRenderingStatusFailed)
++            {
++                NSError *error = renderer.error;
++                msg_Warn(vd, "Flushing failed sample-buffer renderer%s%s",
++                         error ? ": " : "",
++                         error ? error.description.UTF8String : "");
++                [renderer flush];
++            }
++            /* A frame built while the layer was absent is the one bounded
++             * startup sample. AVFoundation documents this enqueue as safe
++             * even if readiness changed before installation completed. */
++            if (renderer.isReadyForMoreMediaData || layerWasMissingAtStart)
++                [renderer enqueueSampleBuffer:sampleBuffer];
++        }
+     }
+ 
+-    CFRelease(sampleBuffer);
++    if (sampleBuffer != NULL)
++        CFRelease(sampleBuffer);
+ }
+ 
+ static CGRect RegionBackingFrame(unsigned display_height,
+@@ -974,59 +1237,128 @@ static CGRect RegionBackingFrame(unsigned display_height,
+     );
+ }
+ 
+-static void UpdateSubpictureRegions(vout_display_t *vd,
+-                                    const vlc_render_subpicture *subpicture)
++static VLCSampleBufferSubpicture *
++CreateSubpictureSnapshot(vout_display_t *vd,
++                         const vlc_render_subpicture *subpicture)
+ {
+-    VLCSampleBufferDisplay *sys;
+-    sys = (__bridge VLCSampleBufferDisplay*)vd->sys;
+-
+-    if (sys.subpicture == nil || subpicture == NULL)
+-        return;
++    if (subpicture == NULL)
++        return nil;
+ 
+-    NSMutableArray *regions = [NSMutableArray new];
++    NSMutableArray<VLCSampleBufferSubpictureRegion *> *regions =
++        [NSMutableArray new];
+     CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
++    if (space == NULL)
++        return nil;
++
++    bool success = true;
+     const struct subpicture_region_rendered *r;
+     vlc_vector_foreach(r, &subpicture->regions) {
+-        CFIndex length = r->p_picture->format.i_height * r->p_picture->p->i_pitch;
+-        const size_t pixels_offset =
+-                r->p_picture->format.i_y_offset * r->p_picture->p->i_pitch +
+-                r->p_picture->format.i_x_offset * r->p_picture->p->i_pixel_pitch;
++        int picturePitch = r->p_picture->p->i_pitch;
++        int picturePixelPitch = r->p_picture->p->i_pixel_pitch;
++        if (r->p_picture->p->p_pixels == NULL || picturePitch <= 0 ||
++            picturePixelPitch <= 0)
++        {
++            success = false;
++            break;
++        }
++
++        size_t pitch = (size_t)picturePitch;
++        size_t height = r->p_picture->format.i_height;
++        if (height != 0 && pitch > SIZE_MAX / height)
++        {
++            success = false;
++            break;
++        }
++
++        size_t length = height * pitch;
++        size_t yOffset = r->p_picture->format.i_y_offset;
++        size_t xOffset = r->p_picture->format.i_x_offset;
++        size_t pixelPitch = (size_t)picturePixelPitch;
++        if ((yOffset != 0 && pitch > SIZE_MAX / yOffset) ||
++            (xOffset != 0 && pixelPitch > SIZE_MAX / xOffset))
++        {
++            success = false;
++            break;
++        }
+ 
++        size_t yBytes = yOffset * pitch;
++        size_t xBytes = xOffset * pixelPitch;
++        if (xBytes > SIZE_MAX - yBytes || yBytes + xBytes > length ||
++            length - (yBytes + xBytes) > LONG_MAX)
++        {
++            success = false;
++            break;
++        }
++
++        size_t pixelsOffset = yBytes + xBytes;
+         CFDataRef data = CFDataCreate(
+-            NULL,
+-            r->p_picture->p->p_pixels + pixels_offset,
+-            length - pixels_offset);
++            NULL, r->p_picture->p->p_pixels + pixelsOffset,
++            (CFIndex)(length - pixelsOffset));
++        if (data == NULL)
++        {
++            success = false;
++            break;
++        }
++
+         CGDataProviderRef provider = CGDataProviderCreateWithCFData(data);
++        if (provider == NULL)
++        {
++            CFRelease(data);
++            success = false;
++            break;
++        }
++
+         CGImageRef image = CGImageCreate(
+-            r->p_picture->format.i_visible_width, r->p_picture->format.i_visible_height,
+-            8, 32, r->p_picture->p->i_pitch,
+-            space, kCGBitmapByteOrderDefault | kCGImageAlphaFirst,
+-            provider, NULL, true, kCGRenderingIntentDefault
+-            );
+-        VLCSampleBufferSubpictureRegion *region;
+-        region = [VLCSampleBufferSubpictureRegion new];
+-        region.subpicture = sys.subpicture;
+-        region.image = image;
+-        region.alpha = r->i_alpha / 255.f;
+-
+-        region.backingFrame = RegionBackingFrame(vd->cfg->display.height, r);
+-        [regions addObject:region];
++            r->p_picture->format.i_visible_width,
++            r->p_picture->format.i_visible_height,
++            8, 32, pitch, space,
++            kCGBitmapByteOrderDefault | kCGImageAlphaFirst,
++            provider, NULL, true, kCGRenderingIntentDefault);
+         CGDataProviderRelease(provider);
+         CFRelease(data);
++        if (image == NULL)
++        {
++            success = false;
++            break;
++        }
++
++        VLCSampleBufferSubpictureRegion *region =
++            [[VLCSampleBufferSubpictureRegion alloc]
++                initWithBackingFrame:
++                    RegionBackingFrame(vd->cfg->display.height, r)
++                image:image
++                alpha:r->i_alpha / 255.f];
++        CGImageRelease(image);
++        if (region == nil)
++        {
++            success = false;
++            break;
++        }
++        [regions addObject:region];
+     }
+     CGColorSpaceRelease(space);
+ 
+-    sys.subpicture.regions = regions;
++    if (!success)
++        return nil;
++
++    return [[VLCSampleBufferSubpicture alloc]
++        initWithOrder:subpicture->i_order
++        regions:regions];
+ }
+ 
+-static bool IsSubpictureDrawNeeded(vout_display_t *vd, const vlc_render_subpicture *subpicture)
++static bool UpdateSubpictureSnapshot(
++    vout_display_t *vd, const vlc_render_subpicture *subpicture,
++    VLCSampleBufferSubpicture * __strong *triggeringSnapshot)
+ {
+     VLCSampleBufferDisplay *sys;
+     sys = (__bridge VLCSampleBufferDisplay*)vd->sys;
++    *triggeringSnapshot = nil;
++
++    VLCSampleBufferSubpicture *current = sys.subpicture;
+ 
+     if (subpicture == NULL)
+     {
+-        if (sys.subpicture == nil)
++        if (current == nil)
+             return false;
+         sys.subpicture = nil;
+         /* Need to draw one last time in order to clear the current subpicture */
+@@ -1036,25 +1368,15 @@ static bool IsSubpictureDrawNeeded(vout_display_t *vd, const vlc_render_subpictu
+     size_t count = subpicture->regions.size;
+     const struct subpicture_region_rendered *r;
+ 
+-    if (!sys.subpicture || subpicture->i_order != sys.subpicture.order)
+-    {
+-        /* Subpicture content is different */
+-        sys.subpicture = [VLCSampleBufferSubpicture new];
+-        sys.subpicture.sys = sys;
+-        sys.subpicture.order = subpicture->i_order;
+-        UpdateSubpictureRegions(vd, subpicture);
+-        return true;
+-    }
+-
+-    bool draw = false;
++    bool draw = current == nil || subpicture->i_order != current.order;
+ 
+-    if (count == sys.subpicture.regions.count)
++    if (!draw && count == current.regions.count)
+     {
+         size_t i = 0;
+         vlc_vector_foreach(r, &subpicture->regions)
+         {
+             VLCSampleBufferSubpictureRegion *region =
+-                sys.subpicture.regions[i++];
++                current.regions[i++];
+ 
+             CGRect newRegion = RegionBackingFrame(vd->cfg->display.height, r);
+ 
+@@ -1066,7 +1388,7 @@ static bool IsSubpictureDrawNeeded(vout_display_t *vd, const vlc_render_subpictu
+             }
+         }
+     }
+-    else
++    else if (!draw)
+     {
+         /* Subpicture region count is different */
+         draw = true;
+@@ -1075,23 +1397,39 @@ static bool IsSubpictureDrawNeeded(vout_display_t *vd, const vlc_render_subpictu
+     if (!draw)
+         return false;
+ 
+-    /* Store the current subpicture regions in order to compare then later.
+-     */
++    /* Build a complete replacement before publishing it. No object reachable
++     * from a published snapshot is mutated afterward. */
++    VLCSampleBufferSubpicture *snapshot =
++        CreateSubpictureSnapshot(vd, subpicture);
++    if (snapshot == nil)
++    {
++        msg_Err(vd, "Failed to create immutable subpicture snapshot");
++        if (current == nil)
++            return false;
++        /* Do not leave stale subtitles visible after a failed replacement. */
++        sys.subpicture = nil;
++        return true;
++    }
+ 
+-    UpdateSubpictureRegions(vd, subpicture);
++    sys.subpicture = snapshot;
++    *triggeringSnapshot = snapshot;
+     return true;
+ }
+ 
+ static void RenderSubpicture(vout_display_t *vd, const vlc_render_subpicture *spu)
+ {
+-    if (!IsSubpictureDrawNeeded(vd, spu))
++    VLCSampleBufferSubpicture *snapshot = nil;
++    if (!UpdateSubpictureSnapshot(vd, spu, &snapshot))
+         return;
+ 
+     VLCSampleBufferDisplay *sys;
+     sys = (__bridge VLCSampleBufferDisplay*)vd->sys;
++    VLCSampleBufferSubpicture *const triggeringSnapshot = snapshot;
+ 
+     dispatch_async(dispatch_get_main_queue(), ^{
+-        [sys.spuView drawSubpicture:sys.subpicture];
++        /* The block retains the exact snapshot that triggered this draw. It
++         * never re-reads the producer's replaceable publication slot. */
++        [sys.spuView drawSubpicture:triggeringSnapshot];
+     });
+ }
+ 
+@@ -1115,6 +1453,8 @@ static void Prepare (vout_display_t *vd, picture_t *pic,
+ 
+ static void Display(vout_display_t *vd, picture_t *pic)
+ {
++    VLC_UNUSED(vd);
++    VLC_UNUSED(pic);
+     // kept as the core is not properly pacing the calls to Prepare without this callback
+ }
+ 
+@@ -1130,14 +1470,8 @@ static int Control (vout_display_t *vd, int query)
+         case VOUT_DISPLAY_CHANGE_SOURCE_PLACE:
+         {
+             vout_display_place_t newPlace = *vd->place;
+-            AVLayerVideoGravity gravity = VLCGravityForDisplayCfg(vd->cfg);
+-            CGAffineTransform aspectStretch = VLCAspectStretchForDisplay(vd);
+             dispatch_async(dispatch_get_main_queue(), ^{
+                 [sys placeVideo:newPlace];
+-                @synchronized(sys.displayLayer) {
+-                    sys.displayLayer.videoGravity = gravity;
+-                    sys.displayLayer.affineTransform = aspectStretch;
+-                }
+             });
+             break;
+         }
+@@ -1151,7 +1485,10 @@ static int Control (vout_display_t *vd, int query)
+ 
+ static pip_controller_t * CreatePipController( vout_display_t *vd, void *cbs_opaque )
+ {
++    VLC_UNUSED(cbs_opaque);
+     pip_controller_t *pip_controller = vlc_object_create(vd, sizeof(pip_controller_t));
++    if (pip_controller == NULL)
++        return NULL;
+ 
+     module_t **mods;
+     ssize_t total = vlc_module_match("pictureinpicture", NULL, false, &mods, NULL);
+diff --git a/modules/video_output/apple/VLCSampleBufferGeometry.h b/modules/video_output/apple/VLCSampleBufferGeometry.h
+new file mode 100644
+index 0000000000..f23417c2ea
+--- /dev/null
++++ b/modules/video_output/apple/VLCSampleBufferGeometry.h
+@@ -0,0 +1,134 @@
++/*****************************************************************************
++ * VLCSampleBufferGeometry.h: exact sample-buffer crop and aspect helpers
++ *****************************************************************************
++ * Copyright (C) 2026 VLC authors and VideoLAN
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms of the GNU Lesser General Public License as published by
++ * the Free Software Foundation; either version 2.1 of the License, or
++ * (at your option) any later version.
++ *****************************************************************************
++ * This header intentionally depends only on the C standard library so that
++ * the integer geometry can be exercised outside Apple frameworks.
++ *****************************************************************************/
++
++#ifndef VLC_SAMPLE_BUFFER_GEOMETRY_H
++#define VLC_SAMPLE_BUFFER_GEOMETRY_H
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++
++typedef struct
++{
++    uint32_t width;
++    uint32_t height;
++    uint32_t x_offset;
++    uint32_t y_offset;
++    uint32_t visible_width;
++    uint32_t visible_height;
++    uint32_t sar_num;
++    uint32_t sar_den;
++} vlc_samplebuffer_geometry;
++
++typedef struct
++{
++    size_t x;
++    size_t y;
++    size_t width;
++    size_t height;
++} vlc_samplebuffer_crop;
++
++/* Maps VLC's current source crop into the physical CVPixelBuffer. The
++ * delivered geometry describes both its coded and visible baselines. VLC's
++ * VideoToolbox decoder can return a coded/aligned buffer while software CVPX
++ * conversion returns a visible-only buffer, so those two identities are
++ * handled explicitly. Any other relationship is ambiguous and rejected. */
++static inline bool
++vlc_samplebuffer_map_crop(const vlc_samplebuffer_geometry *source,
++                          const vlc_samplebuffer_geometry *delivered,
++                          size_t buffer_width, size_t buffer_height,
++                          vlc_samplebuffer_crop *crop)
++{
++    if (source == NULL || delivered == NULL || crop == NULL ||
++        source->width == 0 || source->height == 0 ||
++        delivered->width == 0 || delivered->height == 0 ||
++        source->visible_width == 0 || source->visible_height == 0 ||
++        delivered->visible_width == 0 || delivered->visible_height == 0 ||
++        buffer_width == 0 || buffer_height == 0)
++        return false;
++
++    uint64_t delivered_right =
++        (uint64_t)delivered->x_offset + delivered->visible_width;
++    uint64_t delivered_bottom =
++        (uint64_t)delivered->y_offset + delivered->visible_height;
++    uint64_t source_right =
++        (uint64_t)source->x_offset + source->visible_width;
++    uint64_t source_bottom =
++        (uint64_t)source->y_offset + source->visible_height;
++
++    if (delivered_right > delivered->width ||
++        delivered_bottom > delivered->height ||
++        source_right > source->width || source_bottom > source->height ||
++        source->width != delivered->width ||
++        source->height != delivered->height)
++        return false;
++
++    if (source->x_offset < delivered->x_offset ||
++        source->y_offset < delivered->y_offset ||
++        source_right > delivered_right || source_bottom > delivered_bottom)
++        return false;
++
++    if (buffer_width == delivered->width &&
++        buffer_height == delivered->height)
++    {
++        crop->x = source->x_offset;
++        crop->y = source->y_offset;
++    }
++    else if (buffer_width == delivered->visible_width &&
++             buffer_height == delivered->visible_height)
++    {
++        crop->x = source->x_offset - delivered->x_offset;
++        crop->y = source->y_offset - delivered->y_offset;
++    }
++    else
++        return false;
++
++    crop->width = source->visible_width;
++    crop->height = source->visible_height;
++    if (crop->width > buffer_width || crop->height > buffer_height ||
++        crop->x > buffer_width - crop->width ||
++        crop->y > buffer_height - crop->height)
++        return false;
++
++    return true;
++}
++
++/* Crop output is exactly source.visible dimensions, so its pixel aspect is
++ * VLC's source SAR. A physical 90° transform swaps the axes and reciprocates
++ * that ratio. */
++static inline bool
++vlc_samplebuffer_pixel_aspect(const vlc_samplebuffer_geometry *source,
++                              bool swaps_axes, uint64_t *horizontal_spacing,
++                              uint64_t *vertical_spacing)
++{
++    if (source == NULL || horizontal_spacing == NULL ||
++        vertical_spacing == NULL || source->visible_width == 0 ||
++        source->visible_height == 0 || source->sar_num == 0 ||
++        source->sar_den == 0)
++        return false;
++
++    if (swaps_axes)
++    {
++        *horizontal_spacing = source->sar_den;
++        *vertical_spacing = source->sar_num;
++    }
++    else
++    {
++        *horizontal_spacing = source->sar_num;
++        *vertical_spacing = source->sar_den;
++    }
++    return true;
++}
++
++#endif /* VLC_SAMPLE_BUFFER_GEOMETRY_H */
+diff --git a/modules/video_output/apple/VLCVideoUIView.m b/modules/video_output/apple/VLCVideoUIView.m
+index 8f5d1d08e0..2c9e55b9e0 100644
+--- a/modules/video_output/apple/VLCVideoUIView.m
++++ b/modules/video_output/apple/VLCVideoUIView.m
+@@ -137,10 +137,20 @@ - (id)initWithWindow:(vlc_window_t *)wnd
+     }
+ 
+     CGSize size = self.viewContainerBounds.size;
+-    _width = size.width;
+-    _height = size.height;
++    CGFloat scaleFactor = 1.0;
++    if ([_viewContainer respondsToSelector:@selector(contentScaleFactor)])
++        scaleFactor = [(UIView *)_viewContainer contentScaleFactor];
++#if !defined(TARGET_OS_VISION) || !TARGET_OS_VISION
++    if (scaleFactor <= 0.0)
++        scaleFactor = [UIScreen mainScreen].scale;
++#endif
++    if (scaleFactor <= 0.0)
++        scaleFactor = 1.0;
++    self.contentScaleFactor = scaleFactor;
++    _width = size.width * scaleFactor;
++    _height = size.height * scaleFactor;
+     [self reportEvent:^{
+-        vlc_window_ReportSize(_wnd, size.width, size.height);
++        vlc_window_ReportSize(_wnd, _width, _height);
+     }];
+ 
+     return self;
+diff --git a/modules/video_output/apple/vlc_pip_controller.h b/modules/video_output/apple/vlc_pip_controller.h
+index d92226c647..96c6ad0b3a 100644
+--- a/modules/video_output/apple/vlc_pip_controller.h
++++ b/modules/video_output/apple/vlc_pip_controller.h
+@@ -32,20 +32,14 @@
+ typedef struct pip_controller_t pip_controller_t;
+ 
+ struct pip_controller_operations {
+-    void (*set_display_layer)(pip_controller_t *, void *);
++    /* Hold an implementation-owned presentation context across asynchronous
++     * UI work. The context, unlike pip_controller_t, may outlive vout close. */
++    void *(*hold_presentation_context)(pip_controller_t *);
++    void (*set_display_layer_on_context)(void *, void *);
++    void (*release_presentation_context)(void *);
+     int (*close)(pip_controller_t *);
+ };
+ 
+-struct pip_controller_media_callbacks {
+-    void (*play)(void* opaque);
+-    void (*pause)(void* opaque);
+-    void (*seek_by)(vlc_tick_t time, dispatch_block_t completion, void *opaque);
+-    vlc_tick_t (*media_length)(void* opaque);
+-    vlc_tick_t (*media_time)(void* opaque);
+-    bool (*is_media_seekable)(void* opaque);
+-    bool (*is_media_playing)(void* opaque);
+-};
+-
+ struct pip_controller_t
+ {
+     struct vlc_object_t obj;
+@@ -53,7 +47,6 @@ struct pip_controller_t
+     void               *p_sys;
+ 
+     const struct pip_controller_operations *ops;
+-    const struct pip_controller_media_callbacks *media_cbs;
+ };
+ 
+-#endif // VLC_PIP_CONTROLLER_H
+\ No newline at end of file
++#endif // VLC_PIP_CONTROLLER_H
+diff --git a/modules/video_output/vmem.c b/modules/video_output/vmem.c
+index fbf2921ac7..b85c256fd5 100644
+--- a/modules/video_output/vmem.c
++++ b/modules/video_output/vmem.c
+@@ -34,6 +34,7 @@
+ #include <vlc_common.h>
+ #include <vlc_plugin.h>
+ #include <vlc_vout_display.h>
++#include <vlc/swiftvlc_vmem.h>
+ 
+ /*****************************************************************************
+  * Module descriptor
+@@ -89,6 +90,8 @@ typedef struct vout_display_sys_t {
+     void (*unlock)(void *sys, void *id, void *const *plane);
+     void (*display)(void *sys, void *id);
+     void (*cleanup)(void *sys);
++    bool picture_ready;
++    bool extended_format;
+ 
+     unsigned pitches[PICTURE_PLANE_MAX];
+     unsigned lines[PICTURE_PLANE_MAX];
+@@ -97,6 +100,39 @@ typedef struct vout_display_sys_t {
+ typedef unsigned (*vlc_format_cb)(void **, char *, unsigned *, unsigned *,
+                                   unsigned *, unsigned *);
+ 
++static bool GeometryIsValid(const swiftvlc_video_format_geometry_t *geometry)
++{
++    return geometry->coded_width > 0 && geometry->coded_height > 0 &&
++           geometry->visible_width > 0 && geometry->visible_height > 0 &&
++           geometry->x_offset <= geometry->coded_width &&
++           geometry->visible_width <= geometry->coded_width - geometry->x_offset &&
++           geometry->y_offset <= geometry->coded_height &&
++           geometry->visible_height <= geometry->coded_height - geometry->y_offset &&
++           geometry->sar_num > 0 && geometry->sar_den > 0;
++}
++
++static bool HasExactSquarePixelAspect(
++    const swiftvlc_video_format_geometry_t *geometry,
++    unsigned output_width, unsigned output_height)
++{
++    if (output_width == 0 || output_height == 0)
++        return false;
++
++    unsigned source_num, source_den;
++    if (!vlc_ureduce(&source_num, &source_den,
++                     (uint64_t)geometry->visible_width * geometry->sar_num,
++                     (uint64_t)geometry->visible_height * geometry->sar_den,
++                     0))
++        return false;
++
++    unsigned output_num, output_den;
++    if (!vlc_ureduce(&output_num, &output_den,
++                     output_width, output_height, 0))
++        return false;
++
++    return source_num == output_num && source_den == output_den;
++}
++
+ static void           Prepare(vout_display_t *, picture_t *, const struct vlc_render_subpicture *, vlc_tick_t);
+ static void           Display(vout_display_t *, picture_t *);
+ static int            Control(vout_display_t *, int);
+@@ -122,6 +158,8 @@ static int Open(vout_display_t *vd,
+ 
+     /* Get the callbacks */
+     vlc_format_cb setup = var_InheritAddress(vd, "vmem-setup");
++    swiftvlc_video_format_ex_cb setup_ex =
++        var_InheritAddress(vd, "vmem-setup-ex");
+ 
+     sys->lock = var_InheritAddress(vd, "vmem-lock");
+     if (sys->lock == NULL) {
+@@ -133,12 +171,61 @@ static int Open(vout_display_t *vd,
+     sys->display = var_InheritAddress(vd, "vmem-display");
+     sys->cleanup = var_InheritAddress(vd, "vmem-cleanup");
+     sys->opaque = var_InheritAddress(vd, "vmem-data");
++    sys->picture_ready = false;
++    sys->extended_format = setup_ex != NULL;
+ 
+     /* Define the video format */
+     video_format_t fmt;
+     video_format_ApplyRotation(&fmt, vd->source);
+ 
+-    if (setup != NULL) {
++    if (setup_ex != NULL) {
++        char chroma[5];
++        memcpy(chroma, &fmt.i_chroma, 4);
++        chroma[4] = '\0';
++        memset(sys->pitches, 0, sizeof(sys->pitches));
++        memset(sys->lines, 0, sizeof(sys->lines));
++
++        const swiftvlc_video_format_geometry_t geometry = {
++            .coded_width = fmt.i_width,
++            .coded_height = fmt.i_height,
++            .visible_width = fmt.i_visible_width,
++            .visible_height = fmt.i_visible_height,
++            .x_offset = fmt.i_x_offset,
++            .y_offset = fmt.i_y_offset,
++            .sar_num = fmt.i_sar_num,
++            .sar_den = fmt.i_sar_den,
++            .source_orientation = (uint32_t)vd->source->orientation,
++        };
++        if (!GeometryIsValid(&geometry)) {
++            msg_Err(vd, "invalid extended vmem source geometry");
++            free(sys);
++            return VLC_EGENERIC;
++        }
++
++        unsigned output_width = geometry.visible_width;
++        unsigned output_height = geometry.visible_height;
++        if (setup_ex(&sys->opaque, chroma, &geometry,
++                     &output_width, &output_height,
++                     sys->pitches, sys->lines) == 0) {
++            msg_Err(vd, "extended video format setup failure");
++            free(sys);
++            return VLC_EGENERIC;
++        }
++        if (!HasExactSquarePixelAspect(&geometry,
++                                       output_width, output_height)) {
++            msg_Err(vd, "extended vmem output does not preserve exact aspect");
++            if (sys->cleanup != NULL)
++                sys->cleanup(sys->opaque);
++            free(sys);
++            return VLC_EGENERIC;
++        }
++
++        fmt.i_chroma = vlc_fourcc_GetCodecFromString(VIDEO_ES, chroma);
++        fmt.i_width = output_width;
++        fmt.i_height = output_height;
++        fmt.i_sar_num = 1;
++        fmt.i_sar_den = 1;
++    } else if (setup != NULL) {
+         char chroma[5];
+ 
+         memcpy(chroma, &fmt.i_chroma, 4);
+@@ -215,19 +302,30 @@ static void Prepare(vout_display_t *vd, picture_t *pic,
+     VLC_UNUSED(date);
+     vout_display_sys_t *sys = vd->sys;
+     picture_resource_t rsc = { .p_sys = NULL };
+-    void *planes[PICTURE_PLANE_MAX];
++    void *planes[PICTURE_PLANE_MAX] = { NULL };
+ 
++    sys->picture_ready = false;
+     sys->pic_opaque = sys->lock(sys->opaque, planes);
+ 
+     picture_t *locked = picture_NewFromResource(vd->fmt, &rsc);
+     if (likely(locked != NULL)) {
+-        for (unsigned i = 0; i < PICTURE_PLANE_MAX; i++) {
++        bool valid = true;
++        for (int i = 0; i < locked->i_planes; i++) {
++            if (planes[i] == NULL) {
++                valid = false;
++                break;
++            }
++        }
++        for (int i = 0; valid && i < locked->i_planes; i++) {
+             locked->p[i].p_pixels = planes[i];
+             locked->p[i].i_lines  = sys->lines[i];
+             locked->p[i].i_pitch  = sys->pitches[i];
+         }
+ 
+-        picture_CopyPixels(locked, pic);
++        if (valid) {
++            picture_CopyPixels(locked, pic);
++            sys->picture_ready = true;
++        }
+         picture_Release(locked);
+     }
+ 
+@@ -242,17 +340,19 @@ static void Display(vout_display_t *vd, picture_t *pic)
+     vout_display_sys_t *sys = vd->sys;
+     VLC_UNUSED(pic);
+ 
+-    if (sys->display != NULL)
++    if (sys->picture_ready && sys->display != NULL)
+         sys->display(sys->opaque, sys->pic_opaque);
++    sys->picture_ready = false;
+ }
+ 
+ static int Control(vout_display_t *vd, int query)
+ {
+-    (void) vd;
++    vout_display_sys_t *sys = vd->sys;
+ 
+     switch (query) {
+         case VOUT_DISPLAY_CHANGE_SOURCE_ASPECT:
+         case VOUT_DISPLAY_CHANGE_SOURCE_CROP:
++            return sys->extended_format ? VLC_EGENERIC : VLC_SUCCESS;
+         case VOUT_DISPLAY_CHANGE_SOURCE_PLACE:
+             return VLC_SUCCESS;
+     }

@@ -51,13 +51,17 @@ extension Integration {
       let t1 = Task.detached { @Sendable in
         for await _ in stream1 {
           let c = count1.withLock { $0 += 1; return $0 }
-          if c >= 2 { break }
+          if c >= 2 {
+            break
+          }
         }
       }
       let t2 = Task.detached { @Sendable in
         for await _ in stream2 {
           let c = count2.withLock { $0 += 1; return $0 }
-          if c >= 2 { break }
+          if c >= 2 {
+            break
+          }
         }
       }
 
@@ -112,7 +116,9 @@ extension Integration {
               $0.append(state)
               return state == .stopped || $0.count >= 8
             }
-            if shouldBreak { break }
+            if shouldBreak {
+              break
+            }
           }
         }
       }
@@ -143,7 +149,9 @@ extension Integration {
           case .positionChanged: receivedPosition.withLock { $0 = true }
           default: break
           }
-          if receivedTime.withLock({ $0 }) && receivedPosition.withLock({ $0 }) { break }
+          if receivedTime.withLock({ $0 }) && receivedPosition.withLock({ $0 }) {
+            break
+          }
         }
       }
 
@@ -191,7 +199,9 @@ extension Integration {
           case .pausableChanged: receivedPausable.withLock { $0 = true }
           default: break
           }
-          if receivedSeekable.withLock({ $0 }) && receivedPausable.withLock({ $0 }) { break }
+          if receivedSeekable.withLock({ $0 }) && receivedPausable.withLock({ $0 }) {
+            break
+          }
         }
       }
 
@@ -218,7 +228,9 @@ extension Integration {
           case .unmuted: receivedUnmuted.withLock { $0 = true }
           default: break
           }
-          if receivedMuted.withLock({ $0 }) && receivedUnmuted.withLock({ $0 }) { break }
+          if receivedMuted.withLock({ $0 }) && receivedUnmuted.withLock({ $0 }) {
+            break
+          }
         }
       }
 
@@ -296,7 +308,9 @@ extension Integration {
           case .mediaChanged: receivedMediaChanged.withLock { $0 = true }
           default: break
           }
-          if receivedTracksChanged.withLock({ $0 }) || receivedMediaChanged.withLock({ $0 }) { break }
+          if receivedTracksChanged.withLock({ $0 }) || receivedMediaChanged.withLock({ $0 }) {
+            break
+          }
         }
       }
 

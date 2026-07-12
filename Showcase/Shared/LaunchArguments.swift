@@ -23,6 +23,16 @@ enum LaunchArguments {
   /// streams.
   static let musicFixtureURLs = "-UITestMusicFixtureURLs"
 
+  /// Indefinite MPEG-TS stream used by the physical-device PiP validation
+  /// lane. This remains operator-supplied so the repository never embeds a
+  /// private or short-lived stream URL.
+  static let pipLiveURL = "-UITestPiPLiveURL"
+
+  /// Selects the PiP implementation exercised by the physical-device
+  /// validation surface: `native` for `PiPVideoView`, `direct` for a hosted
+  /// `PiPController.layer`.
+  static let pipRenderingPath = "-UITestPiPRenderingPath"
+
   /// Name of a showcase to deep-link to on launch (e.g. `"SimplePlayback"`).
   /// When unset, the showcase opens its normal navigation tree.
   static let route = "-UITestRoute"
@@ -44,6 +54,14 @@ enum LaunchArguments {
       .split(separator: "|")
       .map { URL(fileURLWithPath: String($0)) }
       ?? []
+  }
+
+  static var pipLiveURLValue: URL? {
+    UserDefaults.standard.string(forKey: key(pipLiveURL)).flatMap(URL.init(string:))
+  }
+
+  static var pipRenderingPathValue: String? {
+    UserDefaults.standard.string(forKey: key(pipRenderingPath))
   }
 
   static var routeValue: String? {
@@ -102,6 +120,7 @@ enum UITestRoute: String, CaseIterable {
   case multiTrackSelection = "MultiTrackSelection"
   case multiConsumer = "MultiConsumer"
   case harnessHome = "HarnessHome"
+  case pipLiveValidation = "PiPLiveValidation"
 
   static var current: UITestRoute? {
     LaunchArguments.routeValue.flatMap(UITestRoute.init(rawValue:))

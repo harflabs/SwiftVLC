@@ -106,7 +106,9 @@ extension Integration {
       let bridge = player.eventBridge
       let source = Player.sourceIdentifier(for: player.pointer)
       let stream = player.events(policy: .unbounded, filter: { event in
-        if case .timeChanged = event { return false }
+        if case .timeChanged = event {
+          return false
+        }
         return true
       })
 
@@ -242,7 +244,9 @@ extension Integration {
     func `Subscription filter keeps the firehose out`() async throws {
       let player = Player(instance: TestInstance.makePlayback())
       let stream = player.events(policy: .unbounded, filter: { event in
-        if case .stateChanged = event { return true }
+        if case .stateChanged = event {
+          return true
+        }
         return false
       })
 
@@ -268,7 +272,9 @@ extension Integration {
         await poll(until: {
           received.withLock { events in
             events.contains { event in
-              if case .stateChanged(.stopped) = event { return true }
+              if case .stateChanged(.stopped) = event {
+                return true
+              }
               return false
             }
           }

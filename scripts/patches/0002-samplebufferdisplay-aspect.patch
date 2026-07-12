@@ -1,5 +1,5 @@
 diff --git a/modules/video_output/apple/VLCSampleBufferDisplay.m b/modules/video_output/apple/VLCSampleBufferDisplay.m
-index f13a4f4f8a..96a55172f7 100644
+index f13a4f4f8a..567a03a7b1 100644
 --- a/modules/video_output/apple/VLCSampleBufferDisplay.m
 +++ b/modules/video_output/apple/VLCSampleBufferDisplay.m
 @@ -140,7 +140,7 @@ typedef NS_ENUM(NSUInteger, VLCSampleBufferPixelFlip) {
@@ -20,7 +20,7 @@ index f13a4f4f8a..96a55172f7 100644
              kCFBooleanTrue
  #endif
          };
-@@ -660,8 +660,50 @@ shouldInheritContentsScale:(CGFloat)newScale
+@@ -660,8 +660,59 @@ shouldInheritContentsScale:(CGFloat)newScale
      - (instancetype)initWithVoutDisplay:(vout_display_t *)vd;
  @end
  
@@ -37,41 +37,50 @@ index f13a4f4f8a..96a55172f7 100644
 +
  @implementation VLCSampleBufferDisplay
  
-+/* A forced display aspect (libvlc_video_set_aspect_ratio) reaches the layer as
-+ * a place rectangle at the requested aspect, but the layer fits the source
-+ * inside it instead of filling it. Stretch the placed content to the box by
-+ * scaling the deficient axis so the displayed picture takes the requested
-+ * shape. The fill (cover) path keeps its identity transform. */
++/* A forced display aspect (libvlc_video_set_aspect_ratio) reaches the vout as a
++ * target place rectangle, but AVSampleBufferDisplayLayer still fits the natural
++ * pixel shape. Scale the natural aspect-fit box into VLC's computed place box so
++ * forced ratios visibly stretch while the default path remains identity. The
++ * fill (cover) path keeps its identity transform and uses layer gravity. */
 +- (void)applyAspectStretch
 +{
-+    VLCSampleBufferDisplayView *view = self.displayView;
-+    if (!view)
++    AVSampleBufferDisplayLayer *layer = self.displayLayer;
++    if (!layer)
 +        return;
 +    const vout_display_place_t *p = self.vd->place;
-+    const double rawW = self.vd->source->i_visible_width;
-+    const double rawH = self.vd->source->i_visible_height;
++    const video_format_t *source = self.vd->source;
++    const vout_display_cfg_t *cfg = self.vd->cfg;
 +    CGAffineTransform t = CGAffineTransformIdentity;
-+    if (p->width > 0 && p->height > 0 && rawW > 0 && rawH > 0
-+        && self.vd->cfg->display.fitting != VLC_VIDEO_FIT_LARGER)
++    if (source && cfg && p->width > 0 && p->height > 0
++        && cfg->display.width > 0 && cfg->display.height > 0
++        && source->i_visible_width > 0 && source->i_visible_height > 0
++        && cfg->display.fitting != VLC_VIDEO_FIT_LARGER)
 +    {
-+        const double rawAR = rawW / rawH;
-+        const double placeAR = (double)p->width / (double)p->height;
-+        if (placeAR < rawAR)
-+            t = CGAffineTransformMakeScale(1.0, rawAR / placeAR);
-+        else if (placeAR > rawAR)
-+            t = CGAffineTransformMakeScale(placeAR / rawAR, 1.0);
++        const double displayW = (double)cfg->display.width;
++        const double displayH = (double)cfg->display.height;
++        const double naturalAR =
++            (double)source->i_visible_width / (double)source->i_visible_height;
++        const double displayAR = displayW / displayH;
++        double naturalW;
++        double naturalH;
++        if (naturalAR > displayAR) {
++            naturalW = displayW;
++            naturalH = displayW / naturalAR;
++        } else {
++            naturalW = displayH * naturalAR;
++            naturalH = displayH;
++        }
++        if (naturalW > 0.0 && naturalH > 0.0)
++            t = CGAffineTransformMakeScale((double)p->width / naturalW,
++                                           (double)p->height / naturalH);
 +    }
-+#if TARGET_OS_OSX
-+    view.layer.affineTransform = t;
-+#else
-+    view.transform = t;
-+#endif
++    layer.affineTransform = t;
 +}
 +
  - (id<VLCPixelBufferRotationContext>)rotationContext
  {
      if (_rotationContext)
-@@ -742,6 +784,8 @@ shouldInheritContentsScale:(CGFloat)newScale
+@@ -742,6 +793,8 @@ shouldInheritContentsScale:(CGFloat)newScale
          @synchronized(sys.displayLayer) {
              sys.displayLayer = displayView.displayLayer;
          }
@@ -80,7 +89,7 @@ index f13a4f4f8a..96a55172f7 100644
          [sys preparePictureInPicture];
      });
  }
-@@ -1055,7 +1099,16 @@ static int Control (vout_display_t *vd, int query)
+@@ -1055,7 +1108,16 @@ static int Control (vout_display_t *vd, int query)
          case VOUT_DISPLAY_CHANGE_SOURCE_ASPECT:
          case VOUT_DISPLAY_CHANGE_SOURCE_CROP:
          case VOUT_DISPLAY_CHANGE_SOURCE_PLACE:

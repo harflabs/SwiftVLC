@@ -145,6 +145,30 @@ class ShowcaseIOSTestCase: XCTestCase {
     }
   }
 
+  /// Spins until an accessibility label parses as an integer above the
+  /// supplied lower bound, then returns the observed value.
+  @discardableResult
+  func waitForIntegerLabel(
+    _ element: XCUIElement,
+    greaterThan lowerBound: Int,
+    timeout: TimeInterval,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) -> Int {
+    let predicate = NSPredicate { _, _ in
+      Int(element.label).map { $0 > lowerBound } == true
+    }
+    let exp = expectation(for: predicate, evaluatedWith: NSObject())
+    if XCTWaiter.wait(for: [exp], timeout: timeout) != .completed {
+      XCTFail(
+        "Expected an integer label above \(lowerBound), but found '\(element.label)' after \(timeout)s",
+        file: file,
+        line: line
+      )
+    }
+    return Int(element.label) ?? Int.min
+  }
+
   /// Waits until the element's visible screen region contains real video
   /// pixels instead of the all-black drawable placeholder.
   func assertRendersNonBlackFrame(
@@ -194,6 +218,82 @@ class ShowcaseIOSTestCase: XCTestCase {
     }
     XCTFail(
       "Expected video pixels, but sampled only \(Int(lastNonBlackRatio * 100))% non-black pixels after \(timeout)s",
+      file: file,
+      line: line
+    )
+  }
+
+  /// Samples the display after backgrounding and finds one stable, contiguous
+  /// PiP-sized motion component. The same bounded region must contain
+  /// sustained motion and non-black pixels; whole-screen animation, clocks,
+  /// widgets, spinners, scattered changes, and position drift are rejected.
+  func assertSystemPictureInPictureRendersMotion(
+    samples: Int = 6,
+    interval: TimeInterval = 0.75,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) {
+    precondition(samples >= 5)
+
+    var screenshots: [XCUIScreenshot] = []
+
+    for index in 0..<samples {
+      screenshots.append(XCUIScreen.main.screenshot())
+      if index + 1 < samples {
+        RunLoop.current.run(until: Date().addingTimeInterval(interval))
+      }
+    }
+
+    for (index, screenshot) in screenshots.enumerated()
+      where index == 0 || index == screenshots.count - 1 {
+      let attachment = XCTAttachment(screenshot: screenshot)
+      attachment.name = index == 0 ? "system-pip-motion-start" : "system-pip-motion-end"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+
+    let frames = screenshots.compactMap { makePiPMotionFrame(from: $0.image) }
+    guard frames.count == screenshots.count else {
+      let attachment = XCTAttachment(
+        string: "Could rasterize only \(frames.count) of \(screenshots.count) screenshots."
+      )
+      attachment.name = "system-pip-motion-diagnostics"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+      XCTFail("Could not rasterize system PiP screenshots", file: file, line: line)
+      return
+    }
+
+    let analysis = PiPMotionRegionAnalyzer().analyze(frames)
+    let diagnostics = systemPiPMotionDiagnostics(analysis)
+    let diagnosticAttachment = XCTAttachment(string: diagnostics)
+    diagnosticAttachment.name = "system-pip-motion-diagnostics"
+    diagnosticAttachment.lifetime = .keepAlways
+    add(diagnosticAttachment)
+
+    if
+      let region = analysis.region,
+      let first = screenshots.first,
+      let last = screenshots.last {
+      for (name, screenshot) in [("start", first), ("end", last)] {
+        guard
+          let crop = croppedPiPMotionRegion(
+            screenshot.image,
+            region: region,
+            frameWidth: analysis.frameWidth,
+            frameHeight: analysis.frameHeight
+          )
+        else { continue }
+        let attachment = XCTAttachment(image: crop)
+        attachment.name = "system-pip-detected-region-\(name)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+      }
+    }
+
+    guard let failure = analysis.failure else { return }
+    XCTFail(
+      "System PiP image oracle failed: \(failure.rawValue). \(diagnostics)",
       file: file,
       line: line
     )
@@ -288,4 +388,117 @@ private func croppedImage(_ image: UIImage, to frame: CGRect) -> UIImage? {
 
   guard let cropped = cgImage.cropping(to: pixelRect) else { return nil }
   return UIImage(cgImage: cropped, scale: image.scale, orientation: image.imageOrientation)
+}
+
+private func makePiPMotionFrame(
+  from image: UIImage,
+  maximumDimension: Int = 240
+) -> PiPMotionFrame? {
+  guard let cgImage = image.cgImage else { return nil }
+
+  let sourceWidth = cgImage.width
+  let sourceHeight = cgImage.height
+  guard sourceWidth > 0, sourceHeight > 0 else { return nil }
+
+  let scale = min(
+    1,
+    Double(maximumDimension) / Double(max(sourceWidth, sourceHeight))
+  )
+  let width = max(1, Int((Double(sourceWidth) * scale).rounded()))
+  let height = max(1, Int((Double(sourceHeight) * scale).rounded()))
+  let bytesPerPixel = 4
+  let bytesPerRow = width * bytesPerPixel
+  let colorSpace = CGColorSpaceCreateDeviceRGB()
+  let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+    | CGBitmapInfo.byteOrder32Big.rawValue
+  var bytes = [UInt8](repeating: 0, count: height * bytesPerRow)
+
+  guard
+    let context = CGContext(
+      data: &bytes,
+      width: width,
+      height: height,
+      bitsPerComponent: 8,
+      bytesPerRow: bytesPerRow,
+      space: colorSpace,
+      bitmapInfo: bitmapInfo
+    )
+  else { return nil }
+
+  context.interpolationQuality = .low
+  let bounds = CGRect(x: 0, y: 0, width: width, height: height)
+  context.draw(cgImage, in: bounds)
+
+  var pixels: [PiPMotionPixel] = []
+  pixels.reserveCapacity(width * height)
+  for y in 0..<height {
+    for x in 0..<width {
+      let offset = y * bytesPerRow + x * bytesPerPixel
+      pixels.append(
+        PiPMotionPixel(
+          red: bytes[offset],
+          green: bytes[offset + 1],
+          blue: bytes[offset + 2]
+        )
+      )
+    }
+  }
+
+  return PiPMotionFrame(width: width, height: height, pixels: pixels)
+}
+
+private func croppedPiPMotionRegion(
+  _ image: UIImage,
+  region: PiPMotionRegion,
+  frameWidth: Int,
+  frameHeight: Int
+) -> UIImage? {
+  guard
+    let cgImage = image.cgImage,
+    frameWidth > 0,
+    frameHeight > 0
+  else { return nil }
+
+  let scaleX = Double(cgImage.width) / Double(frameWidth)
+  let scaleY = Double(cgImage.height) / Double(frameHeight)
+  let imageBounds = CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height)
+  let pixelRegion = CGRect(
+    x: Double(region.x) * scaleX,
+    y: Double(region.y) * scaleY,
+    width: Double(region.width) * scaleX,
+    height: Double(region.height) * scaleY
+  ).integral.intersection(imageBounds)
+  guard pixelRegion.width > 0, pixelRegion.height > 0 else { return nil }
+  guard let cropped = cgImage.cropping(to: pixelRegion) else { return nil }
+  return UIImage(cgImage: cropped, scale: image.scale, orientation: image.imageOrientation)
+}
+
+private func systemPiPMotionDiagnostics(_ analysis: PiPMotionRegionAnalysis) -> String {
+  let regionDescription = analysis.region.map {
+    "x=\($0.x),y=\($0.y),w=\($0.width),h=\($0.height)"
+  } ?? "none"
+  let pairMotion = analysis.pairMotionRatios
+    .map { String(format: "%.4f", $0) }
+    .joined(separator: ",")
+  let nonBlack = analysis.frameNonBlackRatios
+    .map { String(format: "%.4f", $0) }
+    .joined(separator: ",")
+
+  return """
+  result=\(analysis.failure?.rawValue ?? "pass")
+  frame=\(analysis.frameWidth)x\(analysis.frameHeight)
+  region=\(regionDescription)
+  geometry.area=\(String(format: "%.4f", analysis.regionAreaRatio))
+  geometry.aspect=\(String(format: "%.4f", analysis.regionAspectRatio))
+  geometry.persistentFill=\(String(format: "%.4f", analysis.persistentFillRatio))
+  persistent.components=\(analysis.persistentComponentCount)
+  persistent.largestArea=\(String(format: "%.4f", analysis.largestPersistentComponentAreaRatio))
+  pairs.matching=\(analysis.matchingPairCount)/\(analysis.requiredPairCount)
+  pairs.sustainedMotion=\(analysis.sustainedMotionPairCount)/\(analysis.requiredPairCount)
+  pairs.motionRatios=[\(pairMotion)]
+  frames.nonBlack=\(analysis.nonBlackFrameCount)/\(analysis.requiredNonBlackFrameCount) required
+  frames.nonBlackRatios=[\(nonBlack)]
+  drift.horizontal=\(String(format: "%.4f", analysis.horizontalCenterDriftRatio))
+  drift.vertical=\(String(format: "%.4f", analysis.verticalCenterDriftRatio))
+  """
 }

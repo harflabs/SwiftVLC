@@ -68,7 +68,9 @@ struct LogsCase: View {
     entries.removeAll()
     for await entry in VLCInstance.shared.logStream(minimumLevel: level) {
       entries.insert(Entry(value: entry), at: 0)
-      if entries.count > 100 { entries.removeLast() }
+      if entries.count > 100 {
+        entries.removeLast()
+      }
     }
   }
 

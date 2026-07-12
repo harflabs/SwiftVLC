@@ -92,7 +92,7 @@ struct SmokeScreen: View {
       LabeledContent("Subtitle", value: "\(player.subtitleTracks.count)")
       ForEach(player.videoTracks + player.audioTracks + player.subtitleTracks) { track in
         VStack(alignment: .leading, spacing: 2) {
-          Text("\(track.type) — \(track.name)")
+          Text(verbatim: "\(track.type) — \(track.name)")
           Text(trackDetail(for: track))
             .font(.caption.monospaced())
             .foregroundStyle(.secondary)

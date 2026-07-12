@@ -175,7 +175,9 @@ private func collectStableLifecycleEvents(
           if collected.last != line {
             collected.append(line)
           }
-          if predicate(collected) { break }
+          if predicate(collected) {
+            break
+          }
         }
         return collected.joined(separator: "\n")
       }

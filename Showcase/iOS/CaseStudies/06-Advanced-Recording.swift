@@ -58,7 +58,9 @@ struct RecordingCase: View {
     for await event in player.events {
       if case .recordingChanged(let rec, let path) = event {
         isRecording = rec
-        if let path { outputFile = path }
+        if let path {
+          outputFile = path
+        }
       }
     }
   }

@@ -11,19 +11,17 @@ struct SeekBar: View {
   let player: Player
 
   var body: some View {
-    Group {
-      CompatSlider(
-        value: Binding(
-          get: { player.position },
-          set: { try? player.seek(to: PlaybackPosition($0)) }
-        ),
-        range: 0...1
-      )
-      .accessibilityIdentifier(AccessibilityID.SeekBar.slider)
+    CompatSlider(
+      value: Binding(
+        get: { player.position },
+        set: { try? player.seek(to: PlaybackPosition($0)) }
+      ),
+      range: 0...1
+    )
+    .accessibilityIdentifier(AccessibilityID.SeekBar.slider)
 
-      timeRow("Current", value: format(player.currentTime), identifier: AccessibilityID.SeekBar.currentTime)
-      timeRow("Duration", value: format(player.duration ?? .zero), identifier: AccessibilityID.SeekBar.duration)
-    }
+    timeRow("Current", value: format(player.currentTime), identifier: AccessibilityID.SeekBar.currentTime)
+    timeRow("Duration", value: format(player.duration ?? .zero), identifier: AccessibilityID.SeekBar.duration)
   }
 
   private func timeRow(_ title: String, value: String, identifier: String) -> some View {

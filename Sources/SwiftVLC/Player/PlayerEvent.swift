@@ -117,72 +117,128 @@ public enum PlayerEvent: Sendable, CustomStringConvertible {
 extension PlayerEvent {
   /// `PlayerState` if this event is `.stateChanged`, otherwise `nil`.
   public var stateChanged: PlayerState? {
-    if case .stateChanged(let value) = self { value } else { nil }
+    if case .stateChanged(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// `Duration` if this event is `.timeChanged`, otherwise `nil`.
   public var timeChanged: Duration? {
-    if case .timeChanged(let value) = self { value } else { nil }
+    if case .timeChanged(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// `Double` if this event is `.positionChanged`, otherwise `nil`.
   public var positionChanged: Double? {
-    if case .positionChanged(let value) = self { value } else { nil }
+    if case .positionChanged(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// `Duration` if this event is `.lengthChanged`, otherwise `nil`.
   public var lengthChanged: Duration? {
-    if case .lengthChanged(let value) = self { value } else { nil }
+    if case .lengthChanged(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// `Bool` if this event is `.seekableChanged`, otherwise `nil`.
   public var seekableChanged: Bool? {
-    if case .seekableChanged(let value) = self { value } else { nil }
+    if case .seekableChanged(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// `Bool` if this event is `.pausableChanged`, otherwise `nil`.
   public var pausableChanged: Bool? {
-    if case .pausableChanged(let value) = self { value } else { nil }
+    if case .pausableChanged(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// `Void` if this event is `.tracksChanged`, otherwise `nil`.
   public var tracksChanged: Void? {
-    if case .tracksChanged = self { () } else { nil }
+    if case .tracksChanged = self {
+      ()
+    } else {
+      nil
+    }
   }
 
   /// `Void` if this event is `.mediaChanged`, otherwise `nil`.
   public var mediaChanged: Void? {
-    if case .mediaChanged = self { () } else { nil }
+    if case .mediaChanged = self {
+      ()
+    } else {
+      nil
+    }
   }
 
   /// `Void` if this event is `.encounteredError`, otherwise `nil`.
   public var encounteredError: Void? {
-    if case .encounteredError = self { () } else { nil }
+    if case .encounteredError = self {
+      ()
+    } else {
+      nil
+    }
   }
 
   /// `Float` if this event is `.volumeChanged`, otherwise `nil`.
   public var volumeChanged: Float? {
-    if case .volumeChanged(let value) = self { value } else { nil }
+    if case .volumeChanged(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// `Void` if this event is `.muted`, otherwise `nil`.
   public var muted: Void? {
-    if case .muted = self { () } else { nil }
+    if case .muted = self {
+      ()
+    } else {
+      nil
+    }
   }
 
   /// `Void` if this event is `.unmuted`, otherwise `nil`.
   public var unmuted: Void? {
-    if case .unmuted = self { () } else { nil }
+    if case .unmuted = self {
+      ()
+    } else {
+      nil
+    }
   }
 
   /// `Void` if this event is `.corked`, otherwise `nil`.
   public var corked: Void? {
-    if case .corked = self { () } else { nil }
+    if case .corked = self {
+      ()
+    } else {
+      nil
+    }
   }
 
   /// `Void` if this event is `.uncorked`, otherwise `nil`.
   public var uncorked: Void? {
-    if case .uncorked = self { () } else { nil }
+    if case .uncorked = self {
+      ()
+    } else {
+      nil
+    }
   }
 
   /// Optional `String?` if this event is `.audioDeviceChanged`,
@@ -190,32 +246,56 @@ extension PlayerEvent {
   /// didn't fire) from the inner nil (the device was unspecified)
   /// requires `if case .audioDeviceChanged(let device) = event`.
   public var audioDeviceChanged: String?? {
-    if case .audioDeviceChanged(let value) = self { value } else { nil }
+    if case .audioDeviceChanged(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// `Void` if this event is `.mediaStopping`, otherwise `nil`.
   public var mediaStopping: Void? {
-    if case .mediaStopping = self { () } else { nil }
+    if case .mediaStopping = self {
+      ()
+    } else {
+      nil
+    }
   }
 
   /// `Void` if this event is `.endReached`, otherwise `nil`.
   public var endReached: Void? {
-    if case .endReached = self { () } else { nil }
+    if case .endReached = self {
+      ()
+    } else {
+      nil
+    }
   }
 
   /// `Int` if this event is `.voutChanged`, otherwise `nil`.
   public var voutChanged: Int? {
-    if case .voutChanged(let value) = self { value } else { nil }
+    if case .voutChanged(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// `Float` if this event is `.bufferingProgress`, otherwise `nil`.
   public var bufferingProgress: Float? {
-    if case .bufferingProgress(let value) = self { value } else { nil }
+    if case .bufferingProgress(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// `Int` if this event is `.chapterChanged`, otherwise `nil`.
   public var chapterChanged: Int? {
-    if case .chapterChanged(let value) = self { value } else { nil }
+    if case .chapterChanged(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// Tuple of `(isRecording: Bool, filePath: String?)` if this event is
@@ -230,27 +310,47 @@ extension PlayerEvent {
 
   /// `Void` if this event is `.titleListChanged`, otherwise `nil`.
   public var titleListChanged: Void? {
-    if case .titleListChanged = self { () } else { nil }
+    if case .titleListChanged = self {
+      ()
+    } else {
+      nil
+    }
   }
 
   /// `Int` if this event is `.titleSelectionChanged`, otherwise `nil`.
   public var titleSelectionChanged: Int? {
-    if case .titleSelectionChanged(let value) = self { value } else { nil }
+    if case .titleSelectionChanged(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// `String` (path) if this event is `.snapshotTaken`, otherwise `nil`.
   public var snapshotTaken: String? {
-    if case .snapshotTaken(let value) = self { value } else { nil }
+    if case .snapshotTaken(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// Program group ID if this event is `.programAdded`, otherwise `nil`.
   public var programAdded: Int? {
-    if case .programAdded(let value) = self { value } else { nil }
+    if case .programAdded(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// Program group ID if this event is `.programDeleted`, otherwise `nil`.
   public var programDeleted: Int? {
-    if case .programDeleted(let value) = self { value } else { nil }
+    if case .programDeleted(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 
   /// Tuple of `(unselectedId: Int, selectedId: Int)` if this event is
@@ -265,6 +365,10 @@ extension PlayerEvent {
 
   /// Program group ID if this event is `.programUpdated`, otherwise `nil`.
   public var programUpdated: Int? {
-    if case .programUpdated(let value) = self { value } else { nil }
+    if case .programUpdated(let value) = self {
+      value
+    } else {
+      nil
+    }
   }
 }

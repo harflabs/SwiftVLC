@@ -27,7 +27,9 @@ enum TestMedia {
   }
 
   private static func fixtureOverrideOr(bundled name: String, withExtension ext: String) -> URL {
-    if let override = LaunchArguments.fixtureURLValue { return override }
+    if let override = LaunchArguments.fixtureURLValue {
+      return override
+    }
     return Bundle.main.url(forResource: name, withExtension: ext)!
   }
 }

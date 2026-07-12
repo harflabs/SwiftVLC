@@ -3,6 +3,7 @@
 import AVFoundation
 import CoreMedia
 import CoreVideo
+import CustomDump
 import Synchronization
 import Testing
 
@@ -249,6 +250,39 @@ extension Integration {
     }
 
     @Test
+    func `Scaling resources stay unallocated for passthrough frames`() throws {
+      let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+      let sourceBuffer = try makeBGRAImageBuffer(width: 16, height: 16)
+
+      #expect(renderer.state.withLock { $0.scalingResources } == nil)
+
+      let unsetOutput = try #require(renderer.outputPixelBuffer(from: sourceBuffer)?.buffer)
+      #expect(unsetOutput === sourceBuffer)
+      #expect(renderer.state.withLock { $0.scalingResources } == nil)
+
+      renderer.setRenderSize(CMVideoDimensions(width: 16, height: 16))
+      let matchingOutput = try #require(renderer.outputPixelBuffer(from: sourceBuffer)?.buffer)
+      #expect(matchingOutput === sourceBuffer)
+      #expect(renderer.state.withLock { $0.scalingResources } == nil)
+    }
+
+    @Test
+    func `Scaling resources are created once and reused across resizes`() throws {
+      let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+      let sourceBuffer = try makeBGRAImageBuffer(width: 16, height: 16)
+
+      renderer.setRenderSize(CMVideoDimensions(width: 8, height: 8))
+      _ = try #require(renderer.outputPixelBuffer(from: sourceBuffer))
+      let firstResources = try #require(renderer.state.withLock { $0.scalingResources })
+
+      renderer.setRenderSize(CMVideoDimensions(width: 4, height: 4))
+      _ = try #require(renderer.outputPixelBuffer(from: sourceBuffer))
+      let secondResources = try #require(renderer.state.withLock { $0.scalingResources })
+
+      #expect(firstResources === secondResources)
+    }
+
+    @Test
     func `repeated scaling reuses the render pool for unchanged dimensions`() throws {
       let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
       renderer.setRenderSize(CMVideoDimensions(width: 8, height: 8))
@@ -262,6 +296,27 @@ extension Integration {
 
       #expect(firstPool != nil)
       #expect(firstPool === secondPool)
+    }
+
+    @Test
+    func `Render pool threshold fails closed and recovers after a buffer returns`() throws {
+      let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+      renderer.setRenderSize(CMVideoDimensions(width: 8, height: 8))
+      let sourceBuffer = try makeBGRAImageBuffer(width: 16, height: 16)
+      let threshold = pixelBufferRendererPoolAllocationThreshold(width: 8, height: 8)
+      expectNoDifference(threshold, 12)
+
+      var heldBuffers: [CVPixelBuffer] = []
+      for _ in 0..<threshold {
+        try heldBuffers.append(
+          #require(renderer.outputPixelBuffer(from: sourceBuffer)?.buffer)
+        )
+      }
+
+      #expect(renderer.outputPixelBuffer(from: sourceBuffer) == nil)
+
+      heldBuffers.removeLast()
+      #expect(renderer.outputPixelBuffer(from: sourceBuffer) != nil)
     }
 
     @Test

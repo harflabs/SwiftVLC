@@ -12,7 +12,9 @@ extension Integration {
       let collectTask = Task.detached {
         for await entry in stream {
           collected.withLock { $0.append(entry) }
-          if collected.withLock({ $0.count }) >= 5 { break }
+          if collected.withLock({ $0.count }) >= 5 {
+            break
+          }
         }
       }
       // Start playback to generate log entries
@@ -67,7 +69,9 @@ extension Integration {
         var count = 0
         for await _ in stream {
           count += 1
-          if count >= 1 { break }
+          if count >= 1 {
+            break
+          }
         }
       }
       // Cancel after a brief pause so the test doesn't hang if no entries arrive

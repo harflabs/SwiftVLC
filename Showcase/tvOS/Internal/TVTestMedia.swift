@@ -18,7 +18,9 @@ enum TVTestMedia {
   }
 
   private static func fixtureOverrideOr(remote: String) -> URL {
-    if let override = LaunchArguments.fixtureURLValue { return override }
+    if let override = LaunchArguments.fixtureURLValue {
+      return override
+    }
     guard let url = URL(string: remote) else {
       preconditionFailure("Invalid remote media URL: \(remote)")
     }
@@ -26,7 +28,9 @@ enum TVTestMedia {
   }
 
   private static func fixtureOverrideOr(bundled name: String, withExtension ext: String) -> URL {
-    if let override = LaunchArguments.fixtureURLValue { return override }
+    if let override = LaunchArguments.fixtureURLValue {
+      return override
+    }
     return bundled(name, withExtension: ext)
   }
 

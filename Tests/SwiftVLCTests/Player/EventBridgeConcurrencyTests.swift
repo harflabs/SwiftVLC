@@ -50,7 +50,9 @@ extension Integration {
       let converged = await withTaskGroup(of: Bool.self) { group in
         group.addTask { @Sendable in
           while !Task.isCancelled {
-            if counts.withLock({ $0.allSatisfy { $0 >= 1 } }) { return true }
+            if counts.withLock({ $0.allSatisfy { $0 >= 1 } }) {
+              return true
+            }
             try? await Task.sleep(for: .milliseconds(5))
           }
           return false

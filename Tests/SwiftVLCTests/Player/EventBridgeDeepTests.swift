@@ -84,7 +84,9 @@ extension Integration {
             counts[key, default: 0] += 1
             return counts.values.reduce(0, +)
           }
-          if total >= 10 { break }
+          if total >= 10 {
+            break
+          }
         }
       }
 
@@ -122,7 +124,9 @@ extension Integration {
             $0.append(event)
             return $0.count
           }
-          if count >= 3 { break }
+          if count >= 3 {
+            break
+          }
         }
       }
 

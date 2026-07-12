@@ -48,7 +48,7 @@ flowchart TB
         subgraph Bottom["Supporting Modules"]
             Playlist["Playlist<br/>MediaList · ListPlayer"]
             Discovery["Discovery<br/>LAN/UPnP · Renderer"]
-            PiP["PiP<br/>iOS public sample buffers · macOS SPI native drawable"]
+            PiP["PiP<br/>iOS native drawable or direct vmem · macOS SPI drawable"]
             EventBridge["EventBridge<br/>C → AsyncStream"]
         end
     end
@@ -86,7 +86,7 @@ flowchart TB
 | **State** | `@Observable` / `@MainActor` | Automatic SwiftUI integration, thread safety |
 | **Events** | `AsyncStream<PlayerEvent>` | Native structured concurrency, multi-consumer |
 | **Video** | `UIView` / `NSView` via `set_nsobject` | Platform-native rendering, zero-copy |
-| **PiP** | iOS: vmem → `AVSampleBufferDisplayLayer`; macOS: native drawable backend behind SPI | Public iOS PiP plus explicit private-API macOS opt-in |
+| **PiP** | iOS `PiPVideoView`: native drawable; direct controller: vmem → `AVSampleBufferDisplayLayer`; macOS view: native drawable behind SPI | Public iOS PiP, a public direct sample-buffer route, plus explicit private-API macOS opt-in |
 | **Thread Safety** | `Mutex<T>`, `Sendable`, `nonisolated(unsafe)` | Compile-time data race prevention |
 | **Testing** | Swift Testing framework | Modern `@Test`, `#expect`, tags, traits |
 | **Platforms** | iOS 18+, macOS 15+, tvOS 18+, visionOS 2+, Mac Catalyst | Unified SwiftUI minimum |
@@ -263,18 +263,23 @@ Network service and renderer discovery.
 ### PiP (iOS/macOS only)
 
 Picture-in-Picture uses the platform path that best matches libVLC's
-video output. iOS uses public AVKit sample-buffer PiP. macOS has a
+video output. `PiPVideoView` uses libVLC's native drawable integration on
+iOS. Instantiating `PiPController` directly instead installs public vmem
+callbacks and exposes an `AVSampleBufferDisplayLayer`. macOS has a
 native-drawable backend behind `PrivateMacOSPiP` SPI because the public
-sample-buffer mirror crops incorrectly on supported macOS releases. The
-module is split into 5 focused files.
+sample-buffer mirror crops incorrectly on supported macOS releases.
 
 | File | Type | Purpose |
 |---|---|---|
 | `PiPController.swift` | `@MainActor class PiPController` | PiP lifecycle, timebase sync, deferred-pause state machine, native-state observer task. |
 | `PiPController+Delegate.swift` | extension + private `PiPPlaybackDelegateProxy` | `AVPictureInPictureControllerDelegate` conformance plus the sample-buffer playback delegate proxy that breaks AVKit's strong-retain cycle (AVKit captures the playback delegate strongly even though the header declares it `weak`). Also hosts the `pipMainActorSync` helper for non-main AVKit callbacks that need synchronous main-actor answers. |
-| `PiPVideoView.swift` | SwiftUI representable | `PiPVideoView(player, controller: $binding)` — iOS hosts an `AVSampleBufferDisplayLayer`; macOS hosts native drawable containers whose PiP start path is unavailable unless the SPI opt-in is enabled. |
+| `PiPController+AudioSession.swift` | extension | Configures the iOS playback category at construction, defers activation until playback/PiP intent, and retries after transient activation failure. |
+| `PiPController+PlaybackState.swift` | extension | Payload-driven AVKit range invalidation and seekability-to-linear-playback policy that is independent of `Player` subscriber ordering. |
+| `PiPControllerBindingPublication.swift` | `@MainActor` helper | Defers representable binding writes, rejects stale generations, and clears only the controller identity published by that view lifecycle. |
+| `PiPVideoView.swift` | SwiftUI representable | Owns `PiPVideoView(player, controller: $binding)` construction, player swaps, coordinator lifetime, and platform host attachment without embedding backend implementation details. |
+| `PiPVideoView+iOSNative.swift` | iOS native drawable plumbing | Drawable proxy and layout, generation-gated off-main callbacks, libVLC media controls, and the backend that wraps libVLC's system PiP controller for state and control. |
 | `PiPVideoView+MacPrivate.swift` | macOS-only private API plumbing | `MacNativePiPBackend` orchestrates `MacPrivatePiPPresenter` (dynamic loader for `PIPViewController` from `PIP.framework`), `MacPrivatePiPDelegate`, and `MacNativePiPMediaController`. All private-framework symbol references live in this one file for security/audit review. Gated by `PiPController.allowsPrivateMacOSAPI` SPI. |
-| `PixelBufferRenderer.swift` | `class PixelBufferRenderer: Sendable` | iOS/direct sample-buffer path: format → lock → unlock → display. `CVPixelBufferPool` → `CMSampleBuffer` → layer. |
+| `PixelBufferRenderer.swift` | `class PixelBufferRenderer: Sendable` | Direct sample-buffer path: format → lock → unlock → display. `CVPixelBufferPool` → `CMSampleBuffer` → layer. |
 
 ---
 
@@ -514,10 +519,21 @@ PiP rendering depends on the platform:
 | Path | Pipeline |
 |---|---|
 | **VideoView** | `set_nsobject` → VLC renders directly into the view |
-| **PiP on iOS** | vmem callbacks → `CVPixelBuffer` → `CMSampleBuffer` → `AVSampleBufferDisplayLayer` → PiP |
-| **PiP on macOS** | SPI opt-in: `set_nsobject` drawable → same VLC-owned `NSView` is moved into the system PiP presenter |
+| **PiPVideoView on iOS** | `set_nsobject` drawable proxy → libVLC's iOS sample-buffer video output → libVLC-owned `AVPictureInPictureController` |
+| **Direct PiPController** | vmem callbacks → `CVPixelBuffer` → `CMSampleBuffer` → SwiftVLC-owned `AVSampleBufferDisplayLayer` → AVKit PiP |
+| **PiPVideoView on macOS** | SPI opt-in: `set_nsobject` drawable → same VLC-owned `NSView` is moved into the system PiP presenter |
 
-### iOS/Direct vmem Callback Pipeline
+### iOS Native-drawable Path
+
+`PiPVideoView` attaches a drawable proxy to the player. The proxy hosts
+libVLC's inline rendering children and implements the Picture in Picture
+selectors expected by VLC's bundled iOS video output. That output creates
+and owns the `AVPictureInPictureController`, then passes its native window
+controller back to SwiftVLC for start/stop, possibility, activity, playback
+invalidation, and linear-playback policy. The view never hosts
+`PiPController.layer`; that layer belongs exclusively to the direct path.
+
+### Direct vmem Callback Pipeline
 
 ```mermaid
 flowchart TB
@@ -537,17 +553,76 @@ flowchart TB
         Layer --> Controller
     end
 
-    D -->|"enqueues on main queue"| Layer
+    D -->|"enqueues on dedicated serial queue"| Layer
 ```
+
+The direct renderer requests 8-bit BGRA frames. Its optional resize pass
+uses a device-RGB Core Image target, so this path is SDR and does not
+preserve HDR or wide-color metadata.
+
+### Direct Callback Ownership
+
+libVLC copies vmem function pointers and their opaque value when a video
+output opens. Clearing the media-player callback variables therefore does
+not revoke a copy already held by that output. SwiftVLC ties each retained
+opaque to one exact `libvlc_media_player_t` through
+`NativePlayerHandleLifetime`:
+
+- Sequential direct controllers on the same native handle reuse one stable
+  handle slot. During format negotiation, each vout replaces its copied
+  handle opaque with a separately retained vout context and decode pool. An
+  overlapping output therefore cannot change another output's dimensions,
+  pitch, pool, pending picture, or cleanup state. Each vout still resolves
+  its display target through the handle slot, so a successor controller can
+  atomically take over an already-open output.
+- Replacing the native media-player handle creates a fresh slot for the new
+  handle and permanently retires the old slot.
+- Every successful lock pins exactly one buffer until matching display, a
+  superseding successful lock, or that vout's cleanup. This balances the
+  retain even when pinned vmem suppresses display after native picture
+  construction fails. Cleanup drains only its own vout and releases that
+  vout context exactly once.
+- Each `MediaListPlayer` native binding is a counted owner because pinned
+  libVLC retains the same `libvlc_media_player_t`. A rebuild synchronously
+  rebinds the retiring list player to an independent neutral player before
+  offloading its release, so it cannot advance or stop a successor's shared
+  handle. Final shutdown waits for the initial owner and every counted list
+  owner to release.
+- Retirement suppresses new display work, but releases the handle opaque
+  only after the final counted native release returns for that exact handle
+  and every handle callback already in flight has drained. No timeout or
+  transient `vout` observation is treated as proof of safety.
+
+This per-handle rule prevents both use-after-free during teardown and stale
+controller teardown from clearing a successor's callbacks.
+
+### Playback Range and Invalidation Policy
+
+The direct AVKit playback delegate synchronously snapshots the current
+native handle and maps media state as follows:
+
+| Native state | AVKit range |
+|---|---|
+| No media | Invalid |
+| Loaded media with length `<= 0` | Start zero, positive-infinite duration |
+| Loaded media with positive length | Start zero, finite native duration |
+
+An unknown duration is therefore valid live/indefinite content; rendering
+does not wait for a finite length. Media, length, and seekability events
+drive invalidation from their payloads. That is load-bearing because
+`Player` and `PiPController` subscribe independently and either consumer
+may observe the event first. Playback-state changes conservatively
+invalidate as a payload-free fallback. Seekability payloads also synchronize
+`requiresLinearPlayback` on the direct controller and iOS native backend.
 
 ### PiPController Responsibilities
 
 1. **Timebase sync.** Creates a `CMTimebase` and keeps it aligned with the player's state (playing, paused, or rate-shifted).
-2. **Duration reporting.** Invalidates the PiP controller once the duration becomes known, which is required before the controls can render.
-3. **Playback delegation.** Owns a `PiPPlaybackDelegateProxy` that implements `AVPictureInPictureSampleBufferPlaybackDelegate`, breaking AVKit's strong-retain cycle while routing PiP play, pause, and seek commands into the ``Player``.
-4. **State observation.** An observer task distinguishes VLC-initiated state changes from PiP-initiated ones.
-5. **Render-size tracking.** The iOS/direct sample-buffer path follows AVKit's render-size callbacks and emits target-sized buffers so live PiP resizing cannot display stale-size frames.
-6. **Deferred pause.** Skip-without-blink by deferring the pause via task cancellation.
+2. **Playback delegation.** Owns a `PiPPlaybackDelegateProxy` that implements `AVPictureInPictureSampleBufferPlaybackDelegate`, breaking AVKit's strong-retain cycle while routing PiP play, pause, and seek commands into the `Player`.
+3. **Range policy.** Reports no-content, live/indefinite, and finite media distinctly, and invalidates from event payloads rather than stale observable mirrors.
+4. **State observation.** Distinguishes VLC-initiated state changes from pending PiP-initiated play/pause intent and keeps AVKit's linear-playback policy aligned with seekability.
+5. **Deferred pause.** Debounces transient AVKit pause signals so skips and PiP transitions do not issue an unsafe short-lived native pause.
+6. **Audio policy.** Configures the iOS playback category at construction but defers `setActive(true)` until PiP start or active playback intent. Direct and inactive native construction do not take audio focus; native adoption of an already-active Player activates before publishing backend ownership so automatic PiP cannot outrun session setup. A failed attempt remains retryable at observed native did-start.
 
 On macOS, the SPI native backend intentionally bypasses SwiftVLC's vmem
 renderer. It gives libVLC a normal `NSView` drawable and deliberately does
@@ -561,10 +636,21 @@ into the PiP panel.
 
 ### Mutually Exclusive
 
-`VideoView` and `PiPVideoView` are mutually exclusive for a given player.
-On iOS, `set_nsobject` and vmem callbacks cannot coexist on the same
-`libvlc_media_player_t`. On macOS, both views use `set_nsobject`, and
-the most recently attached drawable owns VLC's native video output.
+Only one rendering path may own a player at a time. On iOS,
+`PiPVideoView` and `VideoView` both use `set_nsobject`, while a direct
+`PiPController` replaces drawable rendering with vmem callbacks. A stable
+same-handle callback slot makes sequential direct-controller handoff safe;
+it does not make simultaneous drawable and vmem outputs supported. On
+macOS, both SwiftUI views use `set_nsobject`, and the most recently attached
+drawable owns VLC's native video output.
+
+### Physical-device Validation
+
+The iOS native backend deliberately reports PiP unavailable in Simulator.
+Simulator AVKit can report an active sample-buffer PiP controller while the
+system window remains black, so state-only simulator tests cannot validate
+video delivery. End-to-end PiP rendering must be exercised on a physical
+iOS device with the `audio` background mode enabled.
 
 ---
 

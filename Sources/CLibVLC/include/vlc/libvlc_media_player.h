@@ -29,6 +29,7 @@
 
 /* Definitions of enum properties for video */
 #include "libvlc_video.h"
+#include "swiftvlc_vmem.h"
 
 # ifdef __cplusplus
 extern "C" {
@@ -257,6 +258,42 @@ LIBVLC_API void libvlc_media_player_set_media( libvlc_media_player_t *p_mi,
  *         media is associated
  */
 LIBVLC_API libvlc_media_t * libvlc_media_player_get_media( libvlc_media_player_t *p_mi );
+
+/**
+ * Atomic retained-media and playback-length snapshot.
+ *
+ * Both fields are captured together while holding the media player's internal
+ * player lock, so the media identity cannot change between the retained
+ * reference and its associated playback length.
+ */
+typedef struct swiftvlc_media_player_media_length_snapshot_t
+{
+    libvlc_media_t *media;  /**< retained media, or NULL; release with libvlc_media_release() */
+    libvlc_time_t length;   /**< playback length associated with @a media */
+} swiftvlc_media_player_media_length_snapshot_t;
+
+/**
+ * Version of SwiftVLC's additive pinned-libVLC extensions.
+ *
+ * Version 1 provides the geometry-aware vmem callback and atomic retained
+ * media/length snapshot.
+ */
+LIBVLC_API unsigned swiftvlc_libvlc_pip_extensions_version( void );
+
+/**
+ * Atomically capture the media player's current media and playback length.
+ *
+ * On success the caller owns one reference to the returned media and must
+ * release it with libvlc_media_release().
+ *
+ * \param p_mi the media player
+ * \param[out] snapshot destination for the retained media and length
+ * \retval true a media was captured; both output fields are initialized
+ * \retval false no media is associated; both output fields are initialized
+ */
+LIBVLC_API bool swiftvlc_libvlc_media_player_get_media_length_snapshot(
+    libvlc_media_player_t *p_mi,
+    swiftvlc_media_player_media_length_snapshot_t *snapshot );
 
 /**
  * Get the Event Manager from which the media player send event.
@@ -534,6 +571,23 @@ LIBVLC_API
 void libvlc_video_set_format_callbacks( libvlc_media_player_t *mp,
                                         libvlc_video_format_cb setup,
                                         libvlc_video_cleanup_cb cleanup );
+
+/**
+ * Set the additive extended decoded-video format callback.
+ *
+ * This is mutually exclusive with libvlc_video_set_format_callbacks(). Calling
+ * either setter clears the other setup callback. Legacy callback semantics are
+ * otherwise unchanged.
+ *
+ * \param mp the media player
+ * \param setup extended setup callback, or NULL to clear it
+ * \param cleanup callback to release setup resources, or NULL
+ */
+LIBVLC_API
+void swiftvlc_libvlc_video_set_format_callbacks_ex(
+    libvlc_media_player_t *mp,
+    swiftvlc_video_format_ex_cb setup,
+    libvlc_video_cleanup_cb cleanup );
 
 
 typedef struct libvlc_video_setup_device_cfg_t

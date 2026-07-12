@@ -368,7 +368,9 @@ public final class Player {
     let upstream = eventBridge.makeStream(
       policy: .unbounded,
       filter: { event in
-        if case .stateChanged = event { return true }
+        if case .stateChanged = event {
+          return true
+        }
         return false
       }
     )
@@ -397,6 +399,16 @@ public final class Player {
 
   @ObservationIgnored
   nonisolated(unsafe) var pointer: OpaquePointer // libvlc_media_player_t*
+  @ObservationIgnored
+  var nativeHandleLifetime: NativePlayerHandleLifetime
+  #if os(iOS) || os(macOS)
+  @ObservationIgnored
+  weak var directPiPVideoCallbackRegistration: DirectPiPVideoCallbackRegistration?
+  @ObservationIgnored
+  var directPiPVideoCallbackSlot: DirectPiPVideoCallbackSlot?
+  @ObservationIgnored
+  var directPiPVideoCallbackGeneration: UInt64 = 0
+  #endif
   let eventBridge: EventBridge
   nonisolated let endCoordinator = PlaybackEndCoordinator()
   nonisolated let playbackIntentBridge: Broadcaster<Bool>
@@ -474,6 +486,7 @@ public final class Player {
   public init(instance: VLCInstance = .shared) {
     let p = Self.makeNativePlayer(instance: instance)
     pointer = p
+    nativeHandleLifetime = NativePlayerHandleLifetime(pointer: p)
     self.instance = instance
     eventBridge = EventBridge(
       eventManager: libvlc_media_player_event_manager(p)!,
@@ -494,6 +507,9 @@ public final class Player {
     eventTask?.cancel()
     _marqueeRestoreTask?.cancel()
     playbackIntentBridge.finishAll()
+    #if os(iOS) || os(macOS)
+    retireDirectPiPVideoCallbacksForHandleEnd()
+    #endif
     // Tell libVLC to forget the drawable *before* release so the
     // vout thread observes a nil pointer rather than dereferencing a
     // view that is about to be released when `self`'s storage is torn
@@ -525,10 +541,12 @@ public final class Player {
       drawable.map { retainedDrawablesUntilNativePlayerRelease + [$0] }
         ?? retainedDrawablesUntilNativePlayerRelease
     nonisolated(unsafe) let p = pointer
-    let resumeBeforeRelease = pauseTransition == .pausing || nativePlaybackState == .paused
+    let lifetime = nativeHandleLifetime
+    let resumeBeforeRelease = shouldResumeNativePlayerBeforeStop
     DispatchQueue.global(qos: .utility).async {
       Self.teardownNativePlayer(
         p,
+        lifetime: lifetime,
         bridge: bridge,
         retainedDrawables: drawables,
         resumeBeforeStop: resumeBeforeRelease
@@ -571,7 +589,7 @@ public final class Player {
   ///   cannot be applied to a replacement native player.
   public func play(_ media: sending Media) throws(VLCError) {
     if shouldReplaceNativePlayerBeforePlaybackLoad {
-      let resumeBeforeRelease = pauseTransition == .pausing || nativePlaybackState == .paused
+      let resumeBeforeRelease = shouldResumeNativePlayerBeforeStop
       currentMedia = media
       resetMediaDerivedState()
       try replaceNativePlayerForDrawablePlayback(
@@ -751,7 +769,7 @@ public final class Player {
   /// teardown must not race the audio/video output drain (for example
   /// before deactivating a shared `AVAudioSession`).
   public func stop() {
-    if pauseTransition == .pausing || nativePlaybackState == .paused {
+    if shouldResumeNativePlayerBeforeStop {
       libvlc_media_player_set_pause(pointer, 0)
     }
     pauseTransition = nil

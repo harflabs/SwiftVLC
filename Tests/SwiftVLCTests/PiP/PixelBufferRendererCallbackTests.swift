@@ -32,6 +32,85 @@ extension Integration {
       Unmanaged.passRetained(PixelBufferRendererCallbackContext(renderer: renderer))
     }
 
+    /// Owns the handle-level callback retain plus every per-vout retain created
+    /// by a successful format callback. Tests can close vouts in arbitrary
+    /// order; any forgotten vout is still balanced before the handle retain.
+    private final class CallbackLease {
+      struct Vout {
+        let opaque: UnsafeMutableRawPointer
+        let context: PixelBufferRendererVoutCallbackContext
+        let buffers: FormatBuffers
+        let successCount: UInt32
+      }
+
+      let handleContext: PixelBufferRendererCallbackContext
+      let handleOpaque: UnsafeMutableRawPointer
+      private var openVoutOpaques: [UnsafeMutableRawPointer] = []
+
+      init(displayRenderer: PixelBufferRenderer) {
+        let handleContext = PixelBufferRendererCallbackContext(renderer: displayRenderer)
+        self.handleContext = handleContext
+        handleOpaque = Unmanaged.passRetained(handleContext).toOpaque()
+      }
+
+      deinit {
+        for opaque in openVoutOpaques {
+          pixelBufferCleanupCallback(opaque: opaque)
+        }
+        Unmanaged<PixelBufferRendererCallbackContext>.fromOpaque(handleOpaque).release()
+      }
+
+      func negotiate(width: UInt32, height: UInt32) throws -> Vout {
+        var opaqueSlot: UnsafeMutableRawPointer? = handleOpaque
+        var chroma = [CChar](repeating: 0, count: 4)
+        var negotiatedWidth = width
+        var negotiatedHeight = height
+        var pitch: UInt32 = 0
+        var lines: UInt32 = 0
+        let result = withUnsafeMutablePointer(to: &opaqueSlot) { opaquePointer in
+          chroma.withUnsafeMutableBufferPointer { chromaBuffer in
+            withUnsafeMutablePointer(to: &negotiatedWidth) { widthPointer in
+              withUnsafeMutablePointer(to: &negotiatedHeight) { heightPointer in
+                withUnsafeMutablePointer(to: &pitch) { pitchPointer in
+                  withUnsafeMutablePointer(to: &lines) { linesPointer in
+                    pixelBufferFormatCallback(
+                      opaque: opaquePointer,
+                      chroma: chromaBuffer.baseAddress,
+                      width: widthPointer,
+                      height: heightPointer,
+                      pitches: pitchPointer,
+                      lines: linesPointer
+                    )
+                  }
+                }
+              }
+            }
+          }
+        }
+        let voutOpaque = try #require(opaqueSlot)
+        let voutContext = try #require(pixelBufferVoutCallbackContext(from: voutOpaque))
+        openVoutOpaques.append(voutOpaque)
+        return Vout(
+          opaque: voutOpaque,
+          context: voutContext,
+          buffers: FormatBuffers(
+            chroma: chroma,
+            width: negotiatedWidth,
+            height: negotiatedHeight,
+            pitches: pitch,
+            lines: lines
+          ),
+          successCount: result
+        )
+      }
+
+      func close(_ vout: Vout) {
+        guard let index = openVoutOpaques.firstIndex(of: vout.opaque) else { return }
+        openVoutOpaques.remove(at: index)
+        pixelBufferCleanupCallback(opaque: vout.opaque)
+      }
+    }
+
     private func makeBGRAImageBuffer(
       width: Int,
       height: Int,
@@ -97,62 +176,137 @@ extension Integration {
       return result
     }
 
+    private func installUnlockedPicture(
+      _ buffer: CVPixelBuffer,
+      on vout: CallbackLease.Vout
+    )
+      throws -> UnsafeMutableRawPointer {
+      try #require(vout.context.installPendingPicture(buffer, isLocked: false))
+    }
+
     // MARK: - Format callback
 
     @Test
-    func `Format callback creates pool and updates state`() {
-      let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
-      let retained = makeRetainedContext(renderer: renderer)
-      defer { retained.release() }
+    func `Format callback creates an isolated per-vout pool and opaque`() throws {
+      let displayRenderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+      let lease = CallbackLease(displayRenderer: displayRenderer)
+      let vout = try lease.negotiate(width: 320, height: 240)
 
-      var opaqueSlot: UnsafeMutableRawPointer? = retained.toOpaque()
-      var buffers = FormatBuffers()
-
-      let result = withUnsafeMutablePointer(to: &opaqueSlot) { opaquePtr in
-        buffers.chroma.withUnsafeMutableBufferPointer { chromaBuf in
-          withUnsafeMutablePointer(to: &buffers.width) { widthPtr in
-            withUnsafeMutablePointer(to: &buffers.height) { heightPtr in
-              withUnsafeMutablePointer(to: &buffers.pitches) { pitchPtr in
-                withUnsafeMutablePointer(to: &buffers.lines) { linesPtr in
-                  pixelBufferFormatCallback(
-                    opaque: opaquePtr,
-                    chroma: chromaBuf.baseAddress,
-                    width: widthPtr,
-                    height: heightPtr,
-                    pitches: pitchPtr,
-                    lines: linesPtr
-                  )
-                }
-              }
-            }
-          }
-        }
-      }
-
-      #expect(result == 12)
+      #expect(vout.successCount == 1)
+      #expect(vout.opaque != lease.handleOpaque)
 
       // Chroma should be forced to BGRA.
       let chromaString = String(
-        bytes: buffers.chroma.map { UInt8(bitPattern: $0) },
+        bytes: vout.buffers.chroma.map { UInt8(bitPattern: $0) },
         encoding: .ascii
       )
       #expect(chromaString == "BGRA")
 
-      // Pool + dimensions should now be set in state.
-      let state = renderer.state.withLock { $0 }
+      // Pool + dimensions belong only to this vout, never the controller's
+      // display renderer shared by every output on the handle.
+      let state = vout.context.decodeRenderer.state.withLock { $0 }
       #expect(state.pool != nil)
       #expect(state.width == 320)
       #expect(state.height == 240)
+      #expect(displayRenderer.state.withLock { $0.pool } == nil)
 
       // Pitch must match actual CVPixelBufferGetBytesPerRow, not the
       // nominal width * 4 — libVLC relies on this exact alignment.
-      #expect(buffers.pitches >= 320 * 4)
-      #expect(buffers.lines == 240)
+      #expect(vout.buffers.pitches >= 320 * 4)
+      #expect(vout.buffers.lines == 240)
 
-      // Cleanup callback should release the pool.
-      pixelBufferCleanupCallback(opaque: retained.toOpaque())
-      let cleared = renderer.state.withLock { $0.pool }
+      lease.close(vout)
+      let cleared = vout.context.decodeRenderer.state.withLock { $0.pool }
       #expect(cleared == nil)
+      #expect(!lease.handleContext.hasOpenVoutForTesting)
+    }
+
+    /// Two vouts can overlap during track/input replacement. Their setup
+    /// callbacks start from the same handle opaque, but each must leave with
+    /// independent dimensions, pitch, pool, and callback storage. Closing A
+    /// must not invalidate B's next lock.
+    @Test
+    func `overlapping vouts keep independent pools through out-of-order cleanup`() throws {
+      let displayRenderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+      let lease = CallbackLease(displayRenderer: displayRenderer)
+      let first = try lease.negotiate(width: 96, height: 54)
+      let second = try lease.negotiate(width: 321, height: 179)
+
+      #expect(first.opaque != second.opaque)
+      #expect(first.context !== second.context)
+      #expect(first.buffers.pitches != second.buffers.pitches)
+      #expect(lease.handleContext.hasOpenVoutForTesting)
+
+      let firstState = first.context.decodeRenderer.state.withLock {
+        ($0.pool, $0.width, $0.height)
+      }
+      let secondState = second.context.decodeRenderer.state.withLock {
+        ($0.pool, $0.width, $0.height)
+      }
+      let firstPool = try #require(firstState.0)
+      let secondPool = try #require(secondState.0)
+      #expect(firstState.1 == 96)
+      #expect(firstState.2 == 54)
+      #expect(secondState.1 == 321)
+      #expect(secondState.2 == 179)
+      #expect(
+        Unmanaged.passUnretained(firstPool).toOpaque()
+          != Unmanaged.passUnretained(secondPool).toOpaque()
+      )
+
+      var firstPlane: UnsafeMutableRawPointer?
+      let firstPicture = withUnsafeMutablePointer(to: &firstPlane) {
+        pixelBufferLockCallback(opaque: first.opaque, planes: $0)
+      }
+      let firstBuffer = try #require(
+        firstPicture.map {
+          Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! CVPixelBuffer
+        }
+      )
+      #expect(CVPixelBufferGetWidth(firstBuffer) == 96)
+      #expect(CVPixelBufferGetHeight(firstBuffer) == 54)
+      pixelBufferUnlockCallback(opaque: first.opaque, picture: firstPicture, planes: nil)
+      pixelBufferDisplayCallback(opaque: first.opaque, picture: firstPicture)
+
+      var secondPlane: UnsafeMutableRawPointer?
+      let secondPicture = withUnsafeMutablePointer(to: &secondPlane) {
+        pixelBufferLockCallback(opaque: second.opaque, planes: $0)
+      }
+      let secondBuffer = try #require(
+        secondPicture.map {
+          Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! CVPixelBuffer
+        }
+      )
+      #expect(CVPixelBufferGetWidth(secondBuffer) == 321)
+      #expect(CVPixelBufferGetHeight(secondBuffer) == 179)
+      pixelBufferUnlockCallback(opaque: second.opaque, picture: secondPicture, planes: nil)
+      pixelBufferDisplayCallback(opaque: second.opaque, picture: secondPicture)
+
+      lease.close(first)
+      #expect(first.context.decodeRenderer.state.withLock { $0.pool } == nil)
+      #expect(second.context.decodeRenderer.state.withLock { $0.pool } === secondPool)
+      #expect(lease.handleContext.hasOpenVoutForTesting)
+
+      var survivingPlane: UnsafeMutableRawPointer?
+      let survivingPicture = withUnsafeMutablePointer(to: &survivingPlane) {
+        pixelBufferLockCallback(opaque: second.opaque, planes: $0)
+      }
+      let survivingBuffer = try #require(
+        survivingPicture.map {
+          Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! CVPixelBuffer
+        }
+      )
+      #expect(CVPixelBufferGetWidth(survivingBuffer) == 321)
+      #expect(CVPixelBufferGetHeight(survivingBuffer) == 179)
+      pixelBufferUnlockCallback(
+        opaque: second.opaque,
+        picture: survivingPicture,
+        planes: nil
+      )
+      pixelBufferDisplayCallback(opaque: second.opaque, picture: survivingPicture)
+
+      lease.close(second)
+      #expect(!lease.handleContext.hasOpenVoutForTesting)
     }
 
     @Test
@@ -210,52 +364,175 @@ extension Integration {
     }
 
     @Test
-    func `Lock then unlock round trip after format`() {
+    func `Lock then unlock round trip after format`() throws {
       let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
-      let retained = makeRetainedContext(renderer: renderer)
-      defer { retained.release() }
-
-      // Prime the pool via format callback.
-      var opaqueSlot: UnsafeMutableRawPointer? = retained.toOpaque()
-      var buffers = FormatBuffers()
-      _ = withUnsafeMutablePointer(to: &opaqueSlot) { opaquePtr in
-        buffers.chroma.withUnsafeMutableBufferPointer { chromaBuf in
-          withUnsafeMutablePointer(to: &buffers.width) { w in
-            withUnsafeMutablePointer(to: &buffers.height) { h in
-              withUnsafeMutablePointer(to: &buffers.pitches) { p in
-                withUnsafeMutablePointer(to: &buffers.lines) { l in
-                  pixelBufferFormatCallback(
-                    opaque: opaquePtr,
-                    chroma: chromaBuf.baseAddress,
-                    width: w,
-                    height: h,
-                    pitches: p,
-                    lines: l
-                  )
-                }
-              }
-            }
-          }
-        }
-      }
+      let lease = CallbackLease(displayRenderer: renderer)
+      let vout = try lease.negotiate(width: 320, height: 240)
 
       // Lock → get a pixel buffer handle, base address written into plane.
       var plane: UnsafeMutableRawPointer?
       let handle = withUnsafeMutablePointer(to: &plane) { planePtr in
-        pixelBufferLockCallback(opaque: retained.toOpaque(), planes: planePtr)
+        pixelBufferLockCallback(opaque: vout.opaque, planes: planePtr)
       }
       #expect(plane != nil)
 
-      // Unlock must succeed regardless of opaque (it doesn't dereference it).
-      pixelBufferUnlockCallback(opaque: retained.toOpaque(), picture: handle, planes: nil)
+      // Unlock balances the base-address lock through the owning vout.
+      pixelBufferUnlockCallback(opaque: vout.opaque, picture: handle, planes: nil)
+      #expect(vout.context.hasPendingPictureForTesting)
 
-      // Balance the retain `pixelBufferLockCallback` performed internally.
-      if let h = handle {
-        Unmanaged<AnyObject>.fromOpaque(h).release()
+      lease.close(vout)
+      #expect(!vout.context.hasPendingPictureForTesting)
+    }
+
+    /// Pinned vmem suppresses display when its temporary picture allocation
+    /// fails. The vout context must therefore retain the successfully locked
+    /// Core Video buffer until cleanup, then drain it without relying on a
+    /// display callback that will never arrive.
+    @Test
+    func `Cleanup drains a picture whose native display was suppressed`() throws {
+      let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+      let lease = CallbackLease(displayRenderer: renderer)
+      let vout = try lease.negotiate(width: 64, height: 36)
+
+      var plane: UnsafeMutableRawPointer?
+      let picture = withUnsafeMutablePointer(to: &plane) {
+        pixelBufferLockCallback(opaque: vout.opaque, planes: $0)
+      }
+      #expect(picture != nil)
+      #expect(plane != nil)
+      pixelBufferUnlockCallback(opaque: vout.opaque, picture: picture, planes: nil)
+      #expect(vout.context.hasPendingPictureForTesting)
+
+      // No display callback: this is the exact branch taken when patched
+      // vmem cannot allocate/copy its temporary picture.
+      lease.close(vout)
+      #expect(!vout.context.hasPendingPictureForTesting)
+    }
+
+    /// A failed subsequent lock has not superseded vmem's prior `pic_opaque`,
+    /// so it must leave that pending owner intact for eventual cleanup.
+    @Test
+    func `Failed lock preserves the undisplayed predecessor until cleanup`() throws {
+      let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+      let lease = CallbackLease(displayRenderer: renderer)
+      let vout = try lease.negotiate(width: 64, height: 36)
+
+      var firstPlane: UnsafeMutableRawPointer?
+      let firstPicture = withUnsafeMutablePointer(to: &firstPlane) {
+        pixelBufferLockCallback(opaque: vout.opaque, planes: $0)
+      }
+      pixelBufferUnlockCallback(
+        opaque: vout.opaque,
+        picture: firstPicture,
+        planes: nil
+      )
+      #expect(vout.context.hasPendingPictureForTesting)
+
+      // Deterministically exercise the allocation-unavailable branch without
+      // depending on process-wide memory pressure.
+      vout.context.decodeRenderer.state.withLock { $0.pool = nil }
+      var failedPlane: UnsafeMutableRawPointer?
+      let failedPicture = withUnsafeMutablePointer(to: &failedPlane) {
+        pixelBufferLockCallback(opaque: vout.opaque, planes: $0)
+      }
+      #expect(failedPicture == nil)
+      #expect(failedPlane == nil)
+      #expect(vout.context.hasPendingPictureForTesting)
+
+      lease.close(vout)
+      #expect(!vout.context.hasPendingPictureForTesting)
+    }
+
+    @Test
+    func `Decode pool threshold leaves plane untouched and recovers after release`() throws {
+      let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+      let lease = CallbackLease(displayRenderer: renderer)
+      let vout = try lease.negotiate(width: 64, height: 36)
+      defer { lease.close(vout) }
+      let pool = try #require(vout.context.decodeRenderer.state.withLock { $0.pool })
+      let threshold = pixelBufferRendererPoolAllocationThreshold(width: 64, height: 36)
+      expectNoDifference(threshold, 12)
+
+      var heldBuffers: [CVPixelBuffer] = []
+      for _ in 0..<threshold {
+        let allocation = pixelBufferRendererAllocatePixelBuffer(
+          from: pool,
+          width: 64,
+          height: 36
+        )
+        expectNoDifference(allocation.status, kCVReturnSuccess)
+        try heldBuffers.append(#require(allocation.buffer))
       }
 
-      // Clean up the pool.
-      pixelBufferCleanupCallback(opaque: retained.toOpaque())
+      let exhausted = pixelBufferRendererAllocatePixelBuffer(
+        from: pool,
+        width: 64,
+        height: 36
+      )
+      expectNoDifference(exhausted.status, kCVReturnWouldExceedAllocationThreshold)
+      #expect(exhausted.buffer == nil)
+
+      let sentinel = try #require(UnsafeMutableRawPointer(bitPattern: 0x1))
+      var failedPlane: UnsafeMutableRawPointer? = sentinel
+      let failedPicture = withUnsafeMutablePointer(to: &failedPlane) {
+        pixelBufferLockCallback(opaque: vout.opaque, planes: $0)
+      }
+      #expect(failedPicture == nil)
+      #expect(failedPlane == sentinel)
+      #expect(!vout.context.hasPendingPictureForTesting)
+
+      heldBuffers.removeLast()
+      var recoveredPlane: UnsafeMutableRawPointer? = sentinel
+      let recoveredPicture = try #require(withUnsafeMutablePointer(to: &recoveredPlane) {
+        pixelBufferLockCallback(opaque: vout.opaque, planes: $0)
+      })
+      #expect(recoveredPlane != sentinel)
+      pixelBufferUnlockCallback(
+        opaque: vout.opaque,
+        picture: recoveredPicture,
+        planes: nil
+      )
+      pixelBufferDisplayCallback(opaque: vout.opaque, picture: recoveredPicture)
+      #expect(!vout.context.hasPendingPictureForTesting)
+    }
+
+    /// Pinned vmem owns only one `pic_opaque`. A second successful lock means
+    /// an undisplayed predecessor can never arrive normally; replace it, then
+    /// reject a synthetic stale display without consuming the successor.
+    @Test
+    func `Repeated lock drains predecessor and stale display cannot consume successor`() throws {
+      let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+      let lease = CallbackLease(displayRenderer: renderer)
+      let vout = try lease.negotiate(width: 64, height: 36)
+      defer { lease.close(vout) }
+
+      var firstPlane: UnsafeMutableRawPointer?
+      let firstPicture = try #require(withUnsafeMutablePointer(to: &firstPlane) {
+        pixelBufferLockCallback(opaque: vout.opaque, planes: $0)
+      })
+      pixelBufferUnlockCallback(
+        opaque: vout.opaque,
+        picture: firstPicture,
+        planes: nil
+      )
+
+      var secondPlane: UnsafeMutableRawPointer?
+      let secondPicture = try #require(withUnsafeMutablePointer(to: &secondPlane) {
+        pixelBufferLockCallback(opaque: vout.opaque, planes: $0)
+      })
+      #expect(firstPicture != secondPicture)
+      #expect(vout.context.hasPendingPictureForTesting)
+
+      pixelBufferDisplayCallback(opaque: vout.opaque, picture: firstPicture)
+      #expect(vout.context.hasPendingPictureForTesting)
+
+      pixelBufferUnlockCallback(
+        opaque: vout.opaque,
+        picture: secondPicture,
+        planes: nil
+      )
+      pixelBufferDisplayCallback(opaque: vout.opaque, picture: secondPicture)
+      #expect(!vout.context.hasPendingPictureForTesting)
     }
 
     @Test
@@ -273,7 +550,7 @@ extension Integration {
     }
 
     @Test
-    func `Retiring callback context without opened vout releases opaque retain`() throws {
+    func `Retiring callback context releases opaque only after native handle ends`() throws {
       weak var weakContext: PixelBufferRendererCallbackContext?
       weak var weakRenderer: PixelBufferRenderer?
 
@@ -285,12 +562,14 @@ extension Integration {
         weakContext = context
         weakRenderer = renderer
         let retained = Unmanaged.passRetained(context)
+        let opaque = retained.toOpaque()
         renderer = nil
 
-        context.requestRetirement(
-          opaque: retained.toOpaque(),
-          deferIfVoutMayBeOpening: false
-        )
+        context.requestRetirement()
+        #expect(weakContext != nil)
+        #expect(weakRenderer == nil)
+
+        context.nativePlayerHandleDidRelease(opaque: opaque)
       }
 
       #expect(weakContext == nil)
@@ -309,12 +588,11 @@ extension Integration {
         weakRenderer = renderer
         renderer = nil
         let retained = Unmanaged.passRetained(context)
+        let opaque = retained.toOpaque()
 
-        let result = context.withRenderer(opaque: retained.toOpaque()) { callbackRenderer in
-          context.requestRetirement(
-            opaque: retained.toOpaque(),
-            deferIfVoutMayBeOpening: false
-          )
+        let result = context.withRenderer(opaque: opaque) { callbackRenderer in
+          context.requestRetirement()
+          context.nativePlayerHandleDidRelease(opaque: opaque)
           #expect(weakRenderer != nil)
           _ = callbackRenderer
           return true
@@ -340,18 +618,16 @@ extension Integration {
         weakContext = context
         weakRenderer = renderer
         let retained = Unmanaged.passRetained(context)
+        let opaque = retained.toOpaque()
         renderer = nil
 
-        context.requestRetirement(
-          opaque: retained.toOpaque(),
-          deferIfVoutMayBeOpening: true
-        )
+        context.requestRetirement()
 
         #expect(weakContext != nil)
         #expect(weakRenderer == nil)
-        let result = context.withRenderer(opaque: retained.toOpaque()) { _ in true }
+        let result = context.withRenderer(opaque: opaque) { _ in true }
         #expect(result == nil)
-        #expect(context.releaseRetiredOpaqueRetainIfNoOpenVout(opaque: retained.toOpaque()))
+        context.nativePlayerHandleDidRelease(opaque: opaque)
       }
 
       #expect(weakContext == nil)
@@ -359,10 +635,11 @@ extension Integration {
     }
 
     @Test
-    func `Retired callback context keeps opaque alive until vout cleanup`() {
+    func `Retired callback context survives vout cleanup until native handle ends`() throws {
       weak var weakContext: PixelBufferRendererCallbackContext?
       weak var weakRenderer: PixelBufferRenderer?
-      var contextOpaque: UnsafeMutableRawPointer?
+      var handleOpaque: UnsafeMutableRawPointer?
+      var voutOpaque: UnsafeMutableRawPointer?
 
       do {
         let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
@@ -370,9 +647,9 @@ extension Integration {
         weakContext = context
         weakRenderer = renderer
         let retained = Unmanaged.passRetained(context)
-        contextOpaque = retained.toOpaque()
+        handleOpaque = retained.toOpaque()
 
-        var opaqueSlot: UnsafeMutableRawPointer? = contextOpaque
+        var opaqueSlot: UnsafeMutableRawPointer? = handleOpaque
         var buffers = FormatBuffers()
         let result = withUnsafeMutablePointer(to: &opaqueSlot) { opaquePtr in
           buffers.chroma.withUnsafeMutableBufferPointer { chromaBuf in
@@ -394,19 +671,23 @@ extension Integration {
             }
           }
         }
-        #expect(result == 12)
+        #expect(result == 1)
+        voutOpaque = opaqueSlot
+        #expect(voutOpaque != handleOpaque)
         #expect(context.hasOpenVoutForTesting)
 
-        context.requestRetirement(
-          opaque: retained.toOpaque(),
-          deferIfVoutMayBeOpening: false
-        )
+        context.requestRetirement()
       }
 
       #expect(weakContext != nil)
       #expect(weakRenderer == nil)
 
-      pixelBufferCleanupCallback(opaque: contextOpaque)
+      pixelBufferCleanupCallback(opaque: voutOpaque)
+
+      #expect(weakContext != nil)
+      #expect(weakRenderer == nil)
+
+      try weakContext?.nativePlayerHandleDidRelease(opaque: #require(handleOpaque))
 
       #expect(weakContext == nil)
       #expect(weakRenderer == nil)
@@ -427,16 +708,15 @@ extension Integration {
     func `Display callback enqueues a sample onto the display layer`() async throws {
       let displayLayer = AVSampleBufferDisplayLayer()
       let renderer = PixelBufferRenderer(displayLayer: displayLayer)
-      let retained = makeRetainedContext(renderer: renderer)
-      defer { retained.release() }
+      let lease = CallbackLease(displayRenderer: renderer)
+      let vout = try lease.negotiate(width: 2, height: 2)
+      defer { lease.close(vout) }
 
       let pb = try makeBGRAImageBuffer(width: 2, height: 2)
 
-      // The display callback expects a retained `AnyObject` pointer —
-      // matches the `passRetained(pb as AnyObject)` on the lock path.
-      let pictureHandle = Unmanaged.passRetained(pb as AnyObject).toOpaque()
+      let pictureHandle = try installUnlockedPicture(pb, on: vout)
 
-      pixelBufferDisplayCallback(opaque: retained.toOpaque(), picture: pictureHandle)
+      pixelBufferDisplayCallback(opaque: vout.opaque, picture: pictureHandle)
 
       // Give the renderer's async enqueue queue a moment to settle.
       try? await Task.sleep(for: .milliseconds(20))
@@ -447,14 +727,15 @@ extension Integration {
     func `Display callback does not mutate source frame bytes`() throws {
       let displayLayer = AVSampleBufferDisplayLayer()
       let renderer = PixelBufferRenderer(displayLayer: displayLayer)
-      let retained = makeRetainedContext(renderer: renderer)
-      defer { retained.release() }
+      let lease = CallbackLease(displayRenderer: renderer)
+      let vout = try lease.negotiate(width: 3, height: 2)
+      defer { lease.close(vout) }
 
       let pb = try makeBGRAImageBuffer(width: 3, height: 2, alpha: 37)
       let expectedAlphaBytes = try alphaBytes(in: pb)
 
-      let pictureHandle = Unmanaged.passRetained(pb as AnyObject).toOpaque()
-      pixelBufferDisplayCallback(opaque: retained.toOpaque(), picture: pictureHandle)
+      let pictureHandle = try installUnlockedPicture(pb, on: vout)
+      pixelBufferDisplayCallback(opaque: vout.opaque, picture: pictureHandle)
 
       try expectNoDifference(alphaBytes(in: pb), expectedAlphaBytes)
     }
@@ -464,8 +745,9 @@ extension Integration {
     func `Display callback uses configured timebase for presentation time`() throws {
       let displayLayer = AVSampleBufferDisplayLayer()
       let renderer = PixelBufferRenderer(displayLayer: displayLayer)
-      let retained = makeRetainedContext(renderer: renderer)
-      defer { retained.release() }
+      let lease = CallbackLease(displayRenderer: renderer)
+      let vout = try lease.negotiate(width: 2, height: 2)
+      defer { lease.close(vout) }
 
       let clock = CMClockGetHostTimeClock()
       var timebase: CMTimebase?
@@ -480,9 +762,9 @@ extension Integration {
       renderer.setTimebase(tb)
 
       let pb = try makeBGRAImageBuffer(width: 2, height: 2)
-      let pictureHandle = Unmanaged.passRetained(pb as AnyObject).toOpaque()
+      let pictureHandle = try installUnlockedPicture(pb, on: vout)
 
-      pixelBufferDisplayCallback(opaque: retained.toOpaque(), picture: pictureHandle)
+      pixelBufferDisplayCallback(opaque: vout.opaque, picture: pictureHandle)
     }
 
     /// A nil `opaque` guards-out early.
@@ -508,129 +790,131 @@ extension Integration {
     /// Drive the format callback and read back the negotiated pool's
     /// minimum buffer count via its attributes.
     private func formatCallbackPoolFloor(
-      renderer: PixelBufferRenderer,
-      opaque: UnsafeMutableRawPointer,
+      lease: CallbackLease,
       width: UInt32,
       height: UInt32
     )
-      throws -> (decodeHeadroom: UInt32, poolFloor: Int) {
-      var opaqueSlot: UnsafeMutableRawPointer? = opaque
-      var buffers = FormatBuffers()
-      buffers.width = width
-      buffers.height = height
-      let result = withUnsafeMutablePointer(to: &opaqueSlot) { opaquePtr in
-        buffers.chroma.withUnsafeMutableBufferPointer { chromaBuf in
-          withUnsafeMutablePointer(to: &buffers.width) { w in
-            withUnsafeMutablePointer(to: &buffers.height) { h in
-              withUnsafeMutablePointer(to: &buffers.pitches) { p in
-                withUnsafeMutablePointer(to: &buffers.lines) { l in
-                  pixelBufferFormatCallback(
-                    opaque: opaquePtr,
-                    chroma: chromaBuf.baseAddress,
-                    width: w,
-                    height: h,
-                    pitches: p,
-                    lines: l
-                  )
-                }
-              }
-            }
-          }
-        }
-      }
-      let pool = try #require(renderer.state.withLock { $0.pool })
+      throws -> (successCount: UInt32, poolFloor: Int) {
+      let vout = try lease.negotiate(width: width, height: height)
+      defer { lease.close(vout) }
+      let pool = try #require(vout.context.decodeRenderer.state.withLock { $0.pool })
       let attrs = try #require(CVPixelBufferPoolGetAttributes(pool) as? [String: Any])
       let minNumber = try #require(
         attrs[kCVPixelBufferPoolMinimumBufferCountKey as String] as? NSNumber
       )
-      return (result, minNumber.intValue)
+      return (vout.successCount, minNumber.intValue)
     }
 
     /// The resident pool floor is byte-budgeted: 4K drains down to a small
-    /// floor while the decode-headroom return value stays at the full
-    /// picture count; SD keeps the full floor.
+    /// floor while SD keeps the full recycled floor. The format return reports
+    /// the single allocation proven during negotiation, not decoder headroom.
     @Test
-    func `Pool floor is byte-budgeted while decode headroom is preserved`() throws {
+    func `Pool floor is byte-budgeted independently of format success count`() throws {
       let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
-      let retained = makeRetainedContext(renderer: renderer)
-      defer { retained.release() }
+      let lease = CallbackLease(displayRenderer: renderer)
 
       let uhd = try formatCallbackPoolFloor(
-        renderer: renderer,
-        opaque: retained.toOpaque(),
+        lease: lease,
         width: 3840,
         height: 2160
       )
-      #expect(uhd.decodeHeadroom == 12)
+      #expect(uhd.successCount == 1)
       #expect(uhd.poolFloor >= 3)
       #expect(uhd.poolFloor <= 4)
 
       let sd = try formatCallbackPoolFloor(
-        renderer: renderer,
-        opaque: retained.toOpaque(),
+        lease: lease,
         width: 320,
         height: 240
       )
-      #expect(sd.decodeHeadroom == 12)
+      #expect(sd.successCount == 1)
       #expect(sd.poolFloor == 12)
-
-      pixelBufferCleanupCallback(opaque: retained.toOpaque())
     }
 
-    /// Deferred retirement (the teardown path `PiPController.deinit` uses)
-    /// keeps both the context AND the renderer alive while a vout is open —
-    /// unlike `requestRetirement`, it does not drop the renderer, so a late
-    /// callback can still render. The vout cleanup callback performs the
-    /// balancing release.
+    /// Three 32 MiB BGRA buffers exactly fit the 96 MiB resident budget. One
+    /// pixel column beyond that deterministic boundary must switch the floor
+    /// to a single buffer instead of pinning three oversized frames.
     @Test
-    func `Deferred retirement keeps context and renderer alive until vout cleanup`() {
+    func `Pool floor drops to one immediately above the large-frame threshold`() throws {
+      let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+      let lease = CallbackLease(displayRenderer: renderer)
+
+      let atBoundary = try formatCallbackPoolFloor(
+        lease: lease,
+        width: 4096,
+        height: 2048
+      )
+      #expect(atBoundary.successCount == 1)
+      #expect(atBoundary.poolFloor == 3)
+
+      let aboveBoundary = try formatCallbackPoolFloor(
+        lease: lease,
+        width: 4097,
+        height: 2048
+      )
+      #expect(aboveBoundary.successCount == 1)
+      #expect(aboveBoundary.poolFloor == 1)
+    }
+
+    /// Clearing the media-player callback variables does not update a vout
+    /// that is concurrently opening and may already have copied the opaque.
+    /// `voutOpen == false` therefore cannot prove that the opaque is safe to
+    /// release: the format callback may simply not have arrived yet.
+    @Test
+    func `Retired opaque remains callable until native handle lifetime ends`() throws {
       weak var weakContext: PixelBufferRendererCallbackContext?
-      weak var weakRenderer: PixelBufferRenderer?
-      var contextOpaque: UnsafeMutableRawPointer?
+      var opaque: UnsafeMutableRawPointer?
 
       do {
         let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
         let context = PixelBufferRendererCallbackContext(renderer: renderer)
         weakContext = context
-        weakRenderer = renderer
-        let retained = Unmanaged.passRetained(context)
-        contextOpaque = retained.toOpaque()
-
-        var opaqueSlot: UnsafeMutableRawPointer? = contextOpaque
-        var buffers = FormatBuffers()
-        _ = withUnsafeMutablePointer(to: &opaqueSlot) { opaquePtr in
-          buffers.chroma.withUnsafeMutableBufferPointer { chromaBuf in
-            withUnsafeMutablePointer(to: &buffers.width) { w in
-              withUnsafeMutablePointer(to: &buffers.height) { h in
-                withUnsafeMutablePointer(to: &buffers.pitches) { p in
-                  withUnsafeMutablePointer(to: &buffers.lines) { l in
-                    pixelBufferFormatCallback(
-                      opaque: opaquePtr,
-                      chroma: chromaBuf.baseAddress,
-                      width: w,
-                      height: h,
-                      pitches: p,
-                      lines: l
-                    )
-                  }
-                }
-              }
-            }
-          }
-        }
-        #expect(context.hasOpenVoutForTesting)
-
-        context.requestDeferredRetirement()
+        opaque = Unmanaged.passRetained(context).toOpaque()
+        context.requestRetirement()
       }
 
-      // Vout still open → context retained, and renderer NOT dropped.
       #expect(weakContext != nil)
-      #expect(weakRenderer != nil)
+      let handleOpaque = try #require(opaque)
+      var voutOpaque: UnsafeMutableRawPointer? = handleOpaque
+      var chroma = [CChar](repeating: 0, count: 4)
+      var width: UInt32 = 96
+      var height: UInt32 = 54
+      var pitch: UInt32 = 0
+      var lines: UInt32 = 0
+      let result = withUnsafeMutablePointer(to: &voutOpaque) { opaquePointer in
+        chroma.withUnsafeMutableBufferPointer { chromaBuffer in
+          pixelBufferFormatCallback(
+            opaque: opaquePointer,
+            chroma: chromaBuffer.baseAddress,
+            width: &width,
+            height: &height,
+            pitches: &pitch,
+            lines: &lines
+          )
+        }
+      }
+      #expect(result == 1)
+      let negotiatedOpaque = try #require(voutOpaque)
+      #expect(negotiatedOpaque != handleOpaque)
 
-      pixelBufferCleanupCallback(opaque: contextOpaque)
+      var plane: UnsafeMutableRawPointer?
+      let lateLock = withUnsafeMutablePointer(to: &plane) {
+        pixelBufferLockCallback(opaque: negotiatedOpaque, planes: $0)
+      }
+      #expect(lateLock != nil)
+      #expect(plane != nil)
+      pixelBufferUnlockCallback(
+        opaque: negotiatedOpaque,
+        picture: lateLock,
+        planes: nil
+      )
+      pixelBufferDisplayCallback(opaque: negotiatedOpaque, picture: lateLock)
+      pixelBufferCleanupCallback(opaque: negotiatedOpaque)
+      #expect(weakContext != nil)
+
+      weakContext?.nativePlayerHandleDidRelease(opaque: handleOpaque)
 
       #expect(weakContext == nil)
-      #expect(weakRenderer == nil)
     }
   }
 }

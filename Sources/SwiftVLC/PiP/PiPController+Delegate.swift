@@ -1,6 +1,7 @@
 #if os(iOS) || os(macOS)
 import AVFoundation
 import AVKit
+import CLibVLC
 import Dispatch
 import Foundation
 
@@ -151,23 +152,122 @@ final class PiPPlaybackDelegateProxy: NSObject, AVPictureInPictureSampleBufferPl
   func pictureInPictureControllerTimeRangeForPlayback(
     _: AVPictureInPictureController
   ) -> CMTimeRange {
-    let duration: Duration? = pipMainActorSync { [weak self] in
-      self?.owner?.player.duration
+    pipMainActorSync { [weak self] in
+      guard let owner = self?.owner else { return .invalid }
+      let currentTime = owner.controlTimebase.map(CMTimebaseGetTime) ?? .zero
+      return Self.nativePlaybackTimeRange(
+        playerPointer: owner.player.pointer,
+        currentTime: currentTime
+      )
     }
+  }
+
+  /// Queries the native player without consulting Swift-side media mirrors.
+  static func nativePlaybackTimeRange(
+    playerPointer: OpaquePointer,
+    currentTime: CMTime = .zero
+  ) -> CMTimeRange {
+    playbackTimeRange(
+      playerPointer: playerPointer,
+      currentTime: currentTime,
+      getSnapshot: { player in
+        retainedMediaLengthSnapshot(
+          playerPointer: player,
+          atomicSnapshotAvailable: swiftvlc_media_length_snapshot_available(),
+          getAtomicSnapshot: { player in
+            var native = swiftvlc_media_player_media_length_snapshot_t()
+            guard
+              swiftvlc_media_player_get_media_length_snapshot_if_available(
+                player,
+                &native
+              ),
+              let media = native.media
+            else { return nil }
+            return (media: media, length: native.length)
+          },
+          getRetainedMedia: { libvlc_media_player_get_media($0) },
+          getMediaDuration: { libvlc_media_get_duration($0) }
+        )
+      },
+      releaseMedia: { libvlc_media_release($0) }
+    )
+  }
+
+  /// Reads one retained media identity and its matching length. New pinned
+  /// binaries capture both under the player lock. Older binaries retain the
+  /// media first and read duration from that exact object; they never combine
+  /// `get_media` with the independently locked player-length API.
+  static func retainedMediaLengthSnapshot(
+    playerPointer: OpaquePointer,
+    atomicSnapshotAvailable: Bool,
+    getAtomicSnapshot: (OpaquePointer) -> (media: OpaquePointer, length: Int64)?,
+    getRetainedMedia: (OpaquePointer) -> OpaquePointer?,
+    getMediaDuration: (OpaquePointer) -> Int64
+  ) -> (media: OpaquePointer, length: Int64)? {
+    if atomicSnapshotAvailable {
+      return getAtomicSnapshot(playerPointer)
+    }
+
+    guard let media = getRetainedMedia(playerPointer) else { return nil }
+    return (media: media, length: getMediaDuration(media))
+  }
+
+  /// Maps one retained media/length pair and balances its media retain.
+  static func playbackTimeRange(
+    playerPointer: OpaquePointer,
+    currentTime: CMTime = .zero,
+    getSnapshot: (OpaquePointer) -> (media: OpaquePointer, length: Int64)?,
+    releaseMedia: (OpaquePointer) -> Void
+  ) -> CMTimeRange {
+    guard let snapshot = getSnapshot(playerPointer) else { return .invalid }
+    defer { releaseMedia(snapshot.media) }
+
+    return playbackTimeRange(
+      hasMedia: true,
+      duration: snapshot.length > 0 ? .milliseconds(snapshot.length) : nil,
+      currentTime: currentTime
+    )
+  }
+
+  /// Maps SwiftVLC's media lifecycle onto AVKit's sample-buffer contract:
+  /// invalid means there is no content, positive infinity means loaded
+  /// live/indefinite content, and a positive duration means seekable VOD.
+  static func playbackTimeRange(
+    hasMedia: Bool,
+    duration: Duration?,
+    currentTime: CMTime = .zero
+  ) -> CMTimeRange {
+    guard hasMedia else { return .invalid }
 
     let durationSeconds = duration.map {
       Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18
     } ?? 0
 
-    let cmDuration = if durationSeconds > 0 {
-      CMTime(seconds: durationSeconds, preferredTimescale: 1000)
-    } else {
-      // Duration unknown: PiP needs a non-zero range so the scrubber
-      // renders while libVLC parses the media. Once duration arrives,
-      // the state observer invalidates and AVKit re-queries.
-      CMTime(seconds: 86400, preferredTimescale: 1000)
+    guard durationSeconds > 0 else {
+      return CMTimeRange(start: .zero, duration: .positiveInfinity)
     }
-    return CMTimeRange(start: .zero, duration: cmDuration)
+
+    let nominalDuration = CMTime(seconds: durationSeconds, preferredTimescale: 1000)
+    let nominalRange = CMTimeRange(
+      start: .zero,
+      duration: nominalDuration
+    )
+    guard currentTime.isNumeric else { return nominalRange }
+    if CMTimeRangeContainsTime(nominalRange, time: currentTime) {
+      return nominalRange
+    }
+
+    // AVKit requires every finite answer to contain the display layer's
+    // current control-timebase value. At an end boundary (which Core Media
+    // ranges exclude) or during a small event/timebase race, extend only the
+    // reported edge needed to satisfy that contract.
+    let tick = CMTime(value: 1, timescale: 1000)
+    let start = CMTimeCompare(currentTime, .zero) < 0 ? currentTime : .zero
+    let currentEnd = CMTimeAdd(currentTime, tick)
+    let end = CMTimeCompare(currentEnd, nominalDuration) > 0
+      ? currentEnd
+      : nominalDuration
+    return CMTimeRangeFromTimeToTime(start: start, end: end)
   }
 
   func pictureInPictureControllerIsPlaybackPaused(

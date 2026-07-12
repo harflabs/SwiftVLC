@@ -293,6 +293,8 @@ extension Integration {
       let player = Player(instance: instance)
       let listPlayer = MediaListPlayer(instance: instance)
       listPlayer.mediaPlayer = player
+      let oldLifetime = player.nativeHandleLifetime
+      #expect(oldLifetime.nativeOwnerCount == 2)
 
       try forceHandleSwap(on: player)
 
@@ -302,6 +304,14 @@ extension Integration {
       #expect(
         bound == player.pointer,
         "list player still bound to the released handle"
+      )
+      #expect(
+        oldLifetime.nativeOwnerCount <= 1,
+        "list-player lease remained on the replaced handle after synchronous rebind"
+      )
+      #expect(
+        player.nativeHandleLifetime.nativeOwnerCount == 2,
+        "replacement handle is missing its counted list-player owner"
       )
     }
   }

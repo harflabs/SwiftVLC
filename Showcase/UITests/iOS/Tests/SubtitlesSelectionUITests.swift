@@ -19,7 +19,9 @@ final class SubtitlesSelectionUITests: ShowcaseIOSTestCase {
   private func scrollToSubtitles() {
     for _ in 0..<5 where !emptyLabel.exists {
       let id = AccessibilityID.SubtitlesSelection.picker
-      if app.descendants(matching: .any)[id].firstMatch.exists { return }
+      if app.descendants(matching: .any)[id].firstMatch.exists {
+        return
+      }
       app.swipeUp()
       Thread.sleep(forTimeInterval: 0.3)
     }
