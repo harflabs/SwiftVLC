@@ -224,9 +224,22 @@ jobs:
         env:
           TEST_RUNNER_CI: "true"
         run: |
+          set -euo pipefail
+          # The default tvOS simulator name varies across runner images
+          # ("Apple TV" vs "Apple TV 4K (3rd generation)"), so resolve an
+          # available device by UDID instead of hardcoding a fragile name.
+          udid=$(xcrun simctl list -j devices available \
+            | jq -r 'first(.devices | to_entries[] | select(.key | test("tvOS")) | .value[] | select(.isAvailable) | .udid) // empty')
+          if [ -z "$udid" ]; then
+            echo "No available tvOS Simulator device found on this runner:" >&2
+            xcrun simctl list devices tvOS >&2
+            exit 1
+          fi
+          echo "Using tvOS Simulator $udid"
+          xcrun simctl boot "$udid" || true
           xcodebuild test \
             -scheme SwiftVLC \
-            -destination "platform=tvOS Simulator,name=Apple TV" \
+            -destination "id=$udid" \
             -configuration Debug \
             -skipPackagePluginValidation \
             -skipMacroValidation \
