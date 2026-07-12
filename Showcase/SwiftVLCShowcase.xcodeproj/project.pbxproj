@@ -999,7 +999,7 @@
 			repositoryURL = "https://github.com/harflabs/SwiftVLC";
 			requirement = {
 				kind = exactVersion;
-				version = 0.10.0;
+				version = 0.10.1;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
