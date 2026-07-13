@@ -16,11 +16,7 @@ let package = Package(
     .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.3.3")
   ],
   targets: [
-    .binaryTarget(
-      name: "libvlc",
-      url: "https://github.com/harflabs/SwiftVLC/releases/download/v0.10.1/libvlc.xcframework.zip",
-      checksum: "b3a318c3068e2567c5533f6da5c79f4ac10c16cc60b8b8402e52e8ec3c9f3c03"
-    ),
+    .binaryTarget(name: "libvlc", path: "Vendor/libvlc.xcframework"),
     .target(
       name: "CLibVLC",
       dependencies: ["libvlc"],

@@ -14,22 +14,16 @@ enum MacTestMedia {
   }
 
   private static func fixtureOverrideOr(remote: String) -> URL {
-    if let override = LaunchArguments.fixtureURLValue {
-      return override
-    }
     guard let url = URL(string: remote) else {
       preconditionFailure("Invalid remote media URL: \(remote)")
     }
-    return url
+    return TestStreamURL.resolve(fallback: url)
   }
 
   private static func fixtureOverrideOr(bundled name: String, withExtension ext: String) -> URL {
-    if let override = LaunchArguments.fixtureURLValue {
-      return override
-    }
     guard let url = Bundle.main.url(forResource: name, withExtension: ext) else {
       preconditionFailure("Missing bundled media resource: \(name).\(ext)")
     }
-    return url
+    return TestStreamURL.resolve(fallback: url)
   }
 }

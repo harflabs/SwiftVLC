@@ -15,6 +15,9 @@ struct MacPiPCase: View {
         PiPVideoView(player, controller: $controller)
           .aspectRatio(16 / 9, contentMode: .fit)
           .background(.black, in: .rect(cornerRadius: 8))
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel("Video")
+          .accessibilityIdentifier("macos.pip.video")
           .overlay {
             RoundedRectangle(cornerRadius: 8)
               .stroke(Color.secondary.opacity(0.25))

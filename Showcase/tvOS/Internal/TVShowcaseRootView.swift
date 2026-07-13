@@ -61,6 +61,14 @@ struct TVShowcaseRootView: View {
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: 980, alignment: .leading)
+
+      NavigationLink {
+        TestStreamSettingsView()
+      } label: {
+        Label("Set App-Wide Stream URL", systemImage: "link")
+      }
+      .buttonStyle(.bordered)
+      .accessibilityIdentifier(AccessibilityID.TestStream.settingsLink)
     }
   }
 }

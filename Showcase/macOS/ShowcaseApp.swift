@@ -3,6 +3,8 @@ import SwiftUI
 
 @main
 struct MacOSShowcaseApp: App {
+  @AppStorage(TestStreamURL.defaultsKey) private var testStreamURL = ""
+
   init() {
     // The macOS Showcase is a local demo app, not App Store sample code.
     // Opt into SwiftVLC's private macOS PiP backend so the PiP case can run.
@@ -12,6 +14,7 @@ struct MacOSShowcaseApp: App {
   var body: some Scene {
     WindowGroup {
       MacShowcaseRootView()
+        .id(testStreamURL)
         .frame(minWidth: 980, minHeight: 660)
     }
     .windowResizability(.contentMinSize)

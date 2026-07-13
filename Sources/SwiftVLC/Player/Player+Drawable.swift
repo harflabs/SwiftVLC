@@ -92,6 +92,70 @@ extension Player {
     needsDrawableRebindForPlayback = false
   }
 
+  #if os(macOS)
+  /// Reopens the active video output after its AppKit drawable moves between
+  /// windows. `VLCOpenGLVideoView` owns an `NSOpenGLContext` whose window
+  /// surface can become invalid when macOS destroys the old PiP window even
+  /// though decoding and audio continue. Re-selecting the same video track
+  /// rebuilds only that output against the drawable's new inline window.
+  func reopenVideoOutputAfterDrawableWindowMove() {
+    guard
+      let media = currentMedia,
+      let selectedTrack = libvlc_media_player_get_selected_track(pointer, libvlc_track_video)
+    else { return }
+    defer { libvlc_media_track_release(selectedTrack) }
+    guard let trackIDPointer = selectedTrack.pointee.psz_id else { return }
+
+    let trackID = String(cString: trackIDPointer)
+    let nativePlayer = pointer
+    libvlc_media_player_unselect_track_type(nativePlayer, libvlc_track_video)
+
+    Task { @MainActor [weak self, weak media] in
+      guard let self else { return }
+
+      // Track selection is processed asynchronously by libVLC. Wait for the
+      // deselection to settle so selecting the same ID cannot be coalesced
+      // into a no-op that leaves the invalid OpenGL surface alive. Some VLC
+      // inputs keep their vout allocated while no video track is selected, so
+      // the selected-track state is the reliable acknowledgement here.
+      for _ in 0..<50 {
+        guard pointer == nativePlayer, currentMedia === media else { return }
+        guard
+          let stillSelected = libvlc_media_player_get_selected_track(
+            nativePlayer,
+            libvlc_track_video
+          )
+        else {
+          break
+        }
+        let stillSelectedID = stillSelected.pointee.psz_id.map(String.init(cString:))
+        libvlc_media_track_release(stillSelected)
+        guard stillSelectedID == trackID else { return }
+        try? await Task.sleep(for: .milliseconds(10))
+      }
+
+      guard
+        pointer == nativePlayer,
+        currentMedia === media,
+        state != .idle,
+        state != .stopped,
+        state != .stopping,
+        state != .error
+      else { return }
+
+      if let newlySelected = libvlc_media_player_get_selected_track(nativePlayer, libvlc_track_video) {
+        let newlySelectedID = newlySelected.pointee.psz_id.map(String.init(cString:))
+        libvlc_media_track_release(newlySelected)
+        guard newlySelectedID == trackID else { return }
+      }
+
+      trackID.withCString { id in
+        libvlc_media_player_select_tracks_by_ids(nativePlayer, libvlc_track_video, id)
+      }
+    }
+  }
+  #endif
+
   func replaceNativePlayerForDrawablePlayback(
     target: AnyObject?,
     resumeBeforeRelease: Bool = false

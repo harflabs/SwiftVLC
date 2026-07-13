@@ -14,6 +14,20 @@ struct RootView: View {
 
   private var rootForm: some View {
     Form {
+      Section("Test Stream") {
+        NavigationLink {
+          TestStreamSettingsView()
+        } label: {
+          Label("Set App-Wide Stream URL", systemImage: "link")
+        }
+        .accessibilityIdentifier(AccessibilityID.TestStream.settingsLink)
+
+        Text(TestStreamURL.overrideURL?.absoluteString ?? "Using default showcase media")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .lineLimit(2)
+      }
+
       Section("Validation Harness") {
         NavigationLink("Device validation") { HarnessHome() }
       }

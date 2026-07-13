@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MacShowcaseRootView: View {
   @State private var selection: MacShowcase?
+  @State private var isShowingTestStreamSettings = false
 
   init() {
     _selection = State(initialValue: MacShowcase.initialSelection)
@@ -10,6 +11,20 @@ struct MacShowcaseRootView: View {
   var body: some View {
     NavigationSplitView {
       List(selection: $selection) {
+        Section("Configuration") {
+          Button {
+            isShowingTestStreamSettings = true
+          } label: {
+            Label("Test Stream URL", systemImage: "link")
+          }
+          .accessibilityIdentifier(AccessibilityID.TestStream.settingsLink)
+
+          Text(TestStreamURL.overrideURL?.absoluteString ?? "Using default showcase media")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
+        }
+
         ForEach(MacShowcaseSection.allCases) { section in
           Section(section.title) {
             ForEach(section.showcases) { showcase in
@@ -24,6 +39,22 @@ struct MacShowcaseRootView: View {
     } detail: {
       MacShowcaseDetail(showcase: selection ?? .simplePlayback)
         .navigationTitle((selection ?? .simplePlayback).title)
+    }
+    .toolbar {
+      ToolbarItem(placement: .primaryAction) {
+        Button {
+          isShowingTestStreamSettings = true
+        } label: {
+          Label("Test Stream", systemImage: "link")
+        }
+        .help("Configure the app-wide test stream URL")
+      }
+    }
+    .sheet(isPresented: $isShowingTestStreamSettings) {
+      NavigationStack {
+        TestStreamSettingsView()
+      }
+      .frame(minWidth: 560, minHeight: 360)
     }
   }
 }

@@ -80,7 +80,10 @@ public final class MediaDiscoverer: Sendable {
   /// Discovered items are added/removed from this list dynamically.
   public var mediaList: MediaList? {
     guard let list = libvlc_media_discoverer_media_list(pointer) else { return nil }
-    return MediaList(retaining: list)
+    // libvlc_media_discoverer_media_list returns a caller-owned (+1)
+    // reference. Adopt it directly; retaining again leaks one list on
+    // every property access.
+    return MediaList(owning: list)
   }
 }
 

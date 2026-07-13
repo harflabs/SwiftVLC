@@ -107,6 +107,18 @@ extension Integration {
     }
 
     @Test
+    func `setAmplification skips re-apply when value is unchanged`() throws {
+      let eq = Equalizer()
+      var changeCount = 0
+      eq.onChange = { changeCount += 1 }
+      let current = try #require(eq.amplification(forBand: 0))
+
+      try eq.setAmplification(current, forBand: 0)
+
+      #expect(changeCount == 0, "Equal assignment should not trigger onChange")
+    }
+
+    @Test
     func `setAmplification rejects NaN values`() {
       let eq = Equalizer()
 

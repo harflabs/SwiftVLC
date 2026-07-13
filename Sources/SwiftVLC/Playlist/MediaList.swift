@@ -30,6 +30,15 @@ public final class MediaList: Sendable {
     pointer = ptr
   }
 
+  /// Adopts an already-retained `libvlc_media_list_t` pointer.
+  ///
+  /// Use this for libVLC APIs that return a caller-owned reference. The
+  /// reference is stored without an additional retain and released once
+  /// when this wrapper deinitializes.
+  init(owning ptr: OpaquePointer) {
+    pointer = ptr
+  }
+
   deinit {
     libvlc_media_list_release(pointer)
   }

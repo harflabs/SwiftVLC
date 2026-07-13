@@ -5,6 +5,7 @@ import SwiftVLC
 struct SimplePlaybackView: View {
   @State private var player = Player()
   @State private var playbackError: String?
+  @State private var isShowingTestStreamSettings = false
 
   var body: some View {
     VStack(spacing: 18) {
@@ -35,6 +36,19 @@ struct SimplePlaybackView: View {
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(.secondary)
         .labelStyle(.titleAndIcon)
+
+      Button {
+        isShowingTestStreamSettings = true
+      } label: {
+        Label("Test Stream", systemImage: "link")
+      }
+      .accessibilityIdentifier(AccessibilityID.TestStream.settingsLink)
+    }
+    .sheet(isPresented: $isShowingTestStreamSettings) {
+      NavigationStack {
+        TestStreamSettingsView()
+      }
+      .frame(minWidth: 620, minHeight: 420)
     }
   }
 
@@ -113,12 +127,9 @@ struct SimplePlaybackView: View {
 
 private enum VisionTestMedia {
   static var demo: URL {
-    if let override = LaunchArguments.fixtureURLValue {
-      return override
-    }
     guard let url = Bundle.main.url(forResource: "demo", withExtension: "mkv") else {
       preconditionFailure("Missing bundled media resource: demo.mkv")
     }
-    return url
+    return TestStreamURL.resolve(fallback: url)
   }
 }
