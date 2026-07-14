@@ -5,7 +5,11 @@ import Synchronization
 import Testing
 
 extension Integration {
-  @Suite(.tags(.mainActor, .async, .media), .serialized)
+  @Suite(
+    .tags(.mainActor, .async, .media),
+    .serialized,
+    .enabled(if: TestCondition.canPlayMedia, "Requires the rebuilt release XCFramework")
+  )
   @MainActor struct RemoteMP4SeekTests {
     @Test(.timeLimit(.minutes(1)))
     func `Remote MP4 seek requests the target range and resumes near the target`() async throws {
