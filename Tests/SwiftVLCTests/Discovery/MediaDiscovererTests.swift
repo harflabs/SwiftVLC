@@ -142,6 +142,13 @@ extension Integration {
     }
 
     @Test
+    func `Bundled SAP discoverer exposes its media list`() throws {
+      let discoverer = try MediaDiscoverer(name: "sap", instance: TestInstance.shared)
+
+      #expect(discoverer.mediaList != nil)
+    }
+
+    @Test
     func `Deinit safety`() {
       let services = MediaDiscoverer.availableServices(category: .localDirectories)
       guard let service = services.first else { return }

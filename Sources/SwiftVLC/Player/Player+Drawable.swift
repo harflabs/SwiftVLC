@@ -78,9 +78,11 @@ struct MacVideoOutputRecoveryNativeOperations {
 }
 
 private func selectedVideoTrackID(for player: OpaquePointer) -> String? {
-  guard let track = libvlc_media_player_get_selected_track(player, libvlc_track_video) else {
-    return nil
-  }
+  libvlc_media_player_get_selected_track(player, libvlc_track_video)
+    .flatMap(nativeTrackID(adopting:))
+}
+
+func nativeTrackID(adopting track: UnsafeMutablePointer<libvlc_media_track_t>) -> String? {
   defer { libvlc_media_track_release(track) }
   return track.pointee.psz_id.map(String.init(cString:))
 }

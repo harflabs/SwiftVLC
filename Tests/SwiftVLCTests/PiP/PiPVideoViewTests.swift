@@ -596,6 +596,40 @@ extension Integration {
     }
 
     @Test
+    func `macOS private PiP delegate prepares the presenter for system close`() throws {
+      let player = Player(instance: TestInstance.shared)
+      let host = MacNativePiPHostView(frame: CGRect(x: 0, y: 0, width: 960, height: 540))
+      let drawable = host.drawableView
+      let controller = MacPrivatePiPViewControllerProbe()
+      let presenter = MacPrivatePiPPresenter(
+        pictureInPictureViewControllerFactory: { controller }
+      )
+      let mediaController = MacNativePiPMediaController()
+      mediaController.player = player
+      var activeStates: [Bool] = []
+
+      let didStart = presenter.start(
+        player: player,
+        hostView: host,
+        drawableView: drawable,
+        mediaController: mediaController,
+        onActiveChanged: { activeStates.append($0) },
+        onPlay: {},
+        onPause: {}
+      )
+      #expect(didStart)
+
+      let delegate = try #require(controller.delegate as? MacPrivatePiPDelegate)
+      #expect(delegate.shouldClose())
+      delegate.willClose()
+      delegate.didClose()
+
+      #expect(drawable.superview === host)
+      #expect(presenter.isActive == false)
+      expectNoDifference(activeStates, [true, false])
+    }
+
+    @Test
     func `macOS native PiP rejects instances without video output`() throws {
       let instance = try VLCInstance(arguments: ["--no-video-title-show", "--no-video", "--no-audio", "--quiet"])
       let player = Player(instance: instance)

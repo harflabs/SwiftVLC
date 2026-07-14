@@ -1,5 +1,6 @@
 #if os(macOS)
 @testable import SwiftVLC
+import CLibVLC
 import CustomDump
 import Testing
 
@@ -211,6 +212,34 @@ extension Integration {
       if recovery != nil {
         Issue.record("Expected recovery not to start without an active video output")
       }
+    }
+
+    @Test
+    func `live native recovery operations are safe for an inactive player`() async {
+      let player = Player(instance: TestInstance.shared)
+      let native = MacVideoOutputRecoveryNativeOperations.live
+
+      #expect(native.selectedTrackID(player.pointer) == nil)
+      native.unselectVideoTrack(player.pointer)
+      native.reselectVideoTrack(player.pointer, "video")
+      await native.waitForDeselection()
+    }
+
+    @Test
+    func `native track adapter adopts and returns a parsed track identifier`() async throws {
+      let media = try Media(url: TestMedia.testMP4URL)
+      _ = try await media.parse()
+      let trackList = try #require(
+        libvlc_media_get_tracklist(media.pointer, libvlc_track_video)
+      )
+      defer { libvlc_media_tracklist_delete(trackList) }
+      try #require(libvlc_media_tracklist_count(trackList) > 0)
+      let track = try #require(libvlc_media_tracklist_at(trackList, 0))
+      let id = try #require(track.pointee.psz_id)
+      let expectedID = String(cString: id)
+      let ownedTrack = try #require(libvlc_media_track_hold(track))
+
+      #expect(nativeTrackID(adopting: ownedTrack) == expectedID)
     }
   }
 }

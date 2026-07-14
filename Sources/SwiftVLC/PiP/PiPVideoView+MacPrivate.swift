@@ -484,7 +484,7 @@ private func setPrivateValue(
   return true
 }
 
-private final class MacPrivatePiPDelegate: NSObject, @unchecked Sendable {
+final class MacPrivatePiPDelegate: NSObject, @unchecked Sendable {
   var shouldClose: @MainActor @Sendable () -> Bool = { true }
   var willClose: @MainActor @Sendable () -> Void = {}
   var didClose: @MainActor @Sendable () -> Void = {}
