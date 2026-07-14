@@ -42,7 +42,8 @@ apps can react as soon as a renderer appears or disappears:
 ```swift
 let services = RendererDiscoverer.availableServices()
 guard let service = services.first else { return }
-var player = Player()
+let player = Player()
+try player.play(url: mediaURL)
 
 let discoverer = try RendererDiscoverer(name: service.name)
 try discoverer.start()
@@ -51,12 +52,8 @@ for await event in discoverer.events {
     switch event {
     case .itemAdded(let renderer):
         print("Found", renderer.name, renderer.type)
-        let castPlayer = Player()
         do {
-            try castPlayer.setRenderer(renderer)
-            try castPlayer.play(url: mediaURL)
-            player.stop()
-            player = castPlayer
+            try await player.recast(to: renderer)
         } catch {
             print("Cast failed:", error)
         }
@@ -67,11 +64,12 @@ for await event in discoverer.events {
 ```
 
 libVLC applies renderer selection before a native media player's first
-play. SwiftVLC preserves that rule at the public API boundary: set the
-renderer before starting playback on a ``Player``. To retarget after
-local playback has already started, create a fresh ``Player`` as shown
-above. Pass `nil` to ``Player/setRenderer(_:)`` before playback starts
-to revert to local playback.
+play. SwiftVLC preserves that rule at the public API boundary: use
+``Player/setRenderer(_:)`` before starting playback on a ``Player``. To
+retarget after playback has started, await ``Player/recast(to:)``. It
+keeps the same ``Player`` while replacing the native handle and restarting
+the current media. Pass `nil` to `recast(to:)` to return active playback
+to local output, or to `setRenderer(_:)` before the first play.
 
 ## Inspecting a renderer
 
@@ -99,3 +97,4 @@ if renderer.canVideo && renderer.type == "chromecast" {
 
 ### Controlling output
 - ``Player/setRenderer(_:)``
+- ``Player/recast(to:)``

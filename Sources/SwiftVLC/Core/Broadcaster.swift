@@ -79,8 +79,9 @@ final class Broadcaster<Element: Sendable>: Sendable {
     reconciliation = ReconciliationQueue()
   }
 
-  /// Returns an independent `AsyncStream` that yields every element
-  /// passed to ``broadcast(_:)`` while the stream is alive.
+  /// Returns an independent `AsyncStream` that is offered each element
+  /// passed to ``broadcast(_:)`` while the stream is alive. A bounded
+  /// policy can discard older buffered elements when its consumer lags.
   ///
   /// - Parameters:
   ///   - policy: Buffering behavior for this stream. `nil` uses the

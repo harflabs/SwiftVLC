@@ -183,7 +183,8 @@ unavailable by default:
 
 Non-App-Store distributions that deliberately accept private framework
 risk may opt in through SwiftVLC's `PrivateMacOSPiP` SPI. That SPI is
-outside the stable public API contract and may change before `1.0`.
+outside the stable public API and semantic-versioning contract. It may
+change without a major-version release.
 
 ## Platform availability
 

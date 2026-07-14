@@ -44,20 +44,26 @@ Task.detached {
 
 Events, logs, dialogs, and discoverers all surface through
 `AsyncStream`. The streams are multiplexed: calling ``Player/events``
-twice returns two independent streams, both of which receive every
-event broadcast after their creation.
+twice returns two independent subscriptions. Each subscription is
+offered events broadcast after its creation, subject to its own filter
+and buffering policy.
 
 ```swift
 Task { for await e in player.events { handleA(e) } }
 Task { for await e in player.events { handleB(e) } }
 ```
 
-Backpressure is `bufferingNewest`; slow consumers drop oldest events
-rather than block the callback thread.
+``Player/events`` defaults to `.newest(64)`. Logs and discovery streams
+also use bounded newest-wins buffers. A slow consumer can therefore drop
+its own oldest buffered events rather than block the callback thread or
+other subscribers. Consumers that must not miss lifecycle transitions
+can use ``Player/stateTransitions`` or an explicitly filtered,
+`.unbounded` ``Player/events(policy:filter:)`` subscription.
 
-## Cancellation
+## Cancellation and stream termination
 
-Every async API that waits on libVLC honors task cancellation:
+Media parsing and thumbnail generation provide documented cooperative
+cancellation behavior:
 
 - ``Media/parse(timeout:instance:)``: canceling the enclosing task
   stops the parse.
@@ -65,6 +71,12 @@ Every async API that waits on libVLC honors task cancellation:
   canceling before libVLC accepts the request returns immediately. Once
   accepted, SwiftVLC waits for the terminal thumbnail event so callback
   and request teardown are complete before the task returns.
+
+Other asynchronous operations document their own completion contract.
+For example, ``Player/stopAndWait()`` and ``Player/shutdown()`` wait for
+native lifecycle teardown and do not advertise the parsing cancellation
+contract.
+
 - Streams finish when their owning type (`Player`, `VLCInstance`, or
   a discoverer) is released.
 
