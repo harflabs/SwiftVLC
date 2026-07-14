@@ -84,9 +84,9 @@ public final class MediaDiscoverer: Sendable {
 
   static func adoptMediaList(_ pointer: OpaquePointer?) -> MediaList? {
     guard let pointer else { return nil }
-    // libvlc_media_discoverer_media_list returns a caller-owned (+1)
-    // reference. Adopt it directly; retaining again leaks one list on
-    // every property access.
+    // Pinned VLC c833c4be0 retains this list in lib/media_discoverer.c before
+    // returning it. Adopt that +1 reference; retaining again leaks one list
+    // on every property access. Recheck this contract when updating VLC.
     return MediaList(owning: pointer)
   }
 }
