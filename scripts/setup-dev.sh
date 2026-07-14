@@ -118,7 +118,16 @@ remote_pattern = re.compile(
     r'/\* End XCRemoteSwiftPackageReference section \*/'
 )
 
-if local_block in text:
+local_pattern = re.compile(
+    r'/\* Begin XCLocalSwiftPackageReference section \*/\n'
+    r'\t\tBA000001 /\* XCLocalSwiftPackageReference "\.\." \*/ = \{\n'
+    r'\t\t\tisa = XCLocalSwiftPackageReference;\n'
+    r'\t\t\trelativePath = "?\.\."?;\n'
+    r'\t\t\};\n'
+    r'/\* End XCLocalSwiftPackageReference section \*/'
+)
+
+if local_block in text or local_pattern.search(text):
     result = text
 else:
     result, n = remote_pattern.subn(local_block, text, count=1)
