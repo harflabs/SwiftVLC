@@ -322,6 +322,9 @@ find "$WORK_DIR/libvlc.xcframework" -name '*.a' -exec strip -S {} \;
 AFTER_SIZE=$(du -sh "$WORK_DIR/libvlc.xcframework" | cut -f1)
 echo "  Before: $BEFORE_SIZE → After: $AFTER_SIZE"
 
+echo "Verifying duplicate symbols in stripped libraries..."
+"$SCRIPT_DIR/fix-duplicate-symbols.sh" --verify "$WORK_DIR/libvlc.xcframework"
+
 # ── Zip ───────────────────────────────────────────────────────────────────────
 
 echo "Creating zip..."

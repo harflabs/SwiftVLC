@@ -1,11 +1,14 @@
 import Foundation
 import SwiftUI
+import Synchronization
 
 enum TestStreamURL {
-  static let defaultsKey = "ShowcaseTestStreamURL"
+  static let revisionDefaultsKey = "ShowcaseTestStreamRevision"
+  private static let legacyDefaultsKey = "ShowcaseTestStreamURL"
+  private static let storage = Mutex(Storage())
 
   static var storedString: String {
-    UserDefaults.standard.string(forKey: defaultsKey) ?? ""
+    storage.withLock { $0.value }
   }
 
   static var overrideURL: URL? {
@@ -16,6 +19,37 @@ enum TestStreamURL {
     LaunchArguments.fixtureURLValue ?? overrideURL ?? fallback()
   }
 
+  static func startSession() {
+    let isFirstStart = storage.withLock { storage -> Bool in
+      guard !storage.didStart else { return false }
+      storage.didStart = true
+      storage.value = ""
+      return true
+    }
+    guard isFirstStart else { return }
+    UserDefaults.standard.removeObject(forKey: legacyDefaultsKey)
+    UserDefaults.standard.removeObject(forKey: revisionDefaultsKey)
+  }
+
+  static func store(_ value: String) {
+    storage.withLock { $0.value = value }
+    publishChange()
+  }
+
+  static func clear() {
+    storage.withLock { $0.value = "" }
+    publishChange()
+  }
+
+  static func displayString(for url: URL) -> String {
+    guard let scheme = url.scheme else { return "Configured stream" }
+    guard let host = url.host, !host.isEmpty else { return "\(scheme.uppercased()) stream" }
+    let displayHost = host.contains(":") ? "[\(host)]" : host
+    let port = url.port.map { ":\($0)" } ?? ""
+    let path = url.path.isEmpty || url.path == "/" ? "" : "/…"
+    return "\(scheme)://\(displayHost)\(port)\(path)"
+  }
+
   static func validatedURL(from value: String) -> (url: URL, string: String)? {
     let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
     guard
@@ -24,6 +58,15 @@ enum TestStreamURL {
       !scheme.isEmpty
     else { return nil }
     return (url, trimmed)
+  }
+
+  private static func publishChange() {
+    UserDefaults.standard.set(UUID().uuidString, forKey: revisionDefaultsKey)
+  }
+
+  private struct Storage: Sendable {
+    var value = ""
+    var didStart = false
   }
 }
 
@@ -65,12 +108,12 @@ struct TestStreamSettingsView: View {
       } header: {
         Text("Stream URL")
       } footer: {
-        Text("The override is used throughout this Showcase for bundled media and public test streams. HTTP, HLS, RTSP, UDP, and other VLC-supported URL schemes are accepted.")
+        Text("The override is used throughout this Showcase and kept only until the app closes. HTTP, HLS, RTSP, UDP, and other VLC-supported URL schemes are accepted.")
       }
 
       Section("Current Source") {
         if let url = TestStreamURL.overrideURL {
-          LabeledContent("Override", value: url.absoluteString)
+          LabeledContent("Override", value: TestStreamURL.displayString(for: url))
             .accessibilityIdentifier(AccessibilityID.TestStream.currentValue)
         } else {
           LabeledContent("Source", value: "Default showcase media")
@@ -104,12 +147,12 @@ struct TestStreamSettingsView: View {
       validationError = "Enter a complete URL that includes a scheme."
       return
     }
-    UserDefaults.standard.set(validated.string, forKey: TestStreamURL.defaultsKey)
+    TestStreamURL.store(validated.string)
     dismiss()
   }
 
   private func useDefaultsButtonTapped() {
-    UserDefaults.standard.removeObject(forKey: TestStreamURL.defaultsKey)
+    TestStreamURL.clear()
     dismiss()
   }
 }

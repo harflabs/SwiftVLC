@@ -27,7 +27,8 @@ final class MacOSPiPUITests: XCTestCase {
     let app = XCUIApplication()
     app.launchArguments += [
       "-UITestMode", "YES",
-      "-UITestRoute", "PiP"
+      "-UITestRoute", "PiP",
+      "-UITestFixtureURL", Self.fixtureURL.path
     ]
     app.launch()
     defer { app.terminate() }
@@ -54,6 +55,13 @@ final class MacOSPiPUITests: XCTestCase {
 
     waitForText(activeValue, equals: "No", timeout: 10)
     waitForRenderedVideo(in: videoSurface, timeout: 15)
+  }
+
+  private static var fixtureURL: URL {
+    URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .appendingPathComponent("iOS/Fixtures/test.mp4")
   }
 
   private func waitForText(

@@ -9,16 +9,11 @@
 diff --git a/modules/services_discovery/upnp-wrapper.cpp b/modules/services_discovery/upnp-wrapper.cpp
 --- a/modules/services_discovery/upnp-wrapper.cpp
 +++ b/modules/services_discovery/upnp-wrapper.cpp
-@@ -36,14 +36,17 @@ vlc::threads::mutex UpnpInstanceWrapper::s_lock;
- 
- UpnpInstanceWrapper::UpnpInstanceWrapper()
+@@ -38,2 +38,3 @@ UpnpInstanceWrapper::UpnpInstanceWrapper()
      : m_handle( -1 )
 +    , m_initialized( false )
      , m_refcount( 0 )
- {
- }
- 
- UpnpInstanceWrapper::~UpnpInstanceWrapper()
+@@ -44,4 +45,6 @@ UpnpInstanceWrapper::~UpnpInstanceWrapper()
  {
 -    UpnpUnRegisterClient( m_handle );
 -    UpnpFinish();
@@ -27,24 +22,15 @@ diff --git a/modules/services_discovery/upnp-wrapper.cpp b/modules/services_disc
 +    if ( m_initialized )
 +        UpnpFinish();
  }
- 
- UpnpInstanceWrapper *UpnpInstanceWrapper::get(vlc_object_t *p_obj)
-@@ -73,6 +77,7 @@ UpnpInstanceWrapper *UpnpInstanceWrapper::get(vlc_object_t *p_obj)
-             delete instance;
-             return NULL;
-         }
-+        instance->m_initialized = true;
- 
-         ixmlRelaxParser( 1 );
- 
+@@ -68,2 +71,4 @@ UpnpInstanceWrapper *UpnpInstanceWrapper::get(vlc_object_t *p_obj)
+         int i_res = UpnpInit2( net_iface, 0 );
++        if( i_res == UPNP_E_SUCCESS )
++            instance->m_initialized = true;
+         free( net_iface );
 diff --git a/modules/services_discovery/upnp-wrapper.hpp b/modules/services_discovery/upnp-wrapper.hpp
 --- a/modules/services_discovery/upnp-wrapper.hpp
 +++ b/modules/services_discovery/upnp-wrapper.hpp
-@@ -66,6 +66,7 @@ private:
-     static UpnpInstanceWrapper* s_instance;
-     static vlc::threads::mutex s_lock;
+@@ -68,2 +68,3 @@ private:
      UpnpClient_Handle m_handle;
 +    bool m_initialized;
      int m_refcount;
-     typedef std::shared_ptr<Listener> ListenerPtr;
-     typedef std::vector<ListenerPtr> Listeners;

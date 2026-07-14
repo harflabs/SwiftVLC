@@ -2,12 +2,16 @@ import SwiftUI
 
 @main
 struct VisionShowcaseApp: App {
-  @AppStorage(TestStreamURL.defaultsKey) private var testStreamURL = ""
+  @AppStorage(TestStreamURL.revisionDefaultsKey) private var testStreamRevision = ""
+
+  init() {
+    TestStreamURL.startSession()
+  }
 
   var body: some Scene {
     WindowGroup {
       SimplePlaybackView()
-        .id(testStreamURL)
+        .id(testStreamRevision)
         .tint(.orange)
     }
     .defaultSize(width: 960, height: 640)

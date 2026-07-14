@@ -19,11 +19,18 @@
 # Usage:
 #   ./scripts/fix-duplicate-symbols.sh path/to/libvlc.xcframework
 #   ./scripts/fix-duplicate-symbols.sh path/to/libvlc.a
+#   ./scripts/fix-duplicate-symbols.sh --verify path/to/libvlc.xcframework
 #
 set -euo pipefail
 
-if [[ $# -lt 1 ]]; then
-  echo "Usage: $0 <xcframework-or-static-lib-path>"
+MODE="fix"
+if [[ "${1:-}" == "--verify" ]]; then
+  MODE="verify"
+  shift
+fi
+
+if [[ $# -ne 1 ]]; then
+  echo "Usage: $0 [--verify] <xcframework-or-static-lib-path>"
   exit 1
 fi
 
@@ -90,41 +97,103 @@ if misaligned:
 PYEOF
 }
 
-fix_static_lib() {
+count_external_definitions() {
+  xcrun nm -g "$1" 2>/dev/null | awk -v symbol="$2" '
+    $NF == symbol && $(NF - 1) != "U" { count += 1 }
+    END { print count + 0 }
+  '
+}
+
+verify_thin_archive() {
+  local LIB_PATH="$1"
+  local ARCH="$2"
+  local SYMBOL
+  for SYMBOL in _json_parse_error _json_read; do
+    local COUNT
+    COUNT=$(count_external_definitions "$LIB_PATH" "$SYMBOL")
+    if [[ "$COUNT" -ne 1 ]]; then
+      echo "Error: $LIB_PATH ($ARCH) has $COUNT external definitions of $SYMBOL; expected 1" >&2
+      return 1
+    fi
+  done
+}
+
+verify_static_lib() (
+  set -euo pipefail
+  local LIB_PATH="$1"
+  local WORK_DIR
+  WORK_DIR=$(mktemp -d "${TMPDIR:-/tmp}/swiftvlc-symbol-verify.XXXXXX")
+  trap 'rm -rf "$WORK_DIR"' EXIT
+
+  local ARCHS
+  read -r -a ARCHS <<< "$(xcrun lipo -archs "$LIB_PATH")"
+  if [[ ${#ARCHS[@]} -eq 0 ]]; then
+    echo "Error: no architectures found in $LIB_PATH" >&2
+    exit 1
+  fi
+
+  local ARCH
+  for ARCH in "${ARCHS[@]}"; do
+    local THIN="${WORK_DIR}/${ARCH}.a"
+    if [[ ${#ARCHS[@]} -gt 1 ]]; then
+      xcrun lipo -thin "$ARCH" "$LIB_PATH" -output "$THIN"
+    else
+      cp "$LIB_PATH" "$THIN"
+    fi
+    verify_thin_archive "$THIN" "$ARCH"
+  done
+)
+
+fix_static_lib() (
+  set -euo pipefail
   local LIB_PATH="$1"
   local WORK_DIR
   WORK_DIR=$(mktemp -d "${TMPDIR:-/tmp}/swiftvlc-symbols.XXXXXX")
-  trap "rm -rf '$WORK_DIR'" RETURN
+  trap 'rm -rf "$WORK_DIR"' EXIT
 
   local SYMS_FILE="${WORK_DIR}/localize_syms.txt"
   printf "_json_parse_error\n_json_read\n" > "$SYMS_FILE"
 
-  local LIPO_INFO
-  LIPO_INFO=$(lipo -info "$LIB_PATH" 2>/dev/null)
   local ARCHS
-  ARCHS=$(echo "$LIPO_INFO" | sed 's/.*: //')
-  local IS_FAT=true
-  if echo "$LIPO_INFO" | grep -q "Non-fat"; then
-    IS_FAT=false
+  read -r -a ARCHS <<< "$(xcrun lipo -archs "$LIB_PATH")"
+  if [[ ${#ARCHS[@]} -eq 0 ]]; then
+    echo "Error: no architectures found in $LIB_PATH" >&2
+    exit 1
   fi
 
   local CHANGED=false
 
-  for ARCH in $ARCHS; do
+  local ARCH
+  for ARCH in "${ARCHS[@]}"; do
     local THIN="${WORK_DIR}/${ARCH}.a"
-    if $IS_FAT; then
-      lipo -thin "$ARCH" "$LIB_PATH" -output "$THIN"
+    if [[ ${#ARCHS[@]} -gt 1 ]]; then
+      xcrun lipo -thin "$ARCH" "$LIB_PATH" -output "$THIN"
     else
       cp "$LIB_PATH" "$THIN"
     fi
 
-    local COUNT
-    COUNT=$(nm "$THIN" 2>/dev/null | grep -c 'T _json_parse_error' || true)
-    if [[ "$COUNT" -gt 1 ]]; then
+    local PARSE_COUNT READ_COUNT
+    PARSE_COUNT=$(count_external_definitions "$THIN" _json_parse_error)
+    READ_COUNT=$(count_external_definitions "$THIN" _json_read)
+    if [[ "$PARSE_COUNT" -gt 1 || "$READ_COUNT" -gt 1 ]]; then
       local OBJ="libytdl_plugin_la-ytdl.o"
-      (cd "$WORK_DIR" && ar x "$THIN" "$OBJ" 2>/dev/null) || continue
-      nmedit -R "$SYMS_FILE" "${WORK_DIR}/${OBJ}" 2>/dev/null || continue
-      (cd "$WORK_DIR" && ar r "$THIN" "$OBJ" 2>/dev/null) || continue
+      rm -f "${WORK_DIR}/${OBJ}"
+      if ! (cd "$WORK_DIR" && xcrun ar x "$THIN" "$OBJ"); then
+        echo "Error: failed to extract $OBJ from $THIN" >&2
+        exit 1
+      fi
+      if [[ ! -f "${WORK_DIR}/${OBJ}" ]]; then
+        echo "Error: $OBJ was not found in $THIN" >&2
+        exit 1
+      fi
+      if ! xcrun nmedit -R "$SYMS_FILE" "${WORK_DIR}/${OBJ}"; then
+        echo "Error: failed to localize duplicate JSON symbols in $OBJ ($ARCH)" >&2
+        exit 1
+      fi
+      if ! (cd "$WORK_DIR" && xcrun ar r "$THIN" "$OBJ"); then
+        echo "Error: failed to replace $OBJ in $THIN" >&2
+        exit 1
+      fi
       rm -f "${WORK_DIR}/${OBJ}"
 
       # ar replaces long-name members without preserving the 8-byte object
@@ -132,34 +201,47 @@ fix_static_lib() {
       # static-library tool before lipo combines the architecture slices;
       # otherwise ld rejects the edited ytdl member on macOS.
       local REPACKED="${WORK_DIR}/${ARCH}-repacked.a"
-      libtool -static -a -D -no_warning_for_no_symbols \
+      xcrun libtool -static -a -D -no_warning_for_no_symbols \
         -o "$REPACKED" "$THIN"
       mv "$REPACKED" "$THIN"
       verify_macho_archive_alignment "$THIN"
       CHANGED=true
     fi
+
+    verify_thin_archive "$THIN" "$ARCH"
   done
 
   if $CHANGED; then
-    if $IS_FAT; then
+    if [[ ${#ARCHS[@]} -gt 1 ]]; then
       local THIN_FILES=()
-      for ARCH in $ARCHS; do
+      for ARCH in "${ARCHS[@]}"; do
         THIN_FILES+=("${WORK_DIR}/${ARCH}.a")
       done
-      lipo -create "${THIN_FILES[@]}" -output "$LIB_PATH"
+      xcrun lipo -create "${THIN_FILES[@]}" -output "$LIB_PATH"
     else
-      cp "${WORK_DIR}/${ARCHS}.a" "$LIB_PATH"
+      cp "${WORK_DIR}/${ARCHS[0]}.a" "$LIB_PATH"
     fi
     echo "  Fixed: $LIB_PATH"
+  fi
+
+  verify_static_lib "$LIB_PATH"
+)
+
+process_static_lib() {
+  if [[ "$MODE" == "verify" ]]; then
+    verify_static_lib "$1"
+    echo "  Verified: $1"
+  else
+    fix_static_lib "$1"
   fi
 }
 
 if [[ -d "$TARGET" ]] && [[ "$TARGET" == *.xcframework ]]; then
-  find "$TARGET" -name "libvlc.a" | while read -r lib; do
-    fix_static_lib "$lib"
+  find "$TARGET" -name "libvlc.a" -print0 | while IFS= read -r -d '' lib; do
+    process_static_lib "$lib"
   done
 elif [[ -f "$TARGET" ]] && [[ "$TARGET" == *.a ]]; then
-  fix_static_lib "$TARGET"
+  process_static_lib "$TARGET"
 else
   echo "Error: Expected an .xcframework directory or .a file"
   exit 1

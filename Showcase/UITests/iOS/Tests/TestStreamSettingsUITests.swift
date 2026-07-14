@@ -1,7 +1,7 @@
 import XCTest
 
 final class TestStreamSettingsUITests: ShowcaseIOSTestCase {
-  func test_streamURLPersistsAndCanBeCleared() {
+  func test_streamURLStaysInSessionAndCanBeCleared() {
     launchAtRoot()
     openSettings()
 
@@ -32,6 +32,26 @@ final class TestStreamSettingsUITests: ShowcaseIOSTestCase {
     XCTAssertTrue(
       app.buttons[AccessibilityID.TestStream.settingsLink].waitForExistence(timeout: 5)
     )
+
+    openSettings()
+    XCTAssertNotEqual(
+      app.textFields[AccessibilityID.TestStream.urlField].value as? String,
+      streamURL
+    )
+
+    let urlFieldAfterClear = app.textFields[AccessibilityID.TestStream.urlField]
+    urlFieldAfterClear.tap()
+    urlFieldAfterClear.typeText(streamURL)
+    app.buttons[AccessibilityID.TestStream.applyButton].tap()
+
+    app.terminate()
+    app.launch()
+    openSettings()
+    XCTAssertNotEqual(
+      app.textFields[AccessibilityID.TestStream.urlField].value as? String,
+      streamURL
+    )
+    XCTAssertFalse(app.buttons[AccessibilityID.TestStream.clearButton].exists)
   }
 
   private func openSettings() {

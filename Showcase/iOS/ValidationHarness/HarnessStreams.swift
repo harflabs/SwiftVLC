@@ -29,22 +29,52 @@ struct HarnessStreams {
   enum Source {
     case bundle
     case documents
+    case appOverride
 
     var label: String {
       switch self {
       case .bundle: "bundled streams.local.json"
       case .documents: "Documents/streams.local.json"
+      case .appOverride: "app-wide test stream"
       }
     }
   }
 
-  let liveTS: URL?
-  let hlsLive: URL?
-  let vod: URL?
-  let catchup: URL?
-  let subtitled: URL?
-  let adaptive: URL?
-  let audioOnly: URL?
+  private let configuredLiveTS: URL?
+  private let configuredHLSLive: URL?
+  private let configuredVOD: URL?
+  private let configuredCatchup: URL?
+  private let configuredSubtitled: URL?
+  private let configuredAdaptive: URL?
+  private let configuredAudioOnly: URL?
+
+  var liveTS: URL? {
+    TestStreamURL.overrideURL ?? configuredLiveTS
+  }
+
+  var hlsLive: URL? {
+    TestStreamURL.overrideURL ?? configuredHLSLive
+  }
+
+  var vod: URL? {
+    TestStreamURL.overrideURL ?? configuredVOD
+  }
+
+  var catchup: URL? {
+    TestStreamURL.overrideURL ?? configuredCatchup
+  }
+
+  var subtitled: URL? {
+    TestStreamURL.overrideURL ?? configuredSubtitled
+  }
+
+  var adaptive: URL? {
+    TestStreamURL.overrideURL ?? configuredAdaptive
+  }
+
+  var audioOnly: URL? {
+    TestStreamURL.overrideURL ?? configuredAudioOnly
+  }
 
   func url(for key: Key) -> URL? {
     switch key {
@@ -72,13 +102,13 @@ struct HarnessStreams {
 extension HarnessStreams: Decodable {
   init(from decoder: any Decoder) throws {
     let container = try decoder.container(keyedBy: Key.self)
-    liveTS = Self.url(in: container, for: .liveTS)
-    hlsLive = Self.url(in: container, for: .hlsLive)
-    vod = Self.url(in: container, for: .vod)
-    catchup = Self.url(in: container, for: .catchup)
-    subtitled = Self.url(in: container, for: .subtitled)
-    adaptive = Self.url(in: container, for: .adaptive)
-    audioOnly = Self.url(in: container, for: .audioOnly)
+    configuredLiveTS = Self.url(in: container, for: .liveTS)
+    configuredHLSLive = Self.url(in: container, for: .hlsLive)
+    configuredVOD = Self.url(in: container, for: .vod)
+    configuredCatchup = Self.url(in: container, for: .catchup)
+    configuredSubtitled = Self.url(in: container, for: .subtitled)
+    configuredAdaptive = Self.url(in: container, for: .adaptive)
+    configuredAudioOnly = Self.url(in: container, for: .audioOnly)
   }
 
   private static func url(in container: KeyedDecodingContainer<Key>, for key: Key) -> URL? {
@@ -108,7 +138,21 @@ extension HarnessStreams {
       return (streams, .documents)
     }
 
+    if TestStreamURL.overrideURL != nil {
+      return (HarnessStreams(), .appOverride)
+    }
+
     return nil
+  }
+
+  private init() {
+    configuredLiveTS = nil
+    configuredHLSLive = nil
+    configuredVOD = nil
+    configuredCatchup = nil
+    configuredSubtitled = nil
+    configuredAdaptive = nil
+    configuredAudioOnly = nil
   }
 
   private static func decode(contentsOf url: URL) -> HarnessStreams? {

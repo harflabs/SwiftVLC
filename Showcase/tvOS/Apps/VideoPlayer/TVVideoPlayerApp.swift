@@ -57,26 +57,34 @@ private struct Source: Identifiable, Hashable {
   let subtitle: String
   let url: URL
 
-  static let demo = Source(
-    id: "demo",
-    title: "Demo reel",
-    subtitle: "Bundled file with tracks, chapters, subtitles, and metadata",
-    url: TVTestMedia.demo
-  )
+  static var demo: Source {
+    Source(
+      id: "demo",
+      title: "Demo reel",
+      subtitle: "Bundled file with tracks, chapters, subtitles, and metadata",
+      url: TVTestMedia.demo
+    )
+  }
 
-  static let bigBuckBunny = Source(
-    id: "big-buck-bunny",
-    title: "Big Buck Bunny",
-    subtitle: "Remote MP4 with 5.1 audio",
-    url: TVTestMedia.bigBuckBunny
-  )
+  static var bigBuckBunny: Source {
+    Source(
+      id: "big-buck-bunny",
+      title: "Big Buck Bunny",
+      subtitle: "Remote MP4 with 5.1 audio",
+      url: TVTestMedia.bigBuckBunny
+    )
+  }
 
-  static let hls = Source(
-    id: "hls",
-    title: "Live HLS stream",
-    subtitle: "Public adaptive-bitrate test stream",
-    url: TVTestMedia.hls
-  )
+  static var hls: Source {
+    Source(
+      id: "hls",
+      title: "Live HLS stream",
+      subtitle: "Public adaptive-bitrate test stream",
+      url: TVTestMedia.hls
+    )
+  }
 
-  static let all = [demo, bigBuckBunny, hls]
+  static var all: [Source] {
+    [demo, bigBuckBunny, hls]
+  }
 }

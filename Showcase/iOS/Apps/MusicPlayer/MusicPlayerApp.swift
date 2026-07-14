@@ -13,11 +13,13 @@ struct MusicPlayerApp: View {
     return Self.defaultLibrary
   }
 
-  private static let defaultLibrary: [Song] = [
-    Song(id: "showcase-reel", title: "Showcase Reel", artist: "SwiftVLC", url: TestMedia.demo),
-    Song(id: "big-buck-bunny", title: "Big Buck Bunny", artist: "Blender Foundation", url: TestMedia.bigBuckBunny),
-    Song(id: "hls-test-stream", title: "HLS test stream", artist: "Mux", url: TestMedia.hls)
-  ]
+  private static var defaultLibrary: [Song] {
+    [
+      Song(id: "showcase-reel", title: "Showcase Reel", artist: "SwiftVLC", url: TestMedia.demo),
+      Song(id: "big-buck-bunny", title: "Big Buck Bunny", artist: "Blender Foundation", url: TestMedia.bigBuckBunny),
+      Song(id: "hls-test-stream", title: "HLS test stream", artist: "Mux", url: TestMedia.hls)
+    ]
+  }
 
   var body: some View {
     List(library) { song in

@@ -19,7 +19,7 @@ struct MacShowcaseRootView: View {
           }
           .accessibilityIdentifier(AccessibilityID.TestStream.settingsLink)
 
-          Text(TestStreamURL.overrideURL?.absoluteString ?? "Using default showcase media")
+          Text(TestStreamURL.overrideURL.map { TestStreamURL.displayString(for: $0) } ?? "Using default showcase media")
             .font(.caption)
             .foregroundStyle(.secondary)
             .lineLimit(2)

@@ -4,9 +4,10 @@ import SwiftVLC
 
 @main
 struct ShowcaseApp: App {
-  @AppStorage(TestStreamURL.defaultsKey) private var testStreamURL = ""
+  @AppStorage(TestStreamURL.revisionDefaultsKey) private var testStreamRevision = ""
 
   init() {
+    TestStreamURL.startSession()
     VLCInstance.prewarmShared()
     try? AVAudioSession.sharedInstance().setCategory(.playback)
     try? AVAudioSession.sharedInstance().setActive(true)
@@ -17,7 +18,7 @@ struct ShowcaseApp: App {
   var body: some Scene {
     WindowGroup {
       RootView()
-        .id(testStreamURL)
+        .id(testStreamRevision)
         .tint(.orange)
     }
   }
