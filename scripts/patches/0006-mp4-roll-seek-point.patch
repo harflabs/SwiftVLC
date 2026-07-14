@@ -1,0 +1,21 @@
+# Preserve the requested MP4 seek position when AAC roll metadata is present.
+#
+# AAC roll sample groups describe decoder preroll, not a track sync point. The
+# pinned VLC revision writes the group entry sample into i_sync_sample, which
+# can reset the audio track to sample zero. The demuxer then aligns every track
+# to that earlier point and remote playback reads from the beginning.
+#
+# Backport of VideoLAN commit ae06c7155afa34e82e5fb3eb6e24e99f0184b9d0.
+diff --git a/modules/demux/mp4/mp4.c b/modules/demux/mp4/mp4.c
+--- a/modules/demux/mp4/mp4.c
++++ b/modules/demux/mp4/mp4.c
+@@ -3577,7 +3577,8 @@ static int TrackTimeToSampleChunk( demux_t *p_demux, mp4_track_t *p_track,
+     }
+     else
+     {
++        uint32_t i_group_sample_entry;
+         const MP4_Box_data_sgpd_entry_t *p_entrydesc;
+         if( MP4_SampleToGroupInfo( p_track->p_stbl, i_sample,
+-                                  SAMPLEGROUP_roll, 0, &i_sync_sample,
++                                  SAMPLEGROUP_roll, 0, &i_group_sample_entry,
+                                   SAMPLE_GROUP_MATCH_EXACT, &p_entrydesc ) )

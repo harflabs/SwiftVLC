@@ -2,6 +2,42 @@ import CLibVLC
 import Foundation
 import Synchronization
 
+#if DEBUG
+/// Debug-only counters for proving that the retained callback boxes used by
+/// parse and thumbnail operations balance on every terminal path.
+///
+/// Weak `Media` probes cannot detect these leaks because each operation owns
+/// the native media pointer, not the Swift `Media` wrapper.
+enum MediaOperationLifetimeProbe {
+  private static let parseCount = Atomic<Int>(0)
+  private static let thumbnailCount = Atomic<Int>(0)
+
+  static var liveParseCount: Int {
+    parseCount.load(ordering: .relaxed)
+  }
+
+  static var liveThumbnailCount: Int {
+    thumbnailCount.load(ordering: .relaxed)
+  }
+
+  static func parseCreated() {
+    parseCount.add(1, ordering: .relaxed)
+  }
+
+  static func parseDestroyed() {
+    parseCount.subtract(1, ordering: .relaxed)
+  }
+
+  static func thumbnailCreated() {
+    thumbnailCount.add(1, ordering: .relaxed)
+  }
+
+  static func thumbnailDestroyed() {
+    thumbnailCount.subtract(1, ordering: .relaxed)
+  }
+}
+#endif
+
 /// The type of a media source as reported by libVLC.
 public enum MediaType: Sendable, Hashable, CustomStringConvertible {
   /// Media type could not be determined yet.
@@ -407,11 +443,17 @@ private final class ParseOperation: Sendable {
       instance: instance,
       continuation: continuation
     ))
+    #if DEBUG
+    MediaOperationLifetimeProbe.parseCreated()
+    #endif
   }
 
   deinit {
     let media = state.withLock { $0.media }
     libvlc_media_release(media)
+    #if DEBUG
+    MediaOperationLifetimeProbe.parseDestroyed()
+    #endif
   }
 
   func installCallbackBox(_ box: UnsafeMutableRawPointer) -> Bool {

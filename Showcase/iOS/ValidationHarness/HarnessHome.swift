@@ -53,6 +53,9 @@ struct HarnessHome: View {
     Section {
       if let config {
         LabeledContent("Loaded from", value: config.source.label)
+        if let overrideURL = TestStreamURL.overrideURL {
+          LabeledContent("Override", value: TestStreamURL.displayString(for: overrideURL))
+        }
         let missing = config.streams.missingKeys
         if missing.isEmpty {
           LabeledContent("Streams", value: "all \(HarnessStreams.Key.allCases.count) configured")

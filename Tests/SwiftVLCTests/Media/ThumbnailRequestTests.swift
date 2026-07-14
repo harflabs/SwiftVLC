@@ -10,6 +10,9 @@ extension Integration {
       let media = try Media(url: TestMedia.testMP4URL)
       let data = try await media.thumbnail(at: .zero, width: 64, height: 0)
       #expect(!data.isEmpty)
+      #if DEBUG
+      #expect(MediaOperationLifetimeProbe.liveThumbnailCount == 0)
+      #endif
     }
 
     @Test

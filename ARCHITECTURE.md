@@ -81,7 +81,7 @@ flowchart TB
 
 | Component | Choice | Why |
 |---|---|---|
-| **Language** | Swift 6.3+ | Strict concurrency, typed throws, `@Observable`, upcoming feature flags |
+| **Language** | Swift 6.3+ with Xcode 26.4+ | Strict concurrency, typed throws, `@Observable`, upcoming feature flags |
 | **C Bindings** | libVLC 4.0 C API | Direct access, no Objective-C overhead |
 | **State** | `@Observable` / `@MainActor` | Automatic SwiftUI integration, thread safety |
 | **Events** | `AsyncStream<PlayerEvent>` | Native structured concurrency, multi-consumer |
@@ -89,7 +89,7 @@ flowchart TB
 | **PiP** | iOS `PiPVideoView`: native drawable; direct controller: vmem → `AVSampleBufferDisplayLayer`; macOS view: native drawable behind SPI | Public iOS PiP, a public direct sample-buffer route, plus explicit private-API macOS opt-in |
 | **Thread Safety** | `Mutex<T>`, `Sendable`, `nonisolated(unsafe)` | Compile-time data race prevention |
 | **Testing** | Swift Testing framework | Modern `@Test`, `#expect`, tags, traits |
-| **Platforms** | iOS 18+, macOS 15+, tvOS 18+, visionOS 2+, Mac Catalyst | Unified SwiftUI minimum |
+| **Platforms** | iOS 18+, macOS 15+, tvOS 18+, visionOS 2+, Mac Catalyst 18+ | Unified SwiftUI minimum |
 
 ---
 
@@ -122,7 +122,7 @@ The central observable type that drives all playback.
 | `Player+Audio.swift` | `extension Player` | Audio-output device selection, role, mix mode, stereo mode. |
 | `Player+Chapters.swift` | `extension Player` | Title/chapter navigation, DVD menu actions. |
 | `Player+ABLoop.swift` | `extension Player` | A-B loop state plus checked time/position mutations. |
-| `Player+Programs.swift` | `extension Player` | DVB/MPEG-TS program selection and scrambled-state polling. |
+| `Player+Programs.swift` | `extension Player` | DVB/MPEG-TS program selection, renderer targeting, mid-playback `recast(to:)`, and scrambled-state polling. |
 | `Player+Recording.swift` | `extension Player` | Snapshot capture and recording start/stop. |
 | `Player+Overlays.swift` | `extension Player` | Scoped `withMarquee`/`withLogo`/`withAdjustments` accessors for the `~Copyable ~Escapable` overlay types. |
 | `Player+Typed.swift` | `extension Player` | Typed read-only accessors for raw `position`/`volume`/`rate`/`subtitleTextScale`, plus explicit checked mutation methods such as `setPlaybackRate(_:)`. |
@@ -151,7 +151,7 @@ player.subtitleTracks     // [Track]
 
 // Playback observations
 player.position           // Double (0.0–1.0), read-only
-player.volume             // Float (0.0–1.25), read-only requested volume shadow
+player.volume             // Float (0.0–2.0), read-only requested volume shadow
 player.rate               // Float (current libVLC rate), read-only
 player.audioDelay         // Duration, read-only
 player.subtitleDelay      // Duration, read-only
@@ -656,9 +656,9 @@ iOS device with the `audio` background mode enabled.
 
 ## Error Handling
 
-### Typed Throws
+### Typed Library Errors
 
-All throwing operations use `throws(VLCError)`:
+Operations that introduce a SwiftVLC failure use `throws(VLCError)`:
 
 ```swift
 func play() throws(VLCError) {
@@ -672,6 +672,10 @@ func parse(timeout: Duration) async throws(VLCError) -> Metadata {
   throw .parseTimeout
 }
 ```
+
+Scoped closure APIs such as `withAdjustments`, `withMarquee`, `withLogo`,
+and `MediaList.withLocked` use `rethrows`. They introduce no library
+failure and propagate an error thrown by the caller's closure unchanged.
 
 ### Error Cases
 
@@ -795,7 +799,7 @@ The Showcase apps follow the same split: published states pin `SwiftVLC` by exac
 ```mermaid
 flowchart LR
     BUILD["build-libvlc.sh --all"] --> XCF["Vendor/libvlc.xcframework<br/>(unstripped)"]
-    XCF --> RELEASE["release.sh vX.Y.Z"]
+    XCF --> RELEASE["release.sh X.Y.Z"]
     RELEASE --> VERIFY["Verify all required slices present"]
     VERIFY --> STRIP["strip -S"]
     STRIP --> ZIP["ditto -c -k"]
@@ -810,12 +814,18 @@ flowchart LR
 
 Preflight refuses releases from non-`main` branches, uncommitted changes in `Package.swift` or the Showcase project, pre-existing local or remote tags, and unauthenticated `gh`. If a pre-commit rewrite or post-write sanity check fails, the script restores `Package.swift` and the Showcase project before exiting. The tag is pushed before `main`, so if GitHub Release creation fails, `origin/main` still points at the previous good release; finish the release or delete the tag before retrying. A post-write regex guard verifies that the rewritten `Package.swift` still contains the `CLibVLC` target, catching a malformed replacement before the tag is cut.
 
+After publishing a tag, verify that Swift Package Index has completed its
+asynchronous documentation build and that the unversioned documentation URL
+resolves to the new release rather than the preceding tag.
+
 ### CI/CD
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
 | `test.yml` | Push to `main` / PR | Lints sources, builds all Showcase schemes, runs package tests with coverage, and checks public API doc coverage. |
 | `sanitize.yml` | Push to `main`, selected PR paths, weekly schedule | Runs race, stress, memory, and lifecycle tests under Thread Sanitizer and Address Sanitizer. |
+| `fixtures.yml` | Push to `main` / selected PR paths | Builds the layered dynamic-host fixtures and verifies that applications load exactly one copy of libVLC. |
+| `vendor-manifest.yml` | Push to `main` / binary-manifest PR paths | Verifies every xcframework slice against its checked-in archive-member manifest. |
 | `claude.yml` | Issue comment / PR mention | Claude Code bot integration. |
 
 ---
@@ -862,12 +872,15 @@ SwiftVLC/
 │   ├── release.sh                        # Cut a versioned release and advance main
 │   ├── fix-duplicate-symbols.sh          # Localize duplicate json symbols
 │   ├── ci-use-released-xcframework.sh    # CI: point Package.swift at latest release
-│   └── ci-run-with-timeouts.py           # CI: wall-clock + idle test timeouts
+│   ├── ci-run-with-timeouts.py           # CI: wall-clock + idle test timeouts
+│   └── patches/                           # Ordered VLC source patches applied by the build
 │
 ├── .github/workflows/
-│   ├── test.yml                   # CI test runner
-│   ├── sanitize.yml               # Sanitizer test runner
-│   └── claude.yml                 # Claude Code bot integration
+│   ├── test.yml                    # CI test runner
+│   ├── sanitize.yml                # Sanitizer test runner
+│   ├── fixtures.yml                # Layered-consumer single-copy gate
+│   ├── vendor-manifest.yml         # XCFramework archive-member gate
+│   └── claude.yml                  # Claude Code bot integration
 │
 ├── Package.swift                  # SPM manifest (Swift 6.3+)
 ├── .swiftlint.yml                # Lint configuration

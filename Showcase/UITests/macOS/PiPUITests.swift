@@ -1,3 +1,4 @@
+import AppKit
 import AVKit
 import XCTest
 
@@ -18,7 +19,7 @@ private enum MacDeinterlaceAccessibilityID {
 
 @MainActor
 final class MacOSPiPUITests: XCTestCase {
-  func test_startPiPButtonStartsPiPWhenSystemSupportsPiP() throws {
+  func test_closingPiPRestoresInlineVideo() throws {
     guard AVPictureInPictureController.isPictureInPictureSupported() else {
       throw XCTSkip("macOS Picture in Picture is not supported in this environment.")
     }
@@ -35,6 +36,10 @@ final class MacOSPiPUITests: XCTestCase {
     let toggleButton = app.buttons["macos.pip.toggle"]
     XCTAssertTrue(toggleButton.waitForExistence(timeout: 10), "Start PiP button never appeared.")
 
+    let videoSurface = app.descendants(matching: .any)["macos.pip.video"]
+    XCTAssertTrue(videoSurface.waitForExistence(timeout: 10), "Inline video surface never appeared.")
+    waitForRenderedVideo(in: videoSurface, timeout: 15)
+
     let enabled = NSPredicate(format: "isEnabled == true")
     expectation(for: enabled, evaluatedWith: toggleButton)
     waitForExpectations(timeout: 20)
@@ -43,10 +48,13 @@ final class MacOSPiPUITests: XCTestCase {
 
     let activeValue = app.staticTexts["macos.pip.active.value"]
     XCTAssertTrue(activeValue.waitForExistence(timeout: 5), "PiP active status never appeared.")
+    waitForText(activeValue, equals: "Yes", timeout: 10)
 
-    let active = NSPredicate(format: "label == %@", "Yes")
-    expectation(for: active, evaluatedWith: activeValue)
-    waitForExpectations(timeout: 10)
+    app.activate()
+    toggleButton.click()
+
+    waitForText(activeValue, equals: "No", timeout: 10)
+    waitForRenderedVideo(in: videoSurface, timeout: 15)
   }
 
   private static var fixtureURL: URL {
@@ -54,6 +62,77 @@ final class MacOSPiPUITests: XCTestCase {
       .deletingLastPathComponent()
       .deletingLastPathComponent()
       .appendingPathComponent("iOS/Fixtures/test.mp4")
+  }
+
+  private func waitForText(
+    _ element: XCUIElement,
+    equals expected: String,
+    timeout: TimeInterval,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) {
+    let predicate = NSPredicate { _, _ in self.accessibleText(of: element) == expected }
+    let exp = expectation(for: predicate, evaluatedWith: NSObject())
+    if XCTWaiter.wait(for: [exp], timeout: timeout) != .completed {
+      XCTFail(
+        "Expected text '\(expected)' but found '\(accessibleText(of: element))' after \(timeout)s",
+        file: file,
+        line: line
+      )
+    }
+  }
+
+  private func accessibleText(of element: XCUIElement) -> String {
+    if let value = element.value as? String, !value.isEmpty {
+      return value
+    }
+    return element.label
+  }
+
+  private func waitForRenderedVideo(
+    in element: XCUIElement,
+    timeout: TimeInterval,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) {
+    let deadline = Date().addingTimeInterval(timeout)
+    repeat {
+      if renderedPixelRatio(in: element) >= 0.02 {
+        return
+      }
+      RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+    } while Date() < deadline
+
+    XCTFail("Video surface remained black after \(timeout)s", file: file, line: line)
+  }
+
+  private func renderedPixelRatio(in element: XCUIElement) -> Double {
+    let image = element.screenshot().image
+    guard
+      let data = image.tiffRepresentation,
+      let bitmap = NSBitmapImageRep(data: data),
+      bitmap.pixelsWide > 0,
+      bitmap.pixelsHigh > 0
+    else { return 0 }
+
+    let insetX = max(bitmap.pixelsWide / 12, 1)
+    let insetY = max(bitmap.pixelsHigh / 12, 1)
+    let stepX = max((bitmap.pixelsWide - insetX * 2) / 48, 1)
+    let stepY = max((bitmap.pixelsHigh - insetY * 2) / 27, 1)
+    var rendered = 0
+    var samples = 0
+
+    for y in stride(from: insetY, to: bitmap.pixelsHigh - insetY, by: stepY) {
+      for x in stride(from: insetX, to: bitmap.pixelsWide - insetX, by: stepX) {
+        guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+        samples += 1
+        if max(color.redComponent, color.greenComponent, color.blueComponent) > 0.12 {
+          rendered += 1
+        }
+      }
+    }
+
+    return samples == 0 ? 0 : Double(rendered) / Double(samples)
   }
 }
 

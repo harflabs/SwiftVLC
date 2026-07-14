@@ -15,7 +15,10 @@ struct MacMusicPlayerApp: View {
     return Self.defaultSongs
   }
 
-  private static let defaultSongs = Song.all
+  private static var defaultSongs: [Song] {
+    Song.all
+  }
+
   private static let audioOnlyInstance = try! VLCInstance(arguments: VLCInstance.defaultArguments + ["--no-video"])
 
   var body: some View {
@@ -109,9 +112,19 @@ private struct Song: Identifiable, Hashable {
   let artist: String
   let url: URL
 
-  static let demo = Song(id: "demo", title: "Demo reel", artist: "Bundled sample", url: MacTestMedia.demo)
-  static let bunny = Song(id: "bunny", title: "Big Buck Bunny", artist: "Blender Foundation", url: MacTestMedia.bigBuckBunny)
-  static let hls = Song(id: "hls", title: "HLS Stream", artist: "Mux test stream", url: MacTestMedia.hls)
+  static var demo: Song {
+    Song(id: "demo", title: "Demo reel", artist: "Bundled sample", url: MacTestMedia.demo)
+  }
 
-  static let all = [demo, bunny, hls]
+  static var bunny: Song {
+    Song(id: "bunny", title: "Big Buck Bunny", artist: "Blender Foundation", url: MacTestMedia.bigBuckBunny)
+  }
+
+  static var hls: Song {
+    Song(id: "hls", title: "HLS Stream", artist: "Mux test stream", url: MacTestMedia.hls)
+  }
+
+  static var all: [Song] {
+    [demo, bunny, hls]
+  }
 }

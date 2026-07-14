@@ -146,19 +146,30 @@ final class MacNativePiPBackend: NSObject, @unchecked Sendable {
 }
 
 @MainActor
-private final class MacPrivatePiPPresenter {
+final class MacPrivatePiPPresenter {
   static var isRuntimeAvailable: Bool {
     makePictureInPictureViewController() != nil
   }
 
+  private let pictureInPictureViewControllerFactory: @MainActor () -> NSViewController?
   private weak var hostView: MacNativePiPHostView?
   private weak var drawableView: MacNativePiPDrawableView?
+  private weak var player: Player?
   private var pictureInPictureViewController: NSViewController?
   private var contentViewController: NSViewController?
   private var delegate: MacPrivatePiPDelegate?
   private var onActiveChanged: (@MainActor @Sendable (Bool) -> Void)?
   private var dismissalCompletion: MacPrivatePiPDismissCompletion?
   private var isClosing = false
+  private var didPresentDrawable = false
+
+  init(
+    pictureInPictureViewControllerFactory: (@MainActor () -> NSViewController?)? = nil
+  ) {
+    self.pictureInPictureViewControllerFactory = pictureInPictureViewControllerFactory ?? {
+      Self.makePictureInPictureViewController()
+    }
+  }
 
   var isActive: Bool {
     pictureInPictureViewController != nil && !isClosing
@@ -201,16 +212,17 @@ private final class MacPrivatePiPPresenter {
       return true
     }
 
-    guard let pictureInPictureViewController = Self.makePictureInPictureViewController() else { return false }
+    guard let pictureInPictureViewController = pictureInPictureViewControllerFactory() else { return false }
 
     self.hostView = hostView
     self.drawableView = drawableView
+    self.player = player
     self.pictureInPictureViewController = pictureInPictureViewController
     self.onActiveChanged = onActiveChanged
 
     let delegate = MacPrivatePiPDelegate()
     delegate.shouldClose = { [weak self] in
-      self?.beginClose() ?? true
+      self?.prepareToClose() ?? true
     }
     delegate.willClose = { [weak self] in
       _ = self?.beginClose()
@@ -245,6 +257,7 @@ private final class MacPrivatePiPPresenter {
       MacPrivatePiPSelector.present,
       with: contentViewController
     )
+    didPresentDrawable = true
     onActiveChanged(true)
     return true
   }
@@ -282,6 +295,13 @@ private final class MacPrivatePiPPresenter {
 
   @discardableResult
   private func beginClose() -> Bool {
+    let canClose = prepareToClose()
+    restoreDrawableBeforeWindowTeardown()
+    return canClose
+  }
+
+  @discardableResult
+  private func prepareToClose() -> Bool {
     guard pictureInPictureViewController != nil else { return true }
     isClosing = true
     return prepareForClose()
@@ -327,24 +347,36 @@ private final class MacPrivatePiPPresenter {
   private func finish() {
     guard pictureInPictureViewController != nil || isClosing else { return }
 
-    let hostView = hostView
-    let drawableView = drawableView
+    let playerToRecover = didPresentDrawable ? player : nil
 
-    contentViewController?.view = NSView(frame: .zero)
-    if let hostView, let drawableView {
-      hostView.restoreDrawableView(drawableView)
-    }
+    // `pipWillClose:` normally restores the drawable while the floating
+    // window's graphics context is still alive. Keep this call as an
+    // idempotent fallback for failed presentation and runtimes that finish
+    // dismissal without sending the full delegate sequence.
+    restoreDrawableBeforeWindowTeardown()
 
     pictureInPictureViewController = nil
     contentViewController = nil
     delegate = nil
     dismissalCompletion = nil
     isClosing = false
-    self.hostView = nil
-    self.drawableView = nil
+    didPresentDrawable = false
+    hostView = nil
+    drawableView = nil
+    player = nil
 
     onActiveChanged?(false)
     onActiveChanged = nil
+    playerToRecover?.reopenVideoOutputAfterDrawableWindowMove()
+  }
+
+  private func restoreDrawableBeforeWindowTeardown() {
+    guard let hostView, let drawableView else { return }
+
+    if contentViewController?.view === drawableView {
+      contentViewController?.view = NSView(frame: .zero)
+    }
+    hostView.restoreDrawableView(drawableView)
   }
 
   private func configure(
@@ -452,7 +484,7 @@ private func setPrivateValue(
   return true
 }
 
-private final class MacPrivatePiPDelegate: NSObject, @unchecked Sendable {
+final class MacPrivatePiPDelegate: NSObject, @unchecked Sendable {
   var shouldClose: @MainActor @Sendable () -> Bool = { true }
   var willClose: @MainActor @Sendable () -> Void = {}
   var didClose: @MainActor @Sendable () -> Void = {}

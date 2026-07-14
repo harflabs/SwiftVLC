@@ -65,8 +65,8 @@ final class EventBridge: Sendable {
   }
 
   /// Creates a new independent `AsyncStream` for consuming player events.
-  /// Each stream receives all events broadcast after creation that pass
-  /// its filter, buffered per `policy`.
+  /// Each stream is offered events broadcast after creation that pass its
+  /// filter. Delivery under consumer lag follows `policy`.
   func makeStream(
     policy: EventBufferingPolicy?,
     filter: (@Sendable (PlayerEvent) -> Bool)?

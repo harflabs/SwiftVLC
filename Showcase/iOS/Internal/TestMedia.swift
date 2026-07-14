@@ -23,13 +23,10 @@ enum TestMedia {
   /// in normal use. The override is a single file shared by every showcase
   /// that needs media — the test asserts behavior, not source-specific quirks.
   private static func fixtureOverrideOr(remote: String) -> URL {
-    LaunchArguments.fixtureURLValue ?? URL(string: remote)!
+    TestStreamURL.resolve(fallback: URL(string: remote)!)
   }
 
   private static func fixtureOverrideOr(bundled name: String, withExtension ext: String) -> URL {
-    if let override = LaunchArguments.fixtureURLValue {
-      return override
-    }
-    return Bundle.main.url(forResource: name, withExtension: ext)!
+    TestStreamURL.resolve(fallback: Bundle.main.url(forResource: name, withExtension: ext)!)
   }
 }

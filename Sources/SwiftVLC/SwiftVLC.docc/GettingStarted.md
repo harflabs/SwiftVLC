@@ -19,15 +19,15 @@ The version string lives on the
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/harflabs/SwiftVLC.git", from: "x.y.z")
+    .package(url: "https://github.com/harflabs/SwiftVLC.git", from: "1.0.0")
 ],
 targets: [
     .target(name: "MyApp", dependencies: ["SwiftVLC"])
 ]
 ```
 
-SwiftVLC requires Swift 6.3 and supports iOS 18, macOS 15, tvOS 18,
-visionOS 2, and macCatalyst 18.
+SwiftVLC requires Swift 6.3 with Xcode 26.4 or later and supports iOS 18,
+macOS 15, tvOS 18, visionOS 2, and Mac Catalyst 18.
 
 ## Prepare libVLC at launch
 
@@ -100,8 +100,9 @@ Button(player.isPlaying ? "Pause" : "Play") {
 
 ## Handle errors as typed throws
 
-Every throwing API throws ``VLCError`` specifically, so `catch`
-clauses can match individual cases:
+Every failure introduced by SwiftVLC's typed throwing operations is a
+``VLCError``, so `catch` clauses for those calls can match individual
+cases:
 
 ```swift
 do {

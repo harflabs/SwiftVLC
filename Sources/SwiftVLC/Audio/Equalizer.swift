@@ -132,6 +132,8 @@ public final class Equalizer {
       throw .invalidInput("band must be in 0..<\(Self.bandCount)")
     }
     let band = try checkedUInt32(band, parameter: "band")
+    let current = libvlc_audio_equalizer_get_amp_at_index(pointer, band)
+    guard current != amp else { return }
     guard libvlc_audio_equalizer_set_amp_at_index(pointer, amp, band) == 0 else {
       throw .operationFailed("Set equalizer amplification for band \(band)")
     }

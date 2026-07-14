@@ -66,8 +66,19 @@ private struct Source: Identifiable, Hashable {
   let title: String
   let url: URL
 
-  static let demo = Source(id: "demo", title: "Demo", url: MacTestMedia.demo)
-  static let movie = Source(id: "movie", title: "Remote MP4", url: MacTestMedia.bigBuckBunny)
-  static let stream = Source(id: "stream", title: "HLS", url: MacTestMedia.hls)
-  static let all = [demo, movie, stream]
+  static var demo: Source {
+    Source(id: "demo", title: "Demo", url: MacTestMedia.demo)
+  }
+
+  static var movie: Source {
+    Source(id: "movie", title: "Remote MP4", url: MacTestMedia.bigBuckBunny)
+  }
+
+  static var stream: Source {
+    Source(id: "stream", title: "HLS", url: MacTestMedia.hls)
+  }
+
+  static var all: [Source] {
+    [demo, movie, stream]
+  }
 }

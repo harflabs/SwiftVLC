@@ -33,7 +33,7 @@ VideoLAN's Apple wrapper, [VLCKit](https://code.videolan.org/videolan/VLCKit), i
 | **State management** | `@Observable`, drives SwiftUI directly | KVO, `NSNotificationCenter`, and delegates |
 | **Concurrency** | `@MainActor`, `Sendable`, `async/await` | Manual thread dispatch, no isolation |
 | **Video rendering** | `VideoView(player)` | App-supplied view setup plus drawable configuration |
-| **Errors** | `throws(VLCError)`, typed and exhaustive | `NSError` codes |
+| **Errors** | Library failures use `throws(VLCError)`, typed and exhaustive | `NSError` codes |
 | **Events** | `AsyncStream<PlayerEvent>` with multiple consumers | `NSNotificationCenter` |
 | **libVLC generation** | 4.0 | 3.x stable line; 4.0 alpha packages exist |
 | **SwiftUI PiP** | iOS via libVLC's native AVKit-backed drawable path; macOS private backend is SPI opt-in | App-supplied integration |
@@ -43,7 +43,7 @@ VideoLAN's Apple wrapper, [VLCKit](https://code.videolan.org/videolan/VLCKit), i
 
 - `@Observable` player: state, current time, duration, tracks, and volume drive SwiftUI directly.
 - `VideoView(player)` handles the rendering lifecycle in a single SwiftUI view.
-- Typed errors via `throws(VLCError)` instead of error codes.
+- Library failures use typed `throws(VLCError)` instead of error codes.
 - Asynchronous media parsing: `try await media.parse()` with cancellation support.
 - 10-band equalizer with libVLC's built-in presets.
 - A-B looping, playback rate control, and subtitle and audio delay.
@@ -55,7 +55,7 @@ VideoLAN's Apple wrapper, [VLCKit](https://code.videolan.org/videolan/VLCKit), i
 
 ## Requirements
 
-- Swift 6.3+ / Xcode 26+
+- Swift 6.3+ / Xcode 26.4+
 - iOS 18+ / macOS 15+ / tvOS 18+ / visionOS 2+ / Mac Catalyst 18+
 
 ## Installation
@@ -72,7 +72,7 @@ current release. The version string lives on the
 [releases page](https://github.com/harflabs/SwiftVLC/releases).
 
 ```swift
-.package(url: "https://github.com/harflabs/SwiftVLC.git", from: "x.y.z")
+.package(url: "https://github.com/harflabs/SwiftVLC.git", from: "1.0.0")
 ```
 
 The pre-built libVLC xcframework downloads automatically via SPM. It's a large binary (multi-GB unstripped; the release zip is a few hundred MB).
@@ -135,7 +135,9 @@ for await event in player.events {
 
 ## Documentation
 
-Full API reference is hosted on Swift Package Index:
+The API reference for the latest published release is hosted on Swift Package
+Index. The unversioned link follows the most recent tag that the service has
+finished building:
 **[swiftpackageindex.com/harflabs/swiftvlc/documentation](https://swiftpackageindex.com/harflabs/swiftvlc/documentation)**
 
 ## Showcase Apps
@@ -146,6 +148,22 @@ The `Showcase/` directory contains separate folders, targets, and schemes for ea
 - **macOS.** Native macOS app target with the same showcase coverage, adapted into sidebar-driven Mac UI.
 - **tvOS.** Native tvOS showcase app target with TV-focused focus navigation and Siri Remote controls.
 - **visionOS.** Native visionOS app target with a focused simple playback showcase.
+
+Every showcase target accepts an app-wide test stream URL. The override is
+kept in memory for the current app session, redacted to its scheme, host, and a
+hidden path in the UI, and used by showcases that otherwise load bundled or
+public sample media. HTTP, HTTPS, HLS, RTSP, UDP, and other URL schemes
+supported by VLC are accepted.
+
+- **iOS and Mac Catalyst:** open **Set App-Wide Stream URL** in the **Test Stream** section on the first screen.
+- **macOS:** use **Test Stream** in the toolbar or **Test Stream URL** in the sidebar's **Configuration** section.
+- **tvOS:** select **Set App-Wide Stream URL** on the first screen and enter the URL with the on-screen keyboard or a paired device.
+- **visionOS:** use the **Test Stream** button beside the simple playback controls.
+
+The development showcase targets allow arbitrary network loads so user-entered
+HTTP hosts work with libVLC. This broad App Transport Security exception is for
+the Showcase apps only. Applications embedding SwiftVLC should define the
+narrowest transport policy appropriate for their own media sources.
 
 Showcase UI tests live under `Showcase/UITests/`. `iOSUITests` covers
 the broad showcase flows, `macOSUITests` covers native macOS PiP, and
@@ -210,9 +228,10 @@ Expect a full `--all` build to take tens of minutes on Apple Silicon. The script
 
 > `*-only` flags **replace** the xcframework; any slices already in `Vendor/` are lost.
 
-### Source patches
+### Build adjustments and source patches
 
-VLC master requires a few local patches for SwiftVLC's supported Apple toolchains. The script applies them in-tree on every invocation, idempotently:
+VLC master requires several build adjustments for SwiftVLC's supported Apple
+toolchains. The script applies them in-tree on every invocation, idempotently:
 
 1. **Mac Catalyst.** Teaches VLC's build system the `macabi` target triple and guards OpenGLES-only code paths.
 2. **visionOS deployment target.** Adds the `xros` target triple so object files are stamped with visionOS 2.0 instead of the installed SDK version.
@@ -220,6 +239,15 @@ VLC master requires a few local patches for SwiftVLC's supported Apple toolchain
 4. **libtool 2.5 OBJC tag.** Adds `_LIBTOOLFLAGS = --tag=CC` to the `Makefile.am` files that contain `.m` sources. Older libtool versions inferred the tag; 2.5 refuses.
 5. **Rust contribs disabled.** VLC's contribs pin `cargo-c 0.9.29`, which pulls `time 0.3.31` and fails type inference under the supported Rust toolchain. The only Rust contrib on Apple is `rav1e` (AV1 *encoder*); `dav1d` handles decoding.
 6. **`dup3` / `pipe2`.** Forced unavailable via autoconf cache vars. iOS Simulator SDK 26 exports these Linux-only syscalls from libSystem, fooling configure into using them.
+
+The script also applies these checked-in VLC source patches in order:
+
+1. **[Chromecast hardening](scripts/patches/0001-chromecast-hardening.patch).** Enables the supported subtitle burn-in path and rejects unreachable receivers cleanly instead of routing playback into a dead cast session.
+2. **[Sample-buffer aspect handling](scripts/patches/0002-samplebufferdisplay-aspect.patch).** Maps VLC fitting modes to the correct layer gravity and avoids OpenGLES-only configuration on Mac Catalyst.
+3. **[Sample-buffer lifetime and placement](scripts/patches/0003-samplebufferdisplay-lifetime-placement.patch).** Backports upstream fixes that detach the display view from the vout lifetime and keep native placement updates consistent.
+4. **[PiP safety and geometry](scripts/patches/0004-samplebuffer-pip-safety-geometry.patch).** Adds the retained media snapshots and pixel-buffer bridge used to keep asynchronous PiP frame delivery and geometry safe.
+5. **[UPnP initialization teardown](scripts/patches/0005-upnp-init-failure-teardown.patch).** Balances cleanup only for initialization stages that completed, preventing a failed UPnP startup from hanging during teardown.
+6. **[MP4 roll seek point](scripts/patches/0006-mp4-roll-seek-point.patch).** Keeps AAC decoder preroll metadata from resetting an MP4 seek to the start of the stream.
 
 `git reset --hard` only runs when HEAD is not at `VLC_HASH`, so the patches and per-platform build dirs survive repeated runs.
 
@@ -245,6 +273,11 @@ What `release.sh` does:
 8. Pushes `main` to the same commit, so `main` always references the latest published xcframework and Showcase package version.
 
 Preflight refuses non-`main` branches, uncommitted changes in `Package.swift` or the Showcase project, pre-existing local or remote tags, and unauthenticated `gh`. If a pre-commit rewrite fails, the script restores `Package.swift` and the Showcase project before exiting. If the tag push succeeds but a later step fails, `origin/main` is still untouched; finish the GitHub Release (or delete the tag) before retrying.
+
+After publication, verify that Swift Package Index has finished building the
+tagged API reference and that the unversioned documentation link above resolves
+to `1.0.0`. Its documentation build is asynchronous and may temporarily serve
+the previous release while the new tag is queued.
 
 ## Architecture
 

@@ -13,9 +13,10 @@ model does.
 - **Observable state.** ``Player`` is `@Observable` and `@MainActor`.
   SwiftUI views track `state`, `currentTime`, `duration`, and the
   track lists without manual bridging.
-- **Typed errors.** Every throwing API uses `throws(VLCError)`, so
-  the compiler sees the full error surface and a general `catch` is
-  not required for exhaustive handling.
+- **Typed errors.** Failures originating in SwiftVLC use
+  `throws(VLCError)`, so the compiler sees the full library error surface.
+  Scoped closure helpers use `rethrows` and propagate errors from the
+  caller's closure unchanged.
 - **Structured events.** Playback, discovery, logging, and dialog
   prompts all surface through `AsyncStream`. Multiple consumers can
   subscribe concurrently.

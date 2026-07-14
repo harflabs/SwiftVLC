@@ -14,7 +14,7 @@ struct MacStreamingHLSCase: View {
         MacVideoPanel(player: player)
         MacPlaybackControls(player: player)
         MacSection(title: "Stream") {
-          Text(MacTestMedia.hls.absoluteString)
+          Text(TestStreamURL.displayString(for: MacTestMedia.hls))
             .font(.caption)
             .foregroundStyle(.secondary)
             .textSelection(.enabled)

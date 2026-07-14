@@ -41,10 +41,12 @@ extension VLCInstance {
   /// Creates an `AsyncStream` of libVLC log messages.
   ///
   /// Multiple concurrent log streams per instance are supported. Each
-  /// active stream receives every log event that meets its own
-  /// `minimumLevel` filter. The underlying libVLC log callback is
-  /// installed on first subscription and removed when the last
-  /// consumer's stream terminates.
+  /// active stream is offered log events that meet its own `minimumLevel`
+  /// filter. Each subscription uses a bounded newest-wins buffer, so a
+  /// slow consumer can drop its own oldest entries without blocking
+  /// libVLC or other subscribers. The underlying libVLC log callback is
+  /// installed on first subscription and removed when the last consumer's
+  /// stream terminates.
   ///
   /// ```swift
   /// for await entry in VLCInstance.shared.logStream(minimumLevel: .warning) {

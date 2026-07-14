@@ -15,7 +15,7 @@ platforms, and its README documents CocoaPods (`VLCKit`,
 
 **SwiftVLC** is a Swift 6 binding to libVLC's C API, with no
 Objective-C layer in between. It targets modern Apple platforms (iOS
-18+, macOS 15+, tvOS 18+, visionOS 2+, macCatalyst 18+) and ships
+18+, macOS 15+, tvOS 18+, visionOS 2+, Mac Catalyst 18+) and ships
 through Swift Package Manager.
 
 ## libVLC generation
@@ -95,8 +95,12 @@ See <doc:ConcurrencyModel> for the full isolation map.
 | Logging | Delegate protocol | `AsyncStream<LogEntry>` with level filtering |
 | Dialog prompts | Delegate protocol | `AsyncStream<DialogEvent>` |
 
-Multiple consumers can subscribe to any SwiftVLC stream concurrently;
-each receives every event broadcast after creation.
+Multiple consumers can subscribe to SwiftVLC streams concurrently. Each
+subscription is independent and is offered events broadcast after its
+creation, subject to its own filter and buffering policy. Default bounded
+streams can drop their oldest events when a consumer falls behind; APIs
+such as ``Player/events(policy:filter:)`` expose an unbounded option when
+lossless delivery is required.
 
 ## SwiftUI
 

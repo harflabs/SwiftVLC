@@ -14,7 +14,7 @@ struct TVStreamingHLSCase: View {
         TVVideoPanel(player: player)
         TVPlaybackControls(player: player)
         TVSection(title: "Stream", isFocusable: true) {
-          Text(TVTestMedia.hls.absoluteString)
+          Text(TestStreamURL.displayString(for: TVTestMedia.hls))
             .font(.caption)
             .foregroundStyle(.secondary)
         }

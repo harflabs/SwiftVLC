@@ -334,11 +334,17 @@ private final class ThumbnailOperation: Sendable {
       eventManager: eventManager,
       continuation: continuation
     ))
+    #if DEBUG
+    MediaOperationLifetimeProbe.thumbnailCreated()
+    #endif
   }
 
   deinit {
     let media = state.withLock { $0.media }
     libvlc_media_release(media)
+    #if DEBUG
+    MediaOperationLifetimeProbe.thumbnailDestroyed()
+    #endif
   }
 
   func installCallbackBox(_ box: UnsafeMutableRawPointer) -> Bool {

@@ -1,11 +1,11 @@
 import Foundation
 
-/// The single error type thrown by every throwing SwiftVLC API.
+/// The error type for failures originating in SwiftVLC operations.
 ///
-/// All throwing functions in SwiftVLC use Swift's typed throws form
-/// `throws(VLCError)`, so the cases below are exhaustive. A general
-/// `catch` is unnecessary when the compiler can statically see that
-/// this is the only possible error.
+/// Library operations that introduce failures use Swift's typed throws
+/// form `throws(VLCError)`, so the cases below are exhaustive for those
+/// calls. Scoped closure helpers use `rethrows` and can propagate the
+/// caller's own error type unchanged.
 ///
 /// Every case carries enough context (URL, operation name, reason string)
 /// to log meaningfully without consulting libVLC's own diagnostics.

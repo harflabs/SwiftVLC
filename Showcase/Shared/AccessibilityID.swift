@@ -14,6 +14,16 @@ enum AccessibilityID {
     }
   }
 
+  enum TestStream {
+    static let settingsLink = "testStream.settings"
+    static let urlField = "testStream.url"
+    static let pasteButton = "testStream.paste"
+    static let applyButton = "testStream.apply"
+    static let clearButton = "testStream.clear"
+    static let currentValue = "testStream.current"
+    static let validationError = "testStream.validationError"
+  }
+
   enum MusicPlayer {
     static let playPauseButton = "music.playPause"
     static let currentTime = "music.currentTime"

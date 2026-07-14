@@ -306,6 +306,12 @@ extension Integration {
 
       let alive = probes.aliveCount()
       #expect(alive == 0, "\(alive) Media leaked after fire-and-forget parse")
+      #if DEBUG
+      #expect(
+        MediaOperationLifetimeProbe.liveParseCount == 0,
+        "Parse callback boxes remained retained after every operation completed"
+      )
+      #endif
     }
 
     // MARK: - Thumbnail cancellation chaos
@@ -347,6 +353,12 @@ extension Integration {
 
       let alive = probes.aliveCount()
       #expect(alive == 0, "\(alive) / \(iterations) Media leaked after thumbnail cancellation")
+      #if DEBUG
+      #expect(
+        MediaOperationLifetimeProbe.liveThumbnailCount == 0,
+        "Thumbnail callback boxes remained retained after cancellation cleanup"
+      )
+      #endif
     }
 
     // MARK: - Equalizer install/clear churn (deep)

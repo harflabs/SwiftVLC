@@ -1,0 +1,36 @@
+# Prevent failed UPnP initialization from entering pupnp teardown.
+#
+# UpnpInstanceWrapper::get() deletes its provisional wrapper when UpnpInit2()
+# fails. The pinned VLC destructor unconditionally calls UpnpFinish(), even
+# though pupnp never initialized successfully. On affected Apple network
+# configurations that enters ThreadPoolShutdown() and can wait forever in
+# vlc_atomic_wait. Track initialization and registration independently so each
+# cleanup call only balances a lifecycle stage that completed.
+diff --git a/modules/services_discovery/upnp-wrapper.cpp b/modules/services_discovery/upnp-wrapper.cpp
+--- a/modules/services_discovery/upnp-wrapper.cpp
++++ b/modules/services_discovery/upnp-wrapper.cpp
+@@ -38,2 +38,3 @@ UpnpInstanceWrapper::UpnpInstanceWrapper()
+     : m_handle( -1 )
++    , m_initialized( false )
+     , m_refcount( 0 )
+@@ -44,4 +45,6 @@ UpnpInstanceWrapper::~UpnpInstanceWrapper()
+ {
+-    UpnpUnRegisterClient( m_handle );
+-    UpnpFinish();
++    if ( m_handle != -1 )
++        UpnpUnRegisterClient( m_handle );
++    if ( m_initialized )
++        UpnpFinish();
+ }
+@@ -68,2 +71,4 @@ UpnpInstanceWrapper *UpnpInstanceWrapper::get(vlc_object_t *p_obj)
+         int i_res = UpnpInit2( net_iface, 0 );
++        if( i_res == UPNP_E_SUCCESS )
++            instance->m_initialized = true;
+         free( net_iface );
+diff --git a/modules/services_discovery/upnp-wrapper.hpp b/modules/services_discovery/upnp-wrapper.hpp
+--- a/modules/services_discovery/upnp-wrapper.hpp
++++ b/modules/services_discovery/upnp-wrapper.hpp
+@@ -68,2 +68,3 @@ private:
+     UpnpClient_Handle m_handle;
++    bool m_initialized;
+     int m_refcount;

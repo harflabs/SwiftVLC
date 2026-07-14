@@ -3,18 +3,18 @@
 How ``VLCError`` shapes the error surface, and how typed throws let
 you match on its cases exhaustively.
 
-## One error type for throwing APIs
+## One error type for library failures
 
-Every throwing SwiftVLC API uses Swift's typed throws form, with
-``VLCError`` as the only error it can produce:
+Every failure originating in SwiftVLC's own throwing operations is a
+``VLCError``. Those APIs use Swift's typed throws form:
 
 ```swift
 public func play(url: URL) throws(VLCError)
 ```
 
-The compiler therefore knows the complete set of cases a call site
-might see. Pattern matching can be exhaustive, with no residual
-`catch` branch needed:
+The compiler therefore knows the complete set of cases those calls might
+produce. Pattern matching can be exhaustive, with no residual `catch`
+branch needed:
 
 ```swift
 do {
@@ -43,6 +43,12 @@ do {
 APIs whose invalid case is naturally absence still use optionals, such
 as ``Equalizer/init(preset:)`` and lookup helpers that return `nil` for
 an unknown index.
+
+Scoped closure helpers such as `Player.withAdjustments(_:)`,
+`Player.withMarquee(_:)`, `Player.withLogo(_:)`, and
+`MediaList.withLocked(_:)` use `rethrows`. They do not introduce a new
+library failure, but they propagate any error thrown by the caller's
+closure, including application-defined error types.
 
 ## The cases at a glance
 

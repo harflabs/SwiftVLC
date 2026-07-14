@@ -76,6 +76,12 @@ WORK_DIR=""
 RELEASE_RESTORE_DIR=""
 RELEASE_RESTORE_FILES=false
 
+make_temp_dir() {
+  local temp_root="${TMPDIR:-/tmp}"
+  mkdir -p "$temp_root"
+  mktemp -d "$temp_root/swiftvlc-release.XXXXXX"
+}
+
 cleanup() {
   local status=$?
 
@@ -102,7 +108,7 @@ cleanup() {
 trap cleanup EXIT
 
 begin_release_file_restore() {
-  RELEASE_RESTORE_DIR=$(mktemp -d)
+  RELEASE_RESTORE_DIR=$(make_temp_dir)
   cp Package.swift "$RELEASE_RESTORE_DIR/Package.swift"
   cp "$SHOWCASE_PROJECT" "$RELEASE_RESTORE_DIR/project.pbxproj"
   RELEASE_RESTORE_FILES=true
@@ -305,7 +311,7 @@ fi
 
 # ── Strip ─────────────────────────────────────────────────────────────────────
 
-WORK_DIR=$(mktemp -d)
+WORK_DIR=$(make_temp_dir)
 
 echo "Copying xcframework to temp dir..."
 cp -R "$XCFW_PATH" "$WORK_DIR/libvlc.xcframework"
@@ -315,6 +321,9 @@ BEFORE_SIZE=$(du -sh "$WORK_DIR/libvlc.xcframework" | cut -f1)
 find "$WORK_DIR/libvlc.xcframework" -name '*.a' -exec strip -S {} \;
 AFTER_SIZE=$(du -sh "$WORK_DIR/libvlc.xcframework" | cut -f1)
 echo "  Before: $BEFORE_SIZE → After: $AFTER_SIZE"
+
+echo "Verifying duplicate symbols in stripped libraries..."
+"$SCRIPT_DIR/fix-duplicate-symbols.sh" --verify "$WORK_DIR/libvlc.xcframework"
 
 # ── Zip ───────────────────────────────────────────────────────────────────────
 
