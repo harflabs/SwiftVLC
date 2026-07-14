@@ -68,6 +68,7 @@ fi
 TAG="v${VERSION}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+RELEASE_URL="https://github.com/$REPO/releases/download/$TAG/$ZIP_NAME"
 cd "$ROOT_DIR"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -166,13 +167,6 @@ path = os.environ["SHOWCASE_PROJECT"]
 with open(path, "r") as f:
     text = f.read()
 
-local_block = """/* Begin XCLocalSwiftPackageReference section */
-\t\tBA000001 /* XCLocalSwiftPackageReference \"..\" */ = {
-\t\t\tisa = XCLocalSwiftPackageReference;
-\t\t\trelativePath = \"..\";
-\t\t};
-/* End XCLocalSwiftPackageReference section */"""
-
 remote_block = f"""/* Begin XCRemoteSwiftPackageReference section */
 \t\tBA000001 /* XCRemoteSwiftPackageReference \"SwiftVLC\" */ = {{
 \t\t\tisa = XCRemoteSwiftPackageReference;
@@ -183,6 +177,15 @@ remote_block = f"""/* Begin XCRemoteSwiftPackageReference section */
 \t\t\t}};
 \t\t}};
 /* End XCRemoteSwiftPackageReference section */"""
+
+local_pattern = re.compile(
+    r'/\* Begin XCLocalSwiftPackageReference section \*/\n'
+    r'\t\tBA000001 /\* XCLocalSwiftPackageReference "\.\." \*/ = \{\n'
+    r'\t\t\tisa = XCLocalSwiftPackageReference;\n'
+    r'\t\t\trelativePath = (?:"\.\."|\.\.);\n'
+    r'\t\t\};\n'
+    r'/\* End XCLocalSwiftPackageReference section \*/'
+)
 
 remote_pattern = re.compile(
     r'/\* Begin XCRemoteSwiftPackageReference section \*/\n'
@@ -197,9 +200,8 @@ remote_pattern = re.compile(
     r'/\* End XCRemoteSwiftPackageReference section \*/'
 )
 
-if local_block in text:
-    result = text.replace(local_block, remote_block, 1)
-else:
+result, n = local_pattern.subn(remote_block, text, count=1)
+if n == 0:
     result, n = remote_pattern.subn(remote_block, text, count=1)
     if n == 0:
         print("ERROR: Showcase package reference block not found", file=sys.stderr)
@@ -220,6 +222,29 @@ except Exception:
         os.unlink(tmp)
     raise
 PYEOF
+}
+
+validate_release_rewrites() {
+  local validation_dir
+  local validation_status=0
+  validation_dir=$(make_temp_dir)
+  cp Package.swift "$validation_dir/Package.swift"
+  cp "$SHOWCASE_PROJECT" "$validation_dir/project.pbxproj"
+
+  (
+    set -e
+    cd "$validation_dir"
+    SHOWCASE_PROJECT="$validation_dir/project.pbxproj"
+    CHECKSUM="0000000000000000000000000000000000000000000000000000000000000000"
+    switch_package_to_release_url
+    switch_showcase_to_release_version
+    grep -q 'name: "CLibVLC"' Package.swift
+    grep -q 'kind = exactVersion;' "$SHOWCASE_PROJECT"
+    grep -q "version = $VERSION;" "$SHOWCASE_PROJECT"
+  ) || validation_status=$?
+
+  rm -rf "$validation_dir"
+  return "$validation_status"
 }
 
 # ── Preflight ─────────────────────────────────────────────────────────────────
@@ -309,6 +334,10 @@ if [[ "$DRY_RUN" == false ]]; then
   fi
 fi
 
+echo "Validating release manifest rewrites..."
+validate_release_rewrites
+echo "Release rewrite validation passed."
+
 # ── Strip ─────────────────────────────────────────────────────────────────────
 
 WORK_DIR=$(make_temp_dir)
@@ -348,8 +377,6 @@ CHECKSUM=$(swift package compute-checksum "$ZIP_PATH")
 echo "  SHA256: $CHECKSUM"
 
 # ── Summary ───────────────────────────────────────────────────────────────────
-
-RELEASE_URL="https://github.com/$REPO/releases/download/$TAG/$ZIP_NAME"
 
 echo ""
 echo "=== Release Summary ==="
