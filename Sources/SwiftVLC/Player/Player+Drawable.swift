@@ -1,5 +1,91 @@
 import CLibVLC
 
+#if os(macOS)
+@MainActor
+struct MacVideoOutputRecovery {
+  let expectedTrackID: String
+  let maximumDeselectionPolls: Int
+  let playbackIsCurrent: @MainActor () -> Bool
+  let playbackState: @MainActor () -> PlayerState
+  let selectedTrackID: @MainActor () -> String?
+  let waitForDeselection: @MainActor () async -> Void
+  let reselectTrack: @MainActor (String) -> Void
+
+  init(
+    expectedTrackID: String,
+    maximumDeselectionPolls: Int = 50,
+    playbackIsCurrent: @escaping @MainActor () -> Bool,
+    playbackState: @escaping @MainActor () -> PlayerState,
+    selectedTrackID: @escaping @MainActor () -> String?,
+    waitForDeselection: @escaping @MainActor () async -> Void,
+    reselectTrack: @escaping @MainActor (String) -> Void
+  ) {
+    self.expectedTrackID = expectedTrackID
+    self.maximumDeselectionPolls = maximumDeselectionPolls
+    self.playbackIsCurrent = playbackIsCurrent
+    self.playbackState = playbackState
+    self.selectedTrackID = selectedTrackID
+    self.waitForDeselection = waitForDeselection
+    self.reselectTrack = reselectTrack
+  }
+
+  func run() async {
+    for _ in 0..<maximumDeselectionPolls {
+      guard playbackIsCurrent() else { return }
+      guard let selectedTrackID = selectedTrackID() else { break }
+      guard selectedTrackID == expectedTrackID else { return }
+      await waitForDeselection()
+    }
+
+    guard playbackIsCurrent() else { return }
+    switch playbackState() {
+    case .idle, .stopped, .stopping, .error:
+      return
+    case .opening, .buffering, .playing, .paused:
+      break
+    }
+
+    if let selectedTrackID = selectedTrackID() {
+      guard selectedTrackID == expectedTrackID else { return }
+    }
+    reselectTrack(expectedTrackID)
+  }
+}
+
+@MainActor
+struct MacVideoOutputRecoveryNativeOperations {
+  let selectedTrackID: @MainActor (OpaquePointer) -> String?
+  let unselectVideoTrack: @MainActor (OpaquePointer) -> Void
+  let reselectVideoTrack: @MainActor (OpaquePointer, String) -> Void
+  let waitForDeselection: @MainActor () async -> Void
+
+  static var live: Self {
+    Self(
+      selectedTrackID: selectedVideoTrackID(for:),
+      unselectVideoTrack: {
+        libvlc_media_player_unselect_track_type($0, libvlc_track_video)
+      },
+      reselectVideoTrack: { player, trackID in
+        trackID.withCString { id in
+          libvlc_media_player_select_tracks_by_ids(player, libvlc_track_video, id)
+        }
+      },
+      waitForDeselection: {
+        try? await Task.sleep(for: .milliseconds(10))
+      }
+    )
+  }
+}
+
+private func selectedVideoTrackID(for player: OpaquePointer) -> String? {
+  guard let track = libvlc_media_player_get_selected_track(player, libvlc_track_video) else {
+    return nil
+  }
+  defer { libvlc_media_track_release(track) }
+  return track.pointee.psz_id.map(String.init(cString:))
+}
+#endif
+
 /// Platform-drawable attachment and the lazy native-handle replacement
 /// it requires after stopped drawable-hosted playback.
 extension Player {
@@ -98,19 +184,19 @@ extension Player {
   /// surface can become invalid when macOS destroys the old PiP window even
   /// though decoding and audio continue. Re-selecting the same video track
   /// rebuilds only that output against the drawable's new inline window.
-  func reopenVideoOutputAfterDrawableWindowMove() {
+  @discardableResult
+  func reopenVideoOutputAfterDrawableWindowMove(
+    using native: MacVideoOutputRecoveryNativeOperations = .live
+  ) -> Task<Void, Never>? {
     guard
       let media = currentMedia,
-      let selectedTrack = libvlc_media_player_get_selected_track(pointer, libvlc_track_video)
-    else { return }
-    defer { libvlc_media_track_release(selectedTrack) }
-    guard let trackIDPointer = selectedTrack.pointee.psz_id else { return }
+      let trackID = native.selectedTrackID(pointer)
+    else { return nil }
 
-    let trackID = String(cString: trackIDPointer)
     let nativePlayer = pointer
-    libvlc_media_player_unselect_track_type(nativePlayer, libvlc_track_video)
+    native.unselectVideoTrack(nativePlayer)
 
-    Task { @MainActor [weak self, weak media] in
+    return Task { @MainActor [weak self, weak media] in
       guard let self else { return }
 
       // Track selection is processed asynchronously by libVLC. Wait for the
@@ -118,40 +204,21 @@ extension Player {
       // into a no-op that leaves the invalid OpenGL surface alive. Some VLC
       // inputs keep their vout allocated while no video track is selected, so
       // the selected-track state is the reliable acknowledgement here.
-      for _ in 0..<50 {
-        guard pointer == nativePlayer, currentMedia === media else { return }
-        guard
-          let stillSelected = libvlc_media_player_get_selected_track(
-            nativePlayer,
-            libvlc_track_video
-          )
-        else {
-          break
+      await MacVideoOutputRecovery(
+        expectedTrackID: trackID,
+        playbackIsCurrent: { [weak self, weak media] in
+          guard let self, let media else { return false }
+          return pointer == nativePlayer && currentMedia === media
+        },
+        playbackState: { [weak self] in self?.state ?? .idle },
+        selectedTrackID: { native.selectedTrackID(nativePlayer) },
+        waitForDeselection: {
+          await native.waitForDeselection()
+        },
+        reselectTrack: { trackID in
+          native.reselectVideoTrack(nativePlayer, trackID)
         }
-        let stillSelectedID = stillSelected.pointee.psz_id.map(String.init(cString:))
-        libvlc_media_track_release(stillSelected)
-        guard stillSelectedID == trackID else { return }
-        try? await Task.sleep(for: .milliseconds(10))
-      }
-
-      guard
-        pointer == nativePlayer,
-        currentMedia === media,
-        state != .idle,
-        state != .stopped,
-        state != .stopping,
-        state != .error
-      else { return }
-
-      if let newlySelected = libvlc_media_player_get_selected_track(nativePlayer, libvlc_track_video) {
-        let newlySelectedID = newlySelected.pointee.psz_id.map(String.init(cString:))
-        libvlc_media_track_release(newlySelected)
-        guard newlySelectedID == trackID else { return }
-      }
-
-      trackID.withCString { id in
-        libvlc_media_player_select_tracks_by_ids(nativePlayer, libvlc_track_video, id)
-      }
+      ).run()
     }
   }
   #endif

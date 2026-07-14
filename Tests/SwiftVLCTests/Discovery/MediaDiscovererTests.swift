@@ -132,6 +132,16 @@ extension Integration {
     }
 
     @Test
+    func `Media list adapter adopts a caller-owned reference`() throws {
+      let pointer = try #require(libvlc_media_list_new())
+      let list = try #require(MediaDiscoverer.adoptMediaList(pointer))
+
+      #expect(list.pointer == pointer)
+      #expect(list.isEmpty)
+      #expect(MediaDiscoverer.adoptMediaList(nil) == nil)
+    }
+
+    @Test
     func `Deinit safety`() {
       let services = MediaDiscoverer.availableServices(category: .localDirectories)
       guard let service = services.first else { return }

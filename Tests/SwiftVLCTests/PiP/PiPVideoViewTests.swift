@@ -2,6 +2,7 @@
 @_spi(PrivateMacOSPiP) @testable import SwiftVLC
 import AVFoundation
 import CLibVLC
+import CustomDump
 import SwiftUI
 import Testing
 
@@ -554,6 +555,47 @@ extension Integration {
     }
 
     @Test
+    func `macOS private PiP close restores the drawable before dismissal`() async {
+      let player = Player(instance: TestInstance.shared)
+      let host = MacNativePiPHostView(frame: CGRect(x: 0, y: 0, width: 960, height: 540))
+      let drawable = host.drawableView
+      let controller = MacPrivatePiPViewControllerProbe()
+      let presenter = MacPrivatePiPPresenter(
+        pictureInPictureViewControllerFactory: { controller }
+      )
+      let mediaController = MacNativePiPMediaController()
+      mediaController.player = player
+      var activeStates: [Bool] = []
+
+      let didStart = presenter.start(
+        player: player,
+        hostView: host,
+        drawableView: drawable,
+        mediaController: mediaController,
+        onActiveChanged: { activeStates.append($0) },
+        onPlay: {},
+        onPause: {}
+      )
+
+      #expect(didStart)
+      #expect(presenter.isActive)
+      #expect(controller.presentedViewController?.view === drawable)
+      #expect(drawable.superview == nil)
+
+      presenter.stop()
+
+      #expect(presenter.isActive == false)
+      #expect(drawable.superview === host)
+      #expect(drawable.frame == host.bounds)
+
+      await Task.yield()
+
+      #expect(drawable.superview === host)
+      #expect(controller.dismissCount == 1)
+      expectNoDifference(activeStates, [true, false])
+    }
+
+    @Test
     func `macOS native PiP rejects instances without video output`() throws {
       let instance = try VLCInstance(arguments: ["--no-video-title-show", "--no-video", "--no-audio", "--quiet"])
       let player = Player(instance: instance)
@@ -825,6 +867,31 @@ private final class MacWeakBox<T: AnyObject> {
 
   init(_ value: T?) {
     self.value = value
+  }
+}
+
+@MainActor
+private final class MacPrivatePiPViewControllerProbe: NSViewController {
+  @objc dynamic var delegate: NSObject?
+  @objc dynamic var replacementWindow: NSWindow?
+  @objc dynamic var replacementRect: NSValue?
+  @objc dynamic var playing = false
+  @objc dynamic var aspectRatio: NSValue?
+
+  private(set) var presentedViewController: NSViewController?
+  private(set) var dismissCount = 0
+
+  @objc(presentViewControllerAsPictureInPicture:)
+  func presentAsPictureInPicture(_ viewController: NSViewController) {
+    presentedViewController = viewController
+  }
+
+  @objc(dismissPictureInPictureWithCompletionHandler:)
+  func dismissPictureInPicture(
+    completion: @escaping @convention(block) () -> Void
+  ) {
+    dismissCount += 1
+    completion()
   }
 }
 

@@ -146,11 +146,12 @@ final class MacNativePiPBackend: NSObject, @unchecked Sendable {
 }
 
 @MainActor
-private final class MacPrivatePiPPresenter {
+final class MacPrivatePiPPresenter {
   static var isRuntimeAvailable: Bool {
     makePictureInPictureViewController() != nil
   }
 
+  private let pictureInPictureViewControllerFactory: @MainActor () -> NSViewController?
   private weak var hostView: MacNativePiPHostView?
   private weak var drawableView: MacNativePiPDrawableView?
   private weak var player: Player?
@@ -161,6 +162,14 @@ private final class MacPrivatePiPPresenter {
   private var dismissalCompletion: MacPrivatePiPDismissCompletion?
   private var isClosing = false
   private var didPresentDrawable = false
+
+  init(
+    pictureInPictureViewControllerFactory: (@MainActor () -> NSViewController?)? = nil
+  ) {
+    self.pictureInPictureViewControllerFactory = pictureInPictureViewControllerFactory ?? {
+      Self.makePictureInPictureViewController()
+    }
+  }
 
   var isActive: Bool {
     pictureInPictureViewController != nil && !isClosing
@@ -203,7 +212,7 @@ private final class MacPrivatePiPPresenter {
       return true
     }
 
-    guard let pictureInPictureViewController = Self.makePictureInPictureViewController() else { return false }
+    guard let pictureInPictureViewController = pictureInPictureViewControllerFactory() else { return false }
 
     self.hostView = hostView
     self.drawableView = drawableView
