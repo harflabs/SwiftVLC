@@ -108,7 +108,7 @@ struct TestStreamSettingsView: View {
       } header: {
         Text("Stream URL")
       } footer: {
-        Text("The override is used throughout this Showcase and kept only until the app closes. HTTP, HLS, UDP, and other URL schemes supported by the bundled libVLC are accepted.")
+        Text("The override is used throughout this Showcase and kept only until the app closes. HTTP, HTTPS, UDP, and other URL schemes supported by the bundled libVLC are accepted. HLS works through its .m3u8 URL.")
       }
 
       Section("Current Source") {

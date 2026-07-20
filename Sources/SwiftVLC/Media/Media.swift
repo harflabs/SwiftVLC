@@ -103,7 +103,9 @@ public final class Media: Sendable {
 
   /// Creates media from a URL.
   ///
-  /// Works for both local `file://` URLs and remote `http://`/`https://` streams.
+  /// Accepts any URL. Local `file://` paths and remote `http://`/`https://`
+  /// streams are the common cases; whether another scheme opens depends on the
+  /// access modules present in the bundled libVLC.
   /// - Parameter url: The media source URL.
   /// - Throws: `VLCError.mediaCreationFailed` if the URL is invalid.
   public init(url: URL) throws(VLCError) {

@@ -152,8 +152,9 @@ The `Showcase/` directory contains separate folders, targets, and schemes for ea
 Every showcase target accepts an app-wide test stream URL. The override is
 kept in memory for the current app session, redacted to its scheme, host, and a
 hidden path in the UI, and used by showcases that otherwise load bundled or
-public sample media. HTTP, HTTPS, HLS, UDP, and other URL schemes
-supported by the bundled libVLC are accepted.
+public sample media. HTTP, HTTPS, UDP, and other URL schemes supported by
+the bundled libVLC are accepted, including HLS through its `.m3u8` HTTP(S)
+URL.
 
 - **iOS and Mac Catalyst:** open **Set App-Wide Stream URL** in the **Test Stream** section on the first screen.
 - **macOS:** use **Test Stream** in the toolbar or **Test Stream URL** in the sidebar's **Configuration** section.
