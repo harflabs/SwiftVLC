@@ -95,7 +95,7 @@ public struct Volume: Sendable, Hashable, Comparable, ExpressibleByFloatLiteral 
 /// for some media but audio/video sync degrades; SwiftVLC clamps to
 /// keep observable behavior predictable.
 ///
-/// Live streams (HLS, RTSP) often reject any rate other than `1.0`.
+/// Live streams (HLS, UDP) often reject any rate other than `1.0`.
 /// Use `Player.setPlaybackRate(_:)` so the UI can react to rejection.
 ///
 /// ```swift

@@ -15,7 +15,7 @@ A Swift wrapper around [libVLC](https://www.videolan.org/vlc/libvlc.html) for iO
 
 AVFoundation is excellent for Apple's native media stack, but its
 container, codec, subtitle, and network-protocol support is limited to
-what Apple ships. Apps that need MKV, SSA/ASS subtitles, RTSP, SMB,
+what Apple ships. Apps that need MKV, SSA/ASS subtitles, SMB,
 UPnP, or other VLC-backed formats and protocols need a broader engine.
 
 [VLC](https://www.videolan.org/)'s engine, **libVLC**, supports a broad set of codecs, containers, subtitles, and network protocols through embeddable C APIs.
@@ -152,8 +152,8 @@ The `Showcase/` directory contains separate folders, targets, and schemes for ea
 Every showcase target accepts an app-wide test stream URL. The override is
 kept in memory for the current app session, redacted to its scheme, host, and a
 hidden path in the UI, and used by showcases that otherwise load bundled or
-public sample media. HTTP, HTTPS, HLS, RTSP, UDP, and other URL schemes
-supported by VLC are accepted.
+public sample media. HTTP, HTTPS, HLS, UDP, and other URL schemes
+supported by the bundled libVLC are accepted.
 
 - **iOS and Mac Catalyst:** open **Set App-Wide Stream URL** in the **Test Stream** section on the first screen.
 - **macOS:** use **Test Stream** in the toolbar or **Test Stream URL** in the sidebar's **Configuration** section.

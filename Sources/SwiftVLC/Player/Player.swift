@@ -160,7 +160,7 @@ public final class Player {
   /// Sets the playback rate, throwing if libVLC rejects the value.
   ///
   /// Typical rejections:
-  /// - Live streams (HLS, RTSP) that only support `1.0` playback.
+  /// - Live streams (HLS, UDP) that only support `1.0` playback.
   /// - No media loaded yet. libVLC ignores the call until playback
   ///   starts.
   /// - Format-specific decoder limitations.
