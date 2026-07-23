@@ -17,7 +17,7 @@ Task {
 ```
 
 Each ``LogEntry`` carries a severity ``LogLevel``, the message text,
-and the libVLC module name (e.g. `avcodec`, `http`, `rtsp`) when the
+and the libVLC module name (e.g. `avcodec`, `http`, `mp4`) when the
 emitter provided one.
 
 ## Multiple consumers

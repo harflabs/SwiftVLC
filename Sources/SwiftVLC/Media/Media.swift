@@ -48,7 +48,7 @@ public enum MediaType: Sendable, Hashable, CustomStringConvertible {
   case directory
   /// An optical disc (DVD, Blu-ray, Audio CD).
   case disc
-  /// A network stream (HTTP, RTSP, etc.).
+  /// A network stream (HTTP, HLS, etc.).
   case stream
   /// A playlist (M3U, PLS, XSPF, etc.).
   case playlist
@@ -103,7 +103,9 @@ public final class Media: Sendable {
 
   /// Creates media from a URL.
   ///
-  /// Works for both local `file://` URLs and remote `http://`/`rtsp://` streams.
+  /// Accepts any URL. Local `file://` paths and remote `http://`/`https://`
+  /// streams are the common cases; whether another scheme opens depends on the
+  /// access modules present in the bundled libVLC.
   /// - Parameter url: The media source URL.
   /// - Throws: `VLCError.mediaCreationFailed` if the URL is invalid.
   public init(url: URL) throws(VLCError) {
