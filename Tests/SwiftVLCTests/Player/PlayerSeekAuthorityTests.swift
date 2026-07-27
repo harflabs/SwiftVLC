@@ -124,6 +124,56 @@ extension Integration {
       #expect(player.state == .playing, "a one-shot transition was dropped by the clock filter")
     }
 
+    /// A sample carrying the seek's own revision is current, not stale, so it
+    /// must be applied. After a fast (keyframe) seek this is the position
+    /// playback actually landed on, which is not the requested one.
+    ///
+    /// This pins the boundary condition of the filter — that the comparison is
+    /// `>=` and not `>`. It does **not** prove the reserve-before-native-call
+    /// ordering: which revision libVLC's event thread stamps a concurrent
+    /// sample with is not observable from here, and the test passes under
+    /// either ordering.
+    @Test
+    func `A sample carrying the seek's own revision is applied`() throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      player._setStateForTesting(state: .paused, duration: .seconds(100), isSeekable: true)
+
+      // Stamped with the revision the bridge hands out for this seek, which
+      // is what a sample emitted during the native call would carry.
+      let concurrentRevision = player.eventBridge.advanceTimelineRevision() + 1
+      try player.seek(to: .seconds(42), fast: true)
+
+      let landed = SourcedPlayerEvent(
+        source: Player.sourceIdentifier(for: player.pointer),
+        event: .timeChanged(.seconds(40)),
+        timelineRevision: concurrentRevision
+      )
+      player.handleSourcedEvent(landed)
+
+      #expect(
+        player.currentTime == .seconds(40),
+        "the landed position was discarded as stale; the timeline is stuck on the requested target"
+      )
+    }
+
+    /// A rejected seek must not consume the timeline: clock samples keep
+    /// flowing exactly as they did before the refused request.
+    @Test
+    func `A rejected seek leaves the accepted timeline revision alone`() throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      player._setStateForTesting(state: .paused, duration: .seconds(100), isSeekable: true)
+      let before = player.acceptedTimelineRevision
+
+      // Out of range for the known duration, so validation refuses it.
+      #expect(throws: VLCError.self) {
+        try player.seek(to: .seconds(5000))
+      }
+
+      #expect(player.acceptedTimelineRevision == before)
+    }
+
     /// Loading new media starts a new timeline, so samples from the previous
     /// one cannot update it.
     @Test
