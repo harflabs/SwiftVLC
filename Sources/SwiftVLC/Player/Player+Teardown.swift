@@ -91,14 +91,26 @@ extension Player {
     if terminal == .stopped || terminal == .error, state != terminal {
       handleEvent(.stateChanged(terminal))
     }
-    // The wait ended without a stopped state. If the native player is sitting
-    // in `.error`, that — not a bare timeout — is what the caller needs to
-    // know: the error arrived but the stop that releases the outputs never
-    // followed.
-    if outcome == .timedOut, terminal == .error {
+    return Self.resolveStopOutcome(waitOutcome: outcome, nativeState: terminal)
+  }
+
+  /// Folds the native handle's resting state into the wait's verdict.
+  ///
+  /// A wait that ended without a stop means one of two different things, and
+  /// the caller needs them distinguished: the pipeline is merely slow, or the
+  /// session errored and the stop that releases the outputs never followed.
+  ///
+  /// Pure so the rule is testable without live playback, which CI cannot
+  /// drive (see `TestCondition.canPlayMedia`).
+  nonisolated static func resolveStopOutcome(
+    waitOutcome: PlayerStopOutcome,
+    nativeState: PlayerState
+  )
+    -> PlayerStopOutcome {
+    if waitOutcome == .timedOut, nativeState == .error {
       return .failedButStillDraining
     }
-    return outcome
+    return waitOutcome
   }
 
   /// Waits for the *output-safe* terminal state and reports why the wait
@@ -108,9 +120,14 @@ extension Player {
   /// but does not end the wait, because libVLC emits the error before the
   /// stopped state that performs the release; if no stopped state follows
   /// within the ceiling, the error is what the caller needs to hear about.
-  private nonisolated static func awaitOutputSafeStop(
+  /// - Parameter timeout: The defensive ceiling. Injectable so the decision
+  ///   logic can be exercised against a synthetic event stream, without
+  ///   needing live playback — CI cannot drive libVLC to `.playing`
+  ///   (see `TestCondition.canPlayMedia`).
+  nonisolated static func awaitOutputSafeStop(
     on stream: AsyncStream<SourcedPlayerEvent>,
-    source: UInt
+    source: UInt,
+    timeout: Duration = .seconds(10)
   )
     async -> PlayerStopOutcome {
     await withTaskGroup(of: PlayerStopOutcome?.self) { group in
@@ -136,7 +153,7 @@ extension Player {
         // verdict was already taken, so either way "no stop observed" is the
         // honest report. The stop task itself is unstructured and is never
         // cancelled by a caller, which is what keeps the drain protected.
-        try? await Task.sleep(for: .seconds(10))
+        try? await Task.sleep(for: timeout)
         return .timedOut
       }
       let outcome: PlayerStopOutcome = switch await group.next() {

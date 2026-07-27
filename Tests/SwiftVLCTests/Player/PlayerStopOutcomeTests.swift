@@ -132,6 +132,168 @@ extension Integration {
       )
     }
 
+    // MARK: - Wait logic, driven without live playback
+
+    //
+    // CI cannot reach `.playing` (`TestCondition.canPlayMedia`), so the
+    // decision logic is exercised directly against a synthetic event stream.
+    // These cover the branches the playback tests can only reach on a
+    // developer machine.
+
+    /// A stop for the awaited handle ends the wait as output-safe.
+    @Test
+    func `A stopped event for the awaited source reports stopped`() async {
+      let stream = Self.eventStream([
+        SourcedPlayerEvent(source: 7, event: .stateChanged(.stopped))
+      ])
+
+      let outcome = await Player.awaitOutputSafeStop(
+        on: stream,
+        source: 7,
+        timeout: .seconds(5)
+      )
+
+      #expect(outcome == .stopped)
+    }
+
+    /// The core of the fix: an error is not a stop. It must not end the wait,
+    /// so a stream carrying only an error times out rather than reporting the
+    /// outputs released.
+    @Test
+    func `An error event alone never reports output-safe`() async {
+      let stream = Self.eventStream([
+        SourcedPlayerEvent(source: 7, event: .stateChanged(.error))
+      ])
+
+      let outcome = await Player.awaitOutputSafeStop(
+        on: stream,
+        source: 7,
+        timeout: .milliseconds(50)
+      )
+
+      #expect(outcome == .timedOut)
+      #expect(!outcome.isOutputSafe)
+    }
+
+    /// An error followed by the stop that actually releases the outputs is
+    /// the real libVLC ordering, and must resolve as output-safe.
+    @Test
+    func `An error followed by a stop reports stopped`() async {
+      let stream = Self.eventStream([
+        SourcedPlayerEvent(source: 7, event: .stateChanged(.error)),
+        SourcedPlayerEvent(source: 7, event: .stateChanged(.stopped))
+      ])
+
+      let outcome = await Player.awaitOutputSafeStop(
+        on: stream,
+        source: 7,
+        timeout: .seconds(5)
+      )
+
+      #expect(outcome == .stopped)
+    }
+
+    /// A stop belonging to a different native handle must be ignored: it says
+    /// nothing about the handle this caller is waiting on.
+    @Test
+    func `A stop from another source is ignored`() async {
+      let stream = Self.eventStream([
+        SourcedPlayerEvent(source: 99, event: .stateChanged(.stopped))
+      ])
+
+      let outcome = await Player.awaitOutputSafeStop(
+        on: stream,
+        source: 7,
+        timeout: .milliseconds(50)
+      )
+
+      #expect(outcome == .timedOut)
+    }
+
+    /// Non-state events must not be mistaken for a terminal transition.
+    @Test
+    func `Unrelated events do not end the wait`() async {
+      let stream = Self.eventStream([
+        SourcedPlayerEvent(source: 7, event: .timeChanged(.seconds(1))),
+        SourcedPlayerEvent(source: 7, event: .stateChanged(.playing))
+      ])
+
+      let outcome = await Player.awaitOutputSafeStop(
+        on: stream,
+        source: 7,
+        timeout: .milliseconds(50)
+      )
+
+      #expect(outcome == .timedOut)
+    }
+
+    /// Nothing arriving at all resolves as a timeout rather than hanging.
+    @Test
+    func `An empty stream times out`() async {
+      let stream = Self.eventStream([])
+
+      let outcome = await Player.awaitOutputSafeStop(
+        on: stream,
+        source: 7,
+        timeout: .milliseconds(50)
+      )
+
+      #expect(outcome == .timedOut)
+    }
+
+    /// A ceiling reached while the handle sits in error is reported as the
+    /// error it is, not as a bare timeout — the two mean different things to
+    /// a caller deciding whether to retry or surface a failure.
+    @Test
+    func `A timeout with the handle in error reports failedButStillDraining`() {
+      #expect(
+        Player.resolveStopOutcome(waitOutcome: .timedOut, nativeState: .error)
+          == .failedButStillDraining
+      )
+    }
+
+    /// A timeout with no error stays a timeout.
+    @Test
+    func `A timeout without an error stays a timeout`() {
+      #expect(
+        Player.resolveStopOutcome(waitOutcome: .timedOut, nativeState: .stopped)
+          == .timedOut
+      )
+      #expect(
+        Player.resolveStopOutcome(waitOutcome: .timedOut, nativeState: .playing)
+          == .timedOut
+      )
+    }
+
+    /// An observed stop is output-safe regardless of what the handle reports
+    /// afterwards — the release already happened.
+    @Test
+    func `An observed stop is never downgraded`() {
+      #expect(
+        Player.resolveStopOutcome(waitOutcome: .stopped, nativeState: .error)
+          == .stopped
+      )
+      #expect(
+        Player.resolveStopOutcome(waitOutcome: .stopped, nativeState: .stopped)
+          == .stopped
+      )
+    }
+
+    /// Builds a finite stream of the given events. The stream finishes after
+    /// the last one, which also exercises the "source ended without a stop"
+    /// path.
+    private static func eventStream(
+      _ events: [SourcedPlayerEvent]
+    )
+      -> AsyncStream<SourcedPlayerEvent> {
+      AsyncStream { continuation in
+        for event in events {
+          continuation.yield(event)
+        }
+        continuation.finish()
+      }
+    }
+
     /// The result has to stay trustworthy across repeated cycles, since that
     /// is how it is used in practice: stop, tear down outputs, play again.
     @Test(.enabled(if: TestCondition.canPlayMedia))
