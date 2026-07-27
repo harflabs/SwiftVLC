@@ -488,6 +488,10 @@ public final class Player {
   /// observe the same outcome. Cleared on completion — unlike shutdown, a
   /// stop is repeatable, so a later call must start a fresh wait.
   var stopAndWaitTask: Task<PlayerStopOutcome, Never>?
+  /// The timeline revision established by the most recent accepted seek or
+  /// media load. Clock samples stamped older than this are stale and are
+  /// dropped rather than allowed to overwrite the seek target.
+  var acceptedTimelineRevision: UInt64 = 0
   /// Bumped whenever the session a ``recast(to:)`` is restoring is taken over
   /// — by another recast or by a media load. An in-flight recast compares this
   /// after every suspension and stops mutating once it no longer owns the

@@ -84,6 +84,13 @@ final class EventBridge: Sendable {
     context.makeSourcedStream(policy: policy)
   }
 
+  /// Marks a new authoritative timeline. Clock samples emitted before this
+  /// point carry a lower revision and are discarded by the consumer.
+  @discardableResult
+  func advanceTimelineRevision() -> UInt64 {
+    context.advanceTimelineRevision()
+  }
+
   /// Pushes an event through the same fan-out path the C callback uses,
   /// including subscription buffering — unlike
   /// `Player._handleEventForTesting`, which bypasses the bridge entirely.
@@ -155,11 +162,29 @@ final class EventBridge: Sendable {
 struct SourcedPlayerEvent {
   let source: UInt
   let event: PlayerEvent
+  /// The timeline revision current when libVLC emitted this event.
+  ///
+  /// An accepted seek advances the revision, so a clock sample produced
+  /// before it carries a lower value and can be discarded instead of
+  /// overwriting the seek target. Defaults to zero, which is never newer
+  /// than an accepted seek, so a directly-constructed event is treated as
+  /// pre-seek rather than silently authoritative.
+  let timelineRevision: UInt64
+
+  init(source: UInt, event: PlayerEvent, timelineRevision: UInt64 = 0) {
+    self.source = source
+    self.event = event
+    self.timelineRevision = timelineRevision
+  }
 }
 
 private final class EventBridgeCallbackContext: Sendable {
   private let events = Broadcaster<PlayerEvent>(defaultBufferSize: 64)
   private let sourcedEvents = Broadcaster<SourcedPlayerEvent>(defaultBufferSize: 64)
+  /// Stamped onto every sourced event so the consumer can tell clock samples
+  /// that predate an accepted seek from ones that follow it. Lives here
+  /// because the stamp has to be taken on libVLC's thread, at emission.
+  private let timelineRevision = Mutex<UInt64>(0)
   let endCoordinator: PlaybackEndCoordinator
 
   init(endCoordinator: PlaybackEndCoordinator) {
@@ -185,10 +210,23 @@ private final class EventBridgeCallbackContext: Sendable {
     // first, so a slow user filter on the public stream can only delay
     // public delivery — internal state is already on its way.
     if !sourcedEvents.isEmpty {
-      sourcedEvents.broadcast(SourcedPlayerEvent(source: source, event: event))
+      sourcedEvents.broadcast(
+        SourcedPlayerEvent(
+          source: source,
+          event: event,
+          timelineRevision: timelineRevision.withLock { $0 }
+        )
+      )
     }
     if !events.isEmpty {
       events.broadcast(event)
+    }
+  }
+
+  func advanceTimelineRevision() -> UInt64 {
+    timelineRevision.withLock { revision in
+      revision &+= 1
+      return revision
     }
   }
 

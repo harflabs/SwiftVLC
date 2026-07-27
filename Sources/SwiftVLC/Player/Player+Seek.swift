@@ -25,9 +25,13 @@ extension Player {
   ///   outside libVLC's millisecond range, or beyond known duration.
   public func seek(to time: Duration, fast: Bool = false) throws(VLCError) {
     let milliseconds = try checkedSeekMilliseconds(for: time, parameter: "time")
-    libvlc_media_player_set_time(pointer, milliseconds, fast)
-    currentTime = .milliseconds(milliseconds)
-    publishPosition(forTargetMilliseconds: milliseconds)
+    // Publishing before checking the result reported a target libVLC had
+    // refused, leaving the observable timeline describing a position playback
+    // never reached.
+    guard libvlc_media_player_set_time(pointer, milliseconds, fast) == 0 else {
+      throw .operationFailed("Seek to \(milliseconds) ms")
+    }
+    commitSeekTarget(milliseconds: milliseconds)
   }
 
   /// Seeks to a fractional position in the current media.
@@ -79,9 +83,23 @@ extension Player {
       targetMs = Swift.min(targetMs, durationMs)
     }
 
-    libvlc_media_player_set_time(pointer, targetMs, fast)
-    currentTime = .milliseconds(targetMs)
-    publishPosition(forTargetMilliseconds: targetMs)
+    guard libvlc_media_player_set_time(pointer, targetMs, fast) == 0 else {
+      throw .operationFailed("Jump to \(targetMs) ms")
+    }
+    commitSeekTarget(milliseconds: targetMs)
+  }
+
+  /// Publishes an accepted seek target and marks it as the authoritative
+  /// timeline.
+  ///
+  /// Advancing the revision is what lets the event consumer discard clock
+  /// samples libVLC produced before this seek. Without it those queued
+  /// samples are applied afterwards and snap the published time back — and
+  /// while paused no later native event is guaranteed to repair it.
+  func commitSeekTarget(milliseconds: Int64) {
+    acceptedTimelineRevision = eventBridge.advanceTimelineRevision()
+    currentTime = .milliseconds(milliseconds)
+    publishPosition(forTargetMilliseconds: milliseconds)
   }
 
   // MARK: - Lenient Seeking
@@ -109,6 +127,10 @@ extension Player {
     guard libvlc_media_player_set_position(pointer, position.rawValue, fast) == 0 else {
       return false
     }
+    // Accepted, so pre-seek clock samples must not overwrite this target
+    // either — a lenient seek publishes a position the same way a strict one
+    // does.
+    acceptedTimelineRevision = eventBridge.advanceTimelineRevision()
     withMutation(keyPath: \.position) {
       _position = position.rawValue
     }

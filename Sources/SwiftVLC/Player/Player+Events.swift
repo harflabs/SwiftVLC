@@ -62,7 +62,27 @@ extension Player {
 
   func handleSourcedEvent(_ sourcedEvent: SourcedPlayerEvent) {
     guard sourcedEvent.source == Self.sourceIdentifier(for: pointer) else { return }
+    guard isTimelineSampleCurrent(sourcedEvent) else { return }
     handleEvent(sourcedEvent.event)
+  }
+
+  /// Whether a clock sample still describes the authoritative timeline.
+  ///
+  /// The internal stream is unbounded, so time and position events produced
+  /// before a seek can still be sitting in it when the seek is accepted.
+  /// Applying them afterwards snaps the published time back to where playback
+  /// used to be — and while paused there may be no later native clock event to
+  /// repair it. Samples that predate the accepted seek are therefore dropped.
+  ///
+  /// Only clock payloads are filtered. State transitions, track changes and
+  /// the rest stay lossless regardless of when they were produced.
+  private func isTimelineSampleCurrent(_ sourcedEvent: SourcedPlayerEvent) -> Bool {
+    switch sourcedEvent.event {
+    case .timeChanged, .positionChanged:
+      sourcedEvent.timelineRevision >= acceptedTimelineRevision
+    default:
+      true
+    }
   }
 
   /// Maps a single `PlayerEvent` to the observable-property updates and
@@ -282,6 +302,9 @@ extension Player {
   /// times, duration, seek/pause flags, buffer fill. Called when media
   /// is loaded or replaced.
   func resetMediaDerivedState() {
+    // New media, new timeline: clock samples still queued from the previous
+    // one describe a media that is no longer loaded and must not be applied.
+    acceptedTimelineRevision = eventBridge.advanceTimelineRevision()
     pauseTransition = nil
     deferredPauseCommand = nil
     publishPlaybackIntent(false)
