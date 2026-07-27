@@ -94,9 +94,28 @@ extension Player {
   /// draining. The player is **unusable afterwards**: its event streams
   /// are finished and its native handle is replaced by an inert one so
   /// stray calls are harmless no-ops. Idempotent.
+  /// Concurrent callers all join the *same* teardown: the first caller
+  /// installs the task, every other caller awaits it, and none of them
+  /// returns before the native handle has actually been released. Returning
+  /// early on the flag alone would let a second caller observe a player that
+  /// still has a draining libVLC thread, which is precisely what this
+  /// method's contract promises is impossible.
   public func shutdown() async {
-    guard !isShutdown else { return }
+    if let inFlight = shutdownTask {
+      await inFlight.value
+      return
+    }
+    // Set before the task is created — and therefore before any suspension —
+    // so commands issued from now on already see a retiring player.
     isShutdown = true
+    let task = Task { @MainActor [self] in
+      await performShutdown()
+    }
+    shutdownTask = task
+    await task.value
+  }
+
+  private func performShutdown() async {
     // A still-attached list player would keep driving the handle being
     // torn down (its native binding retains it past the release) —
     // detach through the public setter so suppression and the native
@@ -114,7 +133,9 @@ extension Player {
     eventTask?.cancel()
     eventTask = nil
     _marqueeRestoreTask?.cancel()
-    playbackIntentBridge.finishAll()
+    // Permanent: `playbackIntentEvents` also subscribes per access, so a
+    // post-shutdown subscriber must get an already-finished stream.
+    playbackIntentBridge.terminate()
     libvlc_media_player_set_nsobject(pointer, nil)
 
     let bridge = eventBridge

@@ -139,6 +139,12 @@ extension Player {
   }
 
   func applyDrawable(_ newDrawable: AnyObject?) {
+    // A shut-down player must not bind a new video output. Detaching stays
+    // allowed so a view tearing down after shutdown still clears cleanly, and
+    // so shutdown's own `drawable = nil` path is unaffected.
+    if isShutdown, newDrawable != nil {
+      return
+    }
     // libVLC stores `drawable-nsobject` as a raw pointer. Once this exact
     // handle has started, replacing the variable cannot revoke a pointer an
     // opening or draining vout already copied. Retain every outgoing drawable

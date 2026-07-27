@@ -476,7 +476,14 @@ public final class Player {
   var retainedDrawablesUntilNativePlayerRelease: [AnyObject] = []
   var selectedRenderer: RendererItem?
   var nativePlayerHasStartedPlayback = false
+  /// Set synchronously by the first ``shutdown()`` caller, before it
+  /// suspends, so every command issued from that point on sees a player that
+  /// is already retiring.
   var isShutdown = false
+  /// The single teardown every ``shutdown()`` caller joins. Retained after
+  /// completion so late callers still await a finished task rather than
+  /// returning while an earlier teardown is mid-flight.
+  var shutdownTask: Task<Void, Never>?
   let instance: VLCInstance
 
   // MARK: - Lifecycle
@@ -506,7 +513,9 @@ public final class Player {
   isolated deinit {
     eventTask?.cancel()
     _marqueeRestoreTask?.cancel()
-    playbackIntentBridge.finishAll()
+    // The player is going away for good, so future subscribers must receive
+    // an already-finished stream rather than one that can never emit.
+    playbackIntentBridge.terminate()
     #if os(iOS) || os(macOS)
     retireDirectPiPVideoCallbacksForHandleEnd()
     #endif
@@ -563,6 +572,10 @@ public final class Player {
   /// without a copy. The compiler enforces the transfer: the caller
   /// cannot keep using the transferred reference after the call.
   public func load(_ media: sending Media) {
+    // A shut-down player is inert: adopting media here would attach it to the
+    // retiring handle's inert replacement and publish a `currentMedia` the
+    // player can never play.
+    guard !isShutdown else { return }
     currentMedia = media
     resetMediaDerivedState()
     // No `markLibraryStop()` here: setting media on a *started* handle
@@ -588,6 +601,12 @@ public final class Player {
   ///   start, or ``VLCError/operationFailed(_:)`` if a selected renderer
   ///   cannot be applied to a replacement native player.
   public func play(_ media: sending Media) throws(VLCError) {
+    // Guarded here as well as in `play()`: the replacement branch below
+    // creates a fresh native handle and video output before `play()` is ever
+    // reached, which a shut-down player must never do.
+    guard !isShutdown else {
+      throw .invalidState("play(_:) called on a player that has been shut down")
+    }
     if shouldReplaceNativePlayerBeforePlaybackLoad {
       let resumeBeforeRelease = shouldResumeNativePlayerBeforeStop
       currentMedia = media
@@ -621,6 +640,9 @@ public final class Player {
   ///   start, or ``VLCError/operationFailed(_:)`` if a selected renderer
   ///   cannot be applied to a replacement native player.
   public func play() throws(VLCError) {
+    guard !isShutdown else {
+      throw .invalidState("play() called on a player that has been shut down")
+    }
     try prepareDrawableForPlayback()
     didReachEnd = false
     if libvlc_media_player_play(pointer) == -1 {

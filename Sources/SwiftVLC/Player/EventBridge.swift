@@ -45,7 +45,13 @@ final class EventBridge: Sendable {
 
     Self.detachEvents(attachedEventTypes, from: eventManager, opaque: contextOpaque)
     attachedEventTypes = []
-    context.finishAll()
+    // `terminate()`, not `finishAll()`: invalidation is permanent. The
+    // mid-life native handle swap goes through `reattach(to:)` and never
+    // lands here, so the only callers are shutdown and deinit — after which
+    // the event source is gone for good. `Player.events` is a computed
+    // property that subscribes per access, so `finishAll()` would hand a
+    // post-shutdown caller a live stream that never finishes.
+    context.terminate()
   }
 
   /// Moves the existing streams to a replacement native media player.
@@ -189,6 +195,14 @@ private final class EventBridgeCallbackContext: Sendable {
   func finishAll() {
     events.finishAll()
     sourcedEvents.finishAll()
+  }
+
+  /// Permanently closes both broadcasters, so streams handed out after this
+  /// point are already finished rather than waiting on a source that will
+  /// never emit again.
+  func terminate() {
+    events.terminate()
+    sourcedEvents.terminate()
   }
 }
 
