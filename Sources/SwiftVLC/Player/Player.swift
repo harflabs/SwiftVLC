@@ -484,6 +484,10 @@ public final class Player {
   /// completion so late callers still await a finished task rather than
   /// returning while an earlier teardown is mid-flight.
   var shutdownTask: Task<Void, Never>?
+  /// The in-flight ``stopAndWait()``, so concurrent callers join one stop and
+  /// observe the same outcome. Cleared on completion — unlike shutdown, a
+  /// stop is repeatable, so a later call must start a fresh wait.
+  var stopAndWaitTask: Task<PlayerStopOutcome, Never>?
   let instance: VLCInstance
 
   // MARK: - Lifecycle
