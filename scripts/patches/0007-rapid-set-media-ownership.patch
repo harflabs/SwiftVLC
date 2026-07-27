@@ -1,0 +1,757 @@
+# Backport the dependency-ordered libVLC media ownership fix series:
+#   1a4ccc4bdd3c0fbd32cfbff3f151fdd4ec0f50e3
+#   fad210b8b2d6a03d2ed2def8955fd695fa070e50
+#   8b2e77c8b8fb45bb5dfabffa050ca37046b4d795
+#
+# The pinned engine (c833c4be0) frees a libvlc_media_t inside
+# libvlc_media_player_set_media() while the outgoing input is still draining,
+# and on_stopping_current_media()/on_current_media_changed() then publish that
+# same media to application listeners via input_item_t.libvlc_owner without
+# holding a reference. Any client that touches the media it is handed reads
+# freed memory. Reproduced under ASan before this patch:
+#
+#   ERROR: AddressSanitizer: heap-use-after-free READ of size 8
+#     #0 libvlc_media_get_mrl media.c:538
+#     #2 libvlc_event_send event.c:117
+#     #3 on_stopping_current_media media_player.c:97
+#     #4 vlc_player_input_HandleState input.c:279
+#   freed by:
+#     #1 libvlc_media_player_set_media media_player.c:943
+#
+# Adaptations for the pinned c833c4be0 API:
+# - preserve its event manager and asynchronous preparse worker teardown;
+# - route late metadata and subitem callbacks to their originating media;
+# - rebase SwiftVLC's atomic PiP media/length snapshot onto the core player's
+#   retained current input item after removing libvlc_media_player_t.p_md;
+# - fail soft instead of dereferencing NULL when an input item has no libvlc
+#   owner: SwiftVLC builds libVLC with --disable-debug, so the upstream
+#   assert()s on that invariant are compiled out of shipped builds;
+# - add test/libvlc/media_switch_ownership.c, an engine-level regression that
+#   runs 10,000 active replacements covering A/B/A churn, erroring media,
+#   stop/load overlap, metadata, subitems and elementary-stream teardown.
+#   It is a separate program on purpose: it must own the only libvlc instance
+#   in the process, because repeated libvlc_new()/libvlc_release() cycles
+#   re-dlopen the plugin set and macOS AddressSanitizer then faults inside
+#   __asan_register_globals for a late-loaded plugin, corrupting every
+#   subsequent report.
+diff --git a/include/vlc/libvlc_media_player.h b/include/vlc/libvlc_media_player.h
+index c8e6b0fc456..515282f688a 100644
+--- a/include/vlc/libvlc_media_player.h
++++ b/include/vlc/libvlc_media_player.h
+@@ -248,10 +248,10 @@ LIBVLC_API void libvlc_media_player_set_media( libvlc_media_player_t *p_mi,
+ /**
+  * Get the media used by the media_player.
+  *
+- * \warning Calling this function just after libvlc_media_player_set_media()
+- * will return the media that was just set, but this media might not be
+- * currently used internally by the player. To detect such case, the user
+- * should listen to the libvlc_MediaPlayerMediaChanged event.
++ * \note The returned media is the one currently used by the player. After
++ * calling libvlc_media_player_set_media() while a media is playing, the
++ * previous media is still returned until the switch is notified by the
++ * libvlc_MediaPlayerMediaChanged event.
+  *
+  * \param p_mi the Media Player
+  * \return the media associated with p_mi, or NULL if no
+diff --git a/include/vlc_input_item.h b/include/vlc_input_item.h
+index 94f5b19d901..d592eccce06 100644
+--- a/include/vlc_input_item.h
++++ b/include/vlc_input_item.h
+@@ -132,6 +132,10 @@ struct input_item_t
+ 
+     void        *libvlc_owner;       /**< LibVLC private data, can only be set
+                                           before events are registered. */
++    void       (*libvlc_owner_release)(void *libvlc_owner);
++                                     /**< Called when the input item is
++                                          destroyed to release libvlc_owner,
++                                          same restrictions as libvlc_owner. */
+ };
+ 
+ #define INPUT_ITEM_URI_NOP "vlc://nop" /* dummy URI for node/directory items */
+diff --git a/lib/media.c b/lib/media.c
+index a155389ffc4..b4286352ab4 100644
+--- a/lib/media.c
++++ b/lib/media.c
+@@ -336,6 +336,23 @@ static void input_item_preparse_ended(vlc_preparser_req *req,
+         vlc_atomic_notify_one(&p_md->worker_count);
+ }
+ 
++static void media_destroy( void *libvlc_owner )
++{
++    libvlc_media_t *p_md = libvlc_owner;
++    unsigned int ref;
++
++    /* Wait for all async tasks to stop. */
++    while ((ref = atomic_load_explicit(&p_md->worker_count,
++                                       memory_order_acquire)) > 0)
++        vlc_atomic_wait(&p_md->worker_count, ref);
++
++    if( p_md->p_subitems )
++        libvlc_media_list_release( p_md->p_subitems );
++
++    libvlc_event_manager_destroy( &p_md->event_manager );
++    free( p_md );
++}
++
+ /**
+  * \internal
+  * Create a new media descriptor object from an input_item (Private)
+@@ -352,6 +369,9 @@ libvlc_media_t * libvlc_media_new_from_input_item(input_item_t *p_input_item )
+         return NULL;
+     }
+ 
++    /* The item is wrapped by a single media for its whole lifetime. */
++    assert( p_input_item->libvlc_owner == NULL );
++
+     p_md = calloc( 1, sizeof(libvlc_media_t) );
+     if( !p_md )
+     {
+@@ -369,11 +389,11 @@ libvlc_media_t * libvlc_media_new_from_input_item(input_item_t *p_input_item )
+     p_md->p_subitems->p_internal_md = p_md;
+ 
+     p_md->p_input_item      = p_input_item;
+-    vlc_atomic_rc_init(&p_md->rc);
+ 
+     atomic_init(&p_md->worker_count, 0);
+ 
+     p_md->p_input_item->libvlc_owner = p_md;
++    p_md->p_input_item->libvlc_owner_release = media_destroy;
+     atomic_init(&p_md->parsed_status, libvlc_media_parsed_status_none);
+     p_md->req = NULL;
+ 
+@@ -489,33 +509,19 @@ void libvlc_media_add_option_flag( libvlc_media_t * p_md,
+ // Delete a media descriptor object
+ void libvlc_media_release( libvlc_media_t *p_md )
+ {
+-    unsigned int ref;
+-
+     if (!p_md)
+         return;
+ 
+-    if( !vlc_atomic_rc_dec(&p_md->rc) )
+-        return;
+-
+-    /* Wait for all async tasks to stop. */
+-    while ((ref = atomic_load_explicit(&p_md->worker_count,
+-                                       memory_order_acquire)) > 0)
+-        vlc_atomic_wait(&p_md->worker_count, ref);
+-
+-    if( p_md->p_subitems )
+-        libvlc_media_list_release( p_md->p_subitems );
+-
++    /* The media shares the reference count of its input item and is
++     * destroyed with it, see media_destroy(). */
+     input_item_Release( p_md->p_input_item );
+-
+-    libvlc_event_manager_destroy( &p_md->event_manager );
+-    free( p_md );
+ }
+ 
+ // Retain a media descriptor object
+ libvlc_media_t *libvlc_media_retain( libvlc_media_t *p_md )
+ {
+     assert (p_md);
+-    vlc_atomic_rc_inc( &p_md->rc );
++    input_item_Hold( p_md->p_input_item );
+     return p_md;
+ }
+ 
+diff --git a/lib/media_internal.h b/lib/media_internal.h
+index dda43ec78b8..583118ac8b9 100644
+--- a/lib/media_internal.h
++++ b/lib/media_internal.h
+@@ -33,12 +33,14 @@
+ #include <vlc_preparser.h>
+ #include <vlc_atomic.h>
+ 
++/* A media is a wrapper of its input item and shares its reference count:
++ * libvlc_media_retain()/libvlc_media_release() forward to the input item and
++ * the media is destroyed with it (input_item_t.libvlc_owner_release). */
+ struct libvlc_media_t
+ {
+     libvlc_event_manager_t event_manager;
+ 
+     input_item_t      *p_input_item;
+-    vlc_atomic_rc_t    rc;
+ 
+     VLC_FORWARD_DECLARE_OBJECT(libvlc_media_list_t*) p_subitems; /* A media descriptor can have Sub items. This is the only dependency we really have on media_list */
+     void *p_user_data;
+diff --git a/lib/media_player.c b/lib/media_player.c
+index 2fe615d2e49..52afccd9200 100644
+--- a/lib/media_player.c
++++ b/lib/media_player.c
+@@ -235,13 +235,12 @@ on_position_changed(vlc_player_t *player, vlc_tick_t new_time, double new_pos,
+ static void
+ on_length_changed(vlc_player_t *player, vlc_tick_t new_length, void *data)
+ {
+-    (void) player;
+-
+     libvlc_media_player_t *mp = data;
+ 
+     libvlc_event_t event;
+ 
+-    libvlc_media_t *md = mp->p_md;
++    input_item_t *item = vlc_player_GetCurrentMedia(player);
++    libvlc_media_t *md = item != NULL ? item->libvlc_owner : NULL;
+     if (md != NULL)
+     {
+         /* Duration event */
+@@ -439,26 +438,32 @@ static void
+ on_media_meta_changed(vlc_player_t *player, input_item_t *media, void *data)
+ {
+     (void) player;
++    (void) data;
+ 
+-    libvlc_media_player_t *mp = data;
+-    input_item_t *current = mp->p_md ? mp->p_md->p_input_item : NULL;
+-    if (media != current)
++    assert(media != NULL);
++    libvlc_media_t *libmedia = media->libvlc_owner;
++    assert(libmedia != NULL);
++    /* SwiftVLC ships libVLC with --disable-debug, so the assert above is
++     * compiled out. event_manager is the first member of libvlc_media_t, so a
++     * NULL owner would make the send below a NULL dereference rather than a
++     * detectable abort. Fail soft instead. */
++    if (unlikely(libmedia == NULL))
+         return;
+ 
+     /* Meta event */
+     libvlc_event_t event;
+     event.type = libvlc_MediaMetaChanged;
+     event.u.media_meta_changed.meta_type = 0;
+-    libvlc_event_send( &mp->p_md->event_manager, &event );
++    libvlc_event_send( &libmedia->event_manager, &event );
+ 
+     libvlc_media_parsed_status_t status = libvlc_media_parsed_status_done;
+-    if (atomic_exchange(&mp->p_md->parsed_status, status) == status)
++    if (atomic_exchange(&libmedia->parsed_status, status) == status)
+         return;
+ 
+     /* Parsed event */
+     event.type = libvlc_MediaParsedChanged;
+     event.u.media_parsed_changed.new_status = status;
+-    libvlc_event_send( &mp->p_md->event_manager, &event );
++    libvlc_event_send( &libmedia->event_manager, &event );
+ }
+ 
+ 
+@@ -467,12 +472,16 @@ on_media_subitems_changed(vlc_player_t *player, input_item_t *media,
+                           const input_item_node_t *new_subitems, void *data)
+ {
+     (void) player;
++    (void) data;
+ 
+-    libvlc_media_player_t *mp = data;
+-
+-    input_item_t *current = mp->p_md ? mp->p_md->p_input_item : NULL;
+-    if (media == current)
+-        libvlc_media_add_subtree(mp->p_md, new_subitems);
++    assert(media != NULL);
++    libvlc_media_t *libmedia = media->libvlc_owner;
++    assert(libmedia != NULL);
++    /* See on_media_meta_changed(): asserts are compiled out in shipped
++     * builds, and libvlc_media_add_subtree() would dereference NULL. */
++    if (unlikely(libmedia == NULL))
++        return;
++    libvlc_media_add_subtree(libmedia, new_subitems);
+ }
+ 
+ static void
+@@ -777,7 +786,6 @@ libvlc_media_player_new( libvlc_instance_t *instance )
+     var_Create(mp, "record-file", VLC_VAR_STRING);
+ 
+     mp->timer.id = NULL;
+-    mp->p_md = NULL;
+     mp->p_libvlc_instance = instance;
+     /* use a reentrant lock to allow calling libvlc functions from callbacks */
+     mp->player = vlc_player_New(VLC_OBJECT(mp), VLC_PLAYER_LOCK_REENTRANT);
+@@ -838,17 +846,12 @@ libvlc_media_player_new_from_media( libvlc_instance_t *inst,
+     if( !p_mi )
+         return NULL;
+ 
+-    libvlc_media_retain( p_md );
+-    p_mi->p_md = p_md;
+-
+     vlc_player_Lock(p_mi->player);
+     int ret = vlc_player_SetCurrentMedia(p_mi->player, p_md->p_input_item);
+     vlc_player_Unlock(p_mi->player);
+ 
+     if (ret != VLC_SUCCESS)
+     {
+-        libvlc_media_release(p_md);
+-        p_mi->p_md = NULL;
+         return NULL;
+     }
+ 
+@@ -876,7 +879,6 @@ static void libvlc_media_player_destroy( libvlc_media_player_t *p_mi )
+     vlc_player_Delete(p_mi->player);
+ 
+     libvlc_event_manager_destroy(&p_mi->event_manager);
+-    libvlc_media_release( p_mi->p_md );
+ 
+     libvlc_instance_t *instance = p_mi->p_libvlc_instance;
+     vlc_object_delete(p_mi);
+@@ -940,12 +942,6 @@ void libvlc_media_player_set_media(
+ {
+     vlc_player_Lock(p_mi->player);
+ 
+-    libvlc_media_release( p_mi->p_md );
+-
+-    if( p_md )
+-        libvlc_media_retain( p_md );
+-    p_mi->p_md = p_md;
+-
+     vlc_player_SetCurrentMedia(p_mi->player, p_md ? p_md->p_input_item : NULL);
+ 
+     vlc_player_Unlock(p_mi->player);
+@@ -957,12 +953,12 @@ void libvlc_media_player_set_media(
+ libvlc_media_t *
+ libvlc_media_player_get_media( libvlc_media_player_t *p_mi )
+ {
+-    libvlc_media_t *p_m;
+-
+     vlc_player_Lock(p_mi->player);
+-    p_m = p_mi->p_md;
+-    if( p_m )
+-        libvlc_media_retain( p_m );
++
++    input_item_t *item = vlc_player_GetCurrentMedia(p_mi->player);
++    libvlc_media_t *p_m = item != NULL
++        ? input_item_Hold(item)->libvlc_owner : NULL;
++
+     vlc_player_Unlock(p_mi->player);
+ 
+     return p_m;
+@@ -984,9 +980,9 @@ swiftvlc_libvlc_media_player_get_media_length_snapshot(
+     vlc_player_t *player = p_mi->player;
+     vlc_player_Lock(player);
+ 
+-    libvlc_media_t *media = p_mi->p_md;
+-    if (media != NULL)
+-        libvlc_media_retain(media);
++    input_item_t *item = vlc_player_GetCurrentMedia(player);
++    libvlc_media_t *media = item != NULL
++        ? input_item_Hold(item)->libvlc_owner : NULL;
+ 
+     snapshot->media = media;
+     snapshot->length = media != NULL
+diff --git a/lib/media_player_internal.h b/lib/media_player_internal.h
+index 885b001cccc..23699479300 100644
+--- a/lib/media_player_internal.h
++++ b/lib/media_player_internal.h
+@@ -44,7 +44,6 @@ struct libvlc_media_player_t
+     vlc_cond_t wait;
+ 
+     struct libvlc_instance_t * p_libvlc_instance; /* Parent instance */
+-    libvlc_media_t * p_md; /* current media descriptor */
+     libvlc_event_manager_t event_manager;
+ 
+     struct {
+diff --git a/lib/video.c b/lib/video.c
+index a02289ead9f..fac064ab4e0 100644
+--- a/lib/video.c
++++ b/lib/video.c
+@@ -160,8 +160,6 @@ int libvlc_video_get_size( libvlc_media_player_t *p_mi, unsigned ignored,
+                            unsigned *restrict px, unsigned *restrict py )
+ {
+     (void) ignored;
+-    if (p_mi->p_md == NULL)
+-        return -1;
+ 
+     int ret = -1;
+     libvlc_media_track_t *track =
+diff --git a/src/input/item.c b/src/input/item.c
+index 767675bf2dc..f6e154b6af3 100644
+--- a/src/input/item.c
++++ b/src/input/item.c
+@@ -413,6 +413,9 @@ void input_item_Release( input_item_t *p_item )
+     if( !vlc_atomic_rc_dec( &owner->rc ) )
+         return;
+ 
++    if( p_item->libvlc_owner_release != NULL )
++        p_item->libvlc_owner_release( p_item->libvlc_owner );
++
+     free( p_item->psz_name );
+     free( p_item->psz_uri );
+     free( p_item->p_stats );
+diff --git a/test/Makefile.am b/test/Makefile.am
+index 94aa76e9d4c..435feda2ae9 100644
+--- a/test/Makefile.am
++++ b/test/Makefile.am
+@@ -42,6 +42,7 @@ check_PROGRAMS = \
+ 	test_libvlc_media_thumbnail_webp \
+ 	test_libvlc_media_list \
+ 	test_libvlc_media_player \
++	test_libvlc_media_switch_ownership \
+ 	test_libvlc_media_player_record \
+ 	test_libvlc_media_discoverer \
+ 	test_libvlc_renderer_discoverer \
+@@ -179,6 +180,8 @@ test_libvlc_media_list_SOURCES = libvlc/media_list.c
+ test_libvlc_media_list_LDADD = $(LIBVLC)
+ test_libvlc_media_player_SOURCES = libvlc/media_player.c
+ test_libvlc_media_player_LDADD = $(LIBVLCCORE) $(LIBVLC)
++test_libvlc_media_switch_ownership_SOURCES = libvlc/media_switch_ownership.c
++test_libvlc_media_switch_ownership_LDADD = $(LIBVLCCORE) $(LIBVLC)
+ test_libvlc_media_player_record_SOURCES = libvlc/media_player_record.c
+ test_libvlc_media_player_record_LDADD = $(LIBVLCCORE) $(LIBVLC)
+ test_libvlc_media_discoverer_SOURCES = libvlc/media_discoverer.c
+diff --git a/test/libvlc/media_switch_ownership.c b/test/libvlc/media_switch_ownership.c
+new file mode 100644
+index 00000000000..9fdeef02635
+--- /dev/null
++++ b/test/libvlc/media_switch_ownership.c
+@@ -0,0 +1,354 @@
++/*
++ * media_switch_ownership.c - libvlc rapid set_media ownership regression
++ *
++ * Stress the media/input-item ownership model with a long run of active
++ * media replacements: each iteration hands the player a fresh media, drops
++ * the application's last reference immediately, and lets the outgoing input
++ * drain while it is still emitting metadata, subitem and elementary-stream
++ * teardown callbacks that resolve back to the released media.
++ *
++ * Before the ownership fix (VLC 1a4ccc4bdd3 / fad210b8b2d / 8b2e77c8b8f) this
++ * is a heap-use-after-free: the libvlc_media_t was freed on the application's
++ * release while the draining input still resolved input_item_t.libvlc_owner
++ * and wrote to it.
++ *
++ * This lives in its own program rather than in media_player.c on purpose: it
++ * must own the only libvlc instance in the process. Repeated
++ * libvlc_new()/libvlc_release() cycles re-dlopen the plugin set, and on macOS
++ * that makes AddressSanitizer's __asan_register_globals fault for a
++ * late-loaded plugin, which then corrupts every subsequent report. Isolating
++ * the workload keeps an ASan run of this regression trustworthy.
++ */
++
++/**********************************************************************
++ *  This program is free software; you can redistribute and/or modify *
++ *  it under the terms of the GNU General Public License as published *
++ *  by the Free Software Foundation; version 2 of the license, or (at *
++ *  your option) any later version.                                   *
++ *                                                                    *
++ *  This program is distributed in the hope that it will be useful,   *
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of    *
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.              *
++ *  See the GNU General Public License for more details.              *
++ *                                                                    *
++ *  You should have received a copy of the GNU General Public License *
++ *  along with this program; if not, you can get it from:             *
++ *  http://www.gnu.org/copyleft/gpl.html                              *
++ **********************************************************************/
++
++#include "test.h"
++#include <stdatomic.h>
++#include <vlc_common.h>
++
++/* Player-thread events are counted under a lock and observed by the main
++ * thread as monotonic counters rather than as semaphore tokens. Waiting for a
++ * counter to *advance* is immune to an event class firing more often than the
++ * workload predicts (a stray Stopped from an overlapping stop_async, say),
++ * which a counting semaphore is not: a semaphore that runs ahead silently
++ * stops rendezvousing and the workload degenerates into a no-op. */
++struct switch_media_ctx
++{
++    vlc_mutex_t lock;
++    vlc_cond_t cond;
++    unsigned media_changed;
++    unsigned playing;
++    unsigned settled; /* playing + error + stopped */
++    unsigned errors;
++    atomic_uint meta_count;
++    atomic_uint subitem_count;
++    atomic_uint subtree_count;
++    atomic_uint attachment_count;
++};
++
++/* Touch a media handed to an application listener the way any real client
++ * does. This is the load that the ownership fix has to make safe: the player
++ * resolves input_item_t.libvlc_owner and publishes the libvlc_media_t without
++ * holding a reference to it, so before the fix this dereferences a media the
++ * application already released and the player already dropped. */
++static void switch_media_touch(libvlc_media_t *media)
++{
++    if (media == NULL)
++        return;
++    char *mrl = libvlc_media_get_mrl(media);
++    assert(mrl != NULL);
++    free(mrl);
++}
++
++static void switch_media_player_event(const libvlc_event_t *event, void *opaque)
++{
++    struct switch_media_ctx *ctx = opaque;
++
++    switch (event->type)
++    {
++        case libvlc_MediaPlayerMediaChanged:
++            switch_media_touch(event->u.media_player_media_changed.new_media);
++            break;
++        case libvlc_MediaPlayerMediaStopping:
++            /* Delivered from the draining input after the switch: the media
++             * it names is the *outgoing* one, whose last application
++             * reference was dropped many events ago. */
++            switch_media_touch(event->u.media_player_media_stopping.media);
++            break;
++        default:
++            break;
++    }
++
++    vlc_mutex_lock(&ctx->lock);
++    switch (event->type)
++    {
++        case libvlc_MediaPlayerMediaStopping:
++            break;
++        case libvlc_MediaPlayerPlaying:
++            ctx->playing++;
++            ctx->settled++;
++            break;
++        case libvlc_MediaPlayerMediaChanged:
++            /* vlc_player_OpenNextMedia() sends exactly one current-media
++             * change per media it opens (src/player/player.c), so this
++             * advances once per set_media() the player honoured. A NULL media
++             * is only reported when the current media is released, which this
++             * workload never requests; filter it anyway. */
++            if (event->u.media_player_media_changed.new_media != NULL)
++                ctx->media_changed++;
++            break;
++        case libvlc_MediaPlayerEncounteredError:
++            ctx->errors++;
++            ctx->settled++;
++            break;
++        case libvlc_MediaPlayerStopped:
++            /* Erroring media never reaches Playing; without this the workload
++             * would block forever on those iterations. */
++            ctx->settled++;
++            break;
++        default:
++            vlc_assert_unreachable();
++    }
++    vlc_cond_broadcast(&ctx->cond);
++    vlc_mutex_unlock(&ctx->lock);
++}
++
++static void switch_media_event(const libvlc_event_t *event, void *opaque)
++{
++    struct switch_media_ctx *ctx = opaque;
++
++    switch (event->type)
++    {
++        case libvlc_MediaMetaChanged:
++            atomic_fetch_add_explicit(&ctx->meta_count, 1,
++                                      memory_order_relaxed);
++            break;
++        case libvlc_MediaSubItemAdded:
++            atomic_fetch_add_explicit(&ctx->subitem_count, 1,
++                                      memory_order_relaxed);
++            break;
++        case libvlc_MediaSubItemTreeAdded:
++            atomic_fetch_add_explicit(&ctx->subtree_count, 1,
++                                      memory_order_relaxed);
++            break;
++        case libvlc_MediaAttachedThumbnailsFound:
++            atomic_fetch_add_explicit(&ctx->attachment_count, 1,
++                                      memory_order_relaxed);
++            break;
++        default:
++            vlc_assert_unreachable();
++    }
++}
++
++static void attach_switch_media_events(libvlc_media_t *media,
++                                       struct switch_media_ctx *ctx)
++{
++    libvlc_event_manager_t *em = libvlc_media_event_manager(media);
++    assert(em != NULL);
++    assert(libvlc_event_attach(em, libvlc_MediaMetaChanged,
++                               switch_media_event, ctx) == 0);
++    assert(libvlc_event_attach(em, libvlc_MediaSubItemAdded,
++                               switch_media_event, ctx) == 0);
++    assert(libvlc_event_attach(em, libvlc_MediaSubItemTreeAdded,
++                               switch_media_event, ctx) == 0);
++    assert(libvlc_event_attach(em, libvlc_MediaAttachedThumbnailsFound,
++                               switch_media_event, ctx) == 0);
++}
++
++static void test_media_switch_ownership(const char **argv, int argc)
++{
++    /* Three distinct media rotated A/B/C/A/… so every replacement swaps in a
++     * different track, subitem and attachment topology, and the same media
++     * URL recurs often enough to cover A/B/A churn. The long length keeps
++     * every input mid-playback when it is replaced instead of ending on its
++     * own. */
++    static const char *const media_urls[] = {
++        "mock://audio_track_count=1;sub_track_count=1;node_count=2;"
++            "attachment_count=2;length=100000000",
++        "mock://audio_track_count=2;node_count=3;attachment_count=1;"
++            "length=100000000",
++        "mock://audio_track_count=1;sub_track_count=2;node_count=1;"
++            "attachment_count=3;length=100000000",
++    };
++    static const char error_url[] =
++        "mock://audio_track_count=1;attachment_count=1;error=true";
++
++    unsigned long iterations = 10000;
++    const char *iterations_env = getenv("SWIFTVLC_MEDIA_SWITCH_ITERATIONS");
++    if (iterations_env != NULL)
++    {
++        char *end;
++        unsigned long parsed = strtoul(iterations_env, &end, 10);
++        assert(end != iterations_env && *end == '\0' && parsed > 0);
++        iterations = parsed;
++    }
++
++    /* test_init() arms a 10s alarm so `make check` cannot wedge. This
++     * workload is deliberately long, so widen the guard proportionally
++     * rather than disabling it: a genuine deadlock must still abort the
++     * run. An operator-supplied VLC_TEST_TIMEOUT keeps precedence. */
++    if (getenv("VLC_TEST_TIMEOUT") == NULL)
++    {
++        unsigned long budget = 120 + iterations / 4;
++        alarm(budget > 3600 ? 3600 : (unsigned)budget);
++    }
++
++    test_log("Testing %lu active media replacements\n", iterations);
++
++    libvlc_instance_t *vlc = libvlc_new(argc, argv);
++    assert(vlc != NULL);
++    libvlc_media_player_t *mp = libvlc_media_player_new(vlc);
++    assert(mp != NULL);
++
++    struct switch_media_ctx ctx;
++    vlc_mutex_init(&ctx.lock);
++    vlc_cond_init(&ctx.cond);
++    ctx.media_changed = ctx.playing = ctx.settled = ctx.errors = 0;
++    atomic_init(&ctx.meta_count, 0);
++    atomic_init(&ctx.subitem_count, 0);
++    atomic_init(&ctx.subtree_count, 0);
++    atomic_init(&ctx.attachment_count, 0);
++
++    libvlc_event_manager_t *player_em = libvlc_media_player_event_manager(mp);
++    assert(libvlc_event_attach(player_em, libvlc_MediaPlayerPlaying,
++                               switch_media_player_event, &ctx) == 0);
++    assert(libvlc_event_attach(player_em, libvlc_MediaPlayerMediaChanged,
++                               switch_media_player_event, &ctx) == 0);
++    assert(libvlc_event_attach(player_em, libvlc_MediaPlayerEncounteredError,
++                               switch_media_player_event, &ctx) == 0);
++    assert(libvlc_event_attach(player_em, libvlc_MediaPlayerStopped,
++                               switch_media_player_event, &ctx) == 0);
++    assert(libvlc_event_attach(player_em, libvlc_MediaPlayerMediaStopping,
++                               switch_media_player_event, &ctx) == 0);
++
++    unsigned long preparsed = 0;
++    unsigned long errored = 0;
++
++    for (unsigned long i = 0; i < iterations; ++i)
++    {
++        const bool erroring = i > 0 && i % 257 == 0;
++        const char *url = erroring ? error_url
++            : media_urls[i % ARRAY_SIZE(media_urls)];
++        libvlc_media_t *media = libvlc_media_new_location(url);
++        assert(media != NULL);
++        attach_switch_media_events(media, &ctx);
++
++        if (erroring)
++            errored++;
++
++        /* Preparsing a subset overlaps attachment/subitem callbacks with
++         * active replacement without creating 10,000 concurrent preparsers. */
++        if (!erroring && i % 64 == 0)
++        {
++            assert(libvlc_media_parse_request(vlc, media,
++                                              libvlc_media_parse_network,
++                                              2000) == 0);
++            preparsed++;
++        }
++
++        vlc_mutex_lock(&ctx.lock);
++        const unsigned changed_before = ctx.media_changed;
++        const unsigned settled_before = ctx.settled;
++        vlc_mutex_unlock(&ctx.lock);
++
++        libvlc_media_player_set_media(mp, media);
++
++        /* Drop the application's last media reference immediately, before
++         * the switch is even acknowledged. From here on the media is kept
++         * alive solely by the input item the core holds, which is the whole
++         * point of the ownership fix: the outgoing input keeps emitting
++         * metadata, subitem and ES-teardown callbacks that resolve back to
++         * this media after the application is done with it. */
++        libvlc_media_release(media);
++
++        /* Idempotent while the player is started (vlc_player_Start() returns
++         * success without re-emitting Playing), and re-arms playback after an
++         * erroring media or a stop_async() below stopped the player. Do not
++         * wait on Playing here: a still-started player emits no new event. */
++        assert(libvlc_media_player_play(mp) == 0);
++
++        /* Replacing the media of a *playing* player defers the switch until
++         * the outgoing input has drained (vlc_player_SetCurrentMedia()), so
++         * this is the point where late callbacks against the released media
++         * have all been delivered.
++         *
++         * Then wait for the incoming input to actually settle into playback
++         * (or fail). Without this second rendezvous the next iteration would
++         * replace an input that never left Opening, and the workload would
++         * never once exercise the case the ownership fix is about: tearing
++         * down an input that is mid-playback and still emitting events. */
++        vlc_mutex_lock(&ctx.lock);
++        while (ctx.media_changed == changed_before)
++            vlc_cond_wait(&ctx.cond, &ctx.lock);
++        while (ctx.settled == settled_before)
++            vlc_cond_wait(&ctx.cond, &ctx.lock);
++        vlc_mutex_unlock(&ctx.lock);
++
++        /* Do not wait for stop: the following set_media deliberately overlaps
++         * output/input drain with the next load. */
++        if (i % 31 == 30)
++            libvlc_media_player_stop_async(mp);
++    }
++
++    libvlc_media_player_stop_async(mp);
++    libvlc_media_player_release(mp);
++    libvlc_release(vlc);
++
++    const unsigned meta = atomic_load_explicit(&ctx.meta_count,
++                                               memory_order_relaxed);
++    const unsigned subitems = atomic_load_explicit(&ctx.subitem_count,
++                                                   memory_order_relaxed);
++    const unsigned subtrees = atomic_load_explicit(&ctx.subtree_count,
++                                                   memory_order_relaxed);
++    const unsigned attachments = atomic_load_explicit(&ctx.attachment_count,
++                                                      memory_order_relaxed);
++
++    test_log("meta=%u subitems=%u subtrees=%u attachments=%u playing=%u "
++             "errors=%u preparsed=%lu errored=%lu\n", meta, subitems, subtrees,
++             attachments, ctx.playing, ctx.errors, preparsed, errored);
++
++    /* Guard against the workload silently degenerating into a no-op: every
++     * callback class the ownership fix reroutes must actually have fired
++     * against a media the application had already released, and the player
++     * must really have been playing when it was replaced. */
++    assert(ctx.media_changed == iterations);
++    assert(ctx.playing > 0);
++    assert(meta > 0);
++    assert(subitems > 0);
++    assert(subtrees > 0);
++    if (errored > 0)
++        assert(ctx.errors > 0);
++
++    /* Deliberately not asserted: libvlc_MediaAttachedThumbnailsFound cannot
++     * fire for mock media. The mock demuxer exports attachments as image/bmp
++     * (modules/demux/mock.c) and libvlc_picture_from_attachment() drops
++     * everything that is not PNG/JPEG/WebP (lib/picture.c), so the picture
++     * list is always empty and the event is suppressed. Attachment *teardown*
++     * is still exercised on every replacement via the demuxer, and the count
++     * is reported above so a future engine change that starts delivering the
++     * event is visible rather than silently ignored. */
++    (void) attachments;
++}
++
++int main(void)
++{
++    test_init();
++
++    test_media_switch_ownership(test_defaults_args, test_defaults_nargs);
++
++    return 0;
++}

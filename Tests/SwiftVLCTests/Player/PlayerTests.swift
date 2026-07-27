@@ -108,7 +108,7 @@ extension Integration {
     }
 
     @Test
-    func `mediaChanged resyncs currentMedia and clears timeline state`() throws {
+    func `mediaChanged resyncs currentMedia and clears timeline state`() async throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let initial = try Media(url: TestMedia.testMP4URL)
       let replacement = try Media(url: TestMedia.twosecURL)
@@ -123,6 +123,11 @@ extension Integration {
       )
 
       libvlc_media_player_set_media(player.pointer, replacement.pointer)
+      // libvlc_media_player_set_media() only swaps the player's current media
+      // once any outgoing input has drained, so the native switch this event
+      // reports can land asynchronously. Wait for it rather than assuming
+      // set_media() took effect synchronously.
+      try await awaitNativeMediaSwitch(on: player, to: replacement)
       player._handleEventForTesting(.mediaChanged)
 
       #expect(player.currentMedia?.mrl == replacement.mrl)
@@ -134,7 +139,7 @@ extension Integration {
     }
 
     @Test
-    func `mediaChanged retains synced media after native player switches again`() throws {
+    func `mediaChanged retains synced media after native player switches again`() async throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let initial = try Media(url: TestMedia.testMP4URL)
       player.load(initial)
@@ -144,14 +149,18 @@ extension Integration {
       do {
         let replacement = try Media(url: TestMedia.twosecURL)
         libvlc_media_player_set_media(player.pointer, replacement.pointer)
+        try await awaitNativeMediaSwitch(on: player, to: replacement)
         player._handleEventForTesting(.mediaChanged)
         syncedMedia = try #require(player.currentMedia)
         syncedMRL = try #require(replacement.mrl)
       }
 
       libvlc_media_player_set_media(player.pointer, initial.pointer)
+      try await awaitNativeMediaSwitch(on: player, to: initial)
       player._handleEventForTesting(.mediaChanged)
 
+      // The Media synced from the first switch owns its own libVLC reference,
+      // so a later switch must not invalidate it.
       #expect(syncedMedia.mrl == syncedMRL)
     }
 

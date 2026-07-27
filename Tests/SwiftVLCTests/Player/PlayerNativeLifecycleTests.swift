@@ -427,10 +427,22 @@ extension Integration {
     }
 
     @Test
-    func `syncCurrentMediaFromNative clears stale current media when native player has none`() throws {
+    func `syncCurrentMediaFromNative clears stale current media when native player has none`() async throws {
       let player = Player(instance: TestInstance.shared)
       try player.load(Media(url: TestMedia.twosecURL))
       libvlc_media_player_set_media(player.pointer, nil)
+
+      // Clearing the media is queued behind the outgoing input's teardown, so
+      // the native player can still report the previous media for a moment
+      // (see libvlc_media_player_get_media()). Wait for the switch to land.
+      _ = try await poll(every: .milliseconds(10), timeout: .seconds(3)) {
+        // get_media() returns a retained reference; release it every probe.
+        guard let current = libvlc_media_player_get_media(player.pointer) else {
+          return true
+        }
+        libvlc_media_release(current)
+        return false
+      }
 
       player.syncCurrentMediaFromNative()
 
