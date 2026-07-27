@@ -21,6 +21,10 @@ struct PixelBufferEnqueueState: @unchecked Sendable {
   /// Consecutive re-offers of the frame that triggered a flush. Reset by a
   /// delivery or by a newer frame taking the slot.
   var flushRecoveryRetryCount: UInt64 = 0
+  /// The render generation the in-progress recovery belongs to. Recovery is
+  /// scoped to it so a replacement cannot inherit the retry budget and turn
+  /// the next generation's plain backpressure into retention.
+  var flushRecoveryGeneration: UInt64?
   /// Times flush recovery exhausted its budget and dropped the frame. A
   /// non-zero value is the explicit terminal failure the display never
   /// repainted from.
@@ -180,13 +184,15 @@ extension PixelBufferRenderer {
     _ pending: EnqueuedSampleBuffer
   )
     -> PixelBufferSampleDisposition {
-    guard canEnqueueFrame(generation: pending.generation, on: pending.layer) else { return .handled }
+    guard canEnqueueFrame(generation: pending.generation, on: pending.layer) else {
+      return endFlushRecovery()
+    }
 
     let shouldFlush = displayLayerAPI.status(pending.layer) == .failed
       || displayLayerAPI.requiresFlush(pending.layer)
     if shouldFlush {
       guard canEnqueueFrame(generation: pending.generation, on: pending.layer) else {
-        return .handled
+        return endFlushRecovery()
       }
       displayLayerAPI.flush(pending.layer)
     }
@@ -197,7 +203,9 @@ extension PixelBufferRenderer {
       // `shouldFlush == false` and would otherwise fall into the backpressure
       // drop below — losing the frame on the very first retry, which is the
       // bug this is meant to fix.
-      let isRecovering = enqueueState.withLock { $0.flushRecoveryRetryCount > 0 }
+      let isRecovering = enqueueState.withLock {
+        $0.flushRecoveryRetryCount > 0 && $0.flushRecoveryGeneration == pending.generation
+      }
       // Plain backpressure keeps dropping: the decoder is still producing, so
       // a successor frame is already on its way and the newest one wins.
       guard shouldFlush || isRecovering else { return .handled }
@@ -220,7 +228,24 @@ extension PixelBufferRenderer {
       return true
     }
     if delivered {
-      enqueueState.withLock { $0.flushRecoveryRetryCount = 0 }
+      enqueueState.withLock {
+        $0.flushRecoveryRetryCount = 0
+        $0.flushRecoveryGeneration = nil
+      }
+    }
+    return .handled
+  }
+
+  /// Clears any in-progress recovery and drops the sample.
+  ///
+  /// Called when a frame is rejected as stale. Leaving the retry count set
+  /// would make the *next* generation's plain backpressure read as "recovery
+  /// in progress", quietly retaining frames on a path that is documented to
+  /// drop them.
+  private func endFlushRecovery() -> PixelBufferSampleDisposition {
+    enqueueState.withLock {
+      $0.flushRecoveryRetryCount = 0
+      $0.flushRecoveryGeneration = nil
     }
     return .handled
   }
@@ -233,19 +258,29 @@ extension PixelBufferRenderer {
     -> PixelBufferSampleDisposition {
     // Re-checked because the flush above released the state lock: a
     // replacement or teardown in that window must not resurrect this frame.
-    guard canEnqueueFrame(generation: pending.generation, on: pending.layer) else { return .handled }
+    guard canEnqueueFrame(generation: pending.generation, on: pending.layer) else {
+      return endFlushRecovery()
+    }
 
     return enqueueState.withLock { state in
       // A newer frame already claimed the slot. It supersedes this one, and
       // the drain loop picks it up on the next iteration.
       guard state.pending == nil else {
         state.flushRecoveryRetryCount = 0
+        state.flushRecoveryGeneration = nil
         return .handled
+      }
+      // The budget belongs to one frame's generation, so a replacement starts
+      // over rather than inheriting whatever the previous media had spent.
+      if state.flushRecoveryGeneration != pending.generation {
+        state.flushRecoveryGeneration = pending.generation
+        state.flushRecoveryRetryCount = 0
       }
       guard state.flushRecoveryRetryCount < Self.maxFlushRecoveryRetries else {
         // Bounded, and observable: the renderer never became ready, so the
         // frame is dropped rather than retried forever.
         state.flushRecoveryRetryCount = 0
+        state.flushRecoveryGeneration = nil
         state.flushRecoveryFailureCount &+= 1
         return .handled
       }
