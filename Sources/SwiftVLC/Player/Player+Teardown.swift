@@ -33,7 +33,10 @@ extension Player {
   /// to completion so no caller is ever told the outputs are free while
   /// they are still live.
   ///
-  /// - Returns: Whether the native outputs are known to have been released.
+  /// - Returns: Why the wait ended. Only ``PlayerStopOutcome/stopped``
+  ///   establishes that the outputs were released; test it directly or
+  ///   through ``PlayerStopOutcome/isOutputSafe`` rather than treating a
+  ///   returned value as a success flag.
   @discardableResult
   public func stopAndWait() async -> PlayerStopOutcome {
     // Concurrent callers join one in-flight stop and all observe the same

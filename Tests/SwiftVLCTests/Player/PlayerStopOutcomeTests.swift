@@ -58,7 +58,12 @@ extension Integration {
         }
         return false
       }
-      _ = await sawError.value
+      // Asserted, not discarded: if the error is never observed the player
+      // took some other path and the invariant below would pass vacuously.
+      try #require(
+        await sawError.value,
+        "the unopenable media never reported an error, so the post-error path was not exercised"
+      )
 
       let outcome = await player.stopAndWait()
 
