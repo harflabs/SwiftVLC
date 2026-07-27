@@ -488,6 +488,12 @@ public final class Player {
   /// observe the same outcome. Cleared on completion — unlike shutdown, a
   /// stop is repeatable, so a later call must start a fresh wait.
   var stopAndWaitTask: Task<PlayerStopOutcome, Never>?
+  /// Bumped whenever the session a ``recast(to:)`` is restoring is taken over
+  /// — by another recast or by a media load. An in-flight recast compares this
+  /// after every suspension and stops mutating once it no longer owns the
+  /// session, rather than reapplying stale tracks or transport state to
+  /// someone else's media.
+  var sessionGeneration: UInt64 = 0
   let instance: VLCInstance
 
   // MARK: - Lifecycle
@@ -580,6 +586,8 @@ public final class Player {
     // retiring handle's inert replacement and publish a `currentMedia` the
     // player can never play.
     guard !isShutdown else { return }
+    // Any recast still restoring the outgoing session no longer owns it.
+    sessionGeneration &+= 1
     currentMedia = media
     resetMediaDerivedState()
     // No `markLibraryStop()` here: setting media on a *started* handle
@@ -622,6 +630,9 @@ public final class Player {
         media: media,
         resumeBeforeRelease: resumeBeforeRelease
       )
+      // Same supersession bump as `load(_:)`: this branch replaces the media
+      // without going through it.
+      sessionGeneration &+= 1
       currentMedia = media
       // No `notifyMediaDependentObservables()` here: the swap already issued
       // it, and the keypaths it refreshes read from the native handle rather

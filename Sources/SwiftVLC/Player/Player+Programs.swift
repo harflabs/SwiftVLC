@@ -106,10 +106,11 @@ extension Player {
   ///   ``setRenderer(_:)`` throws on the never-played path. A session
   ///   that starts and *then* fails asynchronously surfaces through
   ///   ``PlayerEvent/encounteredError-enum.case``, not a throw.
-  public func recast(to renderer: RendererItem?) async throws(VLCError) {
+  @discardableResult
+  public func recast(to renderer: RendererItem?) async throws(VLCError) -> RecastOutcome {
     guard nativePlayerHasStartedPlayback || state.isActive else {
       try setRenderer(renderer)
-      return
+      return .settled
     }
 
     let resumeTime = currentTime
@@ -141,14 +142,80 @@ extension Player {
       throw error
     }
 
-    await Self.awaitPlaying(on: transitions)
-    if resumeTime > .zero, await awaitSeekability() {
-      try? seek(to: resumeTime)
+    // From here the renderer change has committed and the old session is
+    // gone, so every remaining step is restoration. Each suspension is a
+    // point where the caller can be cancelled or another operation can take
+    // over, and past that point this recast must stop mutating the session.
+    sessionGeneration &+= 1
+    let generation = sessionGeneration
+
+    switch await Self.awaitPlaying(on: transitions) {
+    case .playing:
+      break
+    case .failed:
+      return .failed
+    case .timedOut:
+      return .timedOut
+    case .cancelled:
+      return .cancelled
     }
-    await restoreTrackSelection(audio: priorAudio, subtitle: priorSubtitle)
+    guard generation == sessionGeneration else { return .superseded }
+
+    if resumeTime > .zero {
+      switch await awaitSeekability() {
+      case .ready:
+        guard generation == sessionGeneration else { return .superseded }
+        try? seek(to: resumeTime)
+      case .notReady:
+        break
+      case .cancelled:
+        return .cancelled
+      }
+    }
+    guard generation == sessionGeneration else { return .superseded }
+
+    if
+      await restoreTrackSelection(
+        audio: priorAudio,
+        subtitle: priorSubtitle,
+        generation: generation
+      ) == .cancelled {
+      return .cancelled
+    }
+    guard generation == sessionGeneration else { return .superseded }
+
     if !wasPlaying {
       pause()
+      // The caller asked for a paused recast, so returning before the pause
+      // is acknowledged would report a settled session that is still playing.
+      switch await awaitPaused() {
+      case .ready:
+        break
+      case .notReady:
+        return .timedOut
+      case .cancelled:
+        return .cancelled
+      }
+      guard generation == sessionGeneration else { return .superseded }
     }
+    return .settled
+  }
+
+  /// Why a bounded wait ended. Separate from ``RecastOutcome`` because a
+  /// condition that never becomes true is not always fatal to the recast —
+  /// an unseekable session still settles, it just keeps its position.
+  enum RecastWaitResult {
+    case ready
+    case notReady
+    case cancelled
+  }
+
+  /// Why the wait for the replacement session's first playback ended.
+  enum RecastPlaybackResult {
+    case playing
+    case failed
+    case timedOut
+    case cancelled
   }
 
   /// Reapplies the audio and subtitle selection a prior session carried.
@@ -159,18 +226,26 @@ extension Player {
   /// only reapplied when it differs from what is already selected. Tracks
   /// arrive after the session reaches `.playing` (adaptive renditions parse
   /// late), so this waits briefly for the lists to populate.
-  private func restoreTrackSelection(audio: Track?, subtitle: Track?) async {
-    guard audio != nil || subtitle != nil else { return }
+  private func restoreTrackSelection(
+    audio: Track?,
+    subtitle: Track?,
+    generation: UInt64
+  )
+    async -> RecastWaitResult {
+    guard audio != nil || subtitle != nil else { return .ready }
 
-    let deadline = ContinuousClock.now + .seconds(3)
-    while ContinuousClock.now < deadline {
-      let audioReady = audio == nil || !audioTracks.isEmpty
-      let subtitleReady = subtitle == nil || !subtitleTracks.isEmpty
-      if audioReady && subtitleReady {
-        break
-      }
-      try? await Task.sleep(for: .milliseconds(50))
+    let waited = await awaitCondition(timeout: .seconds(3)) {
+      let audioReady = audio == nil || !self.audioTracks.isEmpty
+      let subtitleReady = subtitle == nil || !self.subtitleTracks.isEmpty
+      return audioReady && subtitleReady
     }
+    if waited == .cancelled {
+      return .cancelled
+    }
+    // The lists can still be empty on a timeout; selection below is a no-op
+    // then. What must not happen is applying them to a session this recast no
+    // longer owns.
+    guard generation == sessionGeneration else { return .ready }
 
     if
       let audio, let match = Self.matchingTrack(for: audio, in: audioTracks),
@@ -182,6 +257,7 @@ extension Player {
       match.id != selectedSubtitleTrack?.id {
       selectedSubtitleTrack = match
     }
+    return .ready
   }
 
   /// Finds the track in `candidates` that best corresponds to `track` from a
@@ -201,32 +277,83 @@ extension Player {
     return candidates.first { $0.name == track.name }
   }
 
-  private static func awaitPlaying(on transitions: AsyncStream<PlayerState>) async {
-    await withTaskGroup(of: Void.self) { group in
+  /// - Parameter timeout: The defensive ceiling. Injectable so the outcome
+  ///   mapping is testable against a synthetic transition stream; CI cannot
+  ///   drive a real session to `.playing` (see `TestCondition.canPlayMedia`).
+  static func awaitPlaying(
+    on transitions: AsyncStream<PlayerState>,
+    timeout: Duration = .seconds(10)
+  )
+    async -> RecastPlaybackResult {
+    await withTaskGroup(of: RecastPlaybackResult?.self) { group in
       group.addTask {
-        for await state in transitions where state == .playing || state == .error {
-          break
+        for await state in transitions {
+          // `.error` is reported rather than silently treated as arrival:
+          // the caller needs to know the replacement session failed, not
+          // that it is playing.
+          if state == .playing {
+            return .playing
+          }
+          if state == .error {
+            return .failed
+          }
+        }
+        return nil
+      }
+      group.addTask {
+        do {
+          try await Task.sleep(for: timeout)
+          return .timedOut
+        } catch {
+          // `Task.sleep` throws only on cancellation. The previous `try?`
+          // collapsed this into the timeout path, so a cancelled caller was
+          // told the same thing as one that waited the full ceiling.
+          return .cancelled
         }
       }
-      group.addTask {
-        // Defensive ceiling so a session that never reaches `.playing`
-        // cannot hang the caller.
-        try? await Task.sleep(for: .seconds(10))
+      let result: RecastPlaybackResult = switch await group.next() {
+      case .some(.some(let first)):
+        first
+      default:
+        // The transition stream ended without ever reporting playback.
+        Task.isCancelled ? .cancelled : .timedOut
       }
-      await group.next()
       group.cancelAll()
+      return result
     }
   }
 
-  private func awaitSeekability() async -> Bool {
-    let deadline = ContinuousClock.now + .seconds(2)
-    while !isSeekable {
+  private func awaitSeekability() async -> RecastWaitResult {
+    await awaitCondition(timeout: .seconds(2)) { self.isSeekable }
+  }
+
+  private func awaitPaused() async -> RecastWaitResult {
+    await awaitCondition(timeout: .seconds(3)) { self.state == .paused }
+  }
+
+  /// Polls `condition` until it holds, the deadline passes, or the task is
+  /// cancelled.
+  ///
+  /// Cancellation is reported rather than swallowed: the old `try?` kept
+  /// polling and then let the caller mutate track selection and transport
+  /// state after the caller had already given up.
+  private func awaitCondition(
+    timeout: Duration,
+    until condition: @MainActor () -> Bool
+  )
+    async -> RecastWaitResult {
+    let deadline = ContinuousClock.now + timeout
+    while !condition() {
       if ContinuousClock.now >= deadline {
-        return false
+        return .notReady
       }
-      try? await Task.sleep(for: .milliseconds(50))
+      do {
+        try await Task.sleep(for: .milliseconds(50))
+      } catch {
+        return .cancelled
+      }
     }
-    return true
+    return .ready
   }
 
   // MARK: - Deinterlacing
