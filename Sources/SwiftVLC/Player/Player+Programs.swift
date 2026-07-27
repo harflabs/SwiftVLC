@@ -323,11 +323,11 @@ extension Player {
     }
   }
 
-  private func awaitSeekability() async -> RecastWaitResult {
+  func awaitSeekability() async -> RecastWaitResult {
     await awaitCondition(timeout: .seconds(2)) { self.isSeekable }
   }
 
-  private func awaitPaused() async -> RecastWaitResult {
+  func awaitPaused() async -> RecastWaitResult {
     await awaitCondition(timeout: .seconds(3)) { self.state == .paused }
   }
 
@@ -337,7 +337,7 @@ extension Player {
   /// Cancellation is reported rather than swallowed: the old `try?` kept
   /// polling and then let the caller mutate track selection and transport
   /// state after the caller had already given up.
-  private func awaitCondition(
+  func awaitCondition(
     timeout: Duration,
     until condition: @MainActor () -> Bool
   )

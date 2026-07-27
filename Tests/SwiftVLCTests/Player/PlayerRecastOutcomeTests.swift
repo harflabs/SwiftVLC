@@ -130,6 +130,89 @@ extension Integration {
       #expect(outcome == .settled)
     }
 
+    // MARK: - Bounded waits
+
+    /// A condition that already holds returns without suspending.
+    @Test
+    func `An already-true condition is ready immediately`() async {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+
+      let result = await player.awaitCondition(timeout: .seconds(5)) { true }
+
+      #expect(result == .ready)
+    }
+
+    /// A condition that never holds is bounded rather than hanging.
+    @Test
+    func `A condition that never holds reports notReady`() async {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+
+      let result = await player.awaitCondition(timeout: .milliseconds(50)) { false }
+
+      #expect(result == .notReady)
+    }
+
+    /// The core of the cancellation fix: the old `try? await Task.sleep` kept
+    /// polling after cancellation and let the caller go on mutating. The wait
+    /// must report it instead.
+    @Test
+    func `A cancelled wait reports cancelled rather than polling on`() async {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+
+      let waiter = Task { @MainActor in
+        await player.awaitCondition(timeout: .seconds(30)) { false }
+      }
+      waiter.cancel()
+
+      #expect(await waiter.value == .cancelled)
+    }
+
+    /// An unseekable session is bounded, and the recast still settles — it
+    /// just keeps its restart position.
+    @Test
+    func `Seekability wait reports notReady on a non-seekable session`() async {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      player._setStateForTesting(isSeekable: false)
+
+      let result = await player.awaitSeekability()
+
+      #expect(result == .notReady)
+    }
+
+    /// A session already seekable resolves without waiting.
+    @Test
+    func `Seekability wait is ready when the session is seekable`() async {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      player._setStateForTesting(isSeekable: true)
+
+      let result = await player.awaitSeekability()
+
+      #expect(result == .ready)
+    }
+
+    /// A paused recast must confirm the pause before reporting settled.
+    @Test
+    func `Paused wait is ready once the player reports paused`() async {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      player._setStateForTesting(state: .paused)
+
+      let result = await player.awaitPaused()
+
+      #expect(result == .ready)
+    }
+
+    /// A pause that is never acknowledged is bounded, which is what turns
+    /// into a `timedOut` recast rather than a false `settled`.
+    @Test
+    func `Paused wait reports notReady when the pause is never acknowledged`() async {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      player._setStateForTesting(state: .playing)
+
+      let result = await player.awaitPaused()
+
+      #expect(result == .notReady)
+    }
+
     /// Builds a finite stream of states, finishing after the last one.
     private static func stateStream(_ states: [PlayerState]) -> AsyncStream<PlayerState> {
       AsyncStream { continuation in
