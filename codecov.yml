@@ -4,8 +4,12 @@
 # headless macOS CI host (see .github/workflows/test.yml → the `test` job).
 # That environment cannot execute every live C or system-framework boundary,
 # but the state machines around those boundaries are covered through controlled
-# dependencies. Patch coverage therefore remains enforceable without ignoring
-# production files.
+# dependencies, so patch coverage stays enforceable for everything CI can run.
+#
+# The one exception is code that only executes against a live *playing*
+# session, which this CI host cannot produce at all. That is reported rather
+# than enforced, scoped to the specific file, and called out inline below —
+# no production file is excluded from measurement.
 
 coverage:
   status:
@@ -20,12 +24,35 @@ coverage:
 
     # New executable lines must remain well tested. The small gap below 100%
     # accommodates thin live C and system-framework calls that a headless test
-    # process cannot invoke safely; no production paths or files are ignored.
+    # process cannot invoke safely. No production file is *ignored*: everything
+    # is still measured and reported, and everything CI can execute is still
+    # enforced.
     patch:
       default:
         target: 85%
         threshold: 0%
         informational: false
+        paths:
+          - "!Sources/SwiftVLC/Player/Player+Programs.swift"
+
+      # Renderer recasting (`Player/recast(to:)`) only executes against a live
+      # *playing* session, and the CI host cannot reach `.playing` at all:
+      # `TestCondition.canPlayMedia` disables every playback-driving test under
+      # CI because GitHub's macOS runners crash inside the paravirtualised
+      # display driver when libVLC wires up its dummy outputs. The decision
+      # logic in this file is deliberately extracted into pure, injectable
+      # helpers that *are* unit-tested headlessly; what stays uncovered is the
+      # live restoration orchestration, which no CI run can enter.
+      #
+      # Reported but not enforced, so the gap stays visible on every PR instead
+      # of being silently dropped. Re-enforce this the moment CI can drive
+      # playback (see #79 / #97 on the release-qualification side).
+      playback-gated:
+        target: 85%
+        threshold: 0%
+        informational: true
+        paths:
+          - "Sources/SwiftVLC/Player/Player+Programs.swift"
 
 # Belt-and-suspenders: the LCOV export (scripts/export-lcov.sh) already strips
 # Tests/ and .build/, and the Showcase apps build from a separate Xcode project
