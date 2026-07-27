@@ -9,11 +9,26 @@
 /// over. Returning `Void` made all of those indistinguishable from a clean
 /// hand-off.
 ///
-/// Only ``settled`` means the replacement session is playing and every piece
-/// of carried-over state was reapplied.
+/// Only ``settled`` means the recast ran to completion. It does not promise
+/// that every piece of carried-over state was reapplied — restoration is
+/// best-effort by design, and the cases where it is skipped are documented on
+/// ``settled`` and on ``Player/recast(to:)``.
 public enum RecastOutcome: Sendable, Equatable {
-  /// The replacement session reached playback and the prior position, track
-  /// selection and paused state were restored.
+  /// The recast completed: the renderer change is in effect, and where a
+  /// session existed it reached playback and its paused state was honoured.
+  ///
+  /// Position and track restoration are **best-effort**, so this is also
+  /// returned when they could not be applied:
+  ///
+  /// - A player that had never started playback is a plain renderer change
+  ///   with no session to rebuild, so nothing needs restoring.
+  /// - A session that never reports seekability — live streams never do —
+  ///   keeps its restart position instead of resuming the prior one.
+  /// - Tracks that never appear stay at the new session's defaults; ids are
+  ///   session-scoped and the match is by language then name.
+  ///
+  /// What ``settled`` does rule out is the session having failed, never
+  /// arrived, been abandoned, or been taken over.
   case settled
 
   /// The replacement session reported a native error instead of settling.
@@ -34,11 +49,11 @@ public enum RecastOutcome: Sendable, Equatable {
   /// stopped touching it.
   case superseded
 
-  /// Whether the replacement session is playing with all carried-over state
-  /// reapplied.
+  /// Whether the recast ran to completion.
   ///
-  /// `true` only for ``settled``. Prefer this to comparing against individual
-  /// failure cases so a future outcome cannot silently read as success.
+  /// `true` only for ``settled`` — see that case for what completion does and
+  /// does not guarantee. Prefer this to comparing against individual failure
+  /// cases so a future outcome cannot silently read as success.
   public var isSettled: Bool {
     self == .settled
   }
