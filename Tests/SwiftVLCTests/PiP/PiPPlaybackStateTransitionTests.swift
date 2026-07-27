@@ -318,6 +318,40 @@ import Testing
     #expect(!state.isSeekable)
   }
 
+  /// Known-failing: the unresolved half of #75.
+  ///
+  /// Convergence reads `Player`'s polled mirror, but that mirror is only
+  /// reset when `Player`'s own consumer processes `.mediaChanged` — and the
+  /// two consumers have deliberately unspecified relative ordering. A state
+  /// transition arriving in that window resurrects the previous media's
+  /// capability, which is exactly what
+  /// `media reset survives following events while player mirrors are stale`
+  /// guards against for `.timeChanged`.
+  ///
+  /// Reconciling and ignoring the mirror are both correct requirements that
+  /// cannot be satisfied together from the mirror alone. Resolving it needs
+  /// the media-generation-scoped snapshot the issue asks for, so that a
+  /// capability value can be attributed to a generation instead of inferred
+  /// from arrival order.
+  @Test(.disabled("Needs generation-scoped capability; see #75"))
+  func `A stale mirror must not resurrect capability on a state transition`() {
+    var state = PiPController.PlaybackStateObservationState(
+      duration: .seconds(120),
+      isSeekable: true
+    )
+    _ = state.consume(.mediaChanged, observedDuration: .seconds(120), observedIsSeekable: true)
+
+    let whileStale = state.consume(
+      .stateChanged(.opening),
+      observedDuration: .seconds(120),
+      observedIsSeekable: true
+    )
+
+    #expect(whileStale.requiresLinearPlayback == nil)
+    #expect(state.durationMilliseconds == nil)
+    #expect(!state.isSeekable)
+  }
+
   private func assertEffects(
     of update: PiPController.PlaybackStateUpdate,
     expectedLinearPlayback: Bool?
