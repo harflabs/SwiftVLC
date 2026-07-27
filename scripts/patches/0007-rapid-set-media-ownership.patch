@@ -177,7 +177,7 @@ index dda43ec78b8..583118ac8b9 100644
      VLC_FORWARD_DECLARE_OBJECT(libvlc_media_list_t*) p_subitems; /* A media descriptor can have Sub items. This is the only dependency we really have on media_list */
      void *p_user_data;
 diff --git a/lib/media_player.c b/lib/media_player.c
-index 2fe615d2e49..52afccd9200 100644
+index 2fe615d2e49..d92fc99c848 100644
 --- a/lib/media_player.c
 +++ b/lib/media_player.c
 @@ -235,13 +235,12 @@ on_position_changed(vlc_player_t *player, vlc_tick_t new_time, double new_pos,
@@ -304,7 +304,7 @@ index 2fe615d2e49..52afccd9200 100644
      vlc_player_SetCurrentMedia(p_mi->player, p_md ? p_md->p_input_item : NULL);
  
      vlc_player_Unlock(p_mi->player);
-@@ -957,12 +953,12 @@ void libvlc_media_player_set_media(
+@@ -957,12 +953,16 @@ void libvlc_media_player_set_media(
  libvlc_media_t *
  libvlc_media_player_get_media( libvlc_media_player_t *p_mi )
  {
@@ -316,22 +316,28 @@ index 2fe615d2e49..52afccd9200 100644
 -        libvlc_media_retain( p_m );
 +
 +    input_item_t *item = vlc_player_GetCurrentMedia(p_mi->player);
-+    libvlc_media_t *p_m = item != NULL
-+        ? input_item_Hold(item)->libvlc_owner : NULL;
++    /* Take the reference only when there is an owner to hand back. The
++     * caller balances it through libvlc_media_release(); holding the item
++     * while returning NULL would leak it. */
++    libvlc_media_t *p_m = item != NULL ? item->libvlc_owner : NULL;
++    if (p_m != NULL)
++        input_item_Hold(item);
 +
      vlc_player_Unlock(p_mi->player);
  
      return p_m;
-@@ -984,9 +980,9 @@ swiftvlc_libvlc_media_player_get_media_length_snapshot(
+@@ -984,9 +984,12 @@ swiftvlc_libvlc_media_player_get_media_length_snapshot(
      vlc_player_t *player = p_mi->player;
      vlc_player_Lock(player);
  
 -    libvlc_media_t *media = p_mi->p_md;
--    if (media != NULL)
--        libvlc_media_retain(media);
 +    input_item_t *item = vlc_player_GetCurrentMedia(player);
-+    libvlc_media_t *media = item != NULL
-+        ? input_item_Hold(item)->libvlc_owner : NULL;
++    /* See libvlc_media_player_get_media(): only hold the item when an owner
++     * is actually returned, otherwise the reference is never released. */
++    libvlc_media_t *media = item != NULL ? item->libvlc_owner : NULL;
+     if (media != NULL)
+-        libvlc_media_retain(media);
++        input_item_Hold(item);
  
      snapshot->media = media;
      snapshot->length = media != NULL

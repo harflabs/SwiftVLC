@@ -31,7 +31,9 @@ func awaitNativeMediaSwitch(
     }
     defer { libvlc_media_release(current) }
     guard let raw = libvlc_media_get_mrl(current) else { return false }
-    defer { free(raw) }
+    // libVLC allocates this string; release it through libvlc_free, as
+    // Media.mrl does, rather than assuming a shared allocator.
+    defer { libvlc_free(raw) }
     return String(cString: raw) == expected
   }
   #expect(

@@ -435,7 +435,7 @@ extension Integration {
       // Clearing the media is queued behind the outgoing input's teardown, so
       // the native player can still report the previous media for a moment
       // (see libvlc_media_player_get_media()). Wait for the switch to land.
-      _ = try await poll(every: .milliseconds(10), timeout: .seconds(3)) {
+      let cleared = try await poll(every: .milliseconds(10), timeout: .seconds(3)) {
         // get_media() returns a retained reference; release it every probe.
         guard let current = libvlc_media_player_get_media(player.pointer) else {
           return true
@@ -443,6 +443,7 @@ extension Integration {
         libvlc_media_release(current)
         return false
       }
+      #expect(cleared, "native player never dropped its current media")
 
       player.syncCurrentMediaFromNative()
 
