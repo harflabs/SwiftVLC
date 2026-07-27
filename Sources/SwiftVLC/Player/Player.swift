@@ -659,10 +659,7 @@ public final class Player {
     didReachEnd = false
     if libvlc_media_player_play(pointer) == -1 {
       publishPlaybackIntent(false)
-      let resolved = Self.stateAfterRejectedStart(previous: state)
-      if resolved != state {
-        publishPlaybackState(resolved)
-      }
+      publishPlaybackState(Self.stateAfterRejectedStart(previous: state))
       let reason = libvlc_errmsg().map { String(cString: $0) } ?? "unknown"
       throw .playbackFailed(reason: reason)
     }
