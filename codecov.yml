@@ -32,7 +32,11 @@ coverage:
         target: 85%
         threshold: 0%
         informational: false
+        # An inclusive pattern is required before the exclusion: a
+        # negation-only list leaves the include set empty and Codecov falls
+        # back to matching everything, which silently re-enrols the file below.
         paths:
+          - "Sources/"
           - "!Sources/SwiftVLC/Player/Player+Programs.swift"
 
       # Renderer recasting (`Player/recast(to:)`) only executes against a live
