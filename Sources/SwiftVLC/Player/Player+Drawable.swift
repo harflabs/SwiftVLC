@@ -231,8 +231,21 @@ extension Player {
   }
   #endif
 
+  /// Swaps in a fresh native handle, carrying the current per-player state
+  /// across.
+  ///
+  /// Atomic on failure: the only throwing step happens before anything on
+  /// `self` is mutated, so a rejected renderer leaves the outgoing handle
+  /// playing and every Swift-side field untouched.
+  ///
+  /// - Parameter media: The media to install on the new handle. Pass this
+  ///   explicitly when replacing *as part of* loading new media, so the
+  ///   caller can publish `currentMedia` only after the swap succeeds and a
+  ///   failure cannot leave public state describing media the player is not
+  ///   playing. Defaults to the already-published ``currentMedia``.
   func replaceNativePlayerForDrawablePlayback(
     target: AnyObject?,
+    media: Media? = nil,
     resumeBeforeRelease: Bool = false
   )
     throws(VLCError) {
@@ -262,8 +275,8 @@ extension Player {
       retainedDrawables.append(target)
     }
 
-    if let currentMedia {
-      libvlc_media_player_set_media(newPointer, currentMedia.pointer)
+    if let incoming = media ?? currentMedia {
+      libvlc_media_player_set_media(newPointer, incoming.pointer)
     }
     guard libvlc_media_player_set_renderer(newPointer, selectedRenderer?.pointer) == 0 else {
       libvlc_media_player_release(newPointer)

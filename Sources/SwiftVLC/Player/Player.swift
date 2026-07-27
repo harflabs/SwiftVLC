@@ -613,12 +613,18 @@ public final class Player {
     }
     if shouldReplaceNativePlayerBeforePlaybackLoad {
       let resumeBeforeRelease = shouldResumeNativePlayerBeforeStop
-      currentMedia = media
-      resetMediaDerivedState()
+      // Nothing is published until the native swap succeeds. Committing
+      // `currentMedia` first meant a rejected renderer left every public
+      // field describing the incoming media while the outgoing handle was
+      // still playing the previous one.
       try replaceNativePlayerForDrawablePlayback(
         target: drawable,
+        media: media,
         resumeBeforeRelease: resumeBeforeRelease
       )
+      currentMedia = media
+      resetMediaDerivedState()
+      notifyMediaDependentObservables()
     } else {
       load(media)
     }
@@ -651,11 +657,31 @@ public final class Player {
     didReachEnd = false
     if libvlc_media_player_play(pointer) == -1 {
       publishPlaybackIntent(false)
+      let resolved = Self.stateAfterRejectedStart(previous: state)
+      if resolved != state {
+        publishPlaybackState(resolved)
+      }
       let reason = libvlc_errmsg().map { String(cString: $0) } ?? "unknown"
       throw .playbackFailed(reason: reason)
     }
     nativePlayerHasStartedPlayback = true
     publishPlaybackIntent(true)
+  }
+
+  /// The lifecycle state to publish when libVLC refuses to start.
+  ///
+  /// No session exists for the current media, so an *active* state can only
+  /// have been inherited from the previous one. Leaving it would describe
+  /// that previous session while every other public field already describes
+  /// the current media — the mixed identity a rejected start has to avoid —
+  /// so it is replaced with one terminal outcome. A state that is already
+  /// non-active is left alone: there is no stale session to displace, and
+  /// inventing a failure the caller never had would be its own lie.
+  ///
+  /// Pure so the rule is testable: `libvlc_media_player_play` returning `-1`
+  /// is not something a test can force, including on an empty player.
+  nonisolated static func stateAfterRejectedStart(previous: PlayerState) -> PlayerState {
+    previous.isActive ? .error : previous
   }
 
   /// Pauses playback.
