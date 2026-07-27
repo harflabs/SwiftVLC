@@ -67,16 +67,23 @@ final class PixelBufferRenderer: Sendable {
   let enqueueState = Mutex(PixelBufferEnqueueState())
   let displayLayerAPI: PixelBufferDisplayLayerAPI
 
+  /// How long to wait before re-offering a frame the renderer was not ready
+  /// for after a flush. Injectable so recovery tests do not sleep a real
+  /// frame interval.
+  let flushRecoveryRetryDelay: DispatchTimeInterval
+
   init(
     displayLayer: AVSampleBufferDisplayLayer? = nil,
     enqueueQueue: DispatchQueue? = nil,
-    displayLayerAPI: PixelBufferDisplayLayerAPI = .live
+    displayLayerAPI: PixelBufferDisplayLayerAPI = .live,
+    flushRecoveryRetryDelay: DispatchTimeInterval = .milliseconds(16)
   ) {
     state = Mutex(State(displayLayer: displayLayer))
     self.enqueueQueue = enqueueQueue ?? DispatchQueue(
       label: "org.swiftvlc.pixel-buffer-renderer.enqueue"
     )
     self.displayLayerAPI = displayLayerAPI
+    self.flushRecoveryRetryDelay = flushRecoveryRetryDelay
   }
 
   func setDisplayLayer(_ layer: AVSampleBufferDisplayLayer?) {

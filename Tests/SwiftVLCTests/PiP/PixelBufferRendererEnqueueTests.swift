@@ -252,6 +252,128 @@ extension Integration {
       #expect(!renderer.enqueueSnapshotForTesting.isDrainScheduled)
     }
 
+    /// The bug this issue is about: a flush leaves the renderer briefly not
+    /// ready, and the frame that triggered the flush used to be dropped. A
+    /// paused seek, a final frame or a foreground repaint has no successor,
+    /// so nothing ever repaints and PiP stays black with audio still running.
+    /// The frame must be retained and delivered when readiness returns —
+    /// *without* another frame being supplied.
+    @Test
+    func `A flush-triggering frame is retained and delivered without a successor`() throws {
+      let queue = DispatchQueue(label: "org.swiftvlc.tests.enqueue-flush-retain")
+      let layer = AVSampleBufferDisplayLayer()
+      let probe = DisplayLayerProbe(requiresFlush: true, isReady: false)
+      let renderer = PixelBufferRenderer(
+        displayLayer: layer,
+        enqueueQueue: queue,
+        displayLayerAPI: probe.api,
+        flushRecoveryRetryDelay: .milliseconds(1)
+      )
+      let generation = renderer.state.withLock { $0.renderGeneration }
+
+      _ = try submitFrame(index: 11, renderer: renderer, generation: generation, layer: layer)
+      #expect(probe.waitForReadinessCheck() == .success)
+
+      // Readiness returns on its own; no further frame is submitted.
+      probe.setReady(true)
+
+      #expect(probe.waitForDelivery() == .success)
+      #expect(waitUntilIdle(queue) == .success)
+      expectNoDifference(probe.snapshot.enqueuedPresentationValues, [11])
+      #expect(renderer.enqueueSnapshotForTesting.flushRecoveryFailureCount == 0)
+    }
+
+    /// Recovery is bounded: a renderer that never becomes ready must give up
+    /// and say so, rather than re-offering the same frame forever.
+    @Test
+    func `Flush recovery gives up explicitly when readiness never returns`() throws {
+      let queue = DispatchQueue(label: "org.swiftvlc.tests.enqueue-flush-giveup")
+      let layer = AVSampleBufferDisplayLayer()
+      let probe = DisplayLayerProbe(requiresFlush: true, isReady: false)
+      let renderer = PixelBufferRenderer(
+        displayLayer: layer,
+        enqueueQueue: queue,
+        displayLayerAPI: probe.api,
+        flushRecoveryRetryDelay: .milliseconds(1)
+      )
+      let generation = renderer.state.withLock { $0.renderGeneration }
+
+      _ = try submitFrame(index: 12, renderer: renderer, generation: generation, layer: layer)
+
+      let deadline = ContinuousClock.now + .seconds(5)
+      while renderer.enqueueSnapshotForTesting.flushRecoveryFailureCount == 0 {
+        if ContinuousClock.now >= deadline {
+          Issue.record("flush recovery never terminated")
+          break
+        }
+        _ = waitUntilIdle(queue)
+      }
+
+      #expect(waitUntilIdle(queue) == .success)
+      let snapshot = renderer.enqueueSnapshotForTesting
+      #expect(snapshot.flushRecoveryFailureCount == 1)
+      #expect(snapshot.pendingCount == 0, "the frame was left stranded in the slot")
+      #expect(!snapshot.isDrainScheduled, "the drain gate was left owned after giving up")
+      expectNoDifference(probe.snapshot.enqueuedPresentationValues, [])
+    }
+
+    /// A newer frame supersedes one being retried — the freshest content
+    /// wins, which is what keeps live playback behaving as before.
+    @Test
+    func `A newer frame supersedes one awaiting flush recovery`() throws {
+      let queue = DispatchQueue(label: "org.swiftvlc.tests.enqueue-flush-supersede")
+      let layer = AVSampleBufferDisplayLayer()
+      let probe = DisplayLayerProbe(requiresFlush: true, isReady: false)
+      let renderer = PixelBufferRenderer(
+        displayLayer: layer,
+        enqueueQueue: queue,
+        displayLayerAPI: probe.api,
+        flushRecoveryRetryDelay: .milliseconds(5)
+      )
+      let generation = renderer.state.withLock { $0.renderGeneration }
+
+      _ = try submitFrame(index: 20, renderer: renderer, generation: generation, layer: layer)
+      #expect(probe.waitForReadinessCheck() == .success)
+
+      _ = try submitFrame(index: 21, renderer: renderer, generation: generation, layer: layer)
+      probe.setReady(true)
+
+      #expect(probe.waitForDelivery() == .success)
+      #expect(waitUntilIdle(queue) == .success)
+      expectNoDifference(probe.snapshot.enqueuedPresentationValues, [21])
+    }
+
+    /// A frame retained across a flush must not survive a generation bump:
+    /// replacing the media or the vout invalidates it, and displaying it
+    /// afterwards would show the previous media.
+    @Test
+    func `A retained frame is discarded when the generation moves on`() throws {
+      let queue = DispatchQueue(label: "org.swiftvlc.tests.enqueue-flush-generation")
+      let layer = AVSampleBufferDisplayLayer()
+      let probe = DisplayLayerProbe(requiresFlush: true, isReady: false)
+      let renderer = PixelBufferRenderer(
+        displayLayer: layer,
+        enqueueQueue: queue,
+        displayLayerAPI: probe.api,
+        flushRecoveryRetryDelay: .milliseconds(5)
+      )
+      let generation = renderer.state.withLock { $0.renderGeneration }
+
+      _ = try submitFrame(index: 30, renderer: renderer, generation: generation, layer: layer)
+      #expect(probe.waitForReadinessCheck() == .success)
+
+      // The media/vout moves on while the frame is awaiting recovery.
+      renderer.state.withLock { $0.advanceRenderGeneration() }
+      probe.setReady(true)
+
+      #expect(waitUntilIdle(queue) == .success)
+      expectNoDifference(
+        probe.snapshot.enqueuedPresentationValues,
+        [],
+        "a stale-generation frame reached the display after replacement"
+      )
+    }
+
     private func submitFrame(
       index: Int,
       renderer: PixelBufferRenderer,
