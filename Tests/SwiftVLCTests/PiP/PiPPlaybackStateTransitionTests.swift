@@ -167,6 +167,157 @@ import Testing
     #expect(releaseCount == 1)
   }
 
+  // MARK: - Capability convergence without raw change events
+
+  /// The regression this issue is about. libVLC does not reliably emit
+  /// `MediaPlayerSeekableChanged`, so `Player` repairs seekability by polling
+  /// on every state transition. Reacting only to the raw event left PiP pinned
+  /// to the conservative media-changed reset — linear playback, no skip
+  /// controls — for finite seekable VOD.
+  @Test
+  func `Finite seekable VOD converges to non-linear without a seekable event`() {
+    var state = PiPController.PlaybackStateObservationState(
+      duration: nil,
+      isSeekable: false
+    )
+    _ = state.consume(.mediaChanged, observedDuration: nil, observedIsSeekable: false)
+
+    // No `.seekableChanged` or `.lengthChanged` — only the polled values that
+    // `Player` repaired, delivered alongside a state transition.
+    let update = state.consume(
+      .stateChanged(.playing),
+      observedDuration: .seconds(600),
+      observedIsSeekable: true
+    )
+
+    #expect(update.requiresLinearPlayback == false, "PiP stayed linear for seekable VOD")
+    #expect(update.invalidatesPlaybackState)
+    assertEffects(of: update, expectedLinearPlayback: false)
+  }
+
+  /// Unseekable live media must stay linear: convergence must not invent
+  /// capability the media does not have.
+  @Test
+  func `Unseekable live media stays linear across state transitions`() {
+    var state = PiPController.PlaybackStateObservationState(
+      duration: nil,
+      isSeekable: false
+    )
+    _ = state.consume(.mediaChanged, observedDuration: nil, observedIsSeekable: false)
+
+    let update = state.consume(
+      .stateChanged(.playing),
+      observedDuration: nil,
+      observedIsSeekable: false
+    )
+
+    #expect(update.requiresLinearPlayback == nil, "linear playback was re-published unnecessarily")
+    assertEffects(of: update, expectedLinearPlayback: nil)
+  }
+
+  /// VOD → live: capability has to converge downwards too, not just upwards.
+  @Test
+  func `A transition from seekable to unseekable converges back to linear`() {
+    var state = PiPController.PlaybackStateObservationState(
+      duration: .seconds(600),
+      isSeekable: true
+    )
+
+    let update = state.consume(
+      .stateChanged(.playing),
+      observedDuration: nil,
+      observedIsSeekable: false
+    )
+
+    #expect(update.requiresLinearPlayback == true)
+    assertEffects(of: update, expectedLinearPlayback: true)
+  }
+
+  /// A converged snapshot must not re-publish on every subsequent transition,
+  /// which would churn AVKit's controls during normal playback.
+  @Test
+  func `An already-converged snapshot does not republish capability`() {
+    var state = PiPController.PlaybackStateObservationState(
+      duration: .seconds(600),
+      isSeekable: true
+    )
+
+    let update = state.consume(
+      .stateChanged(.playing),
+      observedDuration: .seconds(600),
+      observedIsSeekable: true
+    )
+
+    #expect(update.requiresLinearPlayback == nil)
+    assertEffects(of: update, expectedLinearPlayback: nil)
+  }
+
+  /// Duration is adopted from polling when it was unknown, so a sliding or
+  /// late-reported length still reaches PiP.
+  @Test
+  func `A polled duration is adopted when no length event arrived`() {
+    var state = PiPController.PlaybackStateObservationState(
+      duration: nil,
+      isSeekable: true
+    )
+
+    let update = state.consume(
+      .stateChanged(.playing),
+      observedDuration: .seconds(300),
+      observedIsSeekable: true
+    )
+
+    #expect(state.durationMilliseconds == Duration.seconds(300).milliseconds)
+    #expect(update.invalidatesPlaybackState)
+  }
+
+  /// A poll that has not yet learned the length must not undo a length event
+  /// that already arrived, or the two sources fight each other.
+  @Test
+  func `A nil polled duration does not clear a known length`() {
+    var state = PiPController.PlaybackStateObservationState(
+      duration: nil,
+      isSeekable: true
+    )
+    _ = state.consume(
+      .lengthChanged(.seconds(420)),
+      observedDuration: nil,
+      observedIsSeekable: true
+    )
+
+    _ = state.consume(
+      .stateChanged(.playing),
+      observedDuration: nil,
+      observedIsSeekable: true
+    )
+
+    #expect(
+      state.durationMilliseconds == Duration.seconds(420).milliseconds,
+      "a polled nil duration erased a length the media had already reported"
+    )
+  }
+
+  /// Media replacement resets conservatively even when the observed values
+  /// still describe the previous media, so a stale capability cannot leak
+  /// across the generation boundary.
+  @Test
+  func `Stale capability from the previous media does not survive replacement`() {
+    var state = PiPController.PlaybackStateObservationState(
+      duration: .seconds(600),
+      isSeekable: true
+    )
+
+    let update = state.consume(
+      .mediaChanged,
+      observedDuration: .seconds(600),
+      observedIsSeekable: true
+    )
+
+    #expect(update.requiresLinearPlayback == true)
+    #expect(state.durationMilliseconds == nil)
+    #expect(!state.isSeekable)
+  }
+
   private func assertEffects(
     of update: PiPController.PlaybackStateUpdate,
     expectedLinearPlayback: Bool?

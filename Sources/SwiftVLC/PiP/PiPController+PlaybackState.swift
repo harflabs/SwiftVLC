@@ -25,8 +25,8 @@ extension PiPController {
 
     mutating func consume(
       _ event: PlayerEvent,
-      observedDuration _: Duration?,
-      observedIsSeekable _: Bool
+      observedDuration: Duration?,
+      observedIsSeekable: Bool
     ) -> PlaybackStateUpdate {
       switch event {
       case .mediaChanged:
@@ -55,11 +55,53 @@ extension PiPController {
         // State transitions are the only payload-free fallback that can
         // affect availability. Invalidate so AVKit re-queries the retained
         // native media snapshot instead of copying a potentially stale mirror.
-        return PlaybackStateUpdate(invalidatesPlaybackState: true)
+        //
+        // They are also where capability convergence happens. libVLC does not
+        // reliably emit `MediaPlayerSeekableChanged` or `LengthChanged`, so
+        // `Player` repairs both by polling on every state transition. Reacting
+        // only to the raw events left PiP pinned to the conservative
+        // media-changed reset — linear playback with no skip controls — for
+        // finite, seekable VOD. Reconcile from the repaired values here.
+        return reconcile(
+          observedDuration: observedDuration,
+          observedIsSeekable: observedIsSeekable,
+          invalidates: true
+        )
 
       default:
         return PlaybackStateUpdate()
       }
+    }
+
+    /// Folds `Player`'s polled capability values into this snapshot.
+    ///
+    /// Only adopts them when they actually differ, so a converged snapshot
+    /// does not re-publish `requiresLinearPlayback` on every state
+    /// transition. Duration is only *adopted*, never cleared: a poll that has
+    /// not yet learned the length must not undo a length event that already
+    /// arrived, otherwise the two sources fight each other.
+    private mutating func reconcile(
+      observedDuration: Duration?,
+      observedIsSeekable: Bool,
+      invalidates: Bool
+    )
+      -> PlaybackStateUpdate {
+      var update = PlaybackStateUpdate(invalidatesPlaybackState: invalidates)
+
+      if
+        let observedMilliseconds = observedDuration?.milliseconds,
+        observedMilliseconds != durationMilliseconds {
+        durationMilliseconds = observedMilliseconds
+        update.invalidatesPlaybackState = true
+      }
+
+      if observedIsSeekable != isSeekable {
+        isSeekable = observedIsSeekable
+        update.requiresLinearPlayback = !observedIsSeekable
+        update.invalidatesPlaybackState = true
+      }
+
+      return update
     }
   }
 
