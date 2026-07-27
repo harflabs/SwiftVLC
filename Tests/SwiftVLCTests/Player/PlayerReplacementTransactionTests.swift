@@ -25,8 +25,10 @@ extension Integration {
     func `Native replacement does not publish the incoming media`() throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let first = try Media(url: TestMedia.silenceURL)
+      // Reference identity, captured before the `sending` transfer. Comparing
+      // MRLs would pass vacuously if both happened to be nil.
+      let firstIdentity = ObjectIdentifier(first)
       player.load(first)
-      let firstMRL = player.currentMedia?.mrl
 
       let incoming = try Media(url: TestMedia.twosecURL)
       try player.replaceNativePlayerForDrawablePlayback(
@@ -35,7 +37,7 @@ extension Integration {
       )
 
       #expect(
-        player.currentMedia?.mrl == firstMRL,
+        player.currentMedia.map(ObjectIdentifier.init) == firstIdentity,
         "the native swap published currentMedia; the caller can no longer make the commit transactional"
       )
     }
@@ -51,10 +53,10 @@ extension Integration {
       player._setStateForTesting(state: .playing)
 
       let replacement = try Media(url: TestMedia.twosecURL)
-      let replacementMRL = replacement.mrl
+      let replacementIdentity = ObjectIdentifier(replacement)
       try? player.play(replacement)
 
-      #expect(player.currentMedia?.mrl == replacementMRL)
+      #expect(player.currentMedia.map(ObjectIdentifier.init) == replacementIdentity)
       #expect(player.duration == nil, "media-derived state was not reset for the new generation")
       #expect(player.position == 0)
       #expect(player.currentTime == .zero)
@@ -95,6 +97,7 @@ extension Integration {
     func `Public fields never mix generations across a replacement`() throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let first = try Media(url: TestMedia.silenceURL)
+      let firstIdentity = ObjectIdentifier(first)
       player.load(first)
       player._setStateForTesting(
         state: .playing,
@@ -102,20 +105,19 @@ extension Integration {
         duration: .seconds(30),
         position: 0.5
       )
-      let firstMRL = player.currentMedia?.mrl
 
       let replacement = try Media(url: TestMedia.twosecURL)
-      let replacementMRL = replacement.mrl
+      let replacementIdentity = ObjectIdentifier(replacement)
       try? player.play(replacement)
 
-      if player.currentMedia?.mrl == replacementMRL {
+      if player.currentMedia.map(ObjectIdentifier.init) == replacementIdentity {
         // Committed to the new generation: the old timeline must be gone.
         #expect(player.duration == nil)
         #expect(player.currentTime == .zero)
         #expect(player.position == 0)
       } else {
         // Restored: the previous media and its timeline stay intact together.
-        #expect(player.currentMedia?.mrl == firstMRL)
+        #expect(player.currentMedia.map(ObjectIdentifier.init) == firstIdentity)
         #expect(player.duration == .seconds(30))
       }
     }

@@ -623,8 +623,10 @@ public final class Player {
         resumeBeforeRelease: resumeBeforeRelease
       )
       currentMedia = media
+      // No `notifyMediaDependentObservables()` here: the swap already issued
+      // it, and the keypaths it refreshes read from the native handle rather
+      // than from `currentMedia`, so a second pass is pure churn.
       resetMediaDerivedState()
-      notifyMediaDependentObservables()
     } else {
       load(media)
     }
