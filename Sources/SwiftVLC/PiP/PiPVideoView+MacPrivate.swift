@@ -61,19 +61,22 @@ final class MacNativePiPBackend: NSObject, @unchecked Sendable {
     setActive(false)
   }
 
-  func start() {
+  func start() -> PiPStartResult {
     guard mediaController.player?.currentMedia != nil else {
-      return
+      return .noMedia
     }
 
     refreshPossible()
+    guard isPossible else { return .notPossible }
+    // The private PIPViewController is loaded and the views wired up lazily,
+    // so a missing host or drawable is a setup-ordering state distinct from
+    // PiP being unavailable outright.
     guard
-      isPossible,
       let hostView,
       let drawableView,
       let player = mediaController.player
     else {
-      return
+      return .backendUnavailable
     }
 
     let didStart = presenter.start(
@@ -92,9 +95,12 @@ final class MacNativePiPBackend: NSObject, @unchecked Sendable {
       }
     )
 
-    if !didStart {
+    guard didStart else {
+      // The presenter refused, so PiP is not actually available after all.
       setPossible(false)
+      return .notPossible
     }
+    return .accepted
   }
 
   func stop() {

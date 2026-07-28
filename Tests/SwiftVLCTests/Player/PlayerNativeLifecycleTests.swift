@@ -173,7 +173,7 @@ extension Integration {
     /// copied the raw pointer has finished retaining or messaging it. Keep the
     /// outgoing drawable alive until that exact native handle is released.
     @Test
-    func `detaching drawable from a list-owned handle retains it until full native release`() async {
+    func `detaching drawable from a list-owned handle retains it until full native release`() async throws {
       let player = Player(instance: TestInstance.shared)
       let listPlayer = MediaListPlayer(instance: TestInstance.shared)
       listPlayer.mediaPlayer = player
@@ -197,7 +197,19 @@ extension Integration {
       await player.shutdown()
       #expect(lifetime.isReleased)
       #expect(listPlayer.mediaPlayer == nil)
-      #expect(weakDrawable == nil)
+      // Polled rather than asserted outright. What this test guards is that the
+      // drawable is *not retained forever* — the final release can still be
+      // sitting in an autorelease pool when `shutdown()` returns, and on tvOS it
+      // regularly is, which made this the repo's most frequent CI flake.
+      //
+      // This stays discriminating: a genuine over-retain never releases, so the
+      // poll runs to its deadline and fails. It only tolerates the release
+      // landing a moment later than the return, which was never the property
+      // under test.
+      #expect(
+        try await poll(until: { weakDrawable == nil }),
+        "the drawable was still retained after the native handle was released"
+      )
     }
 
     @Test(.timeLimit(.minutes(1)))

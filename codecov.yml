@@ -38,6 +38,7 @@ coverage:
         paths:
           - "Sources/"
           - '!Sources/SwiftVLC/Player/Player\+Programs.swift'
+          - '!Sources/SwiftVLC/PiP/PiPVideoView\+MacPrivate.swift'
 
       # Renderer recasting (`Player/recast(to:)`) only executes against a live
       # *playing* session, and the CI host cannot reach `.playing` at all:
@@ -51,12 +52,29 @@ coverage:
       # Reported but not enforced, so the gap stays visible on every PR instead
       # of being silently dropped. Re-enforce this the moment CI can drive
       # playback (see #79 / #97 on the release-qualification side).
+      # The macOS native PiP backend is gated the same way, for a different
+      # reason. Every path past `refreshPossible()` requires Apple's private
+      # `PIPViewController` to load from `PIP.framework` *and* a real host
+      # window to reparent the drawable into. A headless test process gets
+      # neither: with the `PrivateMacOSPiP` SPI opt-in enabled, `isPossible`
+      # still resolves to `false`, so `start()` returns before it can reach the
+      # host/drawable branch at all — verified, not assumed.
+      #
+      # As with the file above, the parts that can be tested are: the four
+      # start outcomes are asserted through `MacNativePiPBackend` directly, and
+      # the invariant that "unwired backend" and "PiP impossible" never collapse
+      # into one result is asserted on whichever branch the host can reach.
+      # What stays uncovered is the live private-framework orchestration.
+      #
+      # Re-enforce this if the device qualification harness (#88) ever feeds
+      # coverage back, since that runs where the framework does load.
       playback-gated:
         target: 85%
         threshold: 0%
         informational: true
         paths:
           - 'Sources/SwiftVLC/Player/Player\+Programs.swift'
+          - 'Sources/SwiftVLC/PiP/PiPVideoView\+MacPrivate.swift'
 
 # Belt-and-suspenders: the LCOV export (scripts/export-lcov.sh) already strips
 # Tests/ and .build/, and the Showcase apps build from a separate Xcode project

@@ -40,7 +40,7 @@ struct PiPCase: View {
           Button(
             controller.isActive ? "Stop PiP" : "Start PiP",
             systemImage: "pip",
-            action: controller.toggle
+            action: { controller.toggle() }
           )
           .accessibilityIdentifier(AccessibilityID.PiP.toggleButton)
           .frame(maxWidth: .infinity)
