@@ -310,6 +310,9 @@ extension Player {
     // New media, new timeline: clock samples still queued from the previous
     // one describe a media that is no longer loaded and must not be applied.
     acceptedTimelineRevision = eventBridge.advanceTimelineRevision()
+    // New media, new capability generation. Bumped together with the reset so
+    // a reader never sees the new generation alongside the old values.
+    advanceCapabilityGeneration()
     pauseTransition = nil
     deferredPauseCommand = nil
     publishPlaybackIntent(false)

@@ -36,10 +36,14 @@ public final class Player {
   public internal(set) var currentTime: Duration = .zero
 
   /// Total media duration (nil until known).
-  public internal(set) var duration: Duration?
+  public internal(set) var duration: Duration? {
+    didSet { publishCapabilitySnapshot() }
+  }
 
   /// Whether the current media is seekable.
-  public internal(set) var isSeekable: Bool = false
+  public internal(set) var isSeekable: Bool = false {
+    didSet { publishCapabilitySnapshot() }
+  }
 
   /// Whether the current media can be paused.
   public internal(set) var isPausable: Bool = false
@@ -421,6 +425,10 @@ public final class Player {
   /// main actor is what lets a teardown already waiting on them deadlock, so
   /// the value they need is published here and read atomically instead.
   nonisolated let nonisolatedPlaybackIntent = Atomic<Bool>(false)
+  /// Duration and seekability tagged with the media generation they describe,
+  /// for consumers that must not mistake the previous media's capability for
+  /// the current one. See ``PlayerCapabilitySnapshot``.
+  nonisolated let capabilitySnapshot = Mutex(PlayerCapabilitySnapshot())
   var eventTask: Task<Void, Never>?
   var _position: Double = 0
   var _equalizer: Equalizer?

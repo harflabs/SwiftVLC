@@ -772,8 +772,7 @@ public final class PiPController: NSObject {
         let rate = player.rate
         let playbackStateUpdate = playbackStateObservation.consume(
           event,
-          observedDuration: player.duration,
-          observedIsSeekable: player.isSeekable
+          capability: player.capabilitySnapshot.withLock { $0 }
         )
         applyObservedPlaybackStateUpdate(playbackStateUpdate)
 
