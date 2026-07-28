@@ -17,12 +17,15 @@ extension Integration {
       var cancelPendingPauseCount = 0
       var shouldResume = false
       var seekTargets: [Int64] = []
+      /// Models an input libVLC refuses to pause, so the deferred-pause retry
+      /// bound can be exercised.
+      var pauseSucceeds = true
 
       var driver: PiPController.PlaybackDriver {
         .init(
           pause: {
             self.pauseCount += 1
-            return true
+            return self.pauseSucceeds
           },
           resume: {
             self.resumeCount += 1
@@ -35,6 +38,107 @@ extension Integration {
           seek: { self.seekTargets.append($0.milliseconds) }
         )
       }
+    }
+
+    // MARK: - Deferred pause bounding
+
+    /// A permanently unpausable input used to retry every debounce interval
+    /// forever while the published intent already said inactive — paused
+    /// controls over continuing playback. It must settle to a typed rejection
+    /// within a fixed bound and reconcile the intent back to playing.
+    @Test
+    func `A permanently unpausable input settles to a rejection and stays playing`() async {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let recorder = PlaybackRecorder()
+      recorder.pauseSucceeds = false
+      // State first: the controller's observers latch the initial values at
+      // init, so a transition afterwards broadcasts an active intent that
+      // cancels the very pause under test.
+      player._setStateForTesting(state: .playing)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: recorder.driver,
+        pauseDebounce: .milliseconds(1)
+      )
+
+      controller._setPlayingForTesting(false)
+      #expect(!player.isPlaybackRequestedActive, "PiP should publish inactive intent immediately")
+
+      let settled = await awaitDeferredPauseOutcome(controller)
+      #expect(settled, "the deferred pause never stopped retrying")
+
+      #expect(controller.deferredPauseOutcome == .rejected)
+      #expect(
+        recorder.pauseCount <= PiPController.maxDeferredPauseAttempts,
+        "retried past the bound: \(recorder.pauseCount)"
+      )
+      #expect(
+        player.isPlaybackRequestedActive,
+        "intent stayed inactive while playback continued — paused UI over playing media"
+      )
+      #expect(controller._pipPlaybackActiveForTesting())
+    }
+
+    /// A rejection that clears must still pause: the bound exists to stop
+    /// runaway retries, not to give up on a slow input.
+    @Test
+    func `A transient rejection still pauses once the input becomes pausable`() async {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let recorder = PlaybackRecorder()
+      recorder.pauseSucceeds = false
+      // State first: the controller's observers latch the initial values at
+      // init, so a transition afterwards broadcasts an active intent that
+      // cancels the very pause under test.
+      player._setStateForTesting(state: .playing)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: recorder.driver,
+        pauseDebounce: .milliseconds(1)
+      )
+
+      controller._setPlayingForTesting(false)
+      try? await Task.sleep(for: .milliseconds(5))
+      recorder.pauseSucceeds = true
+
+      let settled = await awaitDeferredPauseOutcome(controller)
+      #expect(settled)
+      #expect(controller.deferredPauseOutcome == .issued)
+      #expect(!player.isPlaybackRequestedActive, "a successful pause must leave intent inactive")
+    }
+
+    /// Leaving a pausable state cancels the retry rather than exhausting it.
+    @Test
+    func `Leaving a playing state cancels the deferred pause`() async {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let recorder = PlaybackRecorder()
+      recorder.pauseSucceeds = false
+      // State first: the controller's observers latch the initial values at
+      // init, so a transition afterwards broadcasts an active intent that
+      // cancels the very pause under test.
+      player._setStateForTesting(state: .playing)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: recorder.driver,
+        pauseDebounce: .milliseconds(1)
+      )
+
+      controller._setPlayingForTesting(false)
+      player._setStateForTesting(state: .stopped)
+
+      let settled = await awaitDeferredPauseOutcome(controller)
+      #expect(settled)
+      #expect(controller.deferredPauseOutcome == .cancelled)
+    }
+
+    private func awaitDeferredPauseOutcome(_ controller: PiPController) async -> Bool {
+      let deadline = ContinuousClock.now + .seconds(5)
+      while controller.deferredPauseOutcome == nil {
+        if ContinuousClock.now >= deadline {
+          return false
+        }
+        try? await Task.sleep(for: .milliseconds(5))
+      }
+      return true
     }
 
     @Test

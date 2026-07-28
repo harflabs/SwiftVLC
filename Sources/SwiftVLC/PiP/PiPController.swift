@@ -212,6 +212,29 @@ public final class PiPController: NSObject {
   private var deferredPause: DeferredPauseState = .idle
 
   /// State of PiP's pause-debouncing state machine. See ``deferredPause``.
+  /// How a deferred PiP pause finished.
+  ///
+  /// Not surfaced on ``PiPEvent`` because that is a public non-frozen enum and
+  /// adding a case would be source-breaking for exhaustive switches. The
+  /// user-visible half of the outcome is reconciled onto
+  /// ``Player/isPlaybackRequestedActive`` instead, which is already
+  /// observable.
+  enum DeferredPauseOutcome: Equatable {
+    /// libVLC accepted the pause.
+    case issued
+    /// Superseded, or the session left a pausable state before it could be
+    /// issued.
+    case cancelled
+    /// The input never became pausable within the retry bound. Playback keeps
+    /// running and the published intent is reconciled back to active.
+    case rejected
+  }
+
+  /// The outcome of the most recent deferred pause. Internal rather than
+  /// public: it exists so the bound and the reconciliation are assertable.
+  @ObservationIgnored
+  private(set) var deferredPauseOutcome: DeferredPauseOutcome?
+
   fileprivate enum DeferredPauseState {
     /// No deferred pause in flight; libVLC matches PiP intent.
     case idle
@@ -667,6 +690,7 @@ public final class PiPController: NSObject {
     let generation = DeferredPauseState.nextGeneration(after: deferredPause)
     let debounce = pauseDebounce
     let task = Task { @MainActor [weak self] in
+      var attemptsRemaining = Self.maxDeferredPauseAttempts
       while !Task.isCancelled {
         do {
           try await Task.sleep(for: debounce)
@@ -683,20 +707,53 @@ public final class PiPController: NSObject {
         case .playing:
           if playbackDriver.pause() {
             deferredPause = .issued
+            deferredPauseOutcome = .issued
             return
           }
-          continue
+          // libVLC refused. Retry, but not forever.
+          attemptsRemaining -= 1
         case .opening, .buffering:
           // Avoid pausing libVLC while it is still stabilizing input state.
-          // Keep waiting unless AVKit changes its mind first.
-          continue
+          // Keep waiting unless AVKit changes its mind first — bounded, so an
+          // input that never stabilizes cannot retry indefinitely.
+          attemptsRemaining -= 1
         default:
           deferredPause = .idle
+          deferredPauseOutcome = .cancelled
+          return
+        }
+
+        if attemptsRemaining <= 0 {
+          deferredPause = .idle
+          settleUnpausableInput()
           return
         }
       }
     }
     deferredPause = .scheduled(task: task, generation: generation)
+  }
+
+  /// How many debounce intervals a deferred pause may retry before the input
+  /// is treated as unpausable.
+  ///
+  /// At the default 250 ms debounce this is ten seconds — long enough for a
+  /// slow network open to stabilize, short enough that a permanently
+  /// unpausable input does not leave a paused UI over continuing playback
+  /// indefinitely.
+  static let maxDeferredPauseAttempts = 40
+
+  /// Reconciles after a deferred pause has been abandoned.
+  ///
+  /// The input never became pausable, so playback is still running. The
+  /// public intent was already published as inactive when PiP asked to pause;
+  /// leaving it there would show paused controls over playing media — the
+  /// visible half of this bug. Republish the truth on both surfaces.
+  private func settleUnpausableInput() {
+    deferredPauseOutcome = .rejected
+    guard player.state.isActive else { return }
+    player.setPlaybackIntentFromExternalControl(true)
+    pipPlaybackActive = true
+    invalidatePictureInPicturePlaybackState()
   }
 
   /// The generation id of an in-flight scheduled pause, or 0 if no
