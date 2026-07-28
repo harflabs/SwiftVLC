@@ -186,9 +186,19 @@ extension Player {
     guard let offsetMs = try? offset.checkedMilliseconds(parameter: "offset") else {
       return false
     }
+    // Reserved before the native call and adopted only once libVLC accepts,
+    // exactly as the absolute paths do. A relative jump needs this more than
+    // they do, not less: it is issued while playback is running and clock
+    // samples are in flight, so without it a sample produced just before the
+    // jump lands afterwards and snaps the published time back to where
+    // playback used to be. A refused jump must not consume the reservation,
+    // or every later sample would be judged stale against a revision nothing
+    // adopted.
+    let revision = eventBridge.advanceTimelineRevision()
     guard libvlc_media_player_jump_time(pointer, offsetMs) == 0 else {
       return false
     }
+    acceptedTimelineRevision = revision
     if let currentMs = try? currentTime.checkedMilliseconds(parameter: "currentTime") {
       let targetResult = currentMs.addingReportingOverflow(offsetMs)
       if !targetResult.overflow {

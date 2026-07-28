@@ -196,5 +196,56 @@ extension Integration {
         "a clock sample from the previous media updated the new one's timeline"
       )
     }
+
+    /// `jump(by:)` is the seek entry point PiP skip controls route through, so
+    /// it needs the same protection the absolute paths already have. It is
+    /// also the one most exposed to it: a relative jump is issued while
+    /// playback is running and clock samples are in flight, rather than from a
+    /// settled scrubber drag.
+    @Test
+    func `A clock sample predating an accepted jump does not snap the timeline back`() throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      // `jump(by:)` gates on a live session; the intent flag is the
+      // synchronous signal that gate reads.
+      player._setStateForTesting(
+        state: .paused,
+        isPlaybackRequestedActive: true,
+        currentTime: .seconds(10),
+        duration: .seconds(100),
+        isSeekable: true
+      )
+
+      // Produced by libVLC before the jump, still queued behind it.
+      let stale = SourcedPlayerEvent(
+        source: Player.sourceIdentifier(for: player.pointer),
+        event: .timeChanged(.seconds(10)),
+        timelineRevision: player.acceptedTimelineRevision
+      )
+
+      #expect(player.jump(by: .seconds(30)))
+      #expect(player.currentTime == .seconds(40))
+
+      player.handleSourcedEvent(stale)
+
+      #expect(
+        player.currentTime == .seconds(40),
+        "a pre-jump clock sample overwrote the accepted jump target"
+      )
+    }
+
+    /// A refused jump must not consume the reservation, or every later clock
+    /// sample would be judged stale against a revision nothing ever adopted
+    /// and the published time would freeze.
+    @Test
+    func `A rejected jump leaves the accepted timeline revision alone`() {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      // No media, so there is no session to jump in and the call is refused.
+      let before = player.acceptedTimelineRevision
+
+      #expect(player.jump(by: .seconds(5)) == false)
+
+      #expect(player.acceptedTimelineRevision == before)
+    }
   }
 }

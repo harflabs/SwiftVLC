@@ -62,8 +62,29 @@ extension PiPController {
     controlTimebase.map { CMTimebaseGetRate($0) }
   }
 
+  func _controlTimebaseSecondsForTesting() -> Double? {
+    controlTimebase.map { CMTimebaseGetTime($0).seconds }
+  }
+
+  /// Non-zero once a skip has been accepted. The controller uses it to stop
+  /// the drift corrector from fighting a just-issued skip.
+  func _didRecordSkipForTesting() -> Bool {
+    lastSkipTimestamp != 0
+  }
+
   func _skipByIntervalForTesting(_ skipInterval: CMTime) {
     handleSkip(by: skipInterval) {}
+  }
+
+  /// Returns how many times the completion handler ran, so "exactly once" is
+  /// assertable rather than assumed.
+  func _skipCompletionCountForTesting(_ skipInterval: CMTime) -> Int {
+    // `handleSkip`'s completion is `@Sendable`, so the counter has to be
+    // shared state rather than a captured `var`. It is called synchronously on
+    // this actor today; the lock keeps the helper correct if that changes.
+    let count = Mutex(0)
+    handleSkip(by: skipInterval) { count.withLock { $0 += 1 } }
+    return count.withLock { $0 }
   }
 
   func _renderSizeForTesting() -> CMVideoDimensions? {

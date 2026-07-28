@@ -16,7 +16,8 @@ extension Integration {
       var resumeCount = 0
       var cancelPendingPauseCount = 0
       var shouldResume = false
-      var seekTargets: [Int64] = []
+      var skipIntervals: [CMTime] = []
+      var skipOutcome: PiPController.SkipOutcome = .issued
       /// Models an input libVLC refuses to pause, so the deferred-pause retry
       /// bound can be exercised.
       var pauseSucceeds = true
@@ -35,7 +36,10 @@ extension Integration {
             self.cancelPendingPauseCount += 1
           },
           shouldResume: { self.shouldResume },
-          seek: { self.seekTargets.append($0.milliseconds) }
+          skip: { interval in
+            self.skipIntervals.append(interval)
+            return self.skipOutcome
+          }
         )
       }
     }
@@ -383,7 +387,7 @@ extension Integration {
       #expect(recorder.pauseCount == 0)
       #expect(recorder.resumeCount == 0)
       #expect(recorder.cancelPendingPauseCount == 1)
-      #expect(recorder.seekTargets.count == 1)
+      #expect(recorder.skipIntervals.count == 1)
     }
 
     @Test

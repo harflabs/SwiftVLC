@@ -1,4 +1,3 @@
-// swiftlint:disable file_length
 #if os(iOS) || os(macOS)
 @testable import SwiftVLC
 import AVFoundation
@@ -25,7 +24,8 @@ extension Integration {
       var pauseResult = true
       var shouldResume = false
       var resumeResult = true
-      var seekTargets: [Int64] = []
+      var skipIntervals: [CMTime] = []
+      var skipOutcome: PiPController.SkipOutcome = .issued
 
       var driver: PiPController.PlaybackDriver {
         .init(
@@ -41,7 +41,10 @@ extension Integration {
             self.cancelPendingPauseCount += 1
           },
           shouldResume: { self.shouldResume },
-          seek: { self.seekTargets.append($0.milliseconds) }
+          skip: { interval in
+            self.skipIntervals.append(interval)
+            return self.skipOutcome
+          }
         )
       }
     }
@@ -491,66 +494,6 @@ extension Integration {
       #expect(controller._pendingPiPPlaybackStateForTesting() == true)
     }
 
-    // MARK: - handleSkip boundary conditions
-
-    /// PiP skip at position 0 with a negative interval must clamp to 0,
-    /// not go negative. The clamp lives in `handleSkip`.
-    @Test
-    func `skip backwards from zero clamps to zero`() {
-      let player = Player(instance: TestInstance.shared)
-      let recorder = PlaybackRecorder()
-      let controller = PiPController(
-        player: player,
-        playbackDriver: recorder.driver,
-        pauseDebounce: .milliseconds(10)
-      )
-
-      controller._skipByIntervalForTesting(CMTime(seconds: -10, preferredTimescale: 1000))
-
-      expectNoDifference(recorder.seekTargets, [0])
-    }
-
-    /// Skip with a known duration must clamp at the upper bound when
-    /// the interval would overshoot the end of the media.
-    @Test
-    func `skip past duration clamps to duration`() {
-      let player = Player(instance: TestInstance.shared)
-      player._setStateForTesting(
-        currentTime: .seconds(9),
-        duration: .seconds(10)
-      )
-      let recorder = PlaybackRecorder()
-      let controller = PiPController(
-        player: player,
-        playbackDriver: recorder.driver,
-        pauseDebounce: .milliseconds(10)
-      )
-
-      controller._skipByIntervalForTesting(CMTime(seconds: 60, preferredTimescale: 1000))
-
-      expectNoDifference(recorder.seekTargets, [10000])
-    }
-
-    /// A mid-range skip with neither clamp fires just the intended seek.
-    @Test
-    func `skip within bounds passes through unclamped`() {
-      let player = Player(instance: TestInstance.shared)
-      player._setStateForTesting(
-        currentTime: .seconds(5),
-        duration: .seconds(60)
-      )
-      let recorder = PlaybackRecorder()
-      let controller = PiPController(
-        player: player,
-        playbackDriver: recorder.driver,
-        pauseDebounce: .milliseconds(10)
-      )
-
-      controller._skipByIntervalForTesting(CMTime(seconds: 3, preferredTimescale: 1000))
-
-      expectNoDifference(recorder.seekTargets, [8000])
-    }
-
     @Test
     func `skip interval conversion rejects nonnumeric Core Media times`() {
       #expect(PiPController.skipOffsetMilliseconds(.invalid) == nil)
@@ -621,7 +564,7 @@ extension Integration {
         didComplete.withLock { $0 = true }
       }
 
-      expectNoDifference(recorder.seekTargets, [7000])
+      expectNoDifference(recorder.skipIntervals.map(\.seconds), [2])
       #expect(didComplete.withLock { $0 })
     }
 

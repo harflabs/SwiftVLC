@@ -940,12 +940,15 @@ final class IOSNativePiPMediaController: NSObject, IOSNativePiPMediaControlling,
         return
       }
 
-      let target = PiPController.clampedSkipTargetMilliseconds(
-        current: player.currentTime.milliseconds,
-        offset: offset,
-        duration: player.duration?.milliseconds
+      // One relative-jump path for every PiP backend: see
+      // PiPController.performSkip(on:by:). The interval is preserved rather
+      // than converted to an absolute target, so live and timeshift DVR
+      // windows skip correctly, and completion runs exactly once whether the
+      // jump was accepted or refused.
+      _ = PiPController.performSkip(
+        on: player,
+        by: CMTime(value: offset, timescale: 1000)
       )
-      try? player.seek(to: .milliseconds(target))
       completion?()
     }
   }

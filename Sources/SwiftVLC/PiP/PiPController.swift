@@ -65,7 +65,10 @@ public final class PiPController: NSObject {
     let resume: @MainActor () -> Bool
     let cancelPendingPause: @MainActor () -> Void
     let shouldResume: @MainActor () -> Bool
-    let seek: @MainActor (Duration) -> Void
+    /// Relative rather than absolute: see ``PiPController/performSkip(on:by:)``
+    /// for why the interval AVKit requested is preserved instead of being
+    /// converted into a target.
+    let skip: @MainActor (CMTime) -> SkipOutcome
 
     static func live(player: Player) -> Self {
       Self(
@@ -73,7 +76,7 @@ public final class PiPController: NSObject {
         resume: { player.issueResume() },
         cancelPendingPause: { player.cancelPendingPause() },
         shouldResume: { player.shouldResumeForExternalPlayRequest },
-        seek: { try? player.seek(to: $0) }
+        skip: { PiPController.performSkip(on: player, by: $0) }
       )
     }
   }
@@ -262,7 +265,7 @@ public final class PiPController: NSObject {
   /// overwriting the skip handler's timebase position with stale
   /// `currentTime` data that hasn't caught up to the seek yet.
   @ObservationIgnored
-  private var lastSkipTimestamp: CFAbsoluteTime = 0
+  var lastSkipTimestamp: CFAbsoluteTime = 0
 
   /// Whether PiP can be started right now.
   ///
@@ -1071,26 +1074,26 @@ public final class PiPController: NSObject {
     // libVLC through a pause → seek → resume cycle.
     cancelDeferredPause()
 
-    let currentMs = player.currentTime.milliseconds
-    guard let offsetMs = Self.skipOffsetMilliseconds(skipInterval) else {
+    let outcome = playbackDriver.skip(skipInterval)
+
+    // A refused skip leaves the timeline untouched. Moving the timebase to a
+    // target the media never reached would put the transport controls ahead of
+    // playback until the next native clock sample yanked them back.
+    guard Self.skipMovedTimeline(outcome) else {
       completionHandler()
       return
     }
-    let targetMs = Self.clampedSkipTargetMilliseconds(
-      current: currentMs,
-      offset: offsetMs,
-      duration: player.duration?.milliseconds
-    )
-
-    playbackDriver.seek(.milliseconds(targetMs))
 
     lastSkipTimestamp = CFAbsoluteTimeGetCurrent()
 
     // Apple docs: "the control timebase should reflect the current
-    // playback time and rate when the closure is invoked"
+    // playback time and rate when the closure is invoked". Read it back from
+    // the player rather than from a locally computed target: `jump(by:)` has
+    // already published its own clamped estimate, and recomputing one here
+    // could disagree with it.
     if let tb = controlTimebase {
       CMTimebaseSetTime(tb, time: CMTime(
-        seconds: Double(targetMs) / 1000.0,
+        seconds: Double(player.currentTime.milliseconds) / 1000.0,
         preferredTimescale: 1000
       ))
       CMTimebaseSetRate(tb, rate: player.isActive ? Float64(player.rate) : 0.0)
