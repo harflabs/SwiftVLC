@@ -1,0 +1,253 @@
+Fix a use-after-free when an encrypted segment's chunk cannot be prepared.
+
+ISegment::toChunk() releases the chunk source twice on the prepareChunk()
+failure path: once explicitly through recycleSource(), and again when it
+deletes the chunk, because ~AbstractChunk() releases the source the chunk
+owns. For ChunkType::Segment, HTTPConnectionManager::recycleSource() is not
+cacheable and falls through to deleteSource() -> delete, so the source is
+already freed by the time ~AbstractChunk() dispatches source->recycle()
+through its vtable.
+
+Reproduced under AddressSanitizer with the accompanying test:
+
+  ERROR: AddressSanitizer: heap-use-after-free
+  READ of size 8
+      #0 adaptive::http::AbstractChunk::~AbstractChunk()   Chunk.cpp:91
+      #1 adaptive::playlist::SegmentChunk::~SegmentChunk() SegmentChunk.cpp:47
+      #2 adaptive::playlist::ISegment::toChunk(...)        Segment.cpp:115
+  freed by thread T0 here:
+      #1 adaptive::playlist::ISegment::toChunk(...)        Segment.cpp:107
+
+That crash site matches the report in VLC #29845 (intermittent EXC_BAD_ACCESS
+in adaptive::http::AbstractChunk::~AbstractChunk on iOS arm64 after roughly
+ten minutes of HLS playback, on the PlaylistManager thread by way of
+SegmentTracker and AbstractStream).
+
+prepareChunk() only does work for encrypted segments and only fails when
+CommonEncryptionSession::start() fails, which for AES-128 HLS means the key
+could not be resolved: the #EXT-X-KEY URI failed to fetch, returned something
+other than 16 bytes, or carried no IV. Keys are cached, so this bites at key
+rotation or after cache eviction rather than at startup -- which matches the
+"fine for ten minutes, then crash" profile of the report. Builds without
+gcrypt are unaffected, since start() then always succeeds.
+
+For Init and Index chunk types the source is cacheable, so the second release
+pushes the same pointer into HTTPConnectionManager::cache twice and inflates
+cache_total, which later double-frees on purge and trips the
+assert(cache_total >= purged->contentLength).
+
+Introduced by ff7e38fe13353889c0f603f883134e75885b20f6 ("adaptive: recycle the
+chunk source when prepareChunk fails"), which modelled this on the
+createChunk() failure branch below it. That branch is correct precisely
+because no chunk was constructed there to own the source.
+
+Still present in VLC master as of 59361740a96.
+
+The test overrides prepareChunk() rather than driving real encryption, so it
+runs regardless of whether the build has gcrypt, and counts releases instead
+of freeing so the double release is a deterministic assertion rather than
+undefined behaviour in non-sanitizer builds.
+
+diff --git a/modules/demux/Makefile.am b/modules/demux/Makefile.am
+index bf78b53ad99..1a733fc327a 100644
+--- a/modules/demux/Makefile.am
++++ b/modules/demux/Makefile.am
+@@ -523,6 +523,7 @@ adaptive_test_SOURCES = \
+     demux/adaptive/test/tools/Conversions.cpp \
+     demux/adaptive/test/playlist/Inheritables.cpp \
+     demux/adaptive/test/playlist/M3U8.cpp \
++    demux/adaptive/test/playlist/SegmentChunk.cpp \
+     demux/adaptive/test/playlist/SegmentBase.cpp \
+     demux/adaptive/test/playlist/SegmentList.cpp \
+     demux/adaptive/test/playlist/SegmentTemplate.cpp \
+diff --git a/modules/demux/adaptive/playlist/Segment.cpp b/modules/demux/adaptive/playlist/Segment.cpp
+index 681fb8e575f..2eb0bdeff0b 100644
+--- a/modules/demux/adaptive/playlist/Segment.cpp
++++ b/modules/demux/adaptive/playlist/Segment.cpp
+@@ -104,7 +104,13 @@ SegmentChunk* ISegment::toChunk(SharedResources *res, size_t index, BaseRepresen
+             chunk->discontinuitySequenceNumber = getDiscontinuitySequenceNumber();
+             if(!prepareChunk(res, chunk, rep))
+             {
+-                res->getConnManager()->recycleSource(source);
++                /* Do not recycle the source here: the chunk owns it, and
++                   ~AbstractChunk() releases it. Recycling it as well released
++                   it twice -- for ChunkType::Segment recycleSource() frees it
++                   outright, so the chunk destructor's source->recycle() then
++                   dispatched through freed memory. This differs from the
++                   createChunk() failure path below, where recycling is correct
++                   precisely because no chunk was constructed to own it. */
+                 delete chunk;
+                 return nullptr;
+             }
+diff --git a/modules/demux/adaptive/test/playlist/SegmentChunk.cpp b/modules/demux/adaptive/test/playlist/SegmentChunk.cpp
+new file mode 100644
+index 00000000000..cdbb27ac284
+--- /dev/null
++++ b/modules/demux/adaptive/test/playlist/SegmentChunk.cpp
+@@ -0,0 +1,143 @@
++/*****************************************************************************
++ * SegmentChunk.cpp: ISegment::toChunk source ownership
++ *****************************************************************************
++ * Copyright (C) 2026 VideoLabs, VideoLAN and VLC Authors
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms of the GNU Lesser General Public License as published
++ * by the Free Software Foundation; either version 2.1 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++ * GNU Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public License
++ * along with this program; if not, write to the Free Software Foundation,
++ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
++ *****************************************************************************/
++#ifdef HAVE_CONFIG_H
++# include "config.h"
++#endif
++
++#include "../../playlist/Segment.h"
++#include "../../playlist/SegmentChunk.hpp"
++#include "../../playlist/BasePlaylist.hpp"
++#include "../../playlist/BasePeriod.h"
++#include "../../playlist/BaseAdaptationSet.h"
++#include "../../playlist/BaseRepresentation.h"
++#include "../../http/HTTPConnectionManager.h"
++#include "../../http/Chunk.h"
++#include "../../SharedResources.hpp"
++
++#include "../test.hpp"
++
++#include <vlc_block.h>
++
++#include <string>
++#include <vector>
++
++using namespace adaptive;
++using namespace adaptive::http;
++using namespace adaptive::playlist;
++
++namespace
++{
++    /* Counts releases instead of freeing, so that a double release is
++       observable as a count rather than as undefined behaviour. In the real
++       engine both release paths free the source: for ChunkType::Segment,
++       HTTPConnectionManager::recycleSource() falls through to deleteSource()
++       -> delete, and HTTPChunkSource::recycle() is delete this. A second
++       release there is a use-after-free through the source vtable, inside
++       AbstractChunk::~AbstractChunk(). */
++    unsigned releaseCount = 0;
++
++    class CountingChunkSource : public AbstractChunkSource
++    {
++        public:
++            CountingChunkSource(ChunkType t, const BytesRange &range)
++                : AbstractChunkSource(t, range) {}
++            virtual ~CountingChunkSource() = default;
++            void recycle() override { releaseCount++; }
++            const std::string & getContentType() const override { return contentType; }
++            RequestStatus getRequestStatus() const override { return RequestStatus::Success; }
++            block_t * readBlock() override { return nullptr; }
++            block_t * read(size_t) override { return nullptr; }
++            bool hasMoreData() const override { return false; }
++            size_t getBytesRead() const override { return 0; }
++
++        private:
++            std::string contentType;
++    };
++
++    class CountingConnectionManager : public AbstractConnectionManager
++    {
++        public:
++            CountingConnectionManager() : AbstractConnectionManager(nullptr) {}
++            virtual ~CountingConnectionManager() = default;
++            void closeAllConnections() override {}
++            AbstractConnection * getConnection(ConnectionParams &) override { return nullptr; }
++            AbstractChunkSource *makeSource(const std::string &,
++                                            const ID &, ChunkType t,
++                                            const BytesRange &br) override
++            {
++                return new CountingChunkSource(t, br);
++            }
++            void recycleSource(AbstractChunkSource *) override { releaseCount++; }
++            void start(AbstractChunkSource *) override {}
++            void cancel(AbstractChunkSource *) override {}
++    };
++
++    /* prepareChunk() is only reached, and only fails, for encrypted segments
++       whose key cannot be resolved -- an AES-128 HLS key URI that 404s, that
++       returns something other than 16 bytes, or an #EXT-X-KEY carrying no IV.
++       Overriding it keeps this test independent of whether the build has
++       gcrypt, while exercising the same branch of toChunk(). */
++    class UnpreparableSegment : public Segment
++    {
++        public:
++            explicit UnpreparableSegment(ICanonicalUrl *parent) : Segment(parent) {}
++            virtual ~UnpreparableSegment() = default;
++
++        protected:
++            bool prepareChunk(SharedResources *, SegmentChunk *,
++                              BaseRepresentation *) override
++            {
++                return false;
++            }
++    };
++}
++
++int SegmentChunkOwnership_test()
++{
++    BasePlaylist playlist(nullptr);
++    BasePeriod *period = new BasePeriod(&playlist);
++    playlist.addPeriod(period);
++    BaseAdaptationSet *set = new BaseAdaptationSet(period);
++    period->addAdaptationSet(set);
++    BaseRepresentation *rep = new BaseRepresentation(set);
++    set->addRepresentation(rep);
++
++    /* SharedResources takes ownership: ~SharedResources() deletes it. */
++    SharedResources resources(nullptr, nullptr, new CountingConnectionManager());
++
++    UnpreparableSegment segment(rep);
++    segment.setSourceUrl("http://example.com/segment.ts");
++
++    releaseCount = 0;
++    SegmentChunk *chunk = segment.toChunk(&resources, 0, rep);
++
++    /* The failure is reported by returning nullptr. */
++    Expect(chunk == nullptr);
++
++    /* The source must be released exactly once. toChunk() used to recycle it
++       explicitly *and* delete the chunk, whose ~AbstractChunk() releases the
++       source it owns -- so the source was released twice. With a real
++       HTTPChunkSource the first release frees it and the second is a virtual
++       call through freed memory, faulting inside AbstractChunk::~AbstractChunk
++       on the PlaylistManager thread. */
++    Expect(releaseCount == 1);
++
++    return 0;
++}
+diff --git a/modules/demux/adaptive/test/test.cpp b/modules/demux/adaptive/test/test.cpp
+index 747eb0db703..84aa631b74f 100644
+--- a/modules/demux/adaptive/test/test.cpp
++++ b/modules/demux/adaptive/test/test.cpp
+@@ -50,5 +50,7 @@ int main()
+     TEST(M3U8MasterPlaylist) ||
+     TEST(M3U8Playlist) ||
+     TEST(SegmentTracker)
++    ||
++    TEST(SegmentChunkOwnership)
+     ;
+ }
+diff --git a/modules/demux/adaptive/test/test.hpp b/modules/demux/adaptive/test/test.hpp
+index 2814704fede..8bc057ade7c 100644
+--- a/modules/demux/adaptive/test/test.hpp
++++ b/modules/demux/adaptive/test/test.hpp
+@@ -49,5 +49,6 @@ int CommandsQueue_test();
+ int BufferingLogic_test();
+ int FakeEsOut_test();
+ int SegmentTracker_test();
++int SegmentChunkOwnership_test();
+ 
+ #endif
