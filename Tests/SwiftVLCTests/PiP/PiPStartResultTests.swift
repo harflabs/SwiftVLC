@@ -68,6 +68,36 @@ extension Integration {
       #expect(controller.toggle() == nil, "toggle reported a start result for a stop")
     }
 
+    #if os(macOS)
+    /// The macOS backend must report the same four cases as the controller, or
+    /// "equivalent result semantics across backends" is only true on paper.
+    @Test
+    func `The macOS backend reports noMedia without media`() {
+      let player = Player(instance: TestInstance.shared)
+      let backend = MacNativePiPBackend()
+      backend.attach(to: player)
+
+      #expect(player.currentMedia == nil)
+      #expect(backend.start() == .noMedia)
+    }
+
+    /// With media loaded but no video output, PiP is genuinely impossible —
+    /// which must read as .notPossible rather than collapsing into the same
+    /// nothing as the no-media case.
+    @Test
+    func `The macOS backend reports notPossible without video output`() throws {
+      let instance = try VLCInstance(
+        arguments: ["--no-video-title-show", "--no-video", "--no-audio", "--quiet"]
+      )
+      let player = Player(instance: instance)
+      try player.load(Media(url: TestMedia.twosecURL))
+      let backend = MacNativePiPBackend()
+      backend.attach(to: player)
+
+      #expect(backend.start() == .notPossible)
+    }
+    #endif
+
     @Test
     func `Start results are distinct`() {
       let all: [PiPStartResult] = [.accepted, .noMedia, .notPossible, .backendUnavailable]
