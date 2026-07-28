@@ -41,7 +41,7 @@ struct MatrixScreenC: View {
           Button(
             pip.isActive ? "Stop PiP" : "Start PiP",
             systemImage: "pip",
-            action: pip.toggle
+            action: { pip.toggle() }
           )
           .disabled(!pip.isPossible)
         } else {
