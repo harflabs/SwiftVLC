@@ -31,7 +31,12 @@ struct PlayerCapabilitySnapshot: Sendable, Equatable {
 
 extension Player {
   /// Republishes ``duration`` and ``isSeekable`` under the current generation.
+  ///
+  /// A no-op while a multi-property change is in flight: publishing after each
+  /// individual assignment would let a reader observe one media's duration
+  /// beside another's seekability.
   func publishCapabilitySnapshot() {
+    guard !isSuppressingCapabilityPublish else { return }
     let milliseconds = duration?.milliseconds
     let seekable = isSeekable
     capabilitySnapshot.withLock { snapshot in

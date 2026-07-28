@@ -429,6 +429,10 @@ public final class Player {
   /// for consumers that must not mistake the previous media's capability for
   /// the current one. See ``PlayerCapabilitySnapshot``.
   nonisolated let capabilitySnapshot = Mutex(PlayerCapabilitySnapshot())
+  /// Set while a multi-property capability change is in progress, so the
+  /// per-property `didSet` publishes do not expose an intermediate mix of the
+  /// outgoing and incoming media. See ``resetMediaDerivedState()``.
+  @ObservationIgnored var isSuppressingCapabilityPublish = false
   var eventTask: Task<Void, Never>?
   var _position: Double = 0
   var _equalizer: Equalizer?

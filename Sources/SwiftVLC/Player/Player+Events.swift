@@ -310,9 +310,11 @@ extension Player {
     // New media, new timeline: clock samples still queued from the previous
     // one describe a media that is no longer loaded and must not be applied.
     acceptedTimelineRevision = eventBridge.advanceTimelineRevision()
-    // New media, new capability generation. Bumped together with the reset so
-    // a reader never sees the new generation alongside the old values.
-    advanceCapabilityGeneration()
+    // `duration` and `isSeekable` publish the capability snapshot from their
+    // own `didSet`, so clearing them one at a time would briefly expose
+    // "duration cleared, seekability still the previous media's". Suppress
+    // those partial publishes and emit one atomic snapshot below.
+    isSuppressingCapabilityPublish = true
     pauseTransition = nil
     deferredPauseCommand = nil
     publishPlaybackIntent(false)
@@ -326,6 +328,12 @@ extension Player {
     withMutation(keyPath: \.position) {
       _position = 0
     }
+    isSuppressingCapabilityPublish = false
+    // New media, new capability generation. The bump and the reset values are
+    // written under one lock acquisition, so a reader can never see the new
+    // generation carrying the outgoing media's capability — which would make
+    // it distrust the poll for the rest of that media's lifetime.
+    advanceCapabilityGeneration()
   }
 
   /// Signals every observable whose value is read live from libVLC and
