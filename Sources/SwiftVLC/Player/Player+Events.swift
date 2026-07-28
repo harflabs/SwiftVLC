@@ -1,5 +1,6 @@
 import CLibVLC
 import os
+import Synchronization
 
 /// Event consumer that mirrors `PlayerEvent`s onto `Player`'s
 /// `@Observable` properties, plus the deferred-pause / playback-intent
@@ -237,6 +238,10 @@ extension Player {
   func publishPlaybackIntent(_ active: Bool) {
     guard isPlaybackRequestedActive != active else { return }
     isPlaybackRequestedActive = active
+    // Mirrored synchronously so off-main callers — AVKit and AppKit PiP
+    // callbacks, which must answer immediately — can read the current intent
+    // without hopping to the main actor.
+    nonisolatedPlaybackIntent.store(active, ordering: .releasing)
     withMutation(keyPath: \.isPlaying) {}
     playbackIntentBridge.broadcast(active)
   }

@@ -8,6 +8,7 @@
 import AppKit
 import CLibVLC
 import Foundation
+import Synchronization
 
 @MainActor
 final class MacNativePiPBackend: NSObject, @unchecked Sendable {
@@ -494,7 +495,11 @@ final class MacPrivatePiPDelegate: NSObject, @unchecked Sendable {
 
   @objc(pipShouldClose:)
   func pipShouldClose(_: NSObject) -> Bool {
-    pipMainActorSync { [weak self] in
+    // The one place a blocking hop survives: the veto has to reparent the
+    // replacement window on the main actor before AppKit continues, so it
+    // cannot be served from a snapshot. Bounded, so a main actor wedged
+    // behind teardown degrades to allowing the close instead of deadlocking.
+    pipMainActorSyncBounded(fallback: true) { [weak self] in
       self?.shouldClose() ?? true
     }
   }
@@ -536,7 +541,13 @@ final class MacPrivatePiPDelegate: NSObject, @unchecked Sendable {
 }
 
 final class MacNativePiPMediaController: NSObject, @unchecked Sendable {
-  weak var player: Player?
+  weak var player: Player? {
+    didSet { MainActor.assumeIsolated { refreshCallbackSnapshot() } }
+  }
+
+  /// What AppKit's synchronous queries read instead of blocking on the main
+  /// actor. See ``PiPCallbackSnapshot``.
+  let callbackSnapshot = Mutex(PiPCallbackSnapshot())
 
   @objc func play() {
     Task { @MainActor [weak self] in
@@ -574,32 +585,49 @@ final class MacNativePiPMediaController: NSObject, @unchecked Sendable {
     }
   }
 
+  // These four are queries AppKit expects answered synchronously from its own
+  // threads. They read the snapshot rather than the main-actor `player`, then
+  // call libVLC *after* releasing the lock — libVLC's own locking is
+  // independent of the main actor, so no cycle can form.
+
   @objc func mediaLength() -> Int64 {
-    pipMainActorSync { [weak self] in
-      guard let player = self?.player else { return -1 }
-      let length = libvlc_media_player_get_length(player.pointer)
-      return length > 0 ? length : -1
-    }
+    guard let pointer = callbackSnapshot.withLock({ $0.playerPointer }) else { return -1 }
+    let length = libvlc_media_player_get_length(pointer)
+    return length > 0 ? length : -1
   }
 
   @objc func mediaTime() -> Int64 {
-    pipMainActorSync { [weak self] in
-      guard let player = self?.player else { return 0 }
-      return max(libvlc_media_player_get_time(player.pointer), 0)
-    }
+    guard let pointer = callbackSnapshot.withLock({ $0.playerPointer }) else { return 0 }
+    return max(libvlc_media_player_get_time(pointer), 0)
   }
 
   @objc func isMediaSeekable() -> Bool {
-    pipMainActorSync { [weak self] in
-      guard let player = self?.player else { return false }
-      return libvlc_media_player_is_seekable(player.pointer)
-    }
+    guard let pointer = callbackSnapshot.withLock({ $0.playerPointer }) else { return false }
+    return libvlc_media_player_is_seekable(pointer)
   }
 
   @objc func isMediaPlaying() -> Bool {
-    pipMainActorSync { [weak self] in
-      guard let player = self?.player else { return false }
-      return player.isPlaybackRequestedActive
+    // Read straight from the player's nonisolated mirror rather than the
+    // snapshot: intent can change on the main actor an instant before AppKit
+    // asks, and a snapshot republished afterwards would answer with the
+    // previous value.
+    player?.nonisolatedPlaybackIntent.load(ordering: .acquiring) ?? false
+  }
+
+  /// Republished whenever the attached player or its playback intent changes.
+  ///
+  /// Reads main-actor state, so it is main-actor isolated; the query side only
+  /// ever reads the published result under the lock.
+  @MainActor
+  func refreshCallbackSnapshot() {
+    let pointer = player?.pointer
+    let active = player?.isPlaybackRequestedActive ?? false
+    callbackSnapshot.withLock { snapshot in
+      if snapshot.playerPointer != pointer {
+        snapshot.generation &+= 1
+      }
+      snapshot.playerPointer = pointer
+      snapshot.isPlaybackActive = active
     }
   }
 }

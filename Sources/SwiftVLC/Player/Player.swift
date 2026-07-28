@@ -1,6 +1,7 @@
 import CLibVLC
 import Foundation
 import Observation
+import Synchronization
 
 /// An observable media player.
 ///
@@ -412,6 +413,14 @@ public final class Player {
   let eventBridge: EventBridge
   nonisolated let endCoordinator = PlaybackEndCoordinator()
   nonisolated let playbackIntentBridge: Broadcaster<Bool>
+  /// ``isPlaybackRequestedActive`` mirrored for readers that cannot touch the
+  /// main actor.
+  ///
+  /// AVKit and AppKit ask PiP whether playback is paused from their own
+  /// threads and expect an answer immediately. Blocking those threads on the
+  /// main actor is what lets a teardown already waiting on them deadlock, so
+  /// the value they need is published here and read atomically instead.
+  nonisolated let nonisolatedPlaybackIntent = Atomic<Bool>(false)
   var eventTask: Task<Void, Never>?
   var _position: Double = 0
   var _equalizer: Equalizer?

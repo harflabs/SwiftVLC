@@ -920,7 +920,7 @@ final class IOSNativePiPMediaController: NSObject, IOSNativePiPMediaControlling,
   }
 
   @objc func mediaLength() -> Int64 {
-    pipMainActorSync { [weak self] in
+    pipMainActorAsync { [weak self] in
       guard let player = self?.player else { return 0 }
       let length = libvlc_media_player_get_length(player.pointer)
       // VLC's native PiP module checks for VLC_TICK_INVALID (0), not
@@ -930,21 +930,21 @@ final class IOSNativePiPMediaController: NSObject, IOSNativePiPMediaControlling,
   }
 
   @objc func mediaTime() -> Int64 {
-    pipMainActorSync { [weak self] in
+    pipMainActorAsync { [weak self] in
       guard let player = self?.player else { return 0 }
       return max(libvlc_media_player_get_time(player.pointer), 0)
     }
   }
 
   @objc func isMediaSeekable() -> Bool {
-    pipMainActorSync { [weak self] in
+    pipMainActorAsync { [weak self] in
       guard let player = self?.player else { return false }
       return libvlc_media_player_is_seekable(player.pointer)
     }
   }
 
   @objc func isMediaPlaying() -> Bool {
-    pipMainActorSync { [weak self] in
+    pipMainActorAsync { [weak self] in
       guard let player = self?.player else { return false }
       return player.isPlaybackRequestedActive
     }

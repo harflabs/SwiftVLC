@@ -105,7 +105,14 @@ public final class PiPController: NSObject {
   @ObservationIgnored
   private var callbackRegistration: DirectPiPVideoCallbackRegistration?
   @ObservationIgnored
-  var controlTimebase: CMTimebase?
+  var controlTimebase: CMTimebase? {
+    didSet { refreshCallbackSnapshot() }
+  }
+
+  /// What AVKit's synchronous callbacks read instead of blocking on the main
+  /// actor. See ``PiPCallbackSnapshot``.
+  @ObservationIgnored
+  nonisolated let callbackSnapshot = Mutex(PiPCallbackSnapshot())
   @ObservationIgnored
   private var stateObserverTask: Task<Void, Never>?
   @ObservationIgnored
@@ -180,7 +187,10 @@ public final class PiPController: NSObject {
   /// transitions. PiP queries state immediately after calling
   /// `setPlaying` and would otherwise see stale values.
   @ObservationIgnored
-  var pipPlaybackActive: Bool = false
+  var pipPlaybackActive: Bool = false {
+    didSet { refreshCallbackSnapshot() }
+  }
+
   /// Desired playback state from the PiP controls while libVLC is still
   /// catching up. During this window player events can still report the
   /// previous state, so the event observer must not overwrite
@@ -428,6 +438,10 @@ public final class PiPController: NSObject {
     // successor's claim is preserved without us touching it here.
     pipController?.delegate = nil
     playbackDelegateProxy.owner = nil
+    // Stop any in-flight AVKit query from interrogating a handle that is
+    // about to be released. Cleared before the relinquish below, so the
+    // window where a callback could see a dead pointer never opens.
+    invalidateCallbackSnapshot()
     renderer.setDisplayLayer(nil)
     renderer.setTimebase(nil)
     if let callbackRegistration {
@@ -526,6 +540,10 @@ public final class PiPController: NSObject {
     let registration = DirectPiPVideoCallbackRegistration(renderer: renderer)
     callbackRegistration = registration
     player.claimDirectPiPVideoCallbacks(registration)
+    // Publish the handle the AVKit callback threads will interrogate. Until
+    // this runs the snapshot reports "not attached" and the synchronous
+    // queries answer with their stable defaults.
+    refreshCallbackSnapshot()
   }
 
   private func setupPiPController() {

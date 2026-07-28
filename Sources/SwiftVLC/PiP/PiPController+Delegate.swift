@@ -4,6 +4,7 @@ import AVKit
 import CLibVLC
 import Dispatch
 import Foundation
+import Synchronization
 
 // MARK: - AVPictureInPictureControllerDelegate
 
@@ -14,7 +15,8 @@ extension PiPController: AVPictureInPictureControllerDelegate {
   public nonisolated func pictureInPictureControllerWillStartPictureInPicture(
     _: AVPictureInPictureController
   ) {
-    pipMainActorSync {
+    pipMainActorAsync { [weak self] in
+      guard let self else { return }
       pendingStopReason = nil
       // Auto-PiP starts arrive from AVKit without start() or an intent
       // transition — last chance to issue the deferred session
@@ -32,7 +34,8 @@ extension PiPController: AVPictureInPictureControllerDelegate {
   public nonisolated func pictureInPictureControllerDidStartPictureInPicture(
     _: AVPictureInPictureController
   ) {
-    pipMainActorSync {
+    pipMainActorAsync { [weak self] in
+      guard let self else { return }
       pendingStopReason = nil
       syncPlaybackStateForPictureInPicture()
       invalidatePictureInPicturePlaybackState()
@@ -49,7 +52,8 @@ extension PiPController: AVPictureInPictureControllerDelegate {
   public nonisolated func pictureInPictureControllerWillStopPictureInPicture(
     _: AVPictureInPictureController
   ) {
-    pipMainActorSync {
+    pipMainActorAsync { [weak self] in
+      guard let self else { return }
       pipEventBroadcaster.broadcast(.willStop(reason: resolveStopReason()))
     }
   }
@@ -61,7 +65,8 @@ extension PiPController: AVPictureInPictureControllerDelegate {
   public nonisolated func pictureInPictureControllerDidStopPictureInPicture(
     _: AVPictureInPictureController
   ) {
-    pipMainActorSync {
+    pipMainActorAsync { [weak self] in
+      guard let self else { return }
       let reason = resolveStopReason()
       pendingStopReason = nil
       updatePiPActive(false)
@@ -82,7 +87,8 @@ extension PiPController: AVPictureInPictureControllerDelegate {
     _: AVPictureInPictureController,
     restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping @Sendable (Bool) -> Void
   ) {
-    pipMainActorSync {
+    pipMainActorAsync { [weak self] in
+      guard let self else { return }
       // Record the reason before the host app's restore hook runs, so
       // the stop delegate callbacks see it no matter how AVKit orders
       // them relative to the hook's completion.
@@ -106,7 +112,8 @@ extension PiPController: AVPictureInPictureControllerDelegate {
     _: AVPictureInPictureController,
     failedToStartPictureInPictureWithError error: Error
   ) {
-    pipMainActorSync {
+    pipMainActorAsync { [weak self] in
+      guard let self else { return }
       notePendingStopReason(.failure)
       updatePiPActive(false)
       pipEventBroadcaster.broadcast(.failedToStart(error))
@@ -134,17 +141,17 @@ final class PiPPlaybackDelegateProxy: NSObject, AVPictureInPictureSampleBufferPl
   /// `@unchecked Sendable` is the narrow concession that lets AVKit
   /// hand the proxy between threads. The owner field is the only state,
   /// it's `weak` (ARC-atomic in Swift), and every read happens inside
-  /// a `pipMainActorSync` hop to the main actor. Concurrent AVKit
-  /// callbacks funnel through that bounce, so owner access is
-  /// effectively serialized on the main actor even though the proxy
-  /// itself is nominally nonisolated.
+  /// a `pipMainActorAsync` enqueue onto the main actor, or through the
+  /// lock-protected `PiPCallbackSnapshot` for the two queries AVKit needs
+  /// answered synchronously. Neither path blocks the callback thread on
+  /// main, so owner access is serialized without a deadlock edge.
   weak var owner: PiPController?
 
   func pictureInPictureController(
     _: AVPictureInPictureController,
     setPlaying playing: Bool
   ) {
-    pipMainActorSync { [weak self] in
+    pipMainActorAsync { [weak self] in
       self?.owner?.handleSetPlaying(playing)
     }
   }
@@ -152,14 +159,40 @@ final class PiPPlaybackDelegateProxy: NSObject, AVPictureInPictureSampleBufferPl
   func pictureInPictureControllerTimeRangeForPlayback(
     _: AVPictureInPictureController
   ) -> CMTimeRange {
-    pipMainActorSync { [weak self] in
-      guard let owner = self?.owner else { return .invalid }
-      let currentTime = owner.controlTimebase.map(CMTimebaseGetTime) ?? .zero
-      return Self.nativePlaybackTimeRange(
-        playerPointer: owner.player.pointer,
-        currentTime: currentTime
-      )
-    }
+    resolveTimeRangeForPlayback()
+  }
+
+  /// The body of the time-range query, separated from AVKit's entry point so
+  /// forward-progress tests can drive it without constructing an
+  /// `AVPictureInPictureController` (which AVKit refuses to let tests make).
+  ///
+  /// Answered without hopping to the main actor: AVKit calls this from
+  /// arbitrary threads, and blocking one of them on main is what lets a
+  /// teardown already waiting on that thread deadlock.
+  func resolveTimeRangeForPlayback() -> CMTimeRange {
+    guard let snapshot = currentCallbackSnapshot() else { return .invalid }
+    return Self.timeRange(for: snapshot)
+  }
+
+  /// Reads the whole snapshot under a single lock acquisition, so the pointer
+  /// and timebase a query works with always belong to the same generation.
+  private func currentCallbackSnapshot() -> PiPCallbackSnapshot? {
+    // `Mutex` is non-copyable, so the lock is used in place rather than bound.
+    guard let snapshot = owner?.callbackSnapshot.withLock({ $0 }) else { return nil }
+    return snapshot.isAttached ? snapshot : nil
+  }
+
+  /// Assembles the reported range from one generation's handle and timebase.
+  ///
+  /// libVLC is queried *after* the lock is released — the snapshot lock must
+  /// never be held across a call that could itself block.
+  static func timeRange(for snapshot: PiPCallbackSnapshot) -> CMTimeRange {
+    guard let playerPointer = snapshot.playerPointer else { return .invalid }
+    let currentTime = snapshot.controlTimebase.map(CMTimebaseGetTime) ?? .zero
+    return nativePlaybackTimeRange(
+      playerPointer: playerPointer,
+      currentTime: currentTime
+    )
   }
 
   /// Queries the native player without consulting Swift-side media mirrors.
@@ -273,11 +306,17 @@ final class PiPPlaybackDelegateProxy: NSObject, AVPictureInPictureSampleBufferPl
   func pictureInPictureControllerIsPlaybackPaused(
     _: AVPictureInPictureController
   ) -> Bool {
-    pipMainActorSync { [weak self] in
-      // Default to paused when the owner is gone so AVKit renders a
-      // stable UI while teardown drains.
-      !(self?.owner?.pipPlaybackActive ?? false)
-    }
+    resolveIsPlaybackPaused()
+  }
+
+  /// The body of the paused query. See ``resolveTimeRangeForPlayback()`` for
+  /// why it is split out.
+  ///
+  /// Snapshot read, no main-actor hop. Defaults to paused when nothing is
+  /// attached so AVKit renders a stable UI while teardown drains.
+  func resolveIsPlaybackPaused() -> Bool {
+    guard let snapshot = currentCallbackSnapshot() else { return true }
+    return !snapshot.isPlaybackActive
   }
 
   func pictureInPictureController(
@@ -285,7 +324,7 @@ final class PiPPlaybackDelegateProxy: NSObject, AVPictureInPictureSampleBufferPl
     skipByInterval skipInterval: CMTime,
     completion completionHandler: @escaping @Sendable () -> Void
   ) {
-    pipMainActorSync { [weak self] in
+    pipMainActorAsync { [weak self] in
       guard let owner = self?.owner else {
         completionHandler()
         return
@@ -298,22 +337,62 @@ final class PiPPlaybackDelegateProxy: NSObject, AVPictureInPictureSampleBufferPl
     _: AVPictureInPictureController,
     didTransitionToRenderSize size: CMVideoDimensions
   ) {
-    pipMainActorSync { [weak self] in
+    pipMainActorAsync { [weak self] in
       self?.owner?.handleRenderSizeTransition(size)
     }
   }
 }
 
-/// AVKit may invoke the proxy's callbacks from non-main threads but
-/// expects synchronous answers. Bounce onto the main actor without
-/// routing through an async task so the answer is immediate.
-func pipMainActorSync<T: Sendable>(
-  _ body: @MainActor @Sendable () -> T
+/// Runs `body` on the main actor without blocking the calling thread.
+///
+/// AVKit invokes most of its callbacks from non-main threads and does not
+/// need a return value from them. Blocking those threads on the main actor
+/// closes a deadlock cycle: the main thread routinely waits on libVLC or
+/// video-output teardown, and that teardown can be gated behind the very
+/// callback thread that is now parked waiting for main. Enqueueing instead
+/// removes the callback-waits-for-main edge, so no cycle can form.
+///
+/// Already on the main thread, `body` still runs synchronously — reordering
+/// a callback relative to work the caller has already done would change
+/// observable behaviour for no benefit.
+/// Runs `body` on the main actor and waits, but only for `timeout`.
+///
+/// The escape hatch for the one callback that genuinely cannot be answered
+/// from a snapshot: AppKit's close veto has to run main-actor UI work
+/// (reparenting the replacement window) *before* it returns. Blocking is
+/// unavoidable there, so the wait is bounded instead — if the main actor is
+/// wedged behind teardown, the caller degrades to `fallback` rather than
+/// joining the deadlock.
+///
+/// Everything else should use ``pipMainActorAsync`` or read a snapshot.
+func pipMainActorSyncBounded<T: Sendable>(
+  timeout: DispatchTimeInterval = .milliseconds(250),
+  fallback: T,
+  _ body: @escaping @MainActor @Sendable () -> T
 ) -> T {
   if Thread.isMainThread {
     return MainActor.assumeIsolated(body)
   }
-  return DispatchQueue.main.sync {
+
+  let box = Mutex<T?>(nil)
+  let done = DispatchSemaphore(value: 0)
+  DispatchQueue.main.async {
+    let value = MainActor.assumeIsolated(body)
+    box.withLock { $0 = value }
+    done.signal()
+  }
+  guard done.wait(timeout: .now() + timeout) == .success else {
+    return fallback
+  }
+  return box.withLock { $0 } ?? fallback
+}
+
+func pipMainActorAsync(_ body: @escaping @MainActor @Sendable () -> Void) {
+  if Thread.isMainThread {
+    MainActor.assumeIsolated(body)
+    return
+  }
+  DispatchQueue.main.async {
     MainActor.assumeIsolated(body)
   }
 }
