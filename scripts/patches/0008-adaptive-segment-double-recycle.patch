@@ -1,53 +1,52 @@
-Fix a use-after-free when an encrypted segment's chunk cannot be prepared.
-
-ISegment::toChunk() releases the chunk source twice on the prepareChunk()
-failure path: once explicitly through recycleSource(), and again when it
-deletes the chunk, because ~AbstractChunk() releases the source the chunk
-owns. For ChunkType::Segment, HTTPConnectionManager::recycleSource() is not
-cacheable and falls through to deleteSource() -> delete, so the source is
-already freed by the time ~AbstractChunk() dispatches source->recycle()
-through its vtable.
-
-Reproduced under AddressSanitizer with the accompanying test:
-
-  ERROR: AddressSanitizer: heap-use-after-free
-  READ of size 8
-      #0 adaptive::http::AbstractChunk::~AbstractChunk()   Chunk.cpp:91
-      #1 adaptive::playlist::SegmentChunk::~SegmentChunk() SegmentChunk.cpp:47
-      #2 adaptive::playlist::ISegment::toChunk(...)        Segment.cpp:115
-  freed by thread T0 here:
-      #1 adaptive::playlist::ISegment::toChunk(...)        Segment.cpp:107
-
-That crash site matches the report in VLC #29845 (intermittent EXC_BAD_ACCESS
-in adaptive::http::AbstractChunk::~AbstractChunk on iOS arm64 after roughly
-ten minutes of HLS playback, on the PlaylistManager thread by way of
-SegmentTracker and AbstractStream).
-
-prepareChunk() only does work for encrypted segments and only fails when
-CommonEncryptionSession::start() fails, which for AES-128 HLS means the key
-could not be resolved: the #EXT-X-KEY URI failed to fetch, returned something
-other than 16 bytes, or carried no IV. Keys are cached, so this bites at key
-rotation or after cache eviction rather than at startup -- which matches the
-"fine for ten minutes, then crash" profile of the report. Builds without
-gcrypt are unaffected, since start() then always succeeds.
-
-For Init and Index chunk types the source is cacheable, so the second release
-pushes the same pointer into HTTPConnectionManager::cache twice and inflates
-cache_total, which later double-frees on purge and trips the
-assert(cache_total >= purged->contentLength).
-
-Introduced by ff7e38fe13353889c0f603f883134e75885b20f6 ("adaptive: recycle the
-chunk source when prepareChunk fails"), which modelled this on the
-createChunk() failure branch below it. That branch is correct precisely
-because no chunk was constructed there to own the source.
-
-Still present in VLC master as of 59361740a96.
-
-The test overrides prepareChunk() rather than driving real encryption, so it
-runs regardless of whether the build has gcrypt, and counts releases instead
-of freeing so the double release is a deterministic assertion rather than
-undefined behaviour in non-sanitizer builds.
-
+# Fix a use-after-free when an encrypted segment's chunk cannot be prepared.
+#
+# ISegment::toChunk() releases the chunk source twice on the prepareChunk()
+# failure path: once explicitly through recycleSource(), and again when it
+# deletes the chunk, because ~AbstractChunk() releases the source the chunk
+# owns. For ChunkType::Segment, HTTPConnectionManager::recycleSource() is not
+# cacheable and falls through to deleteSource() -> delete, so the source is
+# already freed by the time ~AbstractChunk() dispatches source->recycle()
+# through its vtable.
+#
+# Reproduced under AddressSanitizer with the accompanying test:
+#
+#   ERROR: AddressSanitizer: heap-use-after-free
+#   READ of size 8
+#       #0 adaptive::http::AbstractChunk::~AbstractChunk()   Chunk.cpp:91
+#       #1 adaptive::playlist::SegmentChunk::~SegmentChunk() SegmentChunk.cpp:47
+#       #2 adaptive::playlist::ISegment::toChunk(...)        Segment.cpp:115
+#   freed by thread T0 here:
+#       #1 adaptive::playlist::ISegment::toChunk(...)        Segment.cpp:107
+#
+# That crash site matches the report in VLC #29845 (intermittent EXC_BAD_ACCESS
+# in adaptive::http::AbstractChunk::~AbstractChunk on iOS arm64 after roughly
+# ten minutes of HLS playback, on the PlaylistManager thread by way of
+# SegmentTracker and AbstractStream).
+#
+# prepareChunk() only does work for encrypted segments and only fails when
+# CommonEncryptionSession::start() fails, which for AES-128 HLS means the key
+# could not be resolved: the #EXT-X-KEY URI failed to fetch, returned something
+# other than 16 bytes, or carried no IV. Keys are cached, so this bites at key
+# rotation or after cache eviction rather than at startup -- which matches the
+# "fine for ten minutes, then crash" profile of the report. Builds without
+# gcrypt are unaffected, since start() then always succeeds.
+#
+# For Init and Index chunk types the source is cacheable, so the second release
+# pushes the same pointer into HTTPConnectionManager::cache twice and inflates
+# cache_total, which later double-frees on purge and trips the
+# assert(cache_total >= purged->contentLength).
+#
+# Introduced by ff7e38fe13353889c0f603f883134e75885b20f6 ("adaptive: recycle the
+# chunk source when prepareChunk fails"), which modelled this on the
+# createChunk() failure branch below it. That branch is correct precisely
+# because no chunk exists there to own the source.
+#
+# Still present in VLC master as of 59361740a96.
+#
+# The test overrides prepareChunk() rather than driving real encryption, so it
+# runs regardless of whether the build has gcrypt, and counts releases instead
+# of freeing so the double release is a deterministic assertion rather than
+# undefined behaviour in non-sanitizer builds.
 diff --git a/modules/demux/Makefile.am b/modules/demux/Makefile.am
 index bf78b53ad99..1a733fc327a 100644
 --- a/modules/demux/Makefile.am
@@ -81,10 +80,10 @@ index 681fb8e575f..2eb0bdeff0b 100644
              }
 diff --git a/modules/demux/adaptive/test/playlist/SegmentChunk.cpp b/modules/demux/adaptive/test/playlist/SegmentChunk.cpp
 new file mode 100644
-index 00000000000..cdbb27ac284
+index 00000000000..ed94001308f
 --- /dev/null
 +++ b/modules/demux/adaptive/test/playlist/SegmentChunk.cpp
-@@ -0,0 +1,143 @@
+@@ -0,0 +1,142 @@
 +/*****************************************************************************
 + * SegmentChunk.cpp: ISegment::toChunk source ownership
 + *****************************************************************************
@@ -123,7 +122,6 @@ index 00000000000..cdbb27ac284
 +#include <vlc_block.h>
 +
 +#include <string>
-+#include <vector>
 +
 +using namespace adaptive;
 +using namespace adaptive::http;
