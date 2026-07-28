@@ -106,6 +106,40 @@ extension Integration {
       #expect(!player.isPlaybackRequestedActive, "a successful pause must leave intent inactive")
     }
 
+    /// The outcome describes the *current* attempt. Leaving a settled value
+    /// visible while a new pause is in flight would let a reader — a test, or
+    /// a future diagnostic — mistake the previous attempt's result for this
+    /// one's, which is exactly the confusion the typed outcome exists to
+    /// remove.
+    @Test
+    func `A newly scheduled pause clears the previous outcome`() async {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let recorder = PlaybackRecorder()
+      recorder.pauseSucceeds = true
+      player._setStateForTesting(state: .playing)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: recorder.driver,
+        pauseDebounce: .milliseconds(20)
+      )
+
+      // Settle a first pause so there is an outcome to go stale.
+      controller._setPlayingForTesting(false)
+      let settled = await awaitDeferredPauseOutcome(controller)
+      #expect(settled)
+      #expect(controller.deferredPauseOutcome == .issued)
+
+      // Resume, then request another pause. The second attempt is still
+      // debouncing, so no outcome describes it yet.
+      controller._setPlayingForTesting(true)
+      controller._setPlayingForTesting(false)
+
+      #expect(
+        controller.deferredPauseOutcome == nil,
+        "a pause in flight reported the previous attempt's outcome"
+      )
+    }
+
     /// Leaving a pausable state cancels the retry rather than exhausting it.
     @Test
     func `Leaving a playing state cancels the deferred pause`() async {

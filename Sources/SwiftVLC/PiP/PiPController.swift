@@ -211,7 +211,6 @@ public final class PiPController: NSObject {
   @ObservationIgnored
   private var deferredPause: DeferredPauseState = .idle
 
-  /// State of PiP's pause-debouncing state machine. See ``deferredPause``.
   /// How a deferred PiP pause finished.
   ///
   /// Not surfaced on ``PiPEvent`` because that is a public non-frozen enum and
@@ -230,8 +229,9 @@ public final class PiPController: NSObject {
     case rejected
   }
 
-  /// The outcome of the most recent deferred pause. Internal rather than
-  /// public: it exists so the bound and the reconciliation are assertable.
+  /// The outcome of the most recent deferred pause, or `nil` while one is in
+  /// flight. Internal rather than public: it exists so the bound and the
+  /// reconciliation are assertable.
   @ObservationIgnored
   private(set) var deferredPauseOutcome: DeferredPauseOutcome?
 
@@ -677,6 +677,11 @@ public final class PiPController: NSObject {
     if case .scheduled(let task, _) = deferredPause {
       task.cancel()
       deferredPause = .idle
+      // A pause that is cancelled before it can be issued is a cancellation,
+      // whichever caller cancelled it. `scheduleDeferredPause` clears this
+      // again straight afterwards, so a supersede reads as "in flight"
+      // rather than as the superseded attempt's outcome.
+      deferredPauseOutcome = .cancelled
     }
   }
 
@@ -686,6 +691,10 @@ public final class PiPController: NSObject {
   /// `.issued`) or exits cleanly (transitioning back to `.idle`).
   private func scheduleDeferredPause() {
     cancelDeferredPause()
+    // A new attempt is in flight and has not finished yet. Without this the
+    // previous attempt's outcome would stay readable for the whole debounce,
+    // so a reader could not tell a settled result from a stale one.
+    deferredPauseOutcome = nil
 
     let generation = DeferredPauseState.nextGeneration(after: deferredPause)
     let debounce = pauseDebounce
