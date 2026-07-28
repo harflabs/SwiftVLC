@@ -163,10 +163,58 @@ extension Integration {
         "a refused skip must still complete, exactly once"
       )
 
+      // Note: an unrepresentable interval cannot be covered through the stub
+      // driver, which returns a canned outcome without converting anything.
+      // `performSkip` classifies that case, and is tested directly below.
+    }
+
+    /// The interval classification lives in `performSkip`, so it is tested
+    /// against the real function rather than through the stub driver — the stub
+    /// returns a canned outcome and never converts an interval, so routing
+    /// these through it would assert nothing.
+    @Test
+    func `An unrepresentable interval is classified without reaching the player`() {
+      let player = Player(instance: TestInstance.shared)
+
+      #expect(PiPController.performSkip(on: player, by: .invalid) == .unrepresentableInterval)
+      #expect(PiPController.performSkip(on: player, by: .indefinite) == .unrepresentableInterval)
       #expect(
-        controller._skipCompletionCountForTesting(.invalid) == 1,
-        "an unrepresentable interval must still complete, exactly once"
+        PiPController.performSkip(on: player, by: .positiveInfinity) == .unrepresentableInterval
       )
+      #expect(
+        PiPController.performSkip(on: player, by: .negativeInfinity) == .unrepresentableInterval
+      )
+    }
+
+    /// A representable interval with no session to seek in is a rejection, not
+    /// an unrepresentable interval. Distinguishing the two is the point of the
+    /// typed outcome.
+    @Test
+    func `A representable interval without a session is rejected`() {
+      let player = Player(instance: TestInstance.shared)
+
+      let outcome = PiPController.performSkip(
+        on: player,
+        by: CMTime(seconds: 3, preferredTimescale: 1000)
+      )
+
+      #expect(outcome == .rejected)
+    }
+
+    /// Completion still has to run exactly once when the interval cannot be
+    /// converted — that path returns before the driver is consulted at all.
+    @Test
+    func `An unrepresentable interval still completes exactly once`() {
+      let player = Player(instance: TestInstance.shared)
+      let recorder = PlaybackRecorder()
+      let controller = PiPController(
+        player: player,
+        playbackDriver: recorder.driver,
+        pauseDebounce: .milliseconds(10)
+      )
+
+      #expect(controller._skipCompletionCountForTesting(.invalid) == 1)
+      #expect(recorder.skipIntervals.isEmpty, "an unconvertible interval reached the driver")
     }
   }
 }

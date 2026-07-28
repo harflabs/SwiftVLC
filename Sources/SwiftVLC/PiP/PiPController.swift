@@ -1074,6 +1074,15 @@ public final class PiPController: NSObject {
     // libVLC through a pause → seek → resume cycle.
     cancelDeferredPause()
 
+    // Reject an interval that cannot be expressed in libVLC's millisecond unit
+    // here rather than inside the driver, so no driver — live or injected —
+    // is ever handed one. AVKit has no contract preventing it from passing an
+    // indefinite or infinite CMTime.
+    guard Self.skipOffsetMilliseconds(skipInterval) != nil else {
+      completionHandler()
+      return
+    }
+
     let outcome = playbackDriver.skip(skipInterval)
 
     // A refused skip leaves the timeline untouched. Moving the timebase to a
