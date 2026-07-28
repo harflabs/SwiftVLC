@@ -125,6 +125,19 @@ extension Integration {
     }
     #endif
 
+    /// The remaining early exit: a controller whose AVKit controller was never
+    /// created has nowhere to send the request. That is a transient setup
+    /// state, so it must read as backendUnavailable rather than notPossible.
+    @Test
+    func `A controller with no AVKit controller reports backendUnavailable`() throws {
+      let player = Player(instance: TestInstance.shared)
+      try player.load(Media(url: TestMedia.twosecURL))
+      let controller = PiPController(player: player)
+      controller.pipController = nil
+
+      #expect(controller.start() == .backendUnavailable)
+    }
+
     @Test
     func `Start results are distinct`() {
       let all: [PiPStartResult] = [.accepted, .noMedia, .notPossible, .backendUnavailable]
