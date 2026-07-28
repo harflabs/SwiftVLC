@@ -51,6 +51,10 @@ final class PixelBufferRenderer: Sendable {
     /// stable home the runtime can track across struct copies.
     let displayLayer: DisplayLayerBox
     var timebase: CMTimebase?
+    /// Duration of one frame at the source's own cadence, or `.invalid` when
+    /// the cadence is not known. Never a fabricated default: see
+    /// ``PixelBufferRenderer/setFrameDuration(_:)``.
+    var frameDuration: CMTime = .invalid
 
     init(displayLayer: AVSampleBufferDisplayLayer?) {
       self.displayLayer = DisplayLayerBox(displayLayer)
@@ -92,6 +96,33 @@ final class PixelBufferRenderer: Sendable {
 
   func setTimebase(_ tb: CMTimebase?) {
     state.withLock { $0.timebase = tb }
+  }
+
+  /// Publishes the source's frame cadence for the sample timing of subsequent
+  /// frames.
+  ///
+  /// Pass `nil` when the cadence is unknown; the duration then becomes
+  /// `.invalid` and AVFoundation is told "no duration" rather than being handed
+  /// a fabricated one. Every frame used to carry exactly `1/30s` regardless of
+  /// the source, which misdescribes 24, 25, 50 and 60 fps content and every
+  /// variable-frame-rate stream, and duration feeds AVFoundation's scheduling
+  /// and backpressure rather than being decorative.
+  func setFrameDuration(_ duration: CMTime?) {
+    let resolved = duration.flatMap { $0.isNumeric && $0.seconds > 0 ? $0 : nil } ?? .invalid
+    state.withLock { $0.frameDuration = resolved }
+  }
+
+  /// Converts a rational frame rate into the duration of a single frame.
+  ///
+  /// Kept rational rather than going through a `Double`: 24000/1001 is exactly
+  /// representable this way, while `1.0 / 23.976...` is not, and NTSC-derived
+  /// rates are precisely where a rounded duration accumulates drift.
+  static func frameDuration(rateNumerator: UInt32, rateDenominator: UInt32) -> CMTime? {
+    guard rateNumerator > 0, rateDenominator > 0 else { return nil }
+    return CMTime(
+      value: CMTimeValue(rateDenominator),
+      timescale: CMTimeScale(rateNumerator)
+    )
   }
 
   func setRenderSize(_ size: CMVideoDimensions?) {
@@ -789,7 +820,9 @@ func pixelBufferDisplayCallback(
     let outputBuffer = output.buffer
     let renderGeneration = output.generation
 
-    let (timebase, layer) = renderer.state.withLock { ($0.timebase, $0.displayLayer.layer) }
+    let (timebase, layer, frameDuration) = renderer.state.withLock {
+      ($0.timebase, $0.displayLayer.layer, $0.frameDuration)
+    }
 
     guard let layer else { return }
     guard
@@ -814,7 +847,9 @@ func pixelBufferDisplayCallback(
     let displayImmediately = timebase.map { CMTimebaseGetRate($0) == 0 } ?? false
 
     var timingInfo = CMSampleTimingInfo(
-      duration: CMTime(value: 1, timescale: 30),
+      // `.invalid` when the source cadence is unknown. Inventing 30 fps here
+      // told AVFoundation something false about every non-30 fps source.
+      duration: frameDuration,
       presentationTimeStamp: pts,
       decodeTimeStamp: .invalid
     )

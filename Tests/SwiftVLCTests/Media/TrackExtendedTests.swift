@@ -146,6 +146,7 @@ extension Integration {
         width: nil,
         height: nil,
         frameRate: nil,
+        frameRateRatio: nil,
         encoding: "UTF-8"
       )
       #expect(sub.channels == nil)
@@ -236,6 +237,7 @@ extension Integration {
         width: nil,
         height: nil,
         frameRate: nil,
+        frameRateRatio: nil,
         encoding: nil
       )
       #expect(track.language == "fr")
@@ -271,6 +273,7 @@ extension Integration {
         width: width,
         height: height,
         frameRate: frameRate,
+        frameRateRatio: nil,
         encoding: nil
       )
     }

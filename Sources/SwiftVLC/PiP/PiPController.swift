@@ -845,6 +845,16 @@ public final class PiPController: NSObject {
         )
         applyObservedPlaybackStateUpdate(playbackStateUpdate)
 
+        // The source cadence is only knowable once the video track has been
+        // parsed, and it changes on media replacement and on an adaptive
+        // representation switch — both of which re-report tracks.
+        switch event {
+        case .tracksChanged, .mediaChanged:
+          renderer.setFrameDuration(Self.sourceFrameDuration(of: player))
+        default:
+          break
+        }
+
         // State transition: sync the timebase rate.
         if active != wasActive {
           wasActive = active

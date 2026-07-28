@@ -30,6 +30,7 @@ extension Logic {
         width: nil,
         height: nil,
         frameRate: nil,
+        frameRateRatio: nil,
         encoding: nil
       )
     }

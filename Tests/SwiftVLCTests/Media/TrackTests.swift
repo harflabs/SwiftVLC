@@ -139,6 +139,7 @@ extension Logic {
         width: nil,
         height: nil,
         frameRate: nil,
+        frameRateRatio: nil,
         encoding: "UTF-8"
       )
       #expect(track.encoding == "UTF-8")
@@ -163,6 +164,7 @@ extension Logic {
         width: 1920,
         height: 1080,
         frameRate: 29.97,
+        frameRateRatio: nil,
         encoding: nil
       )
       #expect(track.frameRate != nil)
@@ -185,6 +187,7 @@ extension Logic {
         width: nil,
         height: nil,
         frameRate: nil,
+        frameRateRatio: nil,
         encoding: nil
       )
       #expect(track.language == "en")
@@ -209,6 +212,7 @@ extension Logic {
         width: nil,
         height: nil,
         frameRate: nil,
+        frameRateRatio: nil,
         encoding: "UTF-8"
       )
       #expect(track.encoding == "UTF-8")
@@ -259,6 +263,7 @@ extension Logic {
         width: width,
         height: height,
         frameRate: nil,
+        frameRateRatio: nil,
         encoding: nil
       )
     }

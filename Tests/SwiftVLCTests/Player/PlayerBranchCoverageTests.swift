@@ -368,6 +368,7 @@ extension Integration {
         width: nil,
         height: nil,
         frameRate: nil,
+        frameRateRatio: nil,
         encoding: nil
       )
 
