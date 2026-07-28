@@ -106,7 +106,6 @@ struct PixelBufferFrameCadenceTests {
     #expect(renderer.state.withLock { $0.frameDuration }.isValid == false)
   }
 }
-#endif
 
 /// Resolving the cadence from the player's track list, which is what feeds the
 /// renderer on `.tracksChanged` and `.mediaChanged`.
@@ -199,3 +198,4 @@ extension Integration {
     }
   }
 }
+#endif
