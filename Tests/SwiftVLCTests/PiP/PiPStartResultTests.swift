@@ -1,5 +1,5 @@
 #if os(iOS) || os(macOS)
-@testable import SwiftVLC
+@_spi(PrivateMacOSPiP) @testable import SwiftVLC
 import Testing
 
 /// `start()` used to return `Void` from four indistinguishable early exits, so
@@ -95,6 +95,33 @@ extension Integration {
       backend.attach(to: player)
 
       #expect(backend.start() == .notPossible)
+    }
+
+    /// With the private-framework opt-in enabled, PiP can become possible while
+    /// the host and drawable views have not been wired up yet. That window must
+    /// report backendUnavailable — a transient setup state the caller should
+    /// retry — rather than notPossible, which says this machine will never do
+    /// PiP and invites the caller to hide its button permanently.
+    @Test
+    func `The macOS backend separates an unwired backend from an impossible one`() throws {
+      let initial = PiPController.allowsPrivateMacOSAPI
+      defer { PiPController.allowsPrivateMacOSAPI = initial }
+      PiPController.allowsPrivateMacOSAPI = true
+
+      let player = Player(instance: TestInstance.shared)
+      try player.load(Media(url: TestMedia.twosecURL))
+      let backend = MacNativePiPBackend()
+      backend.attach(to: player)
+
+      let result = backend.start()
+
+      // Whether PIP.framework loads is a property of the host, so both outcomes
+      // are legitimate. What must never happen is the two collapsing together.
+      if backend.isPossible {
+        #expect(result == .backendUnavailable, "an unwired backend reported \(result)")
+      } else {
+        #expect(result == .notPossible)
+      }
     }
     #endif
 
