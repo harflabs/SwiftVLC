@@ -487,13 +487,15 @@ public final class PiPController: NSObject {
     guard player.currentMedia != nil else { return .noMedia }
     #if os(iOS)
     if let nativeBackend {
-      // Preserve the backend's one-time vout diagnostic, but do not take audio
-      // focus for a start request the native controller cannot perform.
-      guard nativeBackend.isPossible else {
-        nativeBackend.start()
-        return .notPossible
+      // Do not take audio focus for a request the native controller cannot
+      // perform. The backend is still asked either way, both for its one-time
+      // vout diagnostic and because its answer is the authoritative one —
+      // substituting `.notPossible` here would report the controller's guess
+      // over the backend's own finding, and would hide a `.noMedia` the
+      // backend can see and this layer cannot.
+      if nativeBackend.isPossible {
+        activateAudioSessionIfNeeded()
       }
-      activateAudioSessionIfNeeded()
       return nativeBackend.start()
     }
     #endif
