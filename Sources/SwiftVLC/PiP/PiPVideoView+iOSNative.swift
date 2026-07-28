@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 #if os(iOS)
 import AVFoundation
 import AVKit
@@ -867,12 +868,23 @@ final class IOSNativePiPBackend: NSObject, @unchecked Sendable {
 
 final class IOSNativePiPMediaController: NSObject, IOSNativePiPMediaControlling, @unchecked Sendable {
   weak var player: Player? {
-    didSet { MainActor.assumeIsolated { refreshCallbackSnapshot() } }
+    didSet { publishCallbackSnapshot() }
   }
 
   /// What VLC's native PiP module reads instead of blocking on the main
   /// actor. See ``PiPCallbackSnapshot``.
   let callbackSnapshot = Mutex(PiPCallbackSnapshot())
+
+  /// Publishes without assuming the caller is already on the main actor.
+  /// `assumeIsolated` would trap if this nominally nonisolated class is ever
+  /// mutated from a background thread.
+  private func publishCallbackSnapshot() {
+    if Thread.isMainThread {
+      MainActor.assumeIsolated { refreshCallbackSnapshot() }
+    } else {
+      Task { @MainActor [weak self] in self?.refreshCallbackSnapshot() }
+    }
+  }
 
   /// Republished whenever the attached player changes.
   @MainActor

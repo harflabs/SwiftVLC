@@ -374,17 +374,35 @@ func pipMainActorSyncBounded<T: Sendable>(
     return MainActor.assumeIsolated(body)
   }
 
-  let box = Mutex<T?>(nil)
+  let state = Mutex(BoundedHopState<T>())
   let done = DispatchSemaphore(value: 0)
   DispatchQueue.main.async {
+    // The caller may already have given up. Running `body` then would perform
+    // side effects for a result nobody will see — for the close veto that
+    // means reparenting the replacement window *after* telling AppKit the
+    // close was allowed. When the main actor is genuinely wedged, which is
+    // the case this exists for, the closure has not started yet and this
+    // check is what stops it.
+    guard !state.withLock({ $0.abandoned }) else { return }
     let value = MainActor.assumeIsolated(body)
-    box.withLock { $0 = value }
+    state.withLock { $0.value = value }
     done.signal()
   }
+
   guard done.wait(timeout: .now() + timeout) == .success else {
+    state.withLock { $0.abandoned = true }
     return fallback
   }
-  return box.withLock { $0 } ?? fallback
+  // Unwraps exactly one level, so a `T` that is itself optional round-trips a
+  // genuine `nil` instead of collapsing into `fallback`.
+  guard let value = state.withLock({ $0.value }) else { return fallback }
+  return value
+}
+
+/// Result slot for ``pipMainActorSyncBounded(timeout:fallback:_:)``.
+private struct BoundedHopState<Value> {
+  var value: Value?
+  var abandoned = false
 }
 
 func pipMainActorAsync(_ body: @escaping @MainActor @Sendable () -> Void) {

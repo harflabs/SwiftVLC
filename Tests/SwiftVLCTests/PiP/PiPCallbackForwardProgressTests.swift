@@ -146,6 +146,58 @@ struct PiPCallbackForwardProgressTests {
     #expect(progressed, "the bounded hop never returned")
     #expect(result.withLock { $0 } == true, "it returned the main-actor value, not the fallback")
   }
+
+  /// After the bounded hop gives up, the queued body must not run.
+  ///
+  /// For the close veto that body reparents the replacement window — running
+  /// it once the caller has already told AppKit the close was allowed would
+  /// apply UI side effects for a decision that was never delivered.
+  @Test
+  func `A timed-out bounded hop does not run its body afterwards`() {
+    let released = DispatchSemaphore(value: 0)
+    let stalled = DispatchSemaphore(value: 0)
+
+    DispatchQueue.main.async {
+      stalled.signal()
+      released.wait()
+    }
+    #expect(stalled.wait(timeout: .now() + 5) == .success)
+
+    let ranBody = BoolBox()
+    let answered = DispatchSemaphore(value: 0)
+    DispatchQueue.global().async {
+      _ = pipMainActorSyncBounded(timeout: .milliseconds(50), fallback: true) {
+        ranBody.set(true)
+        return false
+      }
+      answered.signal()
+    }
+
+    #expect(answered.wait(timeout: .now() + 3) == .success, "the bounded hop never returned")
+
+    // Let the main thread drain, then confirm the abandoned body was skipped.
+    released.signal()
+    let drained = DispatchSemaphore(value: 0)
+    DispatchQueue.main.async { drained.signal() }
+    #expect(drained.wait(timeout: .now() + 5) == .success)
+
+    #expect(
+      !ranBody.get(),
+      "the body ran after the caller had already given up and returned the fallback"
+    )
+  }
 }
 
+/// `Mutex` is non-copyable, so a value shared between two escaping closures
+/// needs a reference box.
+private final class BoolBox: Sendable {
+  private let storage = Mutex(false)
+  func set(_ value: Bool) {
+    storage.withLock { $0 = value }
+  }
+
+  func get() -> Bool {
+    storage.withLock { $0 }
+  }
+}
 #endif

@@ -542,7 +542,7 @@ final class MacPrivatePiPDelegate: NSObject, @unchecked Sendable {
 
 final class MacNativePiPMediaController: NSObject, @unchecked Sendable {
   weak var player: Player? {
-    didSet { MainActor.assumeIsolated { refreshCallbackSnapshot() } }
+    didSet { publishCallbackSnapshot() }
   }
 
   /// What AppKit's synchronous queries read instead of blocking on the main
@@ -612,6 +612,17 @@ final class MacNativePiPMediaController: NSObject, @unchecked Sendable {
     // asks, and a snapshot republished afterwards would answer with the
     // previous value.
     player?.nonisolatedPlaybackIntent.load(ordering: .acquiring) ?? false
+  }
+
+  /// Publishes the snapshot without assuming the caller is already on the main
+  /// actor. `assumeIsolated` would trap if this class is ever mutated from a
+  /// background thread, and it is nominally nonisolated.
+  private func publishCallbackSnapshot() {
+    if Thread.isMainThread {
+      MainActor.assumeIsolated { refreshCallbackSnapshot() }
+    } else {
+      Task { @MainActor [weak self] in self?.refreshCallbackSnapshot() }
+    }
   }
 
   /// Republished whenever the attached player or its playback intent changes.
