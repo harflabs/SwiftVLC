@@ -121,6 +121,8 @@ public final class PiPController: NSObject {
   @ObservationIgnored
   private var playbackIntentObserverTask: Task<Void, Never>?
   @ObservationIgnored
+  private var cadenceObserverTask: Task<Void, Never>?
+  @ObservationIgnored
   private var possibleObservation: NSKeyValueObservation?
   @ObservationIgnored
   private var activeObservation: NSKeyValueObservation?
@@ -340,6 +342,7 @@ public final class PiPController: NSObject {
     setupPiPController()
     startStateObserver()
     startPlaybackIntentObserver()
+    startCadenceObserver()
   }
 
   #if os(iOS)
@@ -455,6 +458,7 @@ public final class PiPController: NSObject {
     cancelDeferredPause()
     stateObserverTask?.cancel()
     playbackIntentObserverTask?.cancel()
+    cadenceObserverTask?.cancel()
     possibleObservation = nil
     activeObservation = nil
     // No explicit native-backend relinquish: the backend holds its `owner`
@@ -845,16 +849,6 @@ public final class PiPController: NSObject {
         )
         applyObservedPlaybackStateUpdate(playbackStateUpdate)
 
-        // The source cadence is only knowable once the video track has been
-        // parsed, and it changes on media replacement and on an adaptive
-        // representation switch — both of which re-report tracks.
-        switch event {
-        case .tracksChanged, .mediaChanged:
-          renderer.setFrameDuration(Self.sourceFrameDuration(of: player))
-        default:
-          break
-        }
-
         // State transition: sync the timebase rate.
         if active != wasActive {
           wasActive = active
@@ -899,6 +893,37 @@ public final class PiPController: NSObject {
               CMTimebaseSetTime(tb, time: CMTime(seconds: playerSec, preferredTimescale: 1000))
             }
           }
+        }
+      }
+    }
+  }
+
+  /// Keeps the renderer's frame cadence in step with the source.
+  ///
+  /// Deliberately a *separate* subscription on the lossless control lane rather
+  /// than a branch in the main state observer. That observer consumes the mixed
+  /// `events` stream, which is bounded and newest-wins, so under a main-actor
+  /// stall a burst of clock samples can evict the very `tracksChanged` that
+  /// tells us the cadence changed — and the renderer would then keep stamping
+  /// the previous source's rate for the rest of the session.
+  ///
+  /// Safe to run concurrently with the state observer because it shares no
+  /// mutable state with it: it reads the track list and writes one
+  /// lock-protected duration, and doing that twice for the same media is
+  /// indistinguishable from doing it once.
+  private func startCadenceObserver() {
+    let events = player.controlEvents
+    cadenceObserverTask = Task { @MainActor [weak self] in
+      for await event in events {
+        guard let self else { return }
+        switch event {
+        case .tracksChanged, .mediaChanged:
+          // Cadence is only knowable once the video track has been parsed, and
+          // it changes on media replacement and on an adaptive representation
+          // switch — both of which re-report tracks.
+          renderer.setFrameDuration(Self.sourceFrameDuration(of: player))
+        default:
+          break
         }
       }
     }

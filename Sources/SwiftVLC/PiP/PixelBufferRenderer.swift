@@ -108,7 +108,13 @@ final class PixelBufferRenderer: Sendable {
   /// variable-frame-rate stream, and duration feeds AVFoundation's scheduling
   /// and backpressure rather than being decorative.
   func setFrameDuration(_ duration: CMTime?) {
-    let resolved = duration.flatMap { $0.isNumeric && $0.seconds > 0 ? $0 : nil } ?? .invalid
+    // Validated on the rational fields rather than through `seconds`, which
+    // converts to `Double` — the very conversion this whole path exists to
+    // avoid. A positive value over a positive timescale is exactly the
+    // condition, with no rounding in the way.
+    let resolved = duration.flatMap {
+      $0.isNumeric && $0.value > 0 && $0.timescale > 0 ? $0 : nil
+    } ?? .invalid
     state.withLock { $0.frameDuration = resolved }
   }
 
@@ -119,10 +125,12 @@ final class PixelBufferRenderer: Sendable {
   /// rates are precisely where a rounded duration accumulates drift.
   static func frameDuration(rateNumerator: UInt32, rateDenominator: UInt32) -> CMTime? {
     guard rateNumerator > 0, rateDenominator > 0 else { return nil }
-    return CMTime(
-      value: CMTimeValue(rateDenominator),
-      timescale: CMTimeScale(rateNumerator)
-    )
+    // `CMTimeScale` is `Int32`, so a numerator above its maximum would trap on
+    // conversion. libVLC reports this straight from container metadata, which
+    // is attacker-controllable in a malformed file, so an absurd rate has to
+    // read as "cadence unknown" rather than crash the decode thread.
+    guard let timescale = CMTimeScale(exactly: rateNumerator) else { return nil }
+    return CMTime(value: CMTimeValue(rateDenominator), timescale: timescale)
   }
 
   func setRenderSize(_ size: CMVideoDimensions?) {
