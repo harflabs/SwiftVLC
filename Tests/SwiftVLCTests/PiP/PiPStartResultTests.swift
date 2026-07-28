@@ -138,6 +138,24 @@ extension Integration {
       #expect(controller.start() == .backendUnavailable)
     }
 
+    #if os(macOS)
+    /// A controller that owns a native backend must delegate to it rather than
+    /// answering from its own AVKit controller, or the two could disagree about
+    /// the same request.
+    @Test
+    func `A controller with a native backend delegates the start result`() throws {
+      let player = Player(instance: TestInstance.shared)
+      let backend = MacNativePiPBackend()
+      backend.attach(to: player)
+      let controller = PiPController(player: player, nativeBackend: backend)
+
+      #expect(controller.start() == .noMedia)
+
+      try player.load(Media(url: TestMedia.twosecURL))
+      #expect(controller.start() == backend.start())
+    }
+    #endif
+
     @Test
     func `Start results are distinct`() {
       let all: [PiPStartResult] = [.accepted, .noMedia, .notPossible, .backendUnavailable]
