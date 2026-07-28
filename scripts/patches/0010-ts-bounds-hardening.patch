@@ -1,0 +1,68 @@
+# Backport the dependency-ordered MPEG-TS bounds-check series:
+#   93e847d1c02e8bb55c46f1d9c511e95e9e9bc2ec  check block skip size
+#   417a06caa26df76a51d09bdd5361ef4d9b7c96e3  check block has enough data
+#                                             before checking payload flags
+#   f7d12646eeffd1008b655075db759ed2534485fa  fix boundaries check to read
+#                                             in the block
+#
+# Out-of-bounds reads on truncated or malformed transport streams, which a
+# player that opens untrusted network sources is directly exposed to -- and
+# which matter more here because the shipped engine has historically been built
+# with assertions enabled (see issue #30).
+#
+# 93e847d1c02 guards p_pkt->i_buffer > i_skip in SeekToTime() and ProbeChunk().
+# 417a06caa26 requires p_pkt->i_buffer > 4 before reading p_buffer[1] and
+# p_buffer[3]; it must be applied after 93e847d1c02, which it edits.
+# f7d12646eef corrects an inverted bound in ParsePESDataChain():
+# `p_pes->i_buffer + 2 <= i_skip` becomes `p_pes->i_buffer >= i_skip + 2`. The
+# old form permits an out-of-bounds GetWBE.
+#
+# f7d12646eef is the one behaviour-changing entry: its author notes that PES
+# data previously skipped now gets read, "unless there was a bogus skip". It
+# wants a malformed/truncated TS fixture rather than compile verification alone
+# -- which is also issue #79's own acceptance criterion for this area.
+diff --git a/modules/demux/mpeg/ts.c b/modules/demux/mpeg/ts.c
+index 642947e346c..58643667426 100644
+--- a/modules/demux/mpeg/ts.c
++++ b/modules/demux/mpeg/ts.c
+@@ -1615,12 +1615,12 @@ static void ParsePESDataChain( demux_t *p_demux, ts_pid_t *pid, block_t *p_pes,
+             ( dcd->p_extra[1]&0x10 ) )
+         {
+             /* display length */
+-            if( p_pes->i_buffer + 2 <= i_skip )
++            if( p_pes->i_buffer >= i_skip + 2 )
+                 i_length = GetWBE( &p_pes->p_buffer[i_skip] );
+ 
+             i_skip += 2;
+         }
+-        if( p_pes->i_buffer + 2 <= i_skip )
++        if( p_pes->i_buffer >= i_skip + 2 )
+             i_pes_size = GetWBE( &p_pes->p_buffer[i_skip] );
+         /* */
+         i_skip += 2;
+@@ -2021,7 +2021,7 @@ static int SeekToTime( demux_t *p_demux, const ts_pmt_t *p_pmt, vlc_tick_t i_see
+                     i_pktpcr = GetPCR( p_pkt );
+ 
+                 unsigned i_skip = PKTHeaderAndAFSize( p_pkt );
+-                if( i_pktpcr == TS_90KHZ_INVALID && p_pid->type == TYPE_STREAM &&
++                if( p_pkt->i_buffer > 4 && p_pkt->i_buffer > i_skip && i_pktpcr == TS_90KHZ_INVALID && p_pid->type == TYPE_STREAM &&
+                     ts_stream_Find_es( p_pid->u.p_stream, p_pmt ) &&
+                    (p_pkt->p_buffer[1] & 0xC0) == 0x40 && /* Payload start but not corrupt */
+                    (p_pkt->p_buffer[3] & 0xD0) == 0x10    /* Has payload but is not encrypted */
+@@ -2111,6 +2111,8 @@ static int ProbeChunk( demux_t *p_demux, int i_program, bool b_end, bool *pb_fou
+             {
+                 b_pcrresult = false;
+                 unsigned i_skip = PKTHeaderAndAFSize( p_pkt );
++                if (p_pkt->i_buffer > i_skip)
++                {
+                 ts_pes_header_t pesh;
+                 ts_pes_header_init( &pesh );
+                 if ( VLC_SUCCESS == ParsePESHeader( NULL, &p_pkt->p_buffer[i_skip],
+@@ -2121,6 +2123,7 @@ static int ProbeChunk( demux_t *p_demux, int i_program, bool b_end, bool *pb_fou
+                     else if( pesh.i_pts != TS_90KHZ_INVALID )
+                         i_pcr = pesh.i_pts;
+                 }
++                }
+             }
+ 
+             if( i_pcr != TS_90KHZ_INVALID )
