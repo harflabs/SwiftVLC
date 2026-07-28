@@ -1,0 +1,78 @@
+#if os(iOS) || os(macOS)
+@testable import SwiftVLC
+import Testing
+
+/// `start()` used to return `Void` from four indistinguishable early exits, so
+/// a caller could not tell a request that reached AVKit from one that never
+/// left the controller — and therefore could not decide whether to fall back to
+/// full-screen playback.
+extension Integration {
+  @Suite(.tags(.mainActor))
+  @MainActor struct PiPStartResultTests {
+    @Test
+    func `Starting without media reports noMedia`() {
+      let player = Player(instance: TestInstance.shared)
+      let controller = PiPController(player: player)
+
+      #expect(player.currentMedia == nil)
+      #expect(controller.start() == .noMedia)
+    }
+
+    /// The distinction that motivates the type: with media loaded, the result
+    /// must describe why the request could not be issued rather than silently
+    /// collapsing to the same nothing as the no-media case.
+    @Test
+    func `Starting with media never reports noMedia`() throws {
+      let player = Player(instance: TestInstance.shared)
+      try player.load(Media(url: TestMedia.twosecURL))
+      let controller = PiPController(player: player)
+
+      let result = controller.start()
+
+      #expect(result != .noMedia)
+      // Headless CI has no PiP, a Mac desktop may. Both are legitimate; what
+      // matters is that the outcome is named either way.
+      #expect(
+        result == .accepted || result == .notPossible || result == .backendUnavailable,
+        "unexpected start result: \(result)"
+      )
+    }
+
+    /// An accepted result has to mean the request was actually issued, so it
+    /// must not be reachable when PiP is unavailable.
+    @Test
+    func `Accepted is never reported when PiP is not possible`() throws {
+      let player = Player(instance: TestInstance.shared)
+      try player.load(Media(url: TestMedia.twosecURL))
+      let controller = PiPController(player: player)
+
+      let result = controller.start()
+
+      if !controller.isPossible {
+        #expect(result != .accepted, "start claimed acceptance while PiP was impossible")
+      }
+    }
+
+    /// `toggle()` has to propagate the start result when it takes the start
+    /// branch. A caller that wants to fall back on a refused start needs to
+    /// tell "I tried to start and it was refused" from "I stopped".
+    @Test
+    func `Toggle propagates the start result and reports nil for a stop`() {
+      let player = Player(instance: TestInstance.shared)
+      let controller = PiPController(player: player)
+
+      #expect(controller.isActive == false)
+      #expect(controller.toggle() == .noMedia, "toggle discarded the start result")
+
+      controller._setStateForTesting(isActive: true)
+      #expect(controller.toggle() == nil, "toggle reported a start result for a stop")
+    }
+
+    @Test
+    func `Start results are distinct`() {
+      let all: [PiPStartResult] = [.accepted, .noMedia, .notPossible, .backendUnavailable]
+      #expect(Set(all.map(String.init(describing:))).count == all.count)
+    }
+  }
+}
+#endif

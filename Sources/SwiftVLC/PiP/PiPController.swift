@@ -475,30 +475,37 @@ public final class PiPController: NSObject {
   // MARK: - Public API
 
   /// Starts Picture-in-Picture if possible and media is loaded.
-  public func start() {
-    guard player.currentMedia != nil else { return }
+  ///
+  /// The returned ``PiPStartResult`` describes only whether the request was
+  /// issued. Previously every early exit returned silently, so a caller could
+  /// not tell a request that reached AVKit from one that never left the
+  /// controller — and therefore could not decide whether to fall back to
+  /// full-screen playback. Asynchronous AVKit failure after an accepted start
+  /// stays where it belongs, on ``pipEvents``.
+  @discardableResult
+  public func start() -> PiPStartResult {
+    guard player.currentMedia != nil else { return .noMedia }
     #if os(iOS)
     if let nativeBackend {
       // Preserve the backend's one-time vout diagnostic, but do not take audio
       // focus for a start request the native controller cannot perform.
       guard nativeBackend.isPossible else {
         nativeBackend.start()
-        return
+        return .notPossible
       }
       activateAudioSessionIfNeeded()
-      nativeBackend.start()
-      return
+      return nativeBackend.start()
     }
     #endif
     #if os(macOS)
     if let nativeBackend {
-      nativeBackend.start()
-      return
+      return nativeBackend.start()
     }
     #endif
-    guard let pipController else { return }
+    guard let pipController else { return .backendUnavailable }
     activateAudioSessionIfNeeded()
     pipController.startPictureInPicture()
+    return .accepted
   }
 
   /// Stops Picture-in-Picture.
@@ -530,12 +537,18 @@ public final class PiPController: NSObject {
   }
 
   /// Toggles Picture-in-Picture on/off.
-  public func toggle() {
+  /// - Returns: the ``PiPStartResult`` when this call took the start branch,
+  ///   or `nil` when it stopped an active session. A caller that wants to fall
+  ///   back on a refused start needs to distinguish "I tried to start and it
+  ///   was refused" from "I stopped"; collapsing both to `Void` made that
+  ///   impossible.
+  @discardableResult
+  public func toggle() -> PiPStartResult? {
     if isActive {
       stop()
-    } else {
-      start()
+      return nil
     }
+    return start()
   }
 
   // MARK: - Setup

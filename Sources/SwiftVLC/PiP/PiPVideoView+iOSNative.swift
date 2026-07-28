@@ -668,12 +668,16 @@ final class IOSNativePiPBackend: NSObject, @unchecked Sendable {
     }
   }
 
-  func start() {
-    guard isPossible, mediaController.player?.currentMedia != nil else {
+  func start() -> PiPStartResult {
+    guard mediaController.player?.currentMedia != nil else {
       warnIfVideoOutputBlocksPictureInPicture()
-      return
+      return .noMedia
     }
-    performWindowControllerAction(IOSNativePiPSelector.start)
+    guard isPossible else {
+      warnIfVideoOutputBlocksPictureInPicture()
+      return .notPossible
+    }
+    return performWindowControllerAction(IOSNativePiPSelector.start)
   }
 
   /// One-time diagnostic for the common misconfiguration where a custom
@@ -821,9 +825,16 @@ final class IOSNativePiPBackend: NSObject, @unchecked Sendable {
     }
   }
 
-  private func performWindowControllerAction(_ selector: Selector) {
-    guard let windowController, windowController.responds(to: selector) else { return }
+  @discardableResult
+  private func performWindowControllerAction(_ selector: Selector) -> PiPStartResult {
+    // The window controller is created lazily alongside the PiP-ready
+    // callback, so "no controller yet" is a real transient state rather than a
+    // programming error, and the caller deserves to be told which one it hit.
+    guard let windowController, windowController.responds(to: selector) else {
+      return .backendUnavailable
+    }
     _ = windowController.perform(selector)
+    return .accepted
   }
 
   func makeValidationProbe() -> NativePiPProbe {
