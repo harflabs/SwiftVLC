@@ -19,8 +19,16 @@ extension PiPController {
   @MainActor
   static func sourceFrameDuration(of player: Player) -> CMTime? {
     let tracks = player.videoTracks
-    let ratio = tracks.first(where: { $0.isSelected })?.frameRateRatio
-      ?? tracks.lazy.compactMap(\.frameRateRatio).first
+    let ratio: FrameRateRatio? = if let selected = tracks.first(where: \.isSelected) {
+      // The selected track is the one being decoded. If it reports no cadence,
+      // the answer is "unknown" — borrowing a sibling track's rate would be
+      // fabrication of a subtler kind than the 30 fps default this replaces.
+      selected.frameRateRatio
+    } else {
+      // Nothing selected yet, which a track list shows briefly right after a
+      // media change. Any track that reports a cadence is better than none.
+      tracks.lazy.compactMap(\.frameRateRatio).first
+    }
     guard let ratio else { return nil }
     return PixelBufferRenderer.frameDuration(
       rateNumerator: ratio.numerator,

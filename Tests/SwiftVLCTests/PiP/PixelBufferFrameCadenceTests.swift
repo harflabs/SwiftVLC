@@ -107,3 +107,95 @@ struct PixelBufferFrameCadenceTests {
   }
 }
 #endif
+
+/// Resolving the cadence from the player's track list, which is what feeds the
+/// renderer on `.tracksChanged` and `.mediaChanged`.
+extension Integration {
+  @Suite(.tags(.mainActor))
+  @MainActor struct PiPCadenceResolutionTests {
+    private func videoTrack(
+      id: String,
+      isSelected: Bool,
+      ratio: FrameRateRatio?
+    ) -> Track {
+      Track(
+        id: id,
+        type: .video,
+        name: "Video \(id)",
+        codec: 0,
+        language: nil,
+        trackDescription: nil,
+        isSelected: isSelected,
+        bitrate: 0,
+        channels: nil,
+        sampleRate: nil,
+        width: 1920,
+        height: 1080,
+        frameRate: ratio?.framesPerSecond,
+        frameRateRatio: ratio,
+        encoding: nil
+      )
+    }
+
+    @Test
+    func `No video tracks yields no cadence`() {
+      let player = Player(instance: TestInstance.shared)
+      #expect(PiPController.sourceFrameDuration(of: player) == nil)
+    }
+
+    /// A track list with no reported cadence must stay unknown rather than
+    /// falling back to an assumed rate.
+    @Test
+    func `A track without a reported cadence yields no cadence`() {
+      let player = Player(instance: TestInstance.shared)
+      player.videoTracks = [videoTrack(id: "v0", isSelected: true, ratio: nil)]
+
+      #expect(PiPController.sourceFrameDuration(of: player) == nil)
+    }
+
+    @Test
+    func `The selected track's cadence wins`() throws {
+      let player = Player(instance: TestInstance.shared)
+      player.videoTracks = [
+        videoTrack(id: "v0", isSelected: false, ratio: FrameRateRatio(numerator: 60, denominator: 1)),
+        videoTrack(id: "v1", isSelected: true, ratio: FrameRateRatio(numerator: 24000, denominator: 1001))
+      ]
+
+      let duration = try #require(PiPController.sourceFrameDuration(of: player))
+
+      #expect(duration == CMTime(value: 1001, timescale: 24000), "an unselected track's cadence won")
+    }
+
+    /// A track list can briefly show nothing selected right after a media
+    /// change, and an unknown cadence there would stamp `.invalid` on frames
+    /// whose rate the list already reports.
+    @Test
+    func `An unselected track's cadence is used when nothing is selected`() throws {
+      let player = Player(instance: TestInstance.shared)
+      player.videoTracks = [
+        videoTrack(id: "v0", isSelected: false, ratio: nil),
+        videoTrack(id: "v1", isSelected: false, ratio: FrameRateRatio(numerator: 25, denominator: 1))
+      ]
+
+      let duration = try #require(PiPController.sourceFrameDuration(of: player))
+
+      #expect(duration == CMTime(value: 1, timescale: 25))
+    }
+
+    /// A selected track that reports no cadence must not silently adopt another
+    /// track's rate — the selected one is what is being decoded.
+    @Test
+    func `A selected track without a cadence does not borrow another track's`() {
+      let player = Player(instance: TestInstance.shared)
+      player.videoTracks = [
+        videoTrack(id: "v0", isSelected: true, ratio: nil),
+        videoTrack(id: "v1", isSelected: false, ratio: FrameRateRatio(numerator: 50, denominator: 1))
+      ]
+
+      #expect(
+        PiPController.sourceFrameDuration(of: player) == nil,
+        "the decoded track reported no cadence but another track's rate was used"
+      )
+    }
+  }
+}
