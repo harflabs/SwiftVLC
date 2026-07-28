@@ -97,9 +97,19 @@ extension Player {
   /// Because control events are not in this buffer, dropping from it can never
   /// cost a one-shot transition.
   ///
-  /// The buffer holds one slot per timing event kind, which is what makes
-  /// "drop the backlog, keep the newest" the correct behaviour rather than
-  /// merely an acceptable one.
+  /// The buffer keeps the newest ``Player/timingLaneBufferSize`` events across
+  /// the lane as a whole — it is **not** one slot per event kind. A consumer
+  /// stalled across a long enough burst of the fastest kind (`timeChanged`, at
+  /// roughly 30 Hz) can therefore still lose the newest sample of a slower one
+  /// such as `voutChanged`.
+  ///
+  /// That is a real limit, not a claim to have solved it. Per-kind coalescing
+  /// would need a keyed buffer rather than `AsyncStream`'s newest-N policy.
+  /// What the lane split does guarantee is the part that matters for
+  /// correctness: nothing dropped here can ever be a one-shot control event,
+  /// because control events are not in this buffer. If you need a timing value
+  /// you cannot afford to miss, read it from `Player`'s observable properties,
+  /// which are fed by the lossless internal stream.
   public nonisolated var timingEvents: AsyncStream<PlayerEvent> {
     eventBridge.makeStream(
       policy: .newest(Self.timingLaneBufferSize),
@@ -107,7 +117,8 @@ extension Player {
     )
   }
 
-  /// One slot per timing event kind, so the newest value of each survives a
-  /// backlog even when another kind is producing faster.
+  /// Newest-N across the whole timing lane. Sized to hold at least one of each
+  /// timing kind so a *short* backlog does not starve the slower ones; a long
+  /// enough burst of one kind will still evict the others.
   nonisolated static let timingLaneBufferSize = 4
 }

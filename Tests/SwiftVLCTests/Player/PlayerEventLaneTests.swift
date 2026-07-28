@@ -106,7 +106,11 @@ extension Integration {
         "a control event leaked into the lossy timing lane"
       )
       // Newest-wins: the most recent sample survives the backlog.
-      #expect(delivered.last?.description == PlayerEvent.voutChanged(7).description)
+      guard case .voutChanged(let count) = delivered.last else {
+        Issue.record("the newest timing sample was dropped: \(String(describing: delivered.last))")
+        return
+      }
+      #expect(count == 7)
     }
   }
 }
