@@ -2,6 +2,90 @@
 @testable import SwiftVLC
 import Testing
 
+/// The timebase rules the state observer applies on every event.
+///
+/// Every branch is gated on the player actively playing, which CI cannot
+/// reach — so the rules live in a pure function and are asserted here rather
+/// than being left as unreachable code inside the observer.
+@Suite(.tags(.logic))
+struct PiPTimebaseRetrackingTests {
+  private func retracking(
+    isActive: Bool = true,
+    rate: Float = 1.0,
+    lastRate: Float = 1.0,
+    hasTimebase: Bool = true,
+    secondsSinceSkip: Double = 5.0,
+    playerSeconds: Double = 0,
+    timebaseSeconds: Double = 0
+  )
+    -> PiPController.TimebaseRetracking {
+    PiPController.timebaseRetracking(
+      isActive: isActive,
+      rate: rate,
+      lastRate: lastRate,
+      hasTimebase: hasTimebase,
+      secondsSinceSkip: secondsSinceSkip,
+      playerSeconds: playerSeconds,
+      timebaseSeconds: timebaseSeconds
+    )
+  }
+
+  @Test
+  func `A steady rate and an aligned clock ask for nothing`() {
+    #expect(retracking() == PiPController.TimebaseRetracking())
+  }
+
+  @Test
+  func `A rate change retracks the timebase`() {
+    let result = retracking(rate: 2.0, lastRate: 1.0)
+    #expect(result.adoptsRate)
+    #expect(result.setsRate == 2.0)
+  }
+
+  /// The rate is adopted even when nothing is pushed, or the comparison would
+  /// fire again on every subsequent event and never settle.
+  @Test(arguments: [(false, true), (true, false)])
+  func `An unpushable rate change is still adopted`(state: (isActive: Bool, hasTimebase: Bool)) {
+    let result = retracking(
+      isActive: state.isActive,
+      rate: 0.5,
+      lastRate: 1.0,
+      hasTimebase: state.hasTimebase
+    )
+    #expect(result.adoptsRate, "the rate change would be re-detected forever")
+    #expect(result.setsRate == nil)
+    #expect(result.setsTime == nil)
+  }
+
+  @Test
+  func `A large divergence resyncs the timebase`() {
+    let result = retracking(playerSeconds: 40, timebaseSeconds: 10)
+    #expect(result.setsTime == 40)
+  }
+
+  /// A PiP-issued skip writes the timebase itself; overwriting it while it
+  /// settles would drag the scrubber back to where the player has not moved
+  /// from yet.
+  @Test
+  func `A recent skip suppresses the resync`() {
+    #expect(retracking(secondsSinceSkip: 0.5, playerSeconds: 40, timebaseSeconds: 10).setsTime == nil)
+  }
+
+  /// Small drift is normal between a decoded clock and a host timebase.
+  /// Correcting it every tick would be visible as a stutter.
+  @Test(arguments: [0.0, 1.0, 1.9, -1.9])
+  func `A small divergence is left alone`(offset: Double) {
+    #expect(retracking(playerSeconds: 10 + offset, timebaseSeconds: 10).setsTime == nil)
+  }
+
+  @Test
+  func `An inactive player is never retracked`() {
+    let result = retracking(isActive: false, rate: 2.0, lastRate: 1.0, playerSeconds: 40, timebaseSeconds: 10)
+    #expect(result.setsRate == nil)
+    #expect(result.setsTime == nil)
+  }
+}
+
 extension Integration {
   /// PiP's state observer is the consumer issue #78 was filed about. The lane
   /// split landed, but this observer kept reading the mixed `events` stream,

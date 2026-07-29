@@ -939,35 +939,84 @@ public final class PiPController: NSObject {
       }
     }
 
-    // Rate changed: retrack the timebase so PiP's scrubber
-    // advances at the real playback speed. Without this the
-    // scrubber stays at 1.0× even when the player is running at
-    // 2.0× or 0.5×, which looks like desync. `player.rate` has
-    // no dedicated libVLC event, so this comparison picks the
-    // change up on the next incoming event (time-changed fires
-    // frequently during active playback, which is when the
-    // timebase rate matters).
-    if rate != lastObservedRate {
-      lastObservedRate = rate
-      if active, let tb = controlTimebase {
-        CMTimebaseSetRate(tb, rate: Float64(rate))
-      }
-    }
+    let timebase = controlTimebase
+    let time = player.currentTime
+    let retracking = Self.timebaseRetracking(
+      isActive: active,
+      rate: rate,
+      lastRate: lastObservedRate,
+      hasTimebase: timebase != nil,
+      secondsSinceSkip: CFAbsoluteTimeGetCurrent() - lastSkipTimestamp,
+      playerSeconds: Double(time.components.seconds)
+        + Double(time.components.attoseconds) / 1e18,
+      timebaseSeconds: timebase.map { CMTimebaseGetTime($0).seconds } ?? 0
+    )
 
-    // Sync timebase when player position diverges significantly
-    // (e.g., seek from the app's own controls outside PiP).
-    // Guard against overwriting the skip handler's timebase.
-    if active, let tb = controlTimebase {
-      let timeSinceSkip = CFAbsoluteTimeGetCurrent() - lastSkipTimestamp
-      if timeSinceSkip > 1.0 {
-        let t = player.currentTime
-        let playerSec = Double(t.components.seconds) + Double(t.components.attoseconds) / 1e18
-        let tbSec = CMTimebaseGetTime(tb).seconds
-        if abs(playerSec - tbSec) > 2.0 {
-          CMTimebaseSetTime(tb, time: CMTime(seconds: playerSec, preferredTimescale: 1000))
-        }
+    if retracking.adoptsRate {
+      lastObservedRate = rate
+    }
+    if let timebase {
+      if let rate = retracking.setsRate {
+        CMTimebaseSetRate(timebase, rate: Float64(rate))
+      }
+      if let seconds = retracking.setsTime {
+        CMTimebaseSetTime(timebase, time: CMTime(seconds: seconds, preferredTimescale: 1000))
       }
     }
+  }
+
+  /// What the control timebase should be told after an observed event.
+  struct TimebaseRetracking: Equatable {
+    /// Whether the observer should remember this rate as the last one seen.
+    /// True on any change, including one seen while inactive — otherwise the
+    /// comparison would fire again on the next event and never settle.
+    var adoptsRate = false
+    /// The rate to push onto the timebase, if any.
+    var setsRate: Float?
+    /// The time to push onto the timebase, if any.
+    var setsTime: Double?
+  }
+
+  /// Decides the timebase updates for one observed event.
+  ///
+  /// Pure, and separated from the call site above for a reason the coverage
+  /// config already names: every branch here is gated on the player being
+  /// actively playing, and CI cannot drive libVLC to `.playing` at all (see
+  /// `TestCondition.canPlayMedia`). Keeping the decision in a function that
+  /// takes its inputs as parameters is what makes the rules testable
+  /// headlessly instead of merely unreachable.
+  ///
+  /// The rules:
+  /// - A rate change retracks the scrubber, which would otherwise advance at
+  ///   1.0× while the player runs at 2.0× or 0.5×. `player.rate` has no
+  ///   dedicated libVLC event, so this is picked up from whatever event
+  ///   arrives next — clock ticks, during playback.
+  /// - A large position divergence resyncs the timebase, which is how a seek
+  ///   made from the app's own controls reaches the PiP scrubber.
+  /// - Neither applies within a second of a PiP-issued skip, whose own
+  ///   timebase write must not be overwritten while it settles.
+  nonisolated static func timebaseRetracking(
+    isActive: Bool,
+    rate: Float,
+    lastRate: Float,
+    hasTimebase: Bool,
+    secondsSinceSkip: Double,
+    playerSeconds: Double,
+    timebaseSeconds: Double
+  )
+    -> TimebaseRetracking {
+    var retracking = TimebaseRetracking()
+    retracking.adoptsRate = rate != lastRate
+
+    guard isActive, hasTimebase else { return retracking }
+
+    if retracking.adoptsRate {
+      retracking.setsRate = rate
+    }
+    if secondsSinceSkip > 1.0, abs(playerSeconds - timebaseSeconds) > 2.0 {
+      retracking.setsTime = playerSeconds
+    }
+    return retracking
   }
 
   /// Keeps the renderer's frame cadence in step with the source.
