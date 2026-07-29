@@ -306,6 +306,23 @@ if [[ "$DRY_RUN" == false ]]; then
     exit 1
   fi
 
+  # The engine binary's inputs must be answerable from the repository, so a
+  # release refuses to proceed while the patch directory disagrees with its
+  # committed manifest — an unlisted patch is exactly the case that would
+  # otherwise ship without appearing in release history. Same check the build
+  # performs; repeated here because a release can package an xcframework built
+  # by an earlier invocation.
+  if [[ -n "$(git status --porcelain -- scripts/patches)" ]]; then
+    echo "Error: scripts/patches has uncommitted changes." >&2
+    echo "  A release must be reproducible from committed sources." >&2
+    exit 1
+  fi
+  if ! MANIFEST_OUTPUT=$("$SCRIPT_DIR/verify-patch-manifest.sh" 2>&1); then
+    echo "Error: patch manifest verification failed." >&2
+    echo "$MANIFEST_OUTPUT" >&2
+    exit 1
+  fi
+
   CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
   if [[ "$CURRENT_BRANCH" != "main" ]]; then
     echo "Error: refusing to release from branch '$CURRENT_BRANCH'." >&2

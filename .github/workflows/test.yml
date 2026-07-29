@@ -48,6 +48,13 @@ jobs:
         timeout-minutes: 2
         run: swiftformat Sources Tests Showcase --lint --strict
 
+      # Catches manifest drift on the pull request rather than at release time,
+      # which is the whole point: a patch added without a manifest entry would
+      # otherwise only fail once someone tried to cut a release.
+      - name: Patch manifest
+        timeout-minutes: 1
+        run: ./scripts/verify-patch-manifest.sh >/dev/null
+
   # Showcase apps build gate. Catches API breakage that the SwiftVLC
   # test suite wouldn't notice — e.g. renaming a public symbol used
   # only by the Showcase, or breaking the Showcase's Mac/iOS/tvOS/visionOS

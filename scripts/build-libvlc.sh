@@ -36,6 +36,11 @@ VLC_HASH="c833c4be0"
 # be overridden or cleared with --patches-dir=DIR.
 PATCHES_DIR="${REPO_ROOT}/scripts/patches"
 
+# Name of the ordered manifest inside PATCHES_DIR. Every patch that will be
+# applied has to be listed there with its SHA-256, and every listed patch has
+# to exist with that hash. See `verify_patch_manifest`.
+PATCH_MANIFEST_NAME="manifest.sha256"
+
 BUILD_IOS=yes
 BUILD_TVOS=no
 BUILD_VISIONOS=no
@@ -667,6 +672,23 @@ info "VLC source provenance: ${SOURCE_SHA}"
 # --- Step 1b: Apply patches ---
 if [ -n "${PATCHES_DIR}" ] && [ -d "${PATCHES_DIR}" ]; then
     info "Applying patches from ${PATCHES_DIR}..."
+    # The manifest, not the glob, decides which patches are applied and in what
+    # order. An unlisted patch, a missing one, or an edited one is fatal — see
+    # verify-patch-manifest.sh for why the binary's inputs have to be
+    # answerable from the repository.
+    #
+    # Captured into a variable first rather than piped: a process substitution
+    # would let a verification failure pass unnoticed, since the exit status of
+    # `while read` is the loop's, not the producer's.
+    if ! manifest_listing=$("${SCRIPT_DIR}/verify-patch-manifest.sh" "${PATCHES_DIR}"); then
+        error "Patch manifest verification failed (see above)."
+    fi
+    manifest_order=()
+    while IFS= read -r manifest_entry; do
+        [ -n "$manifest_entry" ] || continue
+        manifest_order+=("${PATCHES_DIR}/${manifest_entry}")
+    done <<< "$manifest_listing"
+    info "Patch manifest verified: ${#manifest_order[@]} patches"
     cd "${VLC_SRC}"
 
     # Ordered patches can intentionally overlap (0003 refines code introduced
@@ -679,7 +701,7 @@ if [ -n "${PATCHES_DIR}" ] && [ -d "${PATCHES_DIR}" ]; then
     # intact.
     patch_files=()
     patch_paths=()
-    for patch in "${PATCHES_DIR}"/*.patch; do
+    for patch in "${manifest_order[@]}"; do
         if [ -f "$patch" ]; then
             patch_files+=("$patch")
             patch_numstat=$(git apply --numstat "$patch") \
