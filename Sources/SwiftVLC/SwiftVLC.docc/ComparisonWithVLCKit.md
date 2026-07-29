@@ -174,7 +174,7 @@ Both are maintained, and choosing one does not deprecate the other.
 The two projects coexisting is a fact about the ecosystem, not about
 linking. **Do not link SwiftVLC and VLCKit into the same process.** Each
 ships its own complete
-libVLC, and a process that loads two of them is in undefined behavior:
+libVLC, and a process that loads two of them is undefined behavior:
 duplicate Objective-C classes resolved arbitrarily at launch, two plugin
 registries, and callbacks able to cross between two half-initialized
 runtimes. The libvlc archive has to exist exactly once among the images a
