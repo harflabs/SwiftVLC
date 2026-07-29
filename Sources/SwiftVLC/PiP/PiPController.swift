@@ -853,12 +853,18 @@ public final class PiPController: NSObject {
 
   /// Keeps the renderer's frame cadence in step with the source.
   ///
-  /// Deliberately a *separate* subscription on the lossless control lane rather
-  /// than a branch in the main state observer. That observer consumes the mixed
-  /// `events` stream, which is bounded and newest-wins, so under a main-actor
-  /// stall a burst of clock samples can evict the very `tracksChanged` that
-  /// tells us the cadence changed — and the renderer would then keep stamping
-  /// the previous source's rate for the rest of the session.
+  /// A *separate* subscription on the lossless control lane rather than a
+  /// branch in the state observer. It was split off when that observer still
+  /// read the mixed, newest-wins `events` stream, where a burst of clock
+  /// samples under a main-actor stall could evict the very `tracksChanged`
+  /// that reports a cadence change — leaving the renderer stamping the
+  /// previous source's rate for the rest of the session.
+  ///
+  /// ``startStateObserver()`` now takes the control lane too, so that
+  /// specific hazard is gone and this could fold into it. It stays separate
+  /// because the concerns are unrelated: cadence needs only `tracksChanged`
+  /// and `mediaChanged`, and keeping it out of the state observer's body
+  /// means a change to one cannot perturb the other.
   ///
   /// Safe to run concurrently with the state observer because it shares no
   /// mutable state with it: it reads the track list and writes one
