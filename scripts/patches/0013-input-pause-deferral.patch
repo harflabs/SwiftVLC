@@ -1,0 +1,241 @@
+# Backport the pause/unpause deferral series:
+#   73ca279b355  input: allow ControlPause to get a synchronous parameter
+#   d4f2062941c3  player: allow pause from STARTED state for deferred pause
+#   2191d7292a42 player: ensure we don't signal pause twice
+#   8f6579e8885  input: es_out: allow defer pause/unpause during buffering
+#   9f80ae524f8  input: wire up --start-paused and pause/unpause deferral during buffering
+#   e81f0ab5cc7  input: es_out: clean up pause state
+#
+# On the pinned revision a pause issued while the input is still buffering is
+# dropped rather than deferred, so the player keeps playing and the request is
+# never acknowledged. That is the engine-side half of the unpausable-input
+# problem tracked as #103: the wrapper currently compensates by retrying the
+# pause on a debounce and eventually reporting a typed rejection.
+#
+# 73ca279b355 is a prerequisite for d4f2062941c3, which passes the new
+# synchronous parameter. 2191d7292a42 touches timer.c and requires patch 0012.
+diff --git a/src/input/es_out.c b/src/input/es_out.c
+index 650333d0d46..88e2bde31d2 100644
+--- a/src/input/es_out.c
++++ b/src/input/es_out.c
+@@ -1254,6 +1254,27 @@ static void EsOutDecodersStopBuffering(es_out_sys_t *p_sys, bool b_forced)
+                                i_stream_start);
+     vlc_clock_main_Unlock(p_sys->p_pgrm->clocks.main);
+ 
++    /* If pause was requested during buffering previously, set pause state now
++     * that buffering is complete and clock references are established. Use
++     * EsOutChangePause to properly pause both decoders and clocks. */
++    if (input_priv(p_sys->p_input)->b_pause_after_buffering)
++    {
++        input_priv(p_sys->p_input)->b_pause_after_buffering = false;
++
++        /* ES out should not be paused yet: a deferred pause is never applied to
++         * es_out before this point, and all synchronous pauses clear the
++         * b_pause_after_buffering flag. */
++        assert(!p_sys->b_paused);
++        assert(input_priv(p_sys->p_input)->i_state != PAUSE_S);
++
++        const vlc_tick_t i_pause_date = vlc_tick_now();
++        EsOutChangePause(p_sys, true, i_pause_date);
++
++         /* Update input state since pause was not yet applied. */
++        input_priv(p_sys->p_input)->i_state = PAUSE_S;
++        input_SendEventState(p_sys->p_input, PAUSE_S, i_pause_date);
++    }
++
+     foreach_es_then_es_slaves(p_es)
+     {
+         if( !p_es->p_dec )
+diff --git a/src/input/input.c b/src/input/input.c
+index 6cd40c5fb72..b0743b585b1 100644
+--- a/src/input/input.c
++++ b/src/input/input.c
+@@ -75,7 +75,7 @@ static int ControlPopEarly(input_thread_t *input, int *type,
+ static void       ControlRelease( int i_type, const input_control_param_t *p_param );
+ static bool       ControlIsSeekRequest( int i_type );
+ static bool       Control( input_thread_t *, int, input_control_param_t );
+-static void       ControlPause( input_thread_t *, vlc_tick_t );
++static void       ControlPause(input_thread_t *, vlc_tick_t, bool);
+ 
+ static int  UpdateTitleSeekpointFromDemux( input_thread_t * );
+ static void UpdateGenericFromDemux( input_thread_t * );
+@@ -275,6 +275,7 @@ input_thread_t * input_Create( vlc_object_t *p_parent, input_item_t *p_item,
+     priv->is_running = false;
+     priv->is_stopped = false;
+     priv->b_recording = false;
++    priv->b_pause_after_buffering = false;
+     priv->rate = 1.f;
+     TAB_INIT( priv->i_attachment, priv->attachment );
+     priv->p_sout   = NULL;
+@@ -644,7 +645,7 @@ static void MainLoop( input_thread_t *p_input, bool b_interactive )
+     vlc_tick_t i_last_seek_mdate = 0;
+ 
+     if( b_interactive && var_InheritBool( p_input, "start-paused" ) )
+-        ControlPause( p_input, vlc_tick_now() );
++        ControlPause(p_input, vlc_tick_now(), true);
+ 
+     bool eof_signaled = false;
+ 
+@@ -1716,8 +1717,22 @@ static void ControlRelease( int i_type, const input_control_param_t *p_param )
+     }
+ }
+ 
+-/* Pause input */
+-static void ControlPause( input_thread_t *p_input, vlc_tick_t i_control_date )
++/* Pause input.
++ *
++ * can_defer tells whether the pause may be deferred until buffering
++ * completes. It must be false for any caller that really needs es_out
++ * to be paused right away.
++ *
++ * The only such caller is the frame-by-frame handling. A frame step is
++ * implemented as "pause the output, then release exactly one picture at a
++ * time".
++ *
++ * TODO: at some point, we must also be able to remove this special case
++ *       for frame-by-frame, but the deferred pause implementation would
++ *       break frame-by-frame without this.
++ */
++static void ControlPause(input_thread_t *p_input, vlc_tick_t i_control_date,
++                         bool can_defer)
+ {
+     int i_state = PAUSE_S;
+ 
+@@ -1732,6 +1747,23 @@ static void ControlPause( input_thread_t *p_input, vlc_tick_t i_control_date )
+         }
+     }
+ 
++    /* Check if in buffering state, and if so, deferred the pasue
++     * instead of trying to pause the media playback right away, since
++     * the playback and the clocks are not even configured yet.
++     *
++     * We must avoid switching to PAUSE_S here, so that we keep the
++     * property that PAUSE_S implies es_out is paused. We'll handle the
++     * pause as soon as buffering is done. */
++    if (can_defer &&
++        input_priv(p_input)->master->b_can_pause &&
++        es_out_GetBuffering(input_priv(p_input)->p_es_out))
++    {
++        input_priv(p_input)->b_pause_after_buffering = true;
++        return;
++    }
++
++    input_priv(p_input)->b_pause_after_buffering = false;
++
+     /* */
+     if( es_out_SetPauseState( input_priv(p_input)->p_es_out,
+                               input_priv(p_input)->master->b_can_pause,
+@@ -1759,6 +1791,8 @@ static void ControlUnpause( input_thread_t *p_input, vlc_tick_t i_control_date )
+         }
+     }
+ 
++    input_priv(p_input)->b_pause_after_buffering = false;
++
+     /* Switch to play */
+     input_ChangeState( p_input, PLAYING_S, i_control_date );
+     es_out_SetPauseState( input_priv(p_input)->p_es_out, false, false, i_control_date );
+@@ -2122,7 +2156,7 @@ static bool Control( input_thread_t *p_input,
+                 case PAUSE_S:
+                     if( priv->i_state == PLAYING_S )
+                     {
+-                        ControlPause( p_input, i_control_date );
++                        ControlPause(p_input, i_control_date, true);
+                         b_force_update = true;
+                     }
+                     break;
+@@ -2441,7 +2475,7 @@ static bool Control( input_thread_t *p_input,
+             }
+             else if( priv->i_state == PLAYING_S )
+             {
+-                ControlPause( p_input, i_control_date );
++                ControlPause(p_input, i_control_date, false);
+                 input_SendEvent(p_input, &(struct vlc_input_event) {
+                     .type = INPUT_EVENT_FRAME_NEXT_STATUS,
+                     .frame_next_status = -EAGAIN,
+@@ -2482,7 +2516,7 @@ static bool Control( input_thread_t *p_input,
+             }
+             else if( priv->i_state == PLAYING_S )
+             {
+-                ControlPause( p_input, i_control_date );
++                ControlPause(p_input, i_control_date, false);
+                 input_SendEvent(p_input, &(struct vlc_input_event) {
+                     .type = INPUT_EVENT_FRAME_PREVIOUS_STATUS,
+                     .frame_next_status = -EAGAIN,
+diff --git a/src/input/input_internal.h b/src/input/input_internal.h
+index eb5b5bf0d30..88b3f3e9996 100644
+--- a/src/input/input_internal.h
++++ b/src/input/input_internal.h
+@@ -506,6 +506,7 @@ typedef struct input_thread_private_t
+     bool        is_running;
+     bool        is_stopped;
+     bool        b_recording;
++    bool        b_pause_after_buffering; /* Defer pause until after buffering */
+     float       rate;
+ 
+     /* Playtime configuration and state */
+diff --git a/src/player/input.c b/src/player/input.c
+index c95202caa33..0d1a101fc20 100644
+--- a/src/player/input.c
++++ b/src/player/input.c
+@@ -307,7 +307,9 @@ vlc_player_input_HandleState(struct vlc_player_input *input,
+             break;
+ 
+         case VLC_PLAYER_STATE_PAUSED:
+-            assert(player->global_state == VLC_PLAYER_STATE_PLAYING);
++            /* Can pause from PLAYING or STARTED (deferred pause during buffering) */
++            assert(player->global_state == VLC_PLAYER_STATE_PLAYING
++                   || player->global_state == VLC_PLAYER_STATE_STARTED);
+             assert(state_date != VLC_TICK_INVALID);
+             input->pause_date = state_date;
+ 
+diff --git a/src/player/player.h b/src/player/player.h
+index 139065d890c..1c0725a9de4 100644
+--- a/src/player/player.h
++++ b/src/player/player.h
+@@ -195,6 +195,12 @@ struct vlc_player_timer_source
+     vlc_es_id_t *es; /* weak reference */
+     struct vlc_player_timer_point point;
+     bool seeking;
++
++    /* Set once a pause has been reported to this source's listener.
++     * The input might signal paused clock and then output
++     * would signal it. This flag filters this case here. */
++    bool pause_reported;
++
+     union
+     {
+         struct {
+diff --git a/src/player/timer.c b/src/player/timer.c
+index 727ea4a7951..79a439d2cb3 100644
+--- a/src/player/timer.c
++++ b/src/player/timer.c
+@@ -270,6 +270,12 @@ vlc_player_UpdateTimerEvent(vlc_player_t *player, vlc_es_id_t *es_source,
+                 struct vlc_player_timer_source *source = &player->timer.sources[i];
+                 if (source->es != es_source)
+                     continue;
++
++                /* The input might signal paused clock and then output
++                 * would signal it. This flag filters this case here. */
++                if (source->pause_reported)
++                    continue;
++                source->pause_reported = true;
+                 vlc_player_SendTimerPause(player, source, system_date,
+                                           i == VLC_PLAYER_TIMER_TYPE_SMPTE);
+             }
+@@ -279,6 +285,8 @@ vlc_player_UpdateTimerEvent(vlc_player_t *player, vlc_es_id_t *es_source,
+         case VLC_PLAYER_TIMER_EVENT_PLAYING:
+             assert(!player->timer.stopping);
+             player->timer.update_state = UPDATE_STATE_RESUMING;
++            for (size_t i = 0; i < VLC_PLAYER_TIMER_TYPE_COUNT; ++i)
++                player->timer.sources[i].pause_reported = false;
+             break;
+ 
+         case VLC_PLAYER_TIMER_EVENT_STOPPING:
+@@ -755,6 +763,7 @@ vlc_player_InitTimer(vlc_player_t *player)
+         player->timer.sources[i].point.system_date = VLC_TICK_INVALID;
+         player->timer.sources[i].es = NULL;
+         player->timer.sources[i].seeking = false;
++        player->timer.sources[i].pause_reported = false;
+     }
+     vlc_player_ResetTimer(player);
+ }

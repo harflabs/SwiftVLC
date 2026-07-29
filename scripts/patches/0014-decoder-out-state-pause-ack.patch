@@ -1,0 +1,267 @@
+# Backport the decoder output-state and pause-acknowledgement series:
+#   13e48832068  decoder: update out state on new vout
+#   87d75fcb5c3  decoder: fix possible invalid out state when format is changed
+#   8115e53bf0a  decoder: rename UpdateOutState() to ReapplyOutState()
+#   7e78a995b1a  decoder: acknowledge all pause requests
+#   aaf1673e626  player: timer: don't update the state from stale pause events
+#   94213560f8f  decoder: don't drain the audio output again before a flush
+#
+# 7e78a995b1a is the one that matters most here: a pause and a resume issued in
+# quick succession can cancel each other out before the decoder thread wakes,
+# leaving the output in the right state but the last request unacknowledged.
+# Upstream reports it as test_src_player_pause hanging in roughly 2% of runs
+# with 100 parallel instances (VLC #29960). SwiftVLC reaches the same ordering
+# from PiP, where AVKit issues pause and resume from its own callback threads.
+#
+# 8115e53bf0a is a pure rename, included so 7e78a995b1a applies verbatim.
+# 7e78a995b1a and 94213560f8f additionally require the DecoderThread() context
+# established by patch 0011.
+#
+# Not reproduced locally: 600 runs of test_src_player_pause at 100 parallel
+# instances against an ASan build of the *unpatched* pin produced no hang on
+# this machine, so the runs recorded for this series establish no regression
+# rather than a proven fix. The upstream reproduction conditions are recorded
+# in VLC #29960.
+diff --git a/src/input/decoder.c b/src/input/decoder.c
+index 64edcf7699b..706530b358e 100644
+--- a/src/input/decoder.c
++++ b/src/input/decoder.c
+@@ -141,6 +141,7 @@ struct decoder_audio
+     /* If aout is valid, then astream is valid too */
+     audio_output_t *aout;
+     vlc_aout_stream *stream;
++    bool drained;
+ };
+ 
+ struct decoder_spu
+@@ -225,7 +226,7 @@ struct vlc_input_decoder_t
+ #define PREROLL_FORCED VLC_TICK_MAX
+ 
+     /* Pause & Rate */
+-    vlc_tick_t pause_date;
++    vlc_tick_t pause_date, output_pause_date;
+     vlc_tick_t delay, output_delay;
+     float rate, output_rate;
+     int frames_countdown;
+@@ -505,16 +506,16 @@ static void Decoder_ChangeOutputDelay( vlc_input_decoder_t *p_owner, vlc_tick_t
+     p_owner->output_delay = delay;
+ }
+ 
+-static void Decoder_UpdateOutState(vlc_input_decoder_t *owner)
++static void Decoder_ReapplyOutState(vlc_input_decoder_t *owner)
+ {
+-    if (owner->paused)
+-        Decoder_ChangeOutputPause(owner, owner->paused, owner->pause_date);
++    if (owner->output_paused)
++        Decoder_ChangeOutputPause(owner, owner->output_paused, owner->pause_date);
+ 
+-    if (owner->rate != 1.f)
+-        Decoder_ChangeOutputRate(owner, owner->rate);
++    if (owner->output_rate != 1.f)
++        Decoder_ChangeOutputRate(owner, owner->output_rate);
+ 
+-    if (owner->delay != 0)
+-        Decoder_ChangeOutputDelay(owner, owner->delay);
++    if (owner->output_delay != 0)
++        Decoder_ChangeOutputDelay(owner, owner->output_delay);
+ }
+ 
+ /**
+@@ -701,6 +702,7 @@ static int ModuleThread_UpdateAudioFormat( decoder_t *p_dec )
+         vlc_fifo_Lock(p_owner->p_fifo);
+         p_owner->audio.aout = p_aout;
+         p_owner->audio.stream = p_astream;
++        p_owner->audio.drained = false;
+ 
+         DecoderUpdateFormatLocked( p_owner );
+         aout_FormatPrepare( &p_owner->fmt.audio );
+@@ -718,7 +720,7 @@ static int ModuleThread_UpdateAudioFormat( decoder_t *p_dec )
+         p_dec->fmt_out.audio.i_frame_length =
+             p_owner->fmt.audio.i_frame_length;
+ 
+-        Decoder_UpdateOutState( p_owner );
++        Decoder_ReapplyOutState( p_owner );
+         vlc_fifo_Unlock( p_owner->p_fifo );
+     }
+     return 0;
+@@ -812,11 +814,12 @@ static int ModuleThread_UpdateVideoFormat( decoder_t *p_dec, vlc_video_context *
+         vlc_fifo_Lock(p_owner->p_fifo);
+         p_owner->video.started = true;
+ 
+-        Decoder_UpdateOutState( p_owner );
+-
+         if (vout_state == INPUT_RESOURCE_VOUT_STARTED)
++        {
++            Decoder_ReapplyOutState( p_owner );
+             decoder_Notify(p_owner, on_vout_started, p_vout,
+                            p_owner->video.vout_order);
++        }
+         vlc_fifo_Unlock(p_owner->p_fifo);
+         return 0;
+     }
+@@ -1076,7 +1079,7 @@ static subpicture_t *ModuleThread_NewSpuBuffer( decoder_t *p_dec,
+         }
+ 
+         p_owner->spu.vout = p_vout;
+-        Decoder_UpdateOutState(p_owner);
++        Decoder_ReapplyOutState(p_owner);
+ 
+         assert(channel_order != VLC_VOUT_ORDER_NONE);
+         decoder_Notify(p_owner, on_vout_started, p_vout, channel_order);
+@@ -2010,9 +2013,16 @@ static void *DecoderThread( void *p_data )
+             continue;
+         }
+ 
+-        if( p_owner->paused != p_owner->output_paused )
++        /* Also compare the request dates: a pause and a resume requested in
++         * quick succession can cancel each other out, but each request must
++         * still be acknowledged via decoder_Notify() */
++        if( p_owner->paused != p_owner->output_paused
++         || p_owner->pause_date != p_owner->output_pause_date )
+         {   /* Update playing/paused status of the output */
+-            Decoder_ChangeOutputPause( p_owner, p_owner->paused, p_owner->pause_date );
++            if( p_owner->paused != p_owner->output_paused )
++                Decoder_ChangeOutputPause( p_owner, p_owner->paused,
++                                           p_owner->pause_date );
++            p_owner->output_pause_date = p_owner->pause_date;
+             decoder_Notify(p_owner, on_output_paused, p_owner->paused,
+                            p_owner->pause_date);
+             if (unlikely(p_owner->paused && p_owner->cat == VIDEO_ES
+@@ -2078,12 +2088,14 @@ static void *DecoderThread( void *p_data )
+             switch (p_owner->cat)
+             {
+                 case AUDIO_ES:
+-                    if( p_owner->audio.stream != NULL )
++                    if( p_owner->audio.stream != NULL
++                     && !p_owner->audio.drained )
+                     {
+                         /* Draining: the decoder is drained and all decoded
+                          * buffers are queued to the output at this point.
+                          * Now drain the output. */
+                         vlc_aout_stream_Drain( p_owner->audio.stream );
++                        p_owner->audio.drained = true;
+                     }
+                     break;
+                 case VIDEO_ES:
+@@ -2181,7 +2193,7 @@ CreateDecoder( vlc_object_t *p_parent, const struct vlc_input_decoder_cfg *cfg )
+     p_owner->output_delay = p_owner->delay = 0;
+     p_owner->output_rate = p_owner->rate = 1.f;
+     p_owner->output_paused = p_owner->paused = false;
+-    p_owner->pause_date = VLC_TICK_INVALID;
++    p_owner->output_pause_date = p_owner->pause_date = VLC_TICK_INVALID;
+     p_owner->frames_countdown = 0;
+ 
+     p_owner->b_waiting = false;
+@@ -2253,6 +2265,7 @@ CreateDecoder( vlc_object_t *p_parent, const struct vlc_input_decoder_cfg *cfg )
+         case AUDIO_ES:
+             p_owner->audio.aout = NULL;
+             p_owner->audio.stream = NULL;
++            p_owner->audio.drained = false;
+             p_dec->cbs = &dec_audio_cbs;
+             break;
+         case SPU_ES:
+@@ -2782,6 +2795,7 @@ void vlc_input_decoder_Flush( vlc_input_decoder_t *p_owner )
+     }
+     else if( cat == AUDIO_ES )
+     {
++        p_owner->audio.drained = false;
+         if( p_owner->audio.stream )
+             vlc_aout_stream_Flush( p_owner->audio.stream );
+     }
+diff --git a/src/player/player.h b/src/player/player.h
+index 1c0725a9de4..ef20da5bace 100644
+--- a/src/player/player.h
++++ b/src/player/player.h
+@@ -196,10 +196,9 @@ struct vlc_player_timer_source
+     struct vlc_player_timer_point point;
+     bool seeking;
+ 
+-    /* Set once a pause has been reported to this source's listener.
+-     * The input might signal paused clock and then output
+-     * would signal it. This flag filters this case here. */
+-    bool pause_reported;
++    /* Date of the last reported pause, to report a pause signaled by both
++     * the input and the output only once */
++    vlc_tick_t reported_pause_date;
+ 
+     union
+     {
+@@ -243,6 +242,9 @@ struct vlc_player_timer
+         UPDATE_STATE_RESUMING,
+     } update_state;
+     vlc_tick_t pause_date;
++    /* Date of the last input PLAYING event, to detect ES PAUSED events
++     * delivered after their pause was resumed */
++    vlc_tick_t last_resume_date;
+     bool stopping;
+ 
+     struct vlc_player_timer_source sources[VLC_PLAYER_TIMER_TYPE_COUNT];
+diff --git a/src/player/timer.c b/src/player/timer.c
+index 79a439d2cb3..04a0d1e971a 100644
+--- a/src/player/timer.c
++++ b/src/player/timer.c
+@@ -42,6 +42,7 @@ vlc_player_ResetTimer(vlc_player_t *player)
+     player->timer.seek_position = -1;
+     player->timer.update_state = UPDATE_STATE_RESUMED;
+     player->timer.pause_date = VLC_TICK_INVALID;
++    player->timer.last_resume_date = VLC_TICK_INVALID;
+     player->timer.stopping = false;
+ 
+     vlc_mutex_unlock(&player->timer.lock);
+@@ -262,8 +263,17 @@ vlc_player_UpdateTimerEvent(vlc_player_t *player, vlc_es_id_t *es_source,
+ 
+         case VLC_PLAYER_TIMER_EVENT_PAUSED:
+             assert(system_date != VLC_TICK_INVALID);
+-            player->timer.update_state = UPDATE_STATE_PAUSED;
+-            player->timer.pause_date = system_date;
++
++            /* An ES PAUSED event can be delivered after its pause was
++             * resumed. It is still reported: per-ES events are delivered
++             * in order, but it should not touch player timer state. */
++            if (es_source == NULL
++             || player->timer.last_resume_date == VLC_TICK_INVALID
++             || system_date >= player->timer.last_resume_date)
++            {
++                player->timer.update_state = UPDATE_STATE_PAUSED;
++                player->timer.pause_date = system_date;
++            }
+ 
+             for (size_t i = 0; i < VLC_PLAYER_TIMER_TYPE_COUNT; ++i)
+             {
+@@ -271,11 +281,11 @@ vlc_player_UpdateTimerEvent(vlc_player_t *player, vlc_es_id_t *es_source,
+                 if (source->es != es_source)
+                     continue;
+ 
+-                /* The input might signal paused clock and then output
+-                 * would signal it. This flag filters this case here. */
+-                if (source->pause_reported)
++                /* The input and the output signal the same pause with the
++                 * same date */
++                if (source->reported_pause_date == system_date)
+                     continue;
+-                source->pause_reported = true;
++                source->reported_pause_date = system_date;
+                 vlc_player_SendTimerPause(player, source, system_date,
+                                           i == VLC_PLAYER_TIMER_TYPE_SMPTE);
+             }
+@@ -284,9 +294,9 @@ vlc_player_UpdateTimerEvent(vlc_player_t *player, vlc_es_id_t *es_source,
+ 
+         case VLC_PLAYER_TIMER_EVENT_PLAYING:
+             assert(!player->timer.stopping);
++            if (system_date != VLC_TICK_INVALID)
++                player->timer.last_resume_date = system_date;
+             player->timer.update_state = UPDATE_STATE_RESUMING;
+-            for (size_t i = 0; i < VLC_PLAYER_TIMER_TYPE_COUNT; ++i)
+-                player->timer.sources[i].pause_reported = false;
+             break;
+ 
+         case VLC_PLAYER_TIMER_EVENT_STOPPING:
+@@ -763,7 +773,7 @@ vlc_player_InitTimer(vlc_player_t *player)
+         player->timer.sources[i].point.system_date = VLC_TICK_INVALID;
+         player->timer.sources[i].es = NULL;
+         player->timer.sources[i].seeking = false;
+-        player->timer.sources[i].pause_reported = false;
++        player->timer.sources[i].reported_pause_date = VLC_TICK_INVALID;
+     }
+     vlc_player_ResetTimer(player);
+ }

@@ -1,0 +1,917 @@
+# Backport the vout/picture-fifo prerequisites for the decoder pause series:
+#   a254772e392  picture_fifo: expose the lock
+#   bf175e13bbd  picture_fifo: add picture_fifo_GetCount()
+#   03260c914b0  vout: rework vout_NextPicture() args and return value
+#   62b65354821  decoder: move next-frame check
+#   ee452dee2f5  decoder: accurately count frames_countdown
+#   95d6210a6e3  decoder: save when the video is drained
+#   26d3ca6e6ec  decoder: notify when next-frame reaches EOF
+#   05d0a927a94  decoder: fix possible prev-frame miss near EOF
+#   9dd9d811bf4  input: rework next-frame buffering workaround
+#   1133967f577  decoder: split the condition to create a new pool and/or a new vout
+#   4223f1fb907  decoder: do not reset the pool when the multiview_mode changes
+#
+# This cluster is a dependency, not a goal. Patch 0014 backports
+# 7e78a995b1a (decoder: acknowledge all pause requests) and 94213560f8f
+# (decoder: don't drain the audio output again before a flush); both edit
+# DecoderThread() in regions this series rewrites, and neither applies to the
+# pinned revision without it.
+#
+# The cluster is not dead weight, though. `frames_countdown` and the
+# next-frame path are what back SwiftVLC's public `Player.nextFrame()`
+# (Sources/SwiftVLC/Player/Player+Seek.swift), so 05d0a927a94 (prev-frame miss
+# near EOF) and 26d3ca6e6ec (notify when next-frame reaches EOF) are fixes for
+# an API this package ships rather than for a path no caller reaches.
+#
+# It is also the widest cluster in this series: 03260c914b0 changes the
+# vout_NextPicture() signature and is the reason
+# modules/stream_out/transcode/encoder/video.c appears in the diff. Everything
+# is verbatim upstream -- no hunk is hand-adapted -- so the whole series drops
+# out cleanly when the pin moves past it.
+#
+# Compile-gated: libvlccore and libstream_out_transcode_plugin both build clean
+# against the pin with patches 0001-0014 applied. `git apply` succeeding proved
+# nothing here on its own -- the first attempt at this series applied cleanly
+# and then failed to compile on two undeclared picture_fifo symbols, which is
+# how a254772e392 and bf175e13bbd were found.
+diff --git a/include/vlc_picture_fifo.h b/include/vlc_picture_fifo.h
+index a1bff43bb5d..0f837f56e5f 100644
+--- a/include/vlc_picture_fifo.h
++++ b/include/vlc_picture_fifo.h
+@@ -49,6 +49,19 @@ VLC_API picture_fifo_t * picture_fifo_New( void ) VLC_USED;
+  */
+ VLC_API void picture_fifo_Delete( picture_fifo_t * );
+ 
++/**
++ * Lock the picture_fifo
++ *
++ * All picture_fifo_t functions, except picture_fifo_Delete(), need to be
++ * called with the lock held.
++ */
++VLC_API void picture_fifo_Lock( picture_fifo_t * );
++
++/**
++ * Unlock the picture_fifo
++ */
++VLC_API void picture_fifo_Unlock( picture_fifo_t * );
++
+ /**
+  * It retrieves a picture_t from the fifo.
+  *
+@@ -61,6 +74,11 @@ VLC_API picture_t * picture_fifo_Pop( picture_fifo_t * ) VLC_USED;
+  */
+ VLC_API bool picture_fifo_IsEmpty( picture_fifo_t * );
+ 
++/**
++ * It returns the number of pictures queued
++ */
++VLC_API size_t picture_fifo_GetCount( picture_fifo_t * );
++
+ /**
+  * It saves a picture_t into the fifo.
+  */
+diff --git a/modules/stream_out/transcode/encoder/encoder.c b/modules/stream_out/transcode/encoder/encoder.c
+index 9c28ac5daaa..85159e5b148 100644
+--- a/modules/stream_out/transcode/encoder/encoder.c
++++ b/modules/stream_out/transcode/encoder/encoder.c
+@@ -51,6 +51,7 @@ void transcode_encoder_delete( transcode_encoder_t *p_enc )
+         {
+             transcode_encoder_video_stop( p_enc );
+             block_ChainRelease( p_enc->p_buffers );
++
+             picture_fifo_Delete( p_enc->pp_pics );
+         }
+ 
+diff --git a/modules/stream_out/transcode/encoder/video.c b/modules/stream_out/transcode/encoder/video.c
+index a45f6b54db3..3bc7f1a9f2c 100644
+--- a/modules/stream_out/transcode/encoder/video.c
++++ b/modules/stream_out/transcode/encoder/video.c
+@@ -292,6 +292,14 @@ void transcode_encoder_video_configure( vlc_object_t *p_obj,
+              (const char *)&p_enc_in->i_chroma);
+ }
+ 
++static picture_t *picture_fifo_LockPop( picture_fifo_t *fifo )
++{
++    picture_fifo_Lock( fifo );
++    picture_t *pic = picture_fifo_Pop( fifo );
++    picture_fifo_Unlock( fifo );
++    return pic;
++}
++
+ static void* EncoderThread( void *obj )
+ {
+     vlc_thread_set_name("vlc-encoder");
+@@ -306,7 +314,7 @@ static void* EncoderThread( void *obj )
+     for( ;; )
+     {
+         while( !p_enc->b_abort &&
+-               (p_pic = picture_fifo_Pop( p_enc->pp_pics )) == NULL )
++               (p_pic = picture_fifo_LockPop( p_enc->pp_pics )) == NULL )
+             vlc_cond_wait( &p_enc->cond, &p_enc->lock_out );
+         vlc_sem_post( &p_enc->picture_pool_has_room );
+ 
+@@ -326,7 +334,7 @@ static void* EncoderThread( void *obj )
+     }
+ 
+     /*Encode what we have in the buffer on closing*/
+-    while( (p_pic = picture_fifo_Pop( p_enc->pp_pics )) != NULL )
++    while( (p_pic = picture_fifo_LockPop( p_enc->pp_pics )) != NULL )
+     {
+         vlc_sem_post( &p_enc->picture_pool_has_room );
+         p_block = vlc_encoder_EncodeVideo( p_enc->p_encoder, p_pic );
+@@ -435,7 +443,9 @@ block_t * transcode_encoder_video_encode( transcode_encoder_t *p_enc, picture_t
+     vlc_sem_wait( &p_enc->picture_pool_has_room );
+     vlc_mutex_lock( &p_enc->lock_out );
+     picture_Hold( p_pic );
++    picture_fifo_Lock( p_enc->pp_pics );
+     picture_fifo_Push( p_enc->pp_pics, p_pic );
++    picture_fifo_Unlock( p_enc->pp_pics );
+     vlc_cond_signal( &p_enc->cond );
+     vlc_mutex_unlock( &p_enc->lock_out );
+     return NULL;
+diff --git a/src/input/decoder.c b/src/input/decoder.c
+index 276d422db66..64edcf7699b 100644
+--- a/src/input/decoder.c
++++ b/src/input/decoder.c
+@@ -120,6 +120,7 @@ struct decoder_video
+     vout_thread_t *vout;
+     enum vlc_vout_order vout_order;
+     bool started;
++    bool drained;
+ 
+     /* pool to use when the decoder doesn't use its own */
+     struct picture_pool_t *out_pool;
+@@ -323,6 +324,29 @@ static void Decoder_SeekPreviousFrame(vlc_input_decoder_t *owner, int steps,
+     }
+ }
+ 
++static void Decoder_PausedForNextFrame(vlc_input_decoder_t *owner)
++{
++    vlc_fifo_Assert(owner->p_fifo);
++    assert(owner->cat == VIDEO_ES);
++    assert(owner->output_paused);
++
++    if (owner->video.vout == NULL)
++        return;
++
++    if (likely(owner->frames_countdown <= 0))
++        return;
++
++    /* Handle all next-frame requests that were sent while the video was
++    *  pausing */
++    int next_request_count = owner->frames_countdown;
++    owner->frames_countdown = vout_NextPicture(owner->video.vout, next_request_count);
++
++    assert(next_request_count >= owner->frames_countdown);
++    /* Notify for pictures that are processes by the vout */
++    for (int i = 0; i < next_request_count - owner->frames_countdown; ++i)
++        decoder_Notify(owner, frame_next_status, 0);
++}
++
+ static void Decoder_DisplayPreviousFrame(vlc_input_decoder_t *owner, picture_t *pic)
+ {
+     vlc_fifo_Assert(owner->p_fifo);
+@@ -334,7 +358,7 @@ static void Decoder_DisplayPreviousFrame(vlc_input_decoder_t *owner, picture_t *
+     }
+ 
+     vout_PutPicture(owner->video.vout, pic);
+-    vout_NextPicture(owner->video.vout);
++    vout_NextPicture(owner->video.vout, 1);
+ 
+     decoder_Notify(owner, frame_previous_status, 0);
+ }
+@@ -825,18 +849,21 @@ static int CreateVoutIfNeeded(vlc_input_decoder_t *p_owner)
+     decoder_t *p_dec = &p_owner->dec;
+     assert( p_owner->cat == VIDEO_ES );
+     bool need_vout = false;
++    bool need_pool = false;
+ 
+     vlc_fifo_Lock(p_owner->p_fifo);
+     if( p_owner->video.vout == NULL )
+     {
+         msg_Dbg(p_dec, "vout: none found");
+         need_vout = true;
++        need_pool = true;
+     }
+     if( p_dec->fmt_out.video.i_width != p_owner->fmt.video.i_width
+              || p_dec->fmt_out.video.i_height != p_owner->fmt.video.i_height )
+     {
+         msg_Dbg(p_dec, "vout change: decoder size");
+         need_vout = true;
++        need_pool = true;
+     }
+     if( p_dec->fmt_out.video.i_visible_width != p_owner->fmt.video.i_visible_width
+              || p_dec->fmt_out.video.i_visible_height != p_owner->fmt.video.i_visible_height
+@@ -845,30 +872,35 @@ static int CreateVoutIfNeeded(vlc_input_decoder_t *p_owner)
+     {
+         msg_Dbg(p_dec, "vout change: visible size");
+         need_vout = true;
++        need_pool = true;
+     }
+     if( p_dec->fmt_out.i_codec != p_owner->fmt.video.i_chroma )
+     {
+         msg_Dbg(p_dec, "vout change: chroma");
+         need_vout = true;
++        need_pool = true;
+     }
+     if( (int64_t)p_dec->fmt_out.video.i_sar_num * p_owner->fmt.video.i_sar_den !=
+              (int64_t)p_dec->fmt_out.video.i_sar_den * p_owner->fmt.video.i_sar_num )
+     {
+         msg_Dbg(p_dec, "vout change: SAR");
+         need_vout = true;
++        need_pool = true;
+     }
+     if( p_dec->fmt_out.video.orientation != p_owner->fmt.video.orientation )
+     {
+         msg_Dbg(p_dec, "vout change: orientation");
+         need_vout = true;
++        need_pool = true;
+     }
+     if( p_dec->fmt_out.video.multiview_mode != p_owner->fmt.video.multiview_mode )
+     {
+         msg_Dbg(p_dec, "vout change: multiview");
+         need_vout = true;
++        // no need for a new pool if only this field changed
+     }
+ 
+-    if( !need_vout )
++    if( !need_vout && !need_pool )
+     {
+         vlc_fifo_Unlock(p_owner->p_fifo);
+         return 0; // vout unchanged
+@@ -889,8 +921,12 @@ static int CreateVoutIfNeeded(vlc_input_decoder_t *p_owner)
+ 
+     DecoderUpdateFormatLocked( p_owner );
+     p_owner->fmt.video.i_chroma = p_dec->fmt_out.i_codec;
+-    picture_pool_t *pool = p_owner->video.out_pool;
+-    p_owner->video.out_pool = NULL;
++    picture_pool_t *pool = NULL;
++    if ( need_pool )
++    {
++        pool = p_owner->video.out_pool;
++        p_owner->video.out_pool = NULL;
++    }
+     vlc_fifo_Unlock( p_owner->p_fifo );
+ 
+      if ( pool != NULL )
+@@ -960,7 +996,10 @@ static picture_t *ModuleThread_NewVideoBuffer( decoder_t *p_dec )
+     picture_t *pic = picture_pool_Wait( p_owner->video.out_pool );
+ 
+     if (pic)
++    {
+         picture_Reset( pic );
++        pic->format.multiview_mode = p_dec->fmt_out.video.multiview_mode;
++    }
+     return pic;
+ }
+ 
+@@ -1491,12 +1530,8 @@ static int ModuleThread_PlayVideo( vlc_input_decoder_t *p_owner, picture_t *p_pi
+             picture_Release(p_picture);
+             return ret;
+         }
+-
+     }
+ 
+-    if( unlikely(p_owner->paused) && likely(p_owner->frames_countdown > 0) )
+-        p_owner->frames_countdown--;
+-
+     /* */
+     if( p_vout == NULL )
+     {
+@@ -1504,6 +1539,14 @@ static int ModuleThread_PlayVideo( vlc_input_decoder_t *p_owner, picture_t *p_pi
+         return VLC_EGENERIC;
+     }
+ 
++    if (unlikely(p_owner->output_paused && p_owner->frames_countdown > 0))
++    {
++        p_owner->frames_countdown--;
++        vout_PutPicture(p_vout, p_picture);
++        decoder_Notify(p_owner, frame_next_status, 0);
++        return VLC_SUCCESS;
++    }
++
+     if( p_picture->b_still )
+     {
+         /* Ensure no earlier higher pts breaks still state */
+@@ -1895,6 +1938,33 @@ static void DecoderThread_Flush( vlc_input_decoder_t *p_owner )
+     p_owner->error = false;
+ }
+ 
++static void Decoder_VideoDrained(vlc_input_decoder_t *owner)
++{
++    owner->video.drained = true;
++    if (owner->frames_countdown > 0)
++    {
++        if (unlikely(vout_IsEmpty(owner->video.vout)))
++        {
++            /* Unlikely case where all pictures are already sent to the vout
++             * next queue while draining. This could happen with a burst of
++             * next-frame request near EOF. */
++            owner->frames_countdown = 0;
++            decoder_Notify(owner, frame_next_status, -EAGAIN);
++        }
++    }
++    else if(owner->frames_countdown == -1)
++    {
++        /* Also check if we need to increase seek steps near EOF */
++        int seek_steps;
++        picture_t *nullpic =
++            decoder_prevframe_AddPic(&owner->video.pf, NULL,
++                                     &owner->video.pf_pts, &seek_steps);
++        assert(nullpic == NULL); (void) nullpic;
++        if (seek_steps != DEC_PF_SEEK_STEPS_NONE)
++            Decoder_SeekPreviousFrame(owner, seek_steps, true);
++    }
++}
++
+ /**
+  * The decoding main loop
+  *
+@@ -1945,6 +2015,9 @@ static void *DecoderThread( void *p_data )
+             Decoder_ChangeOutputPause( p_owner, p_owner->paused, p_owner->pause_date );
+             decoder_Notify(p_owner, on_output_paused, p_owner->paused,
+                            p_owner->pause_date);
++            if (unlikely(p_owner->paused && p_owner->cat == VIDEO_ES
++                      && p_owner->frames_countdown != 0))
++                Decoder_PausedForNextFrame(p_owner);
+             continue;
+         }
+ 
+@@ -1978,6 +2051,13 @@ static void *DecoderThread( void *p_data )
+             {   /* Wait for a block to decode (or a request to drain) */
+                 p_owner->b_idle = true;
+                 vlc_cond_signal( &p_owner->wait_acknowledge );
++
++                if (p_owner->frames_countdown > 0)
++                {
++                    /* next-frames are requested but the FIFO is empty, ask for
++                     * more buffering */
++                    decoder_Notify( p_owner, frame_next_need_data, true );
++                }
+                 vlc_fifo_Wait( p_owner->p_fifo );
+                 p_owner->b_idle = false;
+                 continue;
+@@ -1995,11 +2075,22 @@ static void *DecoderThread( void *p_data )
+         {
+             p_owner->b_draining = false;
+ 
+-            if( p_owner->cat == AUDIO_ES
+-             && p_owner->audio.stream != NULL )
+-            {   /* Draining: the decoder is drained and all decoded buffers are
+-                 * queued to the output at this point. Now drain the output. */
+-                vlc_aout_stream_Drain( p_owner->audio.stream );
++            switch (p_owner->cat)
++            {
++                case AUDIO_ES:
++                    if( p_owner->audio.stream != NULL )
++                    {
++                        /* Draining: the decoder is drained and all decoded
++                         * buffers are queued to the output at this point.
++                         * Now drain the output. */
++                        vlc_aout_stream_Drain( p_owner->audio.stream );
++                    }
++                    break;
++                case VIDEO_ES:
++                    Decoder_VideoDrained(p_owner);
++                    break;
++                default:
++                    break;
+             }
+         }
+ 
+@@ -2146,6 +2237,7 @@ CreateDecoder( vlc_object_t *p_parent, const struct vlc_input_decoder_cfg *cfg )
+         case VIDEO_ES:
+             p_owner->video.vout = NULL;
+             p_owner->video.started = false;
++            p_owner->video.drained = false;
+             vlc_mutex_init( &p_owner->video.mouse_lock );
+             p_owner->video.mouse_event = NULL;
+             p_owner->video.mouse_opaque = NULL;
+@@ -2575,6 +2667,9 @@ void vlc_input_decoder_DecodeWithStatus(vlc_input_decoder_t *p_owner, vlc_frame_
+             vlc_fifo_WaitCond( p_owner->p_fifo, &p_owner->wait_fifo );
+     }
+ 
++    if (vlc_fifo_IsEmpty(p_owner->p_fifo) && p_owner->frames_countdown > 0)
++        decoder_Notify(p_owner, frame_next_need_data, false);
++
+     vlc_fifo_QueueUnlocked( p_owner->p_fifo, frame );
+     if (status != NULL)
+         GetStatusLocked(p_owner, status);
+@@ -2692,6 +2787,7 @@ void vlc_input_decoder_Flush( vlc_input_decoder_t *p_owner )
+     }
+     else if( cat == VIDEO_ES )
+     {
++        p_owner->video.drained = false;
+         if( p_owner->video.vout && p_owner->video.started
+          && p_owner->frames_countdown != -1 )
+         {
+@@ -2889,13 +2985,32 @@ void vlc_input_decoder_FrameNext( vlc_input_decoder_t *p_owner )
+         return;
+     }
+ 
++    if( p_owner->video.drained && vout_IsEmpty( p_owner->video.vout ) )
++    {
++        p_owner->frames_countdown = 0;
++        decoder_Notify( p_owner, frame_next_status, -EAGAIN );
++        vlc_fifo_Unlock( p_owner->p_fifo );
++        return;
++    }
++
+     StopFrameNextLocked( p_owner );
+-    p_owner->frames_countdown++;
+-    vlc_fifo_Signal( p_owner->p_fifo );
+ 
+-    vout_NextPicture( p_owner->video.vout );
+-    /* TODO: it should be notified from the vout */
+-    decoder_Notify( p_owner, frame_next_status, 0 );
++    if (!p_owner->output_paused)
++    {
++        /* Request will be handled when paused, from
++         * Decoder_PausedForNextFrame() */
++        p_owner->frames_countdown++;
++        vlc_fifo_Unlock( p_owner->p_fifo );
++        return;
++    }
++
++    size_t needed_count = vout_NextPicture(p_owner->video.vout, 1);
++    assert(p_owner->frames_countdown >= 0);
++    if (needed_count > (unsigned) p_owner->frames_countdown)
++        p_owner->frames_countdown++;
++    else
++        decoder_Notify(p_owner, frame_next_status, 0);
++
+     vlc_fifo_Unlock( p_owner->p_fifo );
+ }
+ 
+diff --git a/src/input/decoder.h b/src/input/decoder.h
+index 8a2489aca42..5fd28f93fc7 100644
+--- a/src/input/decoder.h
++++ b/src/input/decoder.h
+@@ -54,6 +54,8 @@ struct vlc_input_decoder_callbacks {
+                                unsigned lost, unsigned played, void *userdata);
+     void (*frame_next_status)(vlc_input_decoder_t *decoder, int status,
+                               void *userdata);
++    void (*frame_next_need_data)(vlc_input_decoder_t *decoder, bool need_data,
++                                 void *userdata);
+     void (*frame_previous_status)(vlc_input_decoder_t *decoder, int status,
+                                   void *userdata);
+     void (*frame_previous_seek)(vlc_input_decoder_t *decoder, vlc_tick_t pts,
+diff --git a/src/input/decoder_prevframe.c b/src/input/decoder_prevframe.c
+index fb1d79a7ad3..64bda0ee051 100644
+--- a/src/input/decoder_prevframe.c
++++ b/src/input/decoder_prevframe.c
+@@ -76,11 +76,12 @@ decoder_prevframe_AddPic(struct decoder_prevframe *pf, picture_t *pic,
+ 
+     if (pf->flushing)
+     {
+-        picture_Release(pic);
++        if (pic != NULL)
++            picture_Release(pic);
+         return NULL;
+     }
+ 
+-    if (pts <= pic->date && pf->pic != NULL)
++    if (pic != NULL && pts <= pic->date && pf->pic != NULL)
+     {
+         /* Reached the previous frame */
+         picture_t *resume_pic = pic;
+@@ -105,7 +106,7 @@ decoder_prevframe_AddPic(struct decoder_prevframe *pf, picture_t *pic,
+         return pic;
+     }
+ 
+-    if (pic->date >= pts)
++    if (pic == NULL || pic->date >= pts)
+     {
+         if (pf->pic == NULL && !pf->failed && pf->req_count > 0)
+         {
+@@ -116,7 +117,8 @@ decoder_prevframe_AddPic(struct decoder_prevframe *pf, picture_t *pic,
+             *seek_steps = pf->seek_steps;
+         }
+ 
+-        picture_Release(pic);
++        if (pic != NULL)
++            picture_Release(pic);
+         return NULL;
+     }
+ 
+diff --git a/src/input/es_out.c b/src/input/es_out.c
+index d341adac71c..650333d0d46 100644
+--- a/src/input/es_out.c
++++ b/src/input/es_out.c
+@@ -526,6 +526,24 @@ decoder_frame_next_status(vlc_input_decoder_t *decoder, int status,
+     input_SendEvent(p_sys->p_input, &event);
+ }
+ 
++static void
++decoder_frame_next_need_data(vlc_input_decoder_t *decoder, bool need_data,
++                             void *userdata)
++{
++    (void) decoder;
++
++    es_out_id_t *id = userdata;
++    struct vlc_input_es_out *out = id->out;
++    es_out_sys_t *p_sys = container_of(out, es_out_sys_t, out);
++
++    if (!p_sys->p_input)
++        return;
++
++    vlc_value_t val = { .b_bool = need_data };
++    input_ControlPushHelper(p_sys->p_input, INPUT_CONTROL_NEED_DATA_FRAME_NEXT,
++                            &val);
++}
++
+ static void
+ decoder_frame_previous_status(vlc_input_decoder_t *decoder, int status,
+                               void *userdata)
+@@ -598,6 +616,7 @@ static const struct vlc_input_decoder_callbacks decoder_cbs = {
+     .on_new_video_stats = decoder_on_new_video_stats,
+     .on_new_audio_stats = decoder_on_new_audio_stats,
+     .frame_next_status = decoder_frame_next_status,
++    .frame_next_need_data = decoder_frame_next_need_data,
+     .frame_previous_status = decoder_frame_previous_status,
+     .frame_previous_seek = decoder_frame_previous_seek,
+     .get_attachments = decoder_get_attachments,
+@@ -4018,15 +4037,6 @@ static int EsOutVaPrivControlLocked(es_out_sys_t *p_sys, input_source_t *source,
+         bool *pb = va_arg( args, bool* );
+         if( p_sys->b_buffering )
+             *pb = true;
+-        else if( p_sys->p_next_frame_es != NULL )
+-        {
+-            /* The input thread will continue to call demux() if this control
+-             * returns true. In case of next-frame, ask the input thread to
+-             * continue to demux() until the vout has a picture to display. */
+-            assert( p_sys->b_paused );
+-            *pb = p_sys->p_next_frame_es->p_dec != NULL
+-                && vlc_input_decoder_IsEmpty( p_sys->p_next_frame_es->p_dec );
+-        }
+         else
+             *pb = false;
+         return VLC_SUCCESS;
+diff --git a/src/input/input.c b/src/input/input.c
+index 0767bb2af90..6cd40c5fb72 100644
+--- a/src/input/input.c
++++ b/src/input/input.c
+@@ -283,6 +283,7 @@ input_thread_t * input_Create( vlc_object_t *p_parent, input_item_t *p_item,
+                 vlc_renderer_item_hold( cfg->renderer ) : NULL;
+     priv->prev_frame.enabled = priv->prev_frame.end = false;
+     priv->prev_frame.last_pts = VLC_TICK_INVALID;
++    priv->next_frame_need_data = false;
+ 
+     priv->viewpoint_changed = false;
+     /* Fetch the viewpoint from the mediaplayer or the playlist if any */
+@@ -660,8 +661,12 @@ static void MainLoop( input_thread_t *p_input, bool b_interactive )
+          * is paused -> this may cause problem with some of them
+          * The same problem can be seen when seeking while paused */
+         if( b_paused )
++        {
+             b_paused = !es_out_GetBuffering( input_priv(p_input)->p_es_out )
+                     || input_priv(p_input)->master->b_eof;
++            if( b_paused && input_priv(p_input)->next_frame_need_data )
++                b_paused = false;
++        }
+ 
+         if( !b_paused )
+         {
+@@ -751,8 +756,12 @@ static void MainLoop( input_thread_t *p_input, bool b_interactive )
+             }
+ 
+             /* Update the wakeup time */
+-            if( i_wakeup != 0 )
++            if( input_priv(p_input)->next_frame_need_data )
++                i_wakeup = 0;
++            else if( i_wakeup != 0 )
++            {
+                 i_wakeup = es_out_GetWakeup( input_priv(p_input)->p_es_out );
++            }
+         }
+     }
+ }
+@@ -2061,6 +2070,7 @@ static bool Control( input_thread_t *p_input,
+             /* Reset the decoders states and clock sync (before calling the demuxer */
+             es_out_Control(&priv->p_es_out->out, ES_OUT_RESET_PCR);
+             ResetFramePrevious( p_input );
++            priv->next_frame_need_data = false;
+ 
+             int i_ret = ControlSetPosition( p_input, param.pos.f_val,
+                                             param.pos.b_fast_seek );
+@@ -2084,6 +2094,7 @@ static bool Control( input_thread_t *p_input,
+             /* Reset the decoders states and clock sync (before calling the demuxer */
+             es_out_Control(&priv->p_es_out->out, ES_OUT_RESET_PCR);
+             ResetFramePrevious( p_input );
++            priv->next_frame_need_data = false;
+ 
+             int i_ret = ControlSetTime( p_input, param.time.i_val,
+                                         param.time.b_fast_seek );
+@@ -2103,6 +2114,7 @@ static bool Control( input_thread_t *p_input,
+                     if( priv->i_state == PAUSE_S )
+                     {
+                         ResetFramePrevious( p_input );
++                        priv->next_frame_need_data = false;
+                         ControlUnpause( p_input, i_control_date );
+                         b_force_update = true;
+                     }
+@@ -2306,6 +2318,7 @@ static bool Control( input_thread_t *p_input,
+ 
+             es_out_Control(&priv->p_es_out->out, ES_OUT_RESET_PCR);
+             ResetFramePrevious( p_input );
++            priv->next_frame_need_data = false;
+             demux_Control(priv->master->p_demux,
+                           DEMUX_SET_TITLE, i_title);
+             break;
+@@ -2349,6 +2362,7 @@ static bool Control( input_thread_t *p_input,
+ 
+             es_out_Control(&priv->p_es_out->out, ES_OUT_RESET_PCR);
+             ResetFramePrevious( p_input );
++            priv->next_frame_need_data = false;
+             demux_Control( priv->master->p_demux,
+                            DEMUX_SET_SEEKPOINT, i_seekpoint );
+             input_SendEventSeekpoint( p_input, i_title, i_seekpoint );
+@@ -2484,6 +2498,9 @@ static bool Control( input_thread_t *p_input,
+             }
+             b_force_update = true;
+             break;
++        case INPUT_CONTROL_NEED_DATA_FRAME_NEXT:
++            priv->next_frame_need_data = param.val.b_bool;
++            break;
+         case INPUT_CONTROL_SEEK_FRAME_PREVIOUS:
+             SeekFramePrevious(p_input, param.frame_previous_seek.pts,
+                               param.frame_previous_seek.frame_rate,
+diff --git a/src/input/input_internal.h b/src/input/input_internal.h
+index cb8e2bc9b0e..eb5b5bf0d30 100644
+--- a/src/input/input_internal.h
++++ b/src/input/input_internal.h
+@@ -565,6 +565,8 @@ typedef struct input_thread_private_t
+         bool enabled;
+         bool end;
+     } prev_frame;
++
++    bool next_frame_need_data;
+ } input_thread_private_t;
+ 
+ static inline input_thread_private_t *input_priv(input_thread_t *input)
+@@ -627,6 +629,7 @@ enum input_control_e
+ 
+     INPUT_CONTROL_SET_FRAME_NEXT,
+     INPUT_CONTROL_SET_FRAME_PREVIOUS,
++    INPUT_CONTROL_NEED_DATA_FRAME_NEXT,
+     INPUT_CONTROL_SEEK_FRAME_PREVIOUS,
+ 
+     INPUT_CONTROL_SET_RENDERER,
+diff --git a/src/libvlccore.sym b/src/libvlccore.sym
+index 4d0a06860ac..e4deb61a028 100644
+--- a/src/libvlccore.sym
++++ b/src/libvlccore.sym
+@@ -328,10 +328,13 @@ picture_Destroy
+ picture_CopyProperties
+ picture_Copy
+ picture_Export
++picture_fifo_Lock
++picture_fifo_Unlock
+ picture_fifo_Delete
+ picture_fifo_Flush
+ picture_fifo_New
+ picture_fifo_IsEmpty
++picture_fifo_GetCount
+ picture_fifo_Pop
+ picture_fifo_Push
+ picture_GetAncillary
+diff --git a/src/misc/image.c b/src/misc/image.c
+index c43948d1156..26f1746d59e 100644
+--- a/src/misc/image.c
++++ b/src/misc/image.c
+@@ -144,7 +144,9 @@ void image_HandlerDelete( image_handler_t *p_image )
+ static void ImageQueueVideo( decoder_t *p_dec, picture_t *p_pic )
+ {
+     struct decoder_owner *p_owner = dec_get_owner( p_dec );
++    picture_fifo_Lock( p_owner->p_image->outfifo );
+     picture_fifo_Push( p_owner->p_image->outfifo, p_pic );
++    picture_fifo_Unlock( p_owner->p_image->outfifo );
+ }
+ 
+ static picture_t *ImageRead( image_handler_t *p_image, block_t *p_block,
+@@ -196,6 +198,7 @@ static picture_t *ImageRead( image_handler_t *p_image, block_t *p_block,
+         /* Drain */
+         p_image->p_dec->pf_decode( p_image->p_dec, NULL );
+ 
++        picture_fifo_Lock( p_image->outfifo );
+         p_pic = picture_fifo_Pop( p_image->outfifo );
+ 
+         unsigned lostcount = 0;
+@@ -205,6 +208,8 @@ static picture_t *ImageRead( image_handler_t *p_image, block_t *p_block,
+             picture_Release( lostpic );
+             lostcount++;
+         }
++        picture_fifo_Unlock( p_image->outfifo );
++
+         if( lostcount > 0 )
+             msg_Warn( p_image->p_parent, "Image decoder output more than one "
+                       "picture (%u)", lostcount );
+diff --git a/src/misc/picture_fifo.c b/src/misc/picture_fifo.c
+index 430082a8f32..2d94c9741d1 100644
+--- a/src/misc/picture_fifo.c
++++ b/src/misc/picture_fifo.c
+@@ -40,20 +40,19 @@
+ struct picture_fifo_t {
+     vlc_mutex_t lock;
+     vlc_picture_chain_t pics;
++    size_t count;
+ };
+ 
+ static void PictureFifoReset(picture_fifo_t *fifo)
+ {
+     vlc_picture_chain_Init( &fifo->pics );
++    fifo->count = 0;
+ }
+ static void PictureFifoPush(picture_fifo_t *fifo, picture_t *picture)
+ {
+     assert(!picture_HasChainedPics(picture));
+     vlc_picture_chain_Append( &fifo->pics, picture );
+-}
+-static picture_t *PictureFifoPop(picture_fifo_t *fifo)
+-{
+-    return vlc_picture_chain_PopFront( &fifo->pics );
++    fifo->count++;
+ }
+ 
+ picture_fifo_t *picture_fifo_New(void)
+@@ -69,35 +68,37 @@ picture_fifo_t *picture_fifo_New(void)
+ 
+ void picture_fifo_Push(picture_fifo_t *fifo, picture_t *picture)
+ {
+-    vlc_mutex_lock(&fifo->lock);
++    vlc_mutex_assert(&fifo->lock);
+     PictureFifoPush(fifo, picture);
+-    vlc_mutex_unlock(&fifo->lock);
+ }
+ picture_t *picture_fifo_Pop(picture_fifo_t *fifo)
+ {
+-    vlc_mutex_lock(&fifo->lock);
+-    picture_t *picture = PictureFifoPop(fifo);
+-    vlc_mutex_unlock(&fifo->lock);
+-
+-    return picture;
++    vlc_mutex_assert(&fifo->lock);
++    picture_t *pic = vlc_picture_chain_PopFront( &fifo->pics );
++    if (pic != NULL)
++        fifo->count--;
++    return pic;
+ }
+ bool picture_fifo_IsEmpty(picture_fifo_t *fifo)
+ {
+-    vlc_mutex_lock(&fifo->lock);
+-    bool empty = vlc_picture_chain_IsEmpty( &fifo->pics );
+-    vlc_mutex_unlock(&fifo->lock);
+-
+-    return empty;
++    vlc_mutex_assert(&fifo->lock);
++    return vlc_picture_chain_IsEmpty( &fifo->pics );
++}
++VLC_API size_t picture_fifo_GetCount(picture_fifo_t *fifo)
++{
++    vlc_mutex_assert(&fifo->lock);
++    return fifo->count;
+ }
+ void picture_fifo_Flush(picture_fifo_t *fifo, vlc_tick_t date, bool flush_before)
+ {
++    vlc_mutex_assert(&fifo->lock);
+     picture_t *picture;
+ 
+     vlc_picture_chain_t flush_chain;
+ 
+     vlc_picture_chain_Init(&flush_chain);
++    fifo->count = 0;
+ 
+-    vlc_mutex_lock(&fifo->lock);
+     if (date == VLC_TICK_INVALID)
+         vlc_picture_chain_GetAndClear(&fifo->pics, &flush_chain);
+     else {
+@@ -114,13 +115,24 @@ void picture_fifo_Flush(picture_fifo_t *fifo, vlc_tick_t date, bool flush_before
+                 PictureFifoPush(fifo, picture);
+         }
+     }
+-    vlc_mutex_unlock(&fifo->lock);
+ 
+     while ((picture = vlc_picture_chain_PopFront(&flush_chain)) != NULL)
+         picture_Release(picture);
+ }
+ void picture_fifo_Delete(picture_fifo_t *fifo)
+ {
++    vlc_mutex_lock(&fifo->lock);
+     picture_fifo_Flush(fifo, VLC_TICK_INVALID, true);
++    vlc_mutex_unlock(&fifo->lock);
+     free(fifo);
+ }
++
++void picture_fifo_Lock(picture_fifo_t *fifo)
++{
++    vlc_mutex_lock(&fifo->lock);
++}
++
++void picture_fifo_Unlock(picture_fifo_t *fifo)
++{
++    vlc_mutex_unlock(&fifo->lock);
++}
+\ No newline at end of file
+diff --git a/src/video_output/video_output.c b/src/video_output/video_output.c
+index 0ec4d219ab4..90a0bcd617c 100644
+--- a/src/video_output/video_output.c
++++ b/src/video_output/video_output.c
+@@ -285,7 +285,10 @@ bool vout_IsEmpty(vout_thread_t *vout)
+     assert(!sys->dummy);
+     assert(sys->decoder_fifo);
+ 
+-    return picture_fifo_IsEmpty(sys->decoder_fifo);
++    picture_fifo_Lock(sys->decoder_fifo);
++    bool empty = picture_fifo_IsEmpty(sys->decoder_fifo);
++    picture_fifo_Unlock(sys->decoder_fifo);
++    return empty;
+ }
+ 
+ void vout_DisplayTitle(vout_thread_t *vout, const char *title)
+@@ -403,7 +406,9 @@ void vout_PutPicture(vout_thread_t *vout, picture_t *picture)
+     vout_thread_sys_t *sys = VOUT_THREAD_TO_SYS(vout);
+     assert(!sys->dummy);
+     assert( !picture_HasChainedPics( picture ) );
++    picture_fifo_Lock(sys->decoder_fifo);
+     picture_fifo_Push(sys->decoder_fifo, picture);
++    picture_fifo_Unlock(sys->decoder_fifo);
+     vout_control_Wake(&sys->control);
+ }
+ 
+@@ -1069,7 +1074,9 @@ static picture_t *PreparePicture(vout_thread_sys_t *vout, bool reuse_decoded,
+             if (decoded == NULL)
+                 break;
+         } else {
++            picture_fifo_Lock(sys->decoder_fifo);
+             decoded = picture_fifo_Pop(sys->decoder_fifo);
++            picture_fifo_Unlock(sys->decoder_fifo);
+             if (decoded == NULL)
+                 break;
+ 
+@@ -1608,7 +1615,9 @@ static bool UpdateCurrentPicture(vout_thread_sys_t *sys)
+      * when the clock is configured. */
+     if (sys->first_picture)
+     {
++        picture_fifo_Lock(sys->decoder_fifo);
+         bool has_next_pic = !picture_fifo_IsEmpty(sys->decoder_fifo);
++        picture_fifo_Unlock(sys->decoder_fifo);
+         if (!has_next_pic)
+             return false;
+ 
+@@ -1742,7 +1751,9 @@ static void vout_FlushUnlocked(vout_thread_sys_t *vout, bool below,
+         }
+     }
+ 
++    picture_fifo_Lock(sys->decoder_fifo);
+     picture_fifo_Flush(sys->decoder_fifo, date, below);
++    picture_fifo_Unlock(sys->decoder_fifo);
+ 
+     vlc_queuedmutex_lock(&sys->display_lock);
+     if (sys->display != NULL)
+@@ -1778,16 +1789,24 @@ vlc_tick_t vout_Flush(vout_thread_t *vout, vlc_tick_t date)
+     return displayed_pts;
+ }
+ 
+-void vout_NextPicture(vout_thread_t *vout)
++size_t vout_NextPicture(vout_thread_t *vout, size_t request_frame_count)
+ {
+     vout_thread_sys_t *sys = VOUT_THREAD_TO_SYS(vout);
+     assert(!sys->dummy);
+ 
+     vout_control_Hold(&sys->control);
+ 
+-    sys->frame_next_count++;
++    sys->frame_next_count += request_frame_count;
++
++    picture_fifo_Lock(sys->decoder_fifo);
++    size_t pics_count = picture_fifo_GetCount(sys->decoder_fifo);
++    size_t needed_count = sys->frame_next_count <= pics_count ? 0
++                        : sys->frame_next_count - pics_count;
++    picture_fifo_Unlock(sys->decoder_fifo);
+ 
+     vout_control_ReleaseAndWake(&sys->control);
++
++    return needed_count;
+ }
+ 
+ void vout_ChangeDelay(vout_thread_t *vout, vlc_tick_t delay)
+diff --git a/src/video_output/vout_internal.h b/src/video_output/vout_internal.h
+index fc8e8ffaf26..e242b7e1819 100644
+--- a/src/video_output/vout_internal.h
++++ b/src/video_output/vout_internal.h
+@@ -237,9 +237,13 @@ void vout_GetResetStatistic( vout_thread_t *p_vout, unsigned *pi_displayed,
+                              unsigned *pi_lost, unsigned *pi_late );
+ 
+ /**
+- * This function will force to display the next picture while paused
++ * This function will force to display next pictures while paused
++ *
++ * @param request_frame_count number of pictures to display next
++ * @return Number of picture needed to fulfill the request (to send via
++ * vout_PutPicture())
+  */
+-void vout_NextPicture( vout_thread_t *p_vout );
++size_t vout_NextPicture( vout_thread_t *p_vout, size_t request_frame_count );
+ 
+ /**
+  * This function will ask the display of the input title
