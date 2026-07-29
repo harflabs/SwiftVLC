@@ -84,7 +84,7 @@ public final class PiPController: NSObject {
   @ObservationIgnored
   let player: Player
   @ObservationIgnored
-  private let playbackDriver: PlaybackDriver
+  let playbackDriver: PlaybackDriver
   @ObservationIgnored
   private let pauseDebounce: Duration
   @ObservationIgnored
@@ -187,6 +187,12 @@ public final class PiPController: NSObject {
   /// issued. One-shot per controller; see ``managesAudioSession``.
   @ObservationIgnored
   var hasActivatedAudioSession = false
+
+  /// Notification tokens for the managed session's disruption observers.
+  /// Empty when ``managesAudioSession`` is `false` — nothing is observed
+  /// because nothing may be changed. See `startAudioSessionObservers()`.
+  @ObservationIgnored
+  var audioSessionObservers: [any NSObjectProtocol] = []
 
   /// Broadcasts ``PiPEvent``s to every ``pipEvents`` subscriber.
   /// Terminated in deinit so subscribers' streams finish with the
@@ -354,6 +360,7 @@ public final class PiPController: NSObject {
     displayLayer.backgroundColor = CGColor(red: 0, green: 0, blue: 0, alpha: 1)
 
     configureAudioSession()
+    startAudioSessionObserversIfManaged()
     setupControlTimebase()
     attachCallbacks()
     setupPiPController()
@@ -387,6 +394,7 @@ public final class PiPController: NSObject {
 
     playbackDelegateProxy.owner = self
     configureAudioSession()
+    startAudioSessionObserversIfManaged()
     nativeBackend.setStartsAutomaticallyFromInline(startsAutomaticallyFromInline)
 
     // The native AVPictureInPictureController already belongs to the open
@@ -466,6 +474,7 @@ public final class PiPController: NSObject {
     displayLayer.backgroundColor = CGColor(red: 0, green: 0, blue: 0, alpha: 1)
 
     configureAudioSession()
+    startAudioSessionObserversIfManaged()
     setupControlTimebase()
     attachCallbacks()
     setupPiPController()
@@ -483,6 +492,7 @@ public final class PiPController: NSObject {
     cadenceObserverTask?.cancel()
     possibleObservation = nil
     activeObservation = nil
+    stopAudioSessionObserversIfManaged()
     // No explicit native-backend relinquish: the backend holds its `owner`
     // weakly, so ARC clears the back-reference as this controller is torn
     // down. A player swap (`updateUIView`/`updateNSView`) reassigns `owner`
