@@ -21,6 +21,13 @@ import Testing
 ///
 /// Parsing, not playback — so this runs on a headless CI host, which cannot
 /// reach `.playing` (see `TestCondition.canPlayMedia`).
+///
+/// That is also why this guards the *engine* boundary rather than the
+/// wrapper's own conversion. `Player.refreshNativeStateIfNeeded()` builds a
+/// `Duration` from `libvlc_media_player_get_length`, which returns 0 until
+/// playback starts — verified, not assumed — so the wrapper site is
+/// unreachable here. Both read the same `libvlc_time_t`, so pinning the unit
+/// at the engine is what makes the conversion above it correct.
 @Suite(.tags(.integration), .serialized)
 struct LibVLCTimeUnitTests {
   /// Fixtures whose durations are fixed by how they were generated, with the
@@ -35,10 +42,12 @@ struct LibVLCTimeUnitTests {
   @Test(arguments: fixtures)
   func `Parsed durations are reported in milliseconds`(fixture: (name: String, url: URL, expectedMilliseconds: Int64)) async throws {
     let media = try Media(url: fixture.url)
-    _ = try? await media.parse()
+    // Deliberately not `try?`: a parse failure should surface as itself
+    // rather than as a confusing duration assertion further down.
+    _ = try await media.parse()
 
     let reported = libvlc_media_get_duration(media.pointer)
-    try #require(reported > 0, "\(fixture.name) did not parse; the assertion below would be vacuous")
+    try #require(reported > 0, "\(fixture.name) parsed but reported no duration")
 
     // Generous on purpose: container overhead moves the real value by tens of
     // milliseconds, while the unit change moves it by three orders of
@@ -46,7 +55,7 @@ struct LibVLCTimeUnitTests {
     let lower = fixture.expectedMilliseconds / 2
     let upper = fixture.expectedMilliseconds * 2
     #expect(
-      reported > lower && reported < upper,
+      reported >= lower && reported <= upper,
       """
       \(fixture.name) reported \(reported) for a \(fixture.expectedMilliseconds)ms asset.
       If this is ~1000x too large, the engine pin has moved past libVLC's \
@@ -55,29 +64,5 @@ struct LibVLCTimeUnitTests {
       before the pin lands. See issue #79 and scripts/build-libvlc.sh.
       """
     )
-  }
-
-  /// The same invariant at the player boundary, which is where the wrapper
-  /// actually does the conversion: `Player+Events.swift` reads
-  /// `libvlc_media_player_get_length` and builds a `Duration` from it as
-  /// milliseconds. A unit change would make `duration` a thousand times too
-  /// long without any type error.
-  @Test
-  func `Player duration conversion assumes milliseconds`() async throws {
-    let player = await MainActor.run { Player(instance: TestInstance.makeAudioOnly()) }
-    let media = try Media(url: TestMedia.twosecURL)
-    _ = try? await media.parse()
-    let milliseconds = libvlc_media_get_duration(media.pointer)
-    try #require(milliseconds > 0, "the fixture did not parse")
-
-    // The conversion the wrapper performs, isolated from playback so it is
-    // reachable on a headless host.
-    let converted = Duration.milliseconds(milliseconds)
-
-    #expect(
-      converted >= .milliseconds(1000) && converted <= .milliseconds(4000),
-      "a 2s asset converted to \(converted); the engine's time unit is not milliseconds"
-    )
-    await player.shutdown()
   }
 }
