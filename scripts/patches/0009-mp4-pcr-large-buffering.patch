@@ -3,9 +3,14 @@
 #
 # The pinned revision can leave the PCR stalled through a long buffering
 # sequence, and a stalled PCR stalls the playback clock. The backport tracks the
-# minimum non-zero DTS across tracks in both DemuxMoov() and DemuxMoof() and
-# emits es_out_SetPCR() from it, and makes every PCR write monotonic so a late
-# track cannot walk the clock backwards.
+# minimum DTS across tracks in both DemuxMoov() and DemuxMoof() and emits
+# es_out_SetPCR() from it, and makes every PCR write monotonic so a late track
+# cannot walk the clock backwards.
+#
+# `nz` in `i_minnzdts` is VLC's prefix for a *non zero-based* tick -- a
+# timestamp not offset by VLC_TICK_0, matching `i_nztime` and `i_nzdts` in the
+# same loop -- not a value filtered to be non-zero. That is why the PCR write
+# adds VLC_TICK_0 back before publishing. No DTS is excluded from the minimum.
 #
 # Applies cleanly to c833c4be0 with no prerequisite commits. Independent of the
 # player/decoder pause series in this issue.

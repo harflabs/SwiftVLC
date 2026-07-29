@@ -384,6 +384,12 @@ jobs:
           flags: swiftpm
           name: swiftvlc-swiftpm
 
+      # The flag matches the `swift test` invocation above. Without it SwiftPM
+      # sees a different build configuration and recompiles the entire module
+      # from scratch, which is what previously pushed this step past its
+      # timeout — the docs themselves were never the slow part.
       - name: Doc coverage
         timeout-minutes: 3
+        env:
+          DOC_COVERAGE_BUILD_FLAGS: --enable-code-coverage
         run: ./scripts/doc-coverage.sh

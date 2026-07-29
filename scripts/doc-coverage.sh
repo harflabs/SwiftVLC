@@ -15,6 +15,9 @@
 # Usage:
 #   ./scripts/doc-coverage.sh            # report + summary
 #   ./scripts/doc-coverage.sh --json     # emit JSON (for CI consumption)
+#
+# Environment:
+#   DOC_COVERAGE_BUILD_FLAGS — extra flags for the `swift build` below.
 
 set -euo pipefail
 
@@ -22,15 +25,29 @@ MODULE="SwiftVLC"
 OUT_DIR="$(mktemp -d)"
 trap 'rm -rf "$OUT_DIR"' EXIT
 
+# SwiftPM keys its build products on the exact flag set, so a build differing
+# from the previous one by a single flag recompiles the whole module. CI runs
+# `swift test --enable-code-coverage` immediately before this script; matching
+# that here turns the build below into a no-op instead of a ~400-file rebuild
+# that does not fit in the step's budget. Callers with a differently configured
+# build set this to their own flags.
+BUILD_FLAGS=()
+if [[ -n "${DOC_COVERAGE_BUILD_FLAGS:-}" ]]; then
+  # Word-split deliberately: the variable carries a flag list, not one argument.
+  read -r -a BUILD_FLAGS <<< "$DOC_COVERAGE_BUILD_FLAGS"
+fi
+
 # xcrun respects $TOOLCHAINS when CI pins a specific Swift toolchain.
-xcrun swift build --target "$MODULE" >/dev/null
+# `${arr[@]+…}` guards the expansion: under `set -u`, bash 3.2 — still what
+# /bin/bash is on macOS — treats an empty array as unbound.
+xcrun swift build --target "$MODULE" ${BUILD_FLAGS[@]+"${BUILD_FLAGS[@]}"} >/dev/null
 
 # Derive target triple and build layout from the active toolchain / SwiftPM
 # rather than hard-coding `arm64-apple-macosx15.0` + `.build/arm64-apple-macosx/…`.
 # Hard-coded paths break on Intel runners and future SwiftPM layouts.
 TARGET="$(xcrun swiftc -print-target-info \
   | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["target"]["triple"])')"
-BIN_DIR="$(xcrun swift build --target "$MODULE" --show-bin-path)"
+BIN_DIR="$(xcrun swift build --target "$MODULE" ${BUILD_FLAGS[@]+"${BUILD_FLAGS[@]}"} --show-bin-path)"
 SDK="$(xcrun --sdk macosx --show-sdk-path)"
 MODULES_DIR="$BIN_DIR/Modules"
 FRAMEWORKS_DIR="$BIN_DIR/PackageFrameworks"

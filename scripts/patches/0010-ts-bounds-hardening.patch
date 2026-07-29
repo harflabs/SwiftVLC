@@ -12,7 +12,13 @@
 #
 # 93e847d1c02 guards p_pkt->i_buffer > i_skip in SeekToTime() and ProbeChunk().
 # 417a06caa26 requires p_pkt->i_buffer > 4 before reading p_buffer[1] and
-# p_buffer[3]; it must be applied after 93e847d1c02, which it edits.
+# p_buffer[3]; it must be applied after 93e847d1c02, which it edits. That bound
+# is one byte stricter than indexing alone demands -- byte 3 needs only four
+# bytes present -- and is reproduced verbatim rather than loosened. It fails
+# closed, and the only input it additionally rejects is an exactly-four-byte
+# packet, which is malformed against the 188-byte TS packet size whatever the
+# bound says. Diverging from upstream here would also mean this hunk no longer
+# drops out cleanly when the pin moves past the fix.
 # f7d12646eef corrects an inverted bound in ParsePESDataChain():
 # `p_pes->i_buffer + 2 <= i_skip` becomes `p_pes->i_buffer >= i_skip + 2`. The
 # old form permits an out-of-bounds GetWBE.
