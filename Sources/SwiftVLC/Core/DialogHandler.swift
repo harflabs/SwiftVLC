@@ -23,7 +23,9 @@ import Synchronization
 /// ```
 public final class DialogHandler: Sendable {
   private let instance: VLCInstance
-  private let broadcaster: Broadcaster<DialogEvent>
+  /// Internal, not private: the losslessness tests drive it directly, since
+  /// VLC dialog callbacks cannot be raised from a test process.
+  let broadcaster: Broadcaster<DialogEvent>
   /// Token returned by `VLCInstance.claimDialogRegistration` on
   /// successful registration. `nil` when this handler lost the race
   /// to another `DialogHandler` that owns the slot.
@@ -31,8 +33,25 @@ public final class DialogHandler: Sendable {
 
   /// Stream of dialog events from VLC. A new independent stream is
   /// returned per access; subscribers don't compete for events.
+  ///
+  /// Unbounded, and that is load-bearing rather than generous. Most of
+  /// ``DialogEvent`` is one-shot and *demands a reply*: VLC blocks until a
+  /// ``DialogEvent/login(_:)`` or ``DialogEvent/question(_:)`` is answered or
+  /// dismissed, and ``DialogEvent/cancel(_:)`` is the only signal that a
+  /// dialog already on screen is gone. Dropping any of them hangs playback
+  /// with no UI to explain it, or leaves a dialog whose id no longer resolves.
+  ///
+  /// A bounded policy is a poor fit here specifically because
+  /// ``DialogEvent/progressUpdated(_:)`` shares the stream and arrives at
+  /// whatever rate the underlying operation reports, while the consumer is a
+  /// UI that stops to wait for a human. That is exactly when a newest-wins
+  /// buffer evicts the oldest — the prompt the human is being waited on for.
+  ///
+  /// The cost is that a subscriber which never drains accumulates progress
+  /// updates for the life of the operation. That is the better failure: the
+  /// alternative is a player that stops and cannot say why.
   public var dialogs: AsyncStream<DialogEvent> {
-    broadcaster.subscribe()
+    broadcaster.subscribe(policy: .unbounded)
   }
 
   /// Registers dialog callbacks with the given VLC instance.
