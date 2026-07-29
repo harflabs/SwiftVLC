@@ -32,9 +32,7 @@ import Dispatch
 public final class RendererDiscoverer: Sendable {
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_renderer_discoverer_t*
   private let instance: VLCInstance
-  /// Internal, not private: the losslessness tests drive it directly, since
-  /// real discovery needs devices on the network.
-  let broadcaster: Broadcaster<RendererEvent>
+  private let broadcaster: Broadcaster<RendererEvent>
   private nonisolated(unsafe) let opaque: UnsafeMutableRawPointer
 
   /// Stream of renderer discovery events. A new independent stream is

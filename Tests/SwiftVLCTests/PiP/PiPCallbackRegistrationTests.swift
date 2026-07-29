@@ -246,7 +246,14 @@ extension Integration {
         await poll(timeout: .seconds(5)) { oldLifetime.isReleased },
         "offloaded release did not finish for the dormant callback slot"
       )
-      #expect(oldContext == nil)
+      // The native lifetime being released does not mean the Swift context has
+      // deallocated: the final release is queued behind the offloaded teardown,
+      // so a bare check here races it. Poll instead, as #121 did for the
+      // drawable-release test.
+      try #require(
+        await poll(timeout: .seconds(5)) { oldContext == nil },
+        "the callback context outlived its retired slot"
+      )
       await player.shutdown()
     }
 
@@ -291,7 +298,12 @@ extension Integration {
         await poll(timeout: .seconds(5)) { oldLifetime.isReleased },
         "offloaded release did not finish for the replaced native handle"
       )
-      #expect(oldContext == nil)
+      // Same race as the sibling test above: the native lifetime releasing
+      // does not mean the Swift context has deallocated.
+      try #require(
+        await poll(timeout: .seconds(5)) { oldContext == nil },
+        "the callback context outlived the replaced native handle"
+      )
     }
 
     @Test
