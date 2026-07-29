@@ -165,6 +165,29 @@ requirements.
 - You want libVLC 4.0 APIs from a Swift package.
 - You're integrating through Swift Package Manager.
 
-The libraries coexist. SwiftVLC is not a fork of VLCKit or a replacement
-for it; it's a different set of trade-offs aimed at a different
-generation of Swift.
+SwiftVLC is not a fork of VLCKit or a replacement for it; it's a
+different set of trade-offs aimed at a different generation of Swift.
+Both are maintained, and choosing one does not deprecate the other.
+
+## Not in the same process
+
+The two projects coexisting is a fact about the ecosystem, not about
+linking. **Do not link SwiftVLC and VLCKit into the same process.** Each
+ships its own complete
+libVLC, and a process that loads two of them is in undefined behavior:
+duplicate Objective-C classes resolved arbitrarily at launch, two plugin
+registries, and callbacks able to cross between two half-initialized
+runtimes. The libvlc archive has to exist exactly once among the images a
+process loads — see <doc:IntegrationTopology> for the rule and the
+supported layered topology.
+
+Migrating is therefore a replacement rather than a gradual mix: move a
+target from one wrapper to the other, don't run both side by side inside
+one app. Two apps, two extensions, or an app and its extension are
+separate processes and are unaffected.
+
+Nothing here is a claim about same-process compatibility, and SwiftVLC
+does not test for it. If that ever becomes supported it will be backed
+by fixtures covering symbols, Objective-C classes, plugin registration,
+playback, and teardown on every platform — not by a sentence in a
+comparison guide.
