@@ -94,6 +94,38 @@ extension Integration {
       #expect(bufferingCount == 1, "200 progress reports produced \(bufferingCount) transitions")
     }
 
+    /// Completeness is worth nothing if the stream then drops what it
+    /// collected. `Broadcaster.subscribe()` defaults to newest-64, so moving
+    /// this stream onto a broadcaster is one keyword away from silently
+    /// turning a lossless API lossy — which is how it was written first.
+    ///
+    /// The transitions are published *before* the stream is drained, so they
+    /// all sit in the subscriber's buffer at once. That is the condition a
+    /// bounded policy truncates and an unbounded one does not.
+    @Test(.timeLimit(.minutes(1)))
+    func `A backlog past the default buffer size is not truncated`() async {
+      let player = Player(instance: TestInstance.shared)
+      let transitions = player.stateTransitions
+
+      // Comfortably past `Broadcaster`'s 64-element default.
+      let published = 200
+      for index in 0..<published {
+        player.publishPlaybackState(index.isMultiple(of: 2) ? .playing : .paused)
+      }
+      // Ends the drain below without depending on a timeout.
+      player.stateTransitionBridge.terminate()
+
+      var received = 0
+      for await _ in transitions {
+        received += 1
+      }
+
+      #expect(
+        received == published,
+        "\(published - received) transitions were dropped; the stream is bounded, not lossless"
+      )
+    }
+
     /// The consequence the issue is really about: the recast wait has to see
     /// a failure rather than sit out its ceiling. The timeout here is short on
     /// purpose — a regression should fail this in a second, not stall it.

@@ -380,8 +380,18 @@ public final class Player {
   /// Buffering is published at most once per entry into it — repeated
   /// progress reports do not re-announce the state — so completeness does not
   /// cost the no-firehose guarantee.
+  ///
+  /// Not de-duplicated: the same state published twice is delivered twice.
+  /// Same-player media replacement currently restarts a session on a repeated
+  /// `.playing`, so suppressing repeats would break it until events carry a
+  /// media generation to distinguish sessions by. Treat a value as "the
+  /// current state", not as "a value that differs from the last one".
   public nonisolated var stateTransitions: AsyncStream<PlayerState> {
-    stateTransitionBridge.subscribe()
+    // Explicitly unbounded. `subscribe()` defaults to newest-64, which would
+    // make a stream documented as lossless silently drop the oldest pending
+    // transitions under a stalled consumer — losing exactly the one-shot
+    // terminal states this exists to protect.
+    stateTransitionBridge.subscribe(policy: .unbounded)
   }
 
   nonisolated var playbackIntentEvents: AsyncStream<Bool> {
