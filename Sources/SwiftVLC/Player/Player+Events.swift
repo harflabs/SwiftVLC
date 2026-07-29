@@ -151,6 +151,18 @@ extension Player {
 
     case .mediaChanged:
       syncCurrentMediaFromNative()
+      // A media change the wrapper did not initiate still has to supersede
+      // whatever was restoring the previous session: a `MediaListPlayer`
+      // advancing the list calls `libvlc_media_list_player_next` directly, so
+      // `load(_:)` never runs and nothing else advances the generation.
+      // Compared by native identity rather than bumped unconditionally,
+      // because libVLC echoes the wrapper's own load back through here and a
+      // second advance would supersede a `recast(to:)` for a change it had
+      // already accounted for.
+      if currentMedia?.pointer != sessionGenerationMedia {
+        sessionGeneration &+= 1
+        sessionGenerationMedia = currentMedia?.pointer
+      }
       resetMediaDerivedState()
       refreshTracks()
       notifyMediaDependentObservables()
@@ -439,6 +451,18 @@ extension Player {
 
   func _handleEventForTesting(_ event: PlayerEvent) {
     handleEvent(event)
+  }
+
+  /// Models a media change that did not come through the wrapper — what a
+  /// `MediaListPlayer` advancing the list looks like from `Player`'s side.
+  ///
+  /// libVLC swaps the input and reports it; no wrapper call asked for it. A
+  /// real list-player advance cannot be driven from a test process without a
+  /// list and live playback, so the native swap plus its event is staged
+  /// directly.
+  func adoptMediaForTesting(_ media: Media) {
+    libvlc_media_player_set_media(pointer, media.pointer)
+    handleEvent(.mediaChanged)
   }
 
   func _handleEventForTesting(_ event: PlayerEvent, source: OpaquePointer) {
