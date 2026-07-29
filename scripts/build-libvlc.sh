@@ -1450,6 +1450,38 @@ find "${OUTPUT_DIR}/libvlc.xcframework" -name "CLibVLC.h" -delete
 
 info "Created: ${OUTPUT_DIR}/libvlc.xcframework"
 
+# --- Step 4b: Record what produced it ---
+#
+# `release.sh` packages whatever xcframework is sitting in Vendor/. Without a
+# record of the inputs it cannot tell a fresh build from one made months ago
+# against a different pin or patch set, so a stale binary could be published as
+# a new release and nothing would notice. That is issue #97's second acceptance
+# criterion.
+#
+# Written last, after every slice succeeded, so a partial build leaves no
+# provenance rather than provenance describing an artifact that was never
+# finished.
+PROVENANCE_FILE="${OUTPUT_DIR}/libvlc-provenance.json"
+manifest_digest="none"
+if [ -n "${PATCHES_DIR}" ] && [ -f "${PATCHES_DIR}/manifest.sha256" ]; then
+    manifest_digest=$(shasum -a 256 "${PATCHES_DIR}/manifest.sha256" | cut -d' ' -f1)
+fi
+slice_list=$(find "${OUTPUT_DIR}/libvlc.xcframework" -maxdepth 1 -mindepth 1 -type d \
+    -exec basename {} \; | sort | paste -sd, -)
+
+cat > "${PROVENANCE_FILE}" <<PROVENANCE
+{
+  "vlcSourceRevision": "${SOURCE_SHA}",
+  "pinnedRevision": "${VLC_HASH}",
+  "patchManifestDigest": "${manifest_digest}",
+  "assertionsEnabled": "${WITH_ASSERTS}",
+  "slices": "${slice_list}",
+  "xcodeBuildVersion": "$(xcodebuild -version 2>/dev/null | head -1)",
+  "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+PROVENANCE
+info "Recorded build provenance: ${PROVENANCE_FILE}"
+
 # --- Step 5: Verify ---
 #
 # Fail the build if any object file in the xcframework has an LC_BUILD_VERSION
