@@ -233,6 +233,13 @@ extension Player {
   func publishPlaybackState(_ newState: PlayerState) {
     state = newState
     withMutation(keyPath: \.isActive) {}
+    // The single funnel for `state`, and therefore the only place that can
+    // see *every* lifecycle transition. Broadcasting from here rather than
+    // from the raw `.stateChanged` event is what puts `.error` and
+    // `.buffering` on the stream at all: libVLC reports those as
+    // `.encounteredError` and `.bufferingProgress`, so neither has ever
+    // produced a `.stateChanged` to forward.
+    stateTransitionBridge.broadcast(newState)
   }
 
   func publishPlaybackIntent(_ active: Bool) {

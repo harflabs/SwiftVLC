@@ -224,6 +224,10 @@ extension Player {
     // Permanent: `playbackIntentEvents` also subscribes per access, so a
     // post-shutdown subscriber must get an already-finished stream.
     playbackIntentBridge.terminate()
+    // Same reasoning: `stateTransitions` subscribes per access, so a
+    // post-shutdown subscriber must get an already-finished stream rather
+    // than one that can never emit.
+    stateTransitionBridge.terminate()
     libvlc_media_player_set_nsobject(pointer, nil)
 
     let bridge = eventBridge
