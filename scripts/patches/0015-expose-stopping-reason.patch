@@ -38,7 +38,12 @@
 # rather than silently mislabelling every terminal event. Verified by doing
 # exactly that and watching lib/media_player.c:92 refuse to compile.
 #
-# Compile-gated against the pin with patches 0001-0015 applied.
+# Compile-gated against the pin with patches 0001-0015 applied, and
+# runtime-verified: because this patch is not verbatim upstream, a passing
+# static_assert only shows the enums line up, not that the reason reaches the
+# event with the right value. scripts/patches/validation/stopping-reason-probe.c
+# checks the latter against a local engine build -- a file played to its
+# natural end reports eos, the same file stopped explicitly reports user.
 #
 # Inert until the xcframework is rebuilt: the Swift side cannot read the new
 # field until Vendor/libvlc.xcframework carries these headers, so the wrapper
