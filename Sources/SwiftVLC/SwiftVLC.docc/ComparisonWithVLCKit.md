@@ -97,10 +97,21 @@ See <doc:ConcurrencyModel> for the full isolation map.
 
 Multiple consumers can subscribe to SwiftVLC streams concurrently. Each
 subscription is independent and is offered events broadcast after its
-creation, subject to its own filter and buffering policy. Default bounded
-streams can drop their oldest events when a consumer falls behind; APIs
-such as ``Player/events(policy:filter:)`` expose an unbounded option when
-lossless delivery is required.
+creation, subject to its own filter and buffering policy.
+
+The policy is chosen per stream, by what losing an event would cost:
+
+- ``Player/events(policy:filter:)`` is the raw firehose and defaults to
+  newest-64, because it carries ~30 Hz clock samples. Pass `.unbounded`
+  to keep every event.
+- ``Player/timingEvents`` is deliberately coalesced: only the newest
+  clock sample means anything.
+- ``Player/controlEvents``, ``Player/stateTransitions``,
+  ``PiPController/pipEvents``, ``DialogHandler/dialogs`` and
+  ``RendererDiscoverer/events`` are unbounded. Their events are
+  one-shot, and a dropped one does not come round again — a terminal
+  state, a discovered device, or a dialog prompt that VLC is blocked
+  waiting for a reply to.
 
 ## SwiftUI
 
