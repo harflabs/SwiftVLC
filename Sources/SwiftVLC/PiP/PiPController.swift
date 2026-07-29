@@ -342,6 +342,7 @@ public final class PiPController: NSObject {
     setupPiPController()
     startStateObserver()
     startPlaybackIntentObserver()
+    player.registerNativeHandleSnapshotObserver(self)
     startCadenceObserver()
   }
 
@@ -390,6 +391,7 @@ public final class PiPController: NSObject {
     updatePiPActive(nativeBackend.isActive)
     startStateObserver()
     startPlaybackIntentObserver()
+    player.registerNativeHandleSnapshotObserver(self)
   }
   #endif
 
@@ -419,6 +421,7 @@ public final class PiPController: NSObject {
     updatePiPActive(nativeBackend.isActive)
     startStateObserver()
     startPlaybackIntentObserver()
+    player.registerNativeHandleSnapshotObserver(self)
   }
   #endif
 
@@ -451,6 +454,7 @@ public final class PiPController: NSObject {
     setupPiPController()
     startStateObserver()
     startPlaybackIntentObserver()
+    player.registerNativeHandleSnapshotObserver(self)
   }
 
   isolated deinit {
@@ -471,6 +475,7 @@ public final class PiPController: NSObject {
     // Stop any in-flight AVKit query from interrogating a handle that is
     // about to be released. Cleared before the relinquish below, so the
     // window where a callback could see a dead pointer never opens.
+    player.unregisterNativeHandleSnapshotObserver(self)
     invalidateCallbackSnapshot()
     renderer.setDisplayLayer(nil)
     renderer.setTimebase(nil)

@@ -42,7 +42,15 @@ struct PiPCallbackSnapshot: @unchecked Sendable {
   }
 }
 
-extension PiPController {
+extension PiPController: NativeHandleSnapshotObserver {
+  func refreshNativeHandleSnapshot() {
+    refreshCallbackSnapshot()
+  }
+
+  func invalidateNativeHandleSnapshot() {
+    invalidateCallbackSnapshot()
+  }
+
   /// Republishes everything the callback threads read.
   ///
   /// Called from the main actor whenever the attached handle, the timebase or

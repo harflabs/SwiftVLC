@@ -241,6 +241,12 @@ extension Player {
     let replacementLifetime = NativePlayerHandleLifetime(pointer: replacement)
     pointer = replacement
     nativeHandleLifetime = replacementLifetime
+    #if os(iOS) || os(macOS)
+    // Between installing the inert successor and tearing the predecessor down
+    // below: a callback thread reading a cached handle must be moved onto the
+    // successor before `p` is released.
+    refreshNativeHandleSnapshots()
+    #endif
 
     await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
       DispatchQueue.global(qos: .utility).async {

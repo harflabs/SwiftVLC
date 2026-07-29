@@ -877,9 +877,22 @@ final class IOSNativePiPBackend: NSObject, @unchecked Sendable {
   }
 }
 
+extension IOSNativePiPMediaController: NativeHandleSnapshotObserver {
+  func refreshNativeHandleSnapshot() {
+    refreshCallbackSnapshot()
+  }
+
+  func invalidateNativeHandleSnapshot() {
+    invalidateCallbackSnapshot()
+  }
+}
+
 final class IOSNativePiPMediaController: NSObject, IOSNativePiPMediaControlling, @unchecked Sendable {
   weak var player: Player? {
-    didSet { publishCallbackSnapshot() }
+    didSet {
+      guard oldValue !== player else { return }
+      publishCallbackSnapshot(movingRegistrationFrom: oldValue, to: player)
+    }
   }
 
   /// What VLC's native PiP module reads instead of blocking on the main
@@ -888,13 +901,37 @@ final class IOSNativePiPMediaController: NSObject, IOSNativePiPMediaControlling,
 
   /// Publishes without assuming the caller is already on the main actor.
   /// `assumeIsolated` would trap if this nominally nonisolated class is ever
-  /// mutated from a background thread.
-  private func publishCallbackSnapshot() {
+  /// mutated from a background thread — `IOSNativePiPBackend` is `@unchecked
+  /// Sendable` and attaches without an isolation guarantee.
+  ///
+  /// The players are passed rather than re-read on the main actor: on the
+  /// asynchronous path the property may already have moved on, and unhooking
+  /// the wrong player would leave the outgoing one still refreshing this
+  /// snapshot.
+  private func publishCallbackSnapshot(
+    movingRegistrationFrom outgoing: Player? = nil,
+    to incoming: Player? = nil
+  ) {
     if Thread.isMainThread {
-      MainActor.assumeIsolated { refreshCallbackSnapshot() }
+      MainActor.assumeIsolated {
+        moveSnapshotRegistration(from: outgoing, to: incoming)
+        refreshCallbackSnapshot()
+      }
     } else {
-      Task { @MainActor [weak self] in self?.refreshCallbackSnapshot() }
+      Task { @MainActor [weak self] in
+        self?.moveSnapshotRegistration(from: outgoing, to: incoming)
+        self?.refreshCallbackSnapshot()
+      }
     }
+  }
+
+  /// Follows the attachment: a handle replacement on the newly attached player
+  /// has to reach this snapshot, and the player being detached has to stop
+  /// refreshing a controller it no longer drives.
+  @MainActor
+  private func moveSnapshotRegistration(from outgoing: Player?, to incoming: Player?) {
+    outgoing?.unregisterNativeHandleSnapshotObserver(self)
+    incoming?.registerNativeHandleSnapshotObserver(self)
   }
 
   /// Republished whenever the attached player changes.
@@ -906,6 +943,18 @@ final class IOSNativePiPMediaController: NSObject, IOSNativePiPMediaControlling,
         snapshot.generation &+= 1
       }
       snapshot.playerPointer = pointer
+    }
+  }
+
+  /// Clears the cached handle so in-flight callbacks stop interrogating one
+  /// that is being torn down with nothing to replace it.
+  @MainActor
+  func invalidateCallbackSnapshot() {
+    callbackSnapshot.withLock { snapshot in
+      if snapshot.playerPointer != nil {
+        snapshot.generation &+= 1
+      }
+      snapshot.playerPointer = nil
     }
   }
 

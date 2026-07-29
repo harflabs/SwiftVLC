@@ -315,6 +315,13 @@ extension Player {
     attachedMediaListPlayer?.rebindMediaPlayerHandle()
     applyAspectRatio()
 
+    #if os(iOS) || os(macOS)
+    // Between installing the successor and releasing the predecessor: any
+    // callback thread reading a cached handle must see the new one before the
+    // old one is freed.
+    refreshNativeHandleSnapshots()
+    #endif
+
     retainedDrawablesUntilNativePlayerRelease.removeAll()
     nativePlayerNeedsReplacementBeforePlayback = false
     needsDrawableRebindForPlayback = false

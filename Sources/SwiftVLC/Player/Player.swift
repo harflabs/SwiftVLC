@@ -429,6 +429,13 @@ public final class Player {
   /// for consumers that must not mistake the previous media's capability for
   /// the current one. See ``PlayerCapabilitySnapshot``.
   nonisolated let capabilitySnapshot = Mutex(PlayerCapabilitySnapshot())
+  #if os(iOS) || os(macOS)
+  /// Consumers caching the native handle for lock-free callback reads. See
+  /// ``NativeHandleSnapshotObserver``.
+  @ObservationIgnored
+  var nativeHandleSnapshotObservers: [WeakNativeHandleSnapshotObserver] = []
+  #endif
+
   /// Set while a multi-property capability change is in progress, so the
   /// per-property `didSet` publishes do not expose an intermediate mix of the
   /// outgoing and incoming media. See ``resetMediaDerivedState()``.
@@ -553,6 +560,10 @@ public final class Player {
     playbackIntentBridge.terminate()
     #if os(iOS) || os(macOS)
     retireDirectPiPVideoCallbacksForHandleEnd()
+    // No successor to move to here, unlike replacement and shutdown: the
+    // player itself is being destroyed, so the only cached handle that stays
+    // valid past this point is none.
+    invalidateNativeHandleSnapshots()
     #endif
     // Tell libVLC to forget the drawable *before* release so the
     // vout thread observes a nil pointer rather than dereferencing a
