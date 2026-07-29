@@ -36,10 +36,9 @@ VLC_HASH="c833c4be0"
 # be overridden or cleared with --patches-dir=DIR.
 PATCHES_DIR="${REPO_ROOT}/scripts/patches"
 
-# Name of the ordered manifest inside PATCHES_DIR. Every patch that will be
-# applied has to be listed there with its SHA-256, and every listed patch has
-# to exist with that hash. See `verify_patch_manifest`.
-PATCH_MANIFEST_NAME="manifest.sha256"
+# The manifest that decides which patches apply and in what order lives beside
+# them, and is verified by scripts/verify-patch-manifest.sh — which owns its
+# filename, so nothing here needs to know it.
 
 BUILD_IOS=yes
 BUILD_TVOS=no

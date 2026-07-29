@@ -50,12 +50,31 @@ fail() {
 if [ "$UPDATE" = yes ]; then
   # Deliberately separate from verification: regenerating is a decision, not a
   # repair, and a build must never do it implicitly.
-  : > "$MANIFEST"
+  #
+  # Built in a temporary file and moved into place only once it is complete and
+  # non-empty. Writing directly would truncate a good manifest the moment this
+  # is pointed at the wrong directory — turning a typo into a silently
+  # unguarded patch set, which is the failure this whole script exists to
+  # prevent.
+  [ -d "$PATCHES_DIR" ] || fail "patch directory not found: ${PATCHES_DIR}"
+
+  staged=$(mktemp "${TMPDIR:-/tmp}/swiftvlc-manifest.XXXXXX") \
+    || fail "could not create a temporary file"
+  trap 'rm -f "$staged"' EXIT
+
+  count=0
   for path in "${PATCHES_DIR}"/*.patch; do
     [ -f "$path" ] || continue
-    printf '%s  %s\n' "$(shasum -a 256 "$path" | cut -d' ' -f1)" "$(basename "$path")" >> "$MANIFEST"
+    printf '%s  %s\n' "$(shasum -a 256 "$path" | cut -d' ' -f1)" "$(basename "$path")" >> "$staged" \
+      || fail "could not write the staged manifest"
+    count=$((count + 1))
   done
-  echo "Rewrote ${MANIFEST}" >&2
+
+  [ "$count" -gt 0 ] || fail "no *.patch files in ${PATCHES_DIR}; refusing to write an empty manifest"
+
+  mv "$staged" "$MANIFEST" || fail "could not write ${MANIFEST}"
+  trap - EXIT
+  echo "Wrote ${MANIFEST} (${count} patches)" >&2
   exit 0
 fi
 
