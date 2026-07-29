@@ -118,6 +118,23 @@ public final class PiPController: NSObject {
   nonisolated let callbackSnapshot = Mutex(PiPCallbackSnapshot())
   @ObservationIgnored
   private var stateObserverTask: Task<Void, Never>?
+  /// The state observer's second subscription. See ``startStateObserver()``
+  /// for why it needs one per lane rather than one merged stream.
+  @ObservationIgnored
+  private var timingObserverTask: Task<Void, Never>?
+  /// The state observer's rolling view of duration and seekability.
+  ///
+  /// Owned by the controller rather than by an observer task because both lane
+  /// tasks feed it. Both are `@MainActor`, so they serialize on this actor and
+  /// interleave between events rather than racing within one.
+  @ObservationIgnored
+  var playbackStateObservation = PlaybackStateObservationState(duration: nil, isSeekable: false)
+  /// Last native-active and rate values the observer acted on, for the same
+  /// reason: the comparison has to survive across events from either lane.
+  @ObservationIgnored
+  private var lastObservedNativeActive = false
+  @ObservationIgnored
+  private var lastObservedRate: Float = 1.0
   @ObservationIgnored
   private var playbackIntentObserverTask: Task<Void, Never>?
   @ObservationIgnored
@@ -461,6 +478,7 @@ public final class PiPController: NSObject {
     pipEventBroadcaster.terminate()
     cancelDeferredPause()
     stateObserverTask?.cancel()
+    timingObserverTask?.cancel()
     playbackIntentObserverTask?.cancel()
     cadenceObserverTask?.cancel()
     possibleObservation = nil
@@ -835,84 +853,118 @@ public final class PiPController: NSObject {
 
   /// Drives the control timebase and PiP UI from player events.
   ///
-  /// The shape below matches `Player.startEventConsumer`: subscribe to
-  /// `player.events` (the same broadcaster that drives `Player`'s own
-  /// `@Observable` state), pull events via `for await`, and bind `self`
-  /// strongly *inside* the loop body where the binding lifetime is a
-  /// single iteration. The implicit suspension between events keeps only
-  /// a weak reference in scope, so the observer task never prevents the
+  /// Subscribes to *both* lanes, one task each, because this observer needs
+  /// what each lane guarantees and neither alone is sufficient:
+  ///
+  /// - Control events (`.mediaChanged`, `.lengthChanged`, `.seekableChanged`,
+  ///   `.stateChanged`) are one-shot. Losing one leaves PiP permanently wrong
+  ///   for the session — a dropped `.seekableChanged` pins seekable VOD to the
+  ///   conservative media-changed reset, which is linear playback with no skip
+  ///   controls. That lane is unbounded.
+  /// - `.timeChanged` is the clock tick that drives capability convergence and
+  ///   rate retracking. Steady playback can run without another state
+  ///   transition, so those have to be reachable from a tick as well. Only the
+  ///   newest tick means anything, so that lane stays coalesced.
+  ///
+  /// One merged stream cannot express both: a merge has a single buffer, so it
+  /// either grows without bound under a stalled main actor or evicts control
+  /// events. Previously this observer read the mixed `events` stream and took
+  /// the second failure — the reason ``startCadenceObserver()`` was split onto
+  /// the control lane on its own.
+  ///
+  /// Both tasks are `@MainActor`, so they serialize on this actor: the shared
+  /// observation state is mutated between events, never during one. Cross-lane
+  /// ordering is not guaranteed, which is why capability reconciliation is
+  /// generation-guarded rather than order-dependent (see
+  /// ``PlaybackStateObservationState/reconcile(with:invalidates:)``).
+  ///
+  /// The shape of each loop matches `Player.startEventConsumer`: pull via
+  /// `for await` and bind `self` strongly *inside* the body, where the binding
+  /// lasts a single iteration. The implicit suspension between events keeps
+  /// only a weak reference in scope, so an observer never prevents the
   /// controller from deinitializing.
   private func startStateObserver() {
-    let events = player.events
+    let controlEvents = player.controlEvents
+    let timingEvents = player.timingEvents
     let initialActive = player.isPlaybackRequestedActive
     let initialNativeActive = player.isActive
-    let initialDuration = player.duration
-    let initialSeekable = player.isSeekable
     pipPlaybackActive = initialActive
     syncTimebase(playing: initialNativeActive)
 
+    lastObservedNativeActive = initialNativeActive
+    lastObservedRate = 1.0
+    playbackStateObservation = PlaybackStateObservationState(
+      duration: player.duration,
+      isSeekable: player.isSeekable
+    )
+
     stateObserverTask = Task { @MainActor [weak self] in
-      var wasActive = initialNativeActive
-      var lastRate: Float = 1.0
-      var playbackStateObservation = PlaybackStateObservationState(
-        duration: initialDuration,
-        isSeekable: initialSeekable
-      )
-      for await event in events {
+      for await event in controlEvents {
         guard let self else { return }
+        handleStateObserverEvent(event)
+      }
+    }
+    timingObserverTask = Task { @MainActor [weak self] in
+      for await event in timingEvents {
+        guard let self else { return }
+        handleStateObserverEvent(event)
+      }
+    }
+  }
 
-        let active = player.isActive
-        let rate = player.rate
-        let playbackStateUpdate = playbackStateObservation.consume(
-          event,
-          capability: player.capabilitySnapshot.withLock { $0 }
-        )
-        applyObservedPlaybackStateUpdate(playbackStateUpdate)
+  /// The body both lane tasks run. Identical work either way: what differs
+  /// between the lanes is delivery guarantees, not handling.
+  private func handleStateObserverEvent(_ event: PlayerEvent) {
+    let active = player.isActive
+    let rate = player.rate
+    let playbackStateUpdate = playbackStateObservation.consume(
+      event,
+      capability: player.capabilitySnapshot.withLock { $0 }
+    )
+    applyObservedPlaybackStateUpdate(playbackStateUpdate)
 
-        // State transition: sync the timebase rate.
-        if active != wasActive {
-          wasActive = active
-          let didAcceptNativeState = handleObservedPlaybackActivity(active)
+    // State transition: sync the timebase rate.
+    if active != lastObservedNativeActive {
+      lastObservedNativeActive = active
+      let didAcceptNativeState = handleObservedPlaybackActivity(active)
 
-          if didAcceptNativeState {
-            syncTimebase(playing: active)
-          }
+      if didAcceptNativeState {
+        syncTimebase(playing: active)
+      }
 
-          if didAcceptNativeState, active {
-            // Player is now actively playing — any prior PiP-issued
-            // pause has been superseded by the user's intent.
-            clearIssuedPauseFlag()
-          }
-        }
+      if didAcceptNativeState, active {
+        // Player is now actively playing — any prior PiP-issued
+        // pause has been superseded by the user's intent.
+        clearIssuedPauseFlag()
+      }
+    }
 
-        // Rate changed: retrack the timebase so PiP's scrubber
-        // advances at the real playback speed. Without this the
-        // scrubber stays at 1.0× even when the player is running at
-        // 2.0× or 0.5×, which looks like desync. `player.rate` has
-        // no dedicated libVLC event, so this comparison picks the
-        // change up on the next incoming event (time-changed fires
-        // frequently during active playback, which is when the
-        // timebase rate matters).
-        if rate != lastRate {
-          lastRate = rate
-          if active, let tb = controlTimebase {
-            CMTimebaseSetRate(tb, rate: Float64(rate))
-          }
-        }
+    // Rate changed: retrack the timebase so PiP's scrubber
+    // advances at the real playback speed. Without this the
+    // scrubber stays at 1.0× even when the player is running at
+    // 2.0× or 0.5×, which looks like desync. `player.rate` has
+    // no dedicated libVLC event, so this comparison picks the
+    // change up on the next incoming event (time-changed fires
+    // frequently during active playback, which is when the
+    // timebase rate matters).
+    if rate != lastObservedRate {
+      lastObservedRate = rate
+      if active, let tb = controlTimebase {
+        CMTimebaseSetRate(tb, rate: Float64(rate))
+      }
+    }
 
-        // Sync timebase when player position diverges significantly
-        // (e.g., seek from the app's own controls outside PiP).
-        // Guard against overwriting the skip handler's timebase.
-        if active, let tb = controlTimebase {
-          let timeSinceSkip = CFAbsoluteTimeGetCurrent() - lastSkipTimestamp
-          if timeSinceSkip > 1.0 {
-            let t = player.currentTime
-            let playerSec = Double(t.components.seconds) + Double(t.components.attoseconds) / 1e18
-            let tbSec = CMTimebaseGetTime(tb).seconds
-            if abs(playerSec - tbSec) > 2.0 {
-              CMTimebaseSetTime(tb, time: CMTime(seconds: playerSec, preferredTimescale: 1000))
-            }
-          }
+    // Sync timebase when player position diverges significantly
+    // (e.g., seek from the app's own controls outside PiP).
+    // Guard against overwriting the skip handler's timebase.
+    if active, let tb = controlTimebase {
+      let timeSinceSkip = CFAbsoluteTimeGetCurrent() - lastSkipTimestamp
+      if timeSinceSkip > 1.0 {
+        let t = player.currentTime
+        let playerSec = Double(t.components.seconds) + Double(t.components.attoseconds) / 1e18
+        let tbSec = CMTimebaseGetTime(tb).seconds
+        if abs(playerSec - tbSec) > 2.0 {
+          CMTimebaseSetTime(tb, time: CMTime(seconds: playerSec, preferredTimescale: 1000))
         }
       }
     }
