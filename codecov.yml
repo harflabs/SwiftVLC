@@ -39,6 +39,7 @@ coverage:
           - "Sources/"
           - '!Sources/SwiftVLC/Player/Player\+Programs.swift'
           - '!Sources/SwiftVLC/PiP/PiPVideoView\+MacPrivate.swift'
+          - '!Sources/SwiftVLC/PiP/PiPController\+StateObserver.swift'
 
       # Renderer recasting (`Player/recast(to:)`) only executes against a live
       # *playing* session, and the CI host cannot reach `.playing` at all:
@@ -68,6 +69,15 @@ coverage:
       #
       # Re-enforce this if the device qualification harness (#88) ever feeds
       # coverage back, since that runs where the framework does load.
+      # PiPController's state observer is gated for the first reason above:
+      # every branch in it is conditioned on the player actively playing, so
+      # on this host none of them execute. It was split into its own file
+      # precisely so the gate could stay enforced on the rest of
+      # `PiPController`, which is large and mostly testable. The part of the
+      # observer that *is* decidable without playback — the timebase
+      # retracking rules — is a pure function with its own unit tests, so what
+      # goes unmeasured here is the application of those decisions to a live
+      # CMTimebase, not the decisions themselves.
       playback-gated:
         target: 85%
         threshold: 0%
@@ -75,6 +85,7 @@ coverage:
         paths:
           - 'Sources/SwiftVLC/Player/Player\+Programs.swift'
           - 'Sources/SwiftVLC/PiP/PiPVideoView\+MacPrivate.swift'
+          - 'Sources/SwiftVLC/PiP/PiPController\+StateObserver.swift'
 
 # Belt-and-suspenders: the LCOV export (scripts/export-lcov.sh) already strips
 # Tests/ and .build/, and the Showcase apps build from a separate Xcode project
