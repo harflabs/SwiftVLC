@@ -27,6 +27,7 @@
  */
 #include <vlc/vlc.h>
 #include <stdio.h>
+#include <time.h>
 #include <string.h>
 #include <unistd.h>
 #include <pthread.h>
@@ -64,7 +65,11 @@ static int run(libvlc_instance_t *vlc, const char *path, int stop_early,
     libvlc_media_t *m = libvlc_media_new_path(path);
     if (!m) { fprintf(stderr, "cannot open %s\n", path); return 1; }
     libvlc_media_player_t *mp = libvlc_media_player_new_from_media(vlc, m);
-    if (!mp) { fprintf(stderr, "cannot create player\n"); return 1; }
+    if (!mp) {
+        fprintf(stderr, "cannot create player\n");
+        libvlc_media_release(m);
+        return 1;
+    }
 
     libvlc_event_manager_t *em = libvlc_media_player_event_manager(mp);
     libvlc_event_attach(em, libvlc_MediaPlayerMediaStopping, on_event, NULL);
