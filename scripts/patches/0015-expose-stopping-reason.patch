@@ -1,0 +1,109 @@
+# Expose the media stopping reason on libvlc_MediaPlayerMediaStopping.
+#
+# NOT a verbatim backport. Every other patch in this directory reproduces an
+# upstream commit unchanged; this one does not, and the difference is
+# deliberate.
+#
+# The engine already knows why playback stopped. `vlc_player_media_stopping_reason`
+# (include/vlc_player.h:326) carries ERROR / EOS / USER at the pinned revision,
+# `src/player/player.h:68` stores it, and the internal callback receives it.
+# libvlc then throws it away: `on_stopping_current_media()` in lib/media_player.c
+# does `(void) stopping_reason;` before sending the event.
+#
+# Nothing public can therefore tell a natural end of media from a user stop
+# from an error. SwiftVLC's PlaybackEndCoordinator has to infer it by
+# elimination -- synthesizing "end reached" whenever no cause was recorded --
+# which means any stop it did not itself originate (a server close, a network
+# drop, a native stop from outside the wrapper) is reported as a *confirmed*
+# natural end. That is the defect behind issue #85's fourth acceptance
+# criterion, and no amount of wrapper logic fixes it: the information is
+# discarded below the API boundary.
+#
+# Upstream fixed this in 5e85463c0f7 ("lib: expose media stopping reason via
+# on_media_stopping"), but that commit plumbs the reason through the
+# `libvlc_media_player_cbs` callback struct, which does not exist at this pin
+# at all -- it does not apply, and backporting the API it depends on is far
+# larger than the problem. This patch instead adds the reason to the existing
+# event payload, which is the delivery mechanism SwiftVLC already uses.
+#
+# The enum is deliberately named `libvlc_stopping_reason_t` with upstream's
+# exact case names and ordering, so when the pin does move past 5e85463c0f7 the
+# Swift side keeps compiling and only the delivery path changes. It is declared
+# in libvlc_events.h rather than libvlc_media_player.h (where upstream puts it)
+# because libvlc_events.h does not include that header and the union needs the
+# type in scope.
+#
+# The static_assert is the same one upstream added, and it is load-bearing:
+# reordering the enum fails the build with "libvlc_stopping_reason_t mismatch"
+# rather than silently mislabelling every terminal event. Verified by doing
+# exactly that and watching lib/media_player.c:92 refuse to compile.
+#
+# Compile-gated against the pin with patches 0001-0015 applied.
+#
+# Inert until the xcframework is rebuilt: the Swift side cannot read the new
+# field until Vendor/libvlc.xcframework carries these headers, so the wrapper
+# half of #85 has to land after an engine release, not with this patch.
+diff --git a/include/vlc/libvlc_events.h b/include/vlc/libvlc_events.h
+index 3e4de7e469c..14ee2ef7235 100644
+--- a/include/vlc/libvlc_events.h
++++ b/include/vlc/libvlc_events.h
+@@ -47,6 +47,22 @@ typedef struct libvlc_picture_list_t libvlc_picture_list_t;
+ typedef struct libvlc_media_t libvlc_media_t;
+ typedef struct libvlc_media_list_t libvlc_media_list_t;
+ 
++/**
++ * Enumeration of media stopping reasons
++ *
++ * Names and values match vlc_player_media_stopping_reason, and match the
++ * libvlc_stopping_reason_t that upstream later added for the
++ * libvlc_media_player_cbs API.
++ */
++typedef enum libvlc_stopping_reason_t {
++    /** media is stopping due to an error (default) */
++    libvlc_stopping_reason_error,
++    /** media has reached the end of stream */
++    libvlc_stopping_reason_eos,
++    /** media is stopping due to user request */
++    libvlc_stopping_reason_user,
++} libvlc_stopping_reason_t;
++
+ /**
+  * \ingroup libvlc_event
+  * @{
+@@ -385,6 +401,7 @@ typedef struct libvlc_event_t
+         struct
+         {
+             libvlc_media_t * media;
++            libvlc_stopping_reason_t reason;
+         } media_player_media_stopping;
+ 
+ 
+diff --git a/lib/media_player.c b/lib/media_player.c
+index d92fc99c848..b6fbd3af6c6 100644
+--- a/lib/media_player.c
++++ b/lib/media_player.c
+@@ -84,7 +84,14 @@ on_stopping_current_media(vlc_player_t *player, input_item_t *media,
+ {
+     assert(media != NULL);
+     (void) player;
+-    (void) stopping_reason;
++
++    /* Same mapping upstream asserts in 5e85463c0f7; keeping it here means a
++     * change to either enum fails the build rather than silently mislabelling
++     * every terminal event. */
++    static_assert((int) VLC_PLAYER_MEDIA_STOPPING_ERROR == libvlc_stopping_reason_error &&
++                  (int) VLC_PLAYER_MEDIA_STOPPING_EOS == libvlc_stopping_reason_eos &&
++                  (int) VLC_PLAYER_MEDIA_STOPPING_USER == libvlc_stopping_reason_user,
++                  "libvlc_stopping_reason_t mismatch");
+ 
+     libvlc_media_player_t *mp = data;
+ 
+@@ -94,6 +101,8 @@ on_stopping_current_media(vlc_player_t *player, input_item_t *media,
+     libvlc_event_t event;
+     event.type = libvlc_MediaPlayerMediaStopping;
+     event.u.media_player_media_stopping.media = libmedia;
++    event.u.media_player_media_stopping.reason =
++        (libvlc_stopping_reason_t) stopping_reason;
+     libvlc_event_send(&mp->event_manager, &event);
+ }
+ 
