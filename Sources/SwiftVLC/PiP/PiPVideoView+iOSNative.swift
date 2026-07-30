@@ -960,9 +960,20 @@ final class IOSNativePiPMediaController: NSObject, IOSNativePiPMediaControlling,
 
   weak var owner: PiPController?
 
+  /// The generation the callback snapshot is currently on.
+  ///
+  /// Every mutating callback below hops to the main actor, and the attached
+  /// player can be replaced during that hop. Comparing the generation captured
+  /// at entry against the one on arrival is how a command issued for the
+  /// previous session is kept from being applied to its successor.
+  var callbackGeneration: UInt64 {
+    callbackSnapshot.withLock { $0.generation }
+  }
+
   @objc func play() {
+    let issued = callbackGeneration
     Task { @MainActor [weak self] in
-      guard let self, let player else { return }
+      guard let self, callbackGeneration == issued, let player else { return }
       // A cold start after playback ended is not a resume — begin afresh.
       if player.state == .idle || player.state == .stopped {
         try? player.play()
@@ -981,8 +992,9 @@ final class IOSNativePiPMediaController: NSObject, IOSNativePiPMediaControlling,
   }
 
   @objc func pause() {
+    let issued = callbackGeneration
     Task { @MainActor [weak self] in
-      guard let self else { return }
+      guard let self, callbackGeneration == issued else { return }
       if let owner {
         owner.handleNativePictureInPictureSetPlaying(false)
       } else {
@@ -994,8 +1006,13 @@ final class IOSNativePiPMediaController: NSObject, IOSNativePiPMediaControlling,
   @objc(seekBy:completion:)
   func seek(by offset: Int64, completion: (() -> Void)?) {
     nonisolated(unsafe) let completion = completion
+    let issued = callbackGeneration
     Task { @MainActor [weak self] in
-      guard let player = self?.player else {
+      // The completion is owed to VLC's PiP module whether or not the seek is
+      // applied. Dropping it on a superseded generation would leave the skip
+      // it drives unresolved, which is worse than the stale seek being
+      // rejected.
+      guard let self, callbackGeneration == issued, let player else {
         completion?()
         return
       }

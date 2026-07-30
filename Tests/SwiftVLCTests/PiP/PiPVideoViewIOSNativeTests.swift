@@ -3,6 +3,7 @@
 import CLibVLC
 import CustomDump
 import SwiftUI
+import Synchronization
 import Testing
 import UIKit
 
@@ -13,12 +14,73 @@ extension Integration {
       libvlc_media_player_get_nsobject(player.pointer)
     }
 
-    /// Pinned libVLC copies `drawable-nsobject` into
-    /// `VLCVideoUIView._viewContainer` once, when the vout opens. Replacing
-    /// the player's variable cannot move that already-open vout. This probe
-    /// models the strong, immutable container reference so the representable
-    /// lifecycle regression is deterministic without relying on decoder
-    /// timing.
+    // Pinned libVLC copies `drawable-nsobject` into
+    // `VLCVideoUIView._viewContainer` once, when the vout opens. Replacing
+    // the player's variable cannot move that already-open vout. This probe
+    // models the strong, immutable container reference so the representable
+    // lifecycle regression is deterministic without relying on decoder
+    // timing.
+
+    /// #82 criterion 3. VLC's native PiP module issues transport commands from
+    /// its own threads, and each hops to the main actor before it acts. The
+    /// attached player can be replaced during that hop, so a command issued for
+    /// one session would otherwise be applied to its successor.
+    ///
+    /// The command is issued and the swap performed before the hop can run, so
+    /// the queued `pause()` arrives on a generation that has moved. Asserting
+    /// on the successor's intent rather than on the generation counter is
+    /// deliberate: the counter advancing proves only that the snapshot was
+    /// republished, not that anything consults it.
+    @Test
+    func `a transport command issued for a replaced session is dropped`() async throws {
+      let first = Player(instance: TestInstance.shared)
+      let controller = IOSNativePiPMediaController()
+      controller.player = first
+
+      // Issued against `first`, capturing its generation synchronously.
+      controller.pause()
+
+      // The session moves on before the queued command can run.
+      let second = Player(instance: TestInstance.shared)
+      controller.player = second
+      // `.paused` with intent active is the state in which `pause()` actually
+      // moves something: on an idle player `issuePause()` returns early, so the
+      // assertion below would hold whether or not the command was dropped.
+      second._setStateForTesting(state: .paused, isPlaybackRequestedActive: true)
+
+      // Give the queued hop every chance to land.
+      try await Task.sleep(for: .milliseconds(200))
+
+      #expect(
+        second.isPlaybackRequestedActive,
+        "a pause issued for the previous session paused its successor"
+      )
+    }
+
+    /// The completion is owed to VLC's PiP module whether or not the seek is
+    /// applied. Dropping it on a superseded generation would leave the skip it
+    /// drives unresolved, which is worse than refusing a stale seek — the same
+    /// mistake made and fixed on the AVKit delegate in #146.
+    @Test
+    func `a seek for a replaced session still runs its completion`() async throws {
+      let first = Player(instance: TestInstance.shared)
+      let controller = IOSNativePiPMediaController()
+      controller.player = first
+
+      let second = Player(instance: TestInstance.shared)
+      controller.player = second
+
+      let completed = Mutex(false)
+      controller.seek(by: 5000) {
+        completed.withLock { $0 = true }
+      }
+
+      try #require(
+        await poll(timeout: .seconds(2), until: { completed.withLock { $0 } }),
+        "the seek completion never ran, leaving VLC's skip unresolved"
+      )
+    }
+
     @Test
     func `same-player make before dismantle reparents the vout-latched attachment`() throws {
       let player = Player(instance: TestInstance.shared)
