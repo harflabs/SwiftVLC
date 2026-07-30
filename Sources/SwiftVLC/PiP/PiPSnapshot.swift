@@ -23,6 +23,13 @@ public struct PiPSnapshot: Hashable, Sendable {
   /// describes the media that is loaded now, which matters because a media
   /// change tears Picture in Picture down.
   public let mediaGeneration: PlaybackGeneration
+  /// Which `AVPictureInPictureController` these flags describe.
+  ///
+  /// The underlying AVKit controller is recreated when the backend is rebuilt.
+  /// A snapshot taken before a recreation describes a controller that no longer
+  /// exists, and pairing its active state with the new controller's identity is
+  /// exactly the confusion this distinguishes.
+  public let controllerGeneration: UInt64
   /// A monotonically increasing counter for this controller.
   ///
   /// Two subscribers holding the same revision hold the same snapshot, without

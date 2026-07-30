@@ -203,6 +203,11 @@ public final class PiPController: NSObject {
   let pipSnapshotBroadcaster = Broadcaster<PiPSnapshot>()
   @ObservationIgnored
   private var pipSnapshotRevision: UInt64 = 0
+  /// Advances every time a new `AVPictureInPictureController` is installed, so
+  /// a snapshot can say which controller its flags describe and a late callback
+  /// from a replaced one can be told apart from a current one.
+  @ObservationIgnored
+  private(set) var pipControllerGeneration: UInt64 = 0
 
   /// The best-known reason for an in-flight PiP stop, recorded by the
   /// first discriminating signal (restore callback, start failure,
@@ -666,6 +671,7 @@ public final class PiPController: NSObject {
     #if os(iOS)
     controller.canStartPictureInPictureAutomaticallyFromInline = startsAutomaticallyFromInline
     #endif
+    pipControllerGeneration &+= 1
     pipController = controller
     updatePiPPossible(controller.isPictureInPicturePossible)
     updatePiPActive(controller.isPictureInPictureActive)
@@ -678,8 +684,13 @@ public final class PiPController: NSObject {
       options: [.initial, .new]
     ) { [weak self] controller, _ in
       let isPossible = controller.isPictureInPicturePossible
+      let identity = ObjectIdentifier(controller)
       Task { @MainActor [weak self] in
-        self?.updatePiPPossible(isPossible)
+        // The hop means the controller can be replaced before this runs.
+        // Without the identity check a flag from the outgoing controller
+        // would be applied to the incoming one.
+        guard let self, isCurrentAVController(identity) else { return }
+        updatePiPPossible(isPossible)
       }
     }
 
@@ -688,10 +699,24 @@ public final class PiPController: NSObject {
       options: [.initial, .new]
     ) { [weak self] controller, _ in
       let isActive = controller.isPictureInPictureActive
+      let identity = ObjectIdentifier(controller)
       Task { @MainActor [weak self] in
-        self?.updatePiPActive(isActive)
+        guard let self, isCurrentAVController(identity) else { return }
+        updatePiPActive(isActive)
       }
     }
+  }
+
+  /// Whether `controller` is the one currently installed.
+  ///
+  /// Every AVKit signal reaches the main actor through a hop, so a controller
+  /// replaced in the meantime can still deliver. Its state describes a session
+  /// that is over.
+  /// Taken as an `ObjectIdentifier` rather than the controller itself:
+  /// `AVPictureInPictureController` is not `Sendable`, so it cannot cross the
+  /// hop, while its identity can.
+  func isCurrentAVController(_ identity: ObjectIdentifier) -> Bool {
+    pipController.map(ObjectIdentifier.init) == identity
   }
 
   func updatePiPPossible(_ isPossible: Bool) {
@@ -718,6 +743,7 @@ public final class PiPController: NSObject {
         isActive: isActive,
         isPossible: isPossible,
         mediaGeneration: player.generation,
+        controllerGeneration: pipControllerGeneration,
         revision: pipSnapshotRevision
       )
     )
