@@ -49,6 +49,9 @@ extension Integration {
       listPlayer.mediaList = list
 
       listPlayer.play()
+      // Stopped unconditionally: a `#require` that fails below would otherwise
+      // leave this playing into whatever test runs next.
+      defer { listPlayer.stop() }
       try #require(
         await poll(until: { player.state == .playing }),
         "Waiting for: player.state == .playing"
@@ -63,7 +66,6 @@ extension Integration {
         await poll(until: { player.sessionGeneration > before }),
         "a list advance left the generation stale, so recast cannot see it was superseded"
       )
-      listPlayer.stop()
     }
 
     /// The half that makes the fix safe rather than merely present, and the

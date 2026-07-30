@@ -453,13 +453,13 @@ extension Player {
     handleEvent(event)
   }
 
-  /// Models a media change that did not come through the wrapper — what a
-  /// `MediaListPlayer` advancing the list looks like from `Player`'s side.
+  /// Injects an event attributed to a specific native handle, so tests can
+  /// exercise the source scoping in ``handleSourcedEvent(_:)`` — an event
+  /// arriving from a handle the player has already replaced must not be
+  /// applied to the current session.
   ///
-  /// libVLC swaps the input and reports it; no wrapper call asked for it. A
-  /// real list-player advance cannot be driven from a test process without a
-  /// list and live playback, so the native swap plus its event is staged
-  /// directly.
+  /// Staging the attribution is the point: a retiring handle emitting after
+  /// its replacement is a race, not something a test can schedule.
   func _handleEventForTesting(_ event: PlayerEvent, source: OpaquePointer) {
     handleSourcedEvent(SourcedPlayerEvent(source: Self.sourceIdentifier(for: source), event: event))
   }
