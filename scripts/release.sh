@@ -366,19 +366,41 @@ echo "Release rewrite validation passed."
 # the repository says now. It is not a reproducibility proof — two builds of the
 # same inputs are not yet compared — but it does refuse a demonstrably stale one.
 verify_artifact_provenance() {
-  local provenance="Vendor/libvlc-provenance.json"
+  # Derived from XCFW_PATH rather than hard-coded, so the provenance always
+  # describes the artifact actually being packaged even if Vendor/ moves.
+  local provenance="$(dirname "$XCFW_PATH")/libvlc-provenance.json"
 
   if [[ ! -f "$provenance" ]]; then
     echo "Error: $provenance not found." >&2
-    echo "  The xcframework in Vendor/ was built before provenance was recorded," >&2
-    echo "  so its inputs cannot be established. Rebuild with:" >&2
+    echo "  $XCFW_PATH was built before provenance was recorded, so its inputs" >&2
+    echo "  cannot be established. Rebuild with:" >&2
     echo "    ./scripts/build-libvlc.sh --all" >&2
     return 1
   fi
 
+  # `python3` from PATH, not /usr/bin/python3: the rest of this script already
+  # relies on PATH, and a Homebrew-only Python would otherwise fail here while
+  # everything around it worked.
+  read_provenance() {
+    local key="$1"
+    local value
+    if ! value=$(python3 -c 'import json,sys
+try:
+    print(json.load(open(sys.argv[1]))[sys.argv[2]])
+except (OSError, ValueError) as error:
+    sys.exit(f"cannot read {sys.argv[1]}: {error}")
+except KeyError:
+    sys.exit(f"{sys.argv[1]} has no {sys.argv[2]!r} key")' "$provenance" "$key" 2>&1); then
+      echo "Error: $value" >&2
+      echo "  Rebuild to regenerate provenance: ./scripts/build-libvlc.sh --all" >&2
+      return 1
+    fi
+    printf '%s' "$value"
+  }
+
   local recorded_pin recorded_manifest current_pin current_manifest
-  recorded_pin=$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["pinnedRevision"])' "$provenance")
-  recorded_manifest=$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["patchManifestDigest"])' "$provenance")
+  recorded_pin=$(read_provenance pinnedRevision) || return 1
+  recorded_manifest=$(read_provenance patchManifestDigest) || return 1
   current_pin=$(sed -n 's/^VLC_HASH="\(.*\)"$/\1/p' "$SCRIPT_DIR/build-libvlc.sh" | head -1)
   current_manifest=$(shasum -a 256 "$SCRIPT_DIR/patches/manifest.sha256" | cut -d' ' -f1)
 
