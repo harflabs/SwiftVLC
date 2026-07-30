@@ -108,6 +108,25 @@ extension PiPController {
     pipEventBroadcaster.subscribe(policy: .unbounded)
   }
 
+  /// The current Picture in Picture state, followed by every subsequent
+  /// change.
+  ///
+  /// ``pipEvents`` carries transitions only, so a subscriber that attaches
+  /// after PiP has started learns nothing until it stops. Auto-start makes that
+  /// the common case rather than an edge one: the system can begin PiP before
+  /// any application code has subscribed, and that start is simply missed.
+  ///
+  /// This stream opens with the current ``PiPSnapshot`` instead. Late
+  /// subscribers converge on the same ``PiPSnapshot/revision`` without waiting
+  /// for another transition, and because the flags travel as one value a
+  /// subscriber never sees a combination that was not simultaneously true.
+  ///
+  /// Unbounded, like ``pipEvents``: a stalled consumer must not silently drop a
+  /// state it will never be told about again.
+  public var pipSnapshots: AsyncStream<PiPSnapshot> {
+    pipSnapshotBroadcaster.subscribeReplayingLatest(policy: .unbounded)
+  }
+
   /// Records the best-known reason for the in-flight stop. First
   /// discriminating signal wins; later signals never overwrite it (see
   /// ``pipEvents`` for the resulting precedence).

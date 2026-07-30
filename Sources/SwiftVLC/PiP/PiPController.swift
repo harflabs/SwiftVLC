@@ -199,6 +199,8 @@ public final class PiPController: NSObject {
   /// controller.
   @ObservationIgnored
   let pipEventBroadcaster = Broadcaster<PiPEvent>()
+  let pipSnapshotBroadcaster = Broadcaster<PiPSnapshot>()
+  private var pipSnapshotRevision: UInt64 = 0
 
   /// The best-known reason for an in-flight PiP stop, recorded by the
   /// first discriminating signal (restore callback, start failure,
@@ -354,6 +356,9 @@ public final class PiPController: NSObject {
     playbackDelegateProxy = PiPPlaybackDelegateProxy()
 
     super.init()
+    // Seeded here, not on first change: a controller whose flags never move
+    // would otherwise leave `pipSnapshots` with nothing to replay.
+    publishPiPSnapshot()
 
     playbackDelegateProxy.owner = self
     displayLayer.videoGravity = .resizeAspect
@@ -391,6 +396,9 @@ public final class PiPController: NSObject {
     self.nativeBackend = nativeBackend
 
     super.init()
+    // Seeded here, not on first change: a controller whose flags never move
+    // would otherwise leave `pipSnapshots` with nothing to replay.
+    publishPiPSnapshot()
 
     playbackDelegateProxy.owner = self
     configureAudioSession()
@@ -439,6 +447,9 @@ public final class PiPController: NSObject {
     self.nativeBackend = nativeBackend
 
     super.init()
+    // Seeded here, not on first change: a controller whose flags never move
+    // would otherwise leave `pipSnapshots` with nothing to replay.
+    publishPiPSnapshot()
 
     playbackDelegateProxy.owner = self
     nativeBackend.owner = self
@@ -468,6 +479,9 @@ public final class PiPController: NSObject {
     playbackDelegateProxy = PiPPlaybackDelegateProxy()
 
     super.init()
+    // Seeded here, not on first change: a controller whose flags never move
+    // would otherwise leave `pipSnapshots` with nothing to replay.
+    publishPiPSnapshot()
 
     playbackDelegateProxy.owner = self
     displayLayer.videoGravity = .resizeAspect
@@ -485,6 +499,7 @@ public final class PiPController: NSObject {
 
   isolated deinit {
     pipEventBroadcaster.terminate()
+    pipSnapshotBroadcaster.terminate()
     cancelDeferredPause()
     stateObserverTask?.cancel()
     timingObserverTask?.cancel()
@@ -680,11 +695,30 @@ public final class PiPController: NSObject {
   func updatePiPPossible(_ isPossible: Bool) {
     guard self.isPossible != isPossible else { return }
     self.isPossible = isPossible
+    publishPiPSnapshot()
   }
 
   func updatePiPActive(_ isActive: Bool) {
     guard self.isActive != isActive else { return }
     self.isActive = isActive
+    publishPiPSnapshot()
+  }
+
+  /// Publishes the current flags as one value.
+  ///
+  /// Called from both funnels rather than either alone: the two flags move
+  /// independently, so publishing from one would leave the snapshot describing
+  /// a pair that was never simultaneously true.
+  func publishPiPSnapshot() {
+    pipSnapshotRevision &+= 1
+    pipSnapshotBroadcaster.broadcast(
+      PiPSnapshot(
+        isActive: isActive,
+        isPossible: isPossible,
+        mediaGeneration: player.generation,
+        revision: pipSnapshotRevision
+      )
+    )
   }
 
   func applyObservedPlaybackStateUpdate(_ update: PlaybackStateUpdate) {
