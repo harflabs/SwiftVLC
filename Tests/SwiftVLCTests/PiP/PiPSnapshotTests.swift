@@ -130,10 +130,11 @@ extension Integration {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let controller = PiPController(player: player)
 
-      // An identity that is not, and never was, the installed controller.
-      let other = PiPController(player: player)
-      let stale = ObjectIdentifier(other)
-      #expect(controller.isCurrentAVController(stale) == false)
+      // Any identity that is not the installed controller will do. The player
+      // is reused rather than constructing a second `PiPController`, which
+      // would claim direct-PiP callback ownership on this same player as a
+      // side effect of the test.
+      #expect(controller.isCurrentAVController(ObjectIdentifier(player)) == false)
     }
 
     /// Both flags travel in one value. Published from a single funnel they

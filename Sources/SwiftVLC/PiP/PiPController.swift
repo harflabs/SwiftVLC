@@ -707,14 +707,18 @@ public final class PiPController: NSObject {
     }
   }
 
-  /// Whether `controller` is the one currently installed.
+  /// Whether the identified controller is the one currently installed.
   ///
   /// Every AVKit signal reaches the main actor through a hop, so a controller
   /// replaced in the meantime can still deliver. Its state describes a session
   /// that is over.
-  /// Taken as an `ObjectIdentifier` rather than the controller itself:
+  ///
+  /// Takes an `ObjectIdentifier` rather than the controller itself:
   /// `AVPictureInPictureController` is not `Sendable`, so it cannot cross the
   /// hop, while its identity can.
+  ///
+  /// `nil` never matches. With no controller installed there is nothing for a
+  /// callback to be current with respect to.
   func isCurrentAVController(_ identity: ObjectIdentifier) -> Bool {
     pipController.map(ObjectIdentifier.init) == identity
   }
