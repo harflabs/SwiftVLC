@@ -2,6 +2,7 @@
 @testable import SwiftVLC
 import AVFoundation
 import AVKit
+import Synchronization
 import Testing
 
 /// ``PiPController/pipSnapshots`` exists because ``PiPController/pipEvents``
@@ -179,6 +180,36 @@ extension Integration {
         leaked == false,
         "a callback from a controller that was never installed set the active flag"
       )
+    }
+
+    /// AVKit is owed the restore completion handler regardless of whether the
+    /// callback is accepted. Returning without calling it leaves the teardown
+    /// it drives unresolved, which is a worse failure than the stale state the
+    /// guard exists to prevent.
+    @Test
+    func `A rejected restore callback still answers AVKit`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let controller = PiPController(player: player)
+
+      let contentSource = AVPictureInPictureController.ContentSource(
+        sampleBufferDisplayLayer: controller.layer,
+        playbackDelegate: controller._playbackDelegateForTesting
+      )
+      let notInstalled = AVPictureInPictureController(contentSource: contentSource)
+
+      let answered = Mutex<Bool?>(nil)
+      controller.pictureInPictureController(
+        notInstalled,
+        restoreUserInterfaceForPictureInPictureStopWithCompletionHandler: { restored in
+          answered.withLock { $0 = restored }
+        }
+      )
+
+      try #require(
+        await poll(timeout: .seconds(2), until: { answered.withLock { $0 } != nil }),
+        "the completion handler was never called, leaving AVKit's teardown unresolved"
+      )
+      #expect(answered.withLock { $0 } == false)
     }
 
     /// Both flags travel in one value. Published from a single funnel they

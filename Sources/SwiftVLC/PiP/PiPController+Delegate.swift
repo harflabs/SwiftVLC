@@ -108,7 +108,15 @@ extension PiPController: AVPictureInPictureControllerDelegate {
       // Rejected unless it comes from the installed controller: the hop means
       // a controller replaced in the meantime can still deliver, and its
       // lifecycle describes a session that is over.
-      guard let self, isCurrentAVController(identity) else { return }
+      //
+      // AVKit is owed this completion handler either way. Returning without
+      // calling it leaves the teardown it drives unresolved, so a rejected
+      // callback answers `false` — nothing was restored — rather than nothing
+      // at all. The same applies when `self` has already gone.
+      guard let self, isCurrentAVController(identity) else {
+        completionHandler(false)
+        return
+      }
       // Record the reason before the host app's restore hook runs, so
       // the stop delegate callbacks see it no matter how AVKit orders
       // them relative to the hook's completion.
