@@ -46,6 +46,11 @@ final class Broadcaster<Element: Sendable>: Sendable {
     /// `subscribe(...)` calls return immediately-finished streams and
     /// `broadcast(_:)` is a no-op. Set by ``terminate()``.
     var terminated: Bool = false
+    /// The most recent broadcast element, retained solely for
+    /// ``subscribeReplayingLatest(policy:filter:)``. Recorded even when there
+    /// are no subscribers, because the whole point is to serve a subscriber
+    /// that arrives afterwards.
+    var latest: Element?
   }
 
   private let state = Mutex(State())
@@ -88,9 +93,29 @@ final class Broadcaster<Element: Sendable>: Sendable {
   ///     broadcaster's default size with the newest-wins policy.
   ///   - filter: Optional per-subscriber predicate. Only elements for
   ///     which `filter` returns `true` are yielded to this stream.
-  func subscribe(
+  /// Like ``subscribe(policy:filter:)``, but the stream begins with the most
+  /// recent element already broadcast, if there is one.
+  ///
+  /// For state a late subscriber must know rather than wait for: it cannot
+  /// learn the current value from a stream that only carries transitions, and
+  /// polling a separate property races the stream it is trying to align with.
+  ///
+  /// Opt-in on purpose. Replay is wrong for any consumer that subscribes in
+  /// order to await the *next* occurrence of something. ``Player/recast(to:)``
+  /// is exactly that: it captures the transition stream before calling
+  /// `play()`, so a replayed `.playing` from the outgoing session would let it
+  /// report success before the replacement session ever started.
+  func subscribeReplayingLatest(
     policy: EventBufferingPolicy? = nil,
     filter: Filter? = nil
+  ) -> AsyncStream<Element> {
+    subscribe(policy: policy, filter: filter, replayingLatest: true)
+  }
+
+  func subscribe(
+    policy: EventBufferingPolicy? = nil,
+    filter: Filter? = nil,
+    replayingLatest: Bool = false
   ) -> AsyncStream<Element> {
     // `bufferingNewest(0)` (or a negative count) silently drops every
     // element yielded while no consumer is suspended in `next()` —
@@ -115,6 +140,14 @@ final class Broadcaster<Element: Sendable>: Sendable {
       let id = state.nextID
       state.nextID += 1
       state.subscribers[id] = Subscriber(continuation: continuation, filter: filter)
+      // Replayed under the same lock that registers the subscriber, not after
+      // it. Yielding outside would let a `broadcast(_:)` that acquires the lock
+      // behind us deliver a newer element first, so the stream would open with
+      // the stale value second. Yielding is a buffer append on a continuation
+      // nobody else can reach yet, so it does not block under the lock.
+      if replayingLatest, let latest = state.latest, filter?(latest) ?? true {
+        continuation.yield(latest)
+      }
       if state.subscribers.count == 1 {
         scheduleReconciliation()
       }
@@ -145,7 +178,12 @@ final class Broadcaster<Element: Sendable>: Sendable {
   func broadcast(_ element: Element) {
     let interval = Signposts.signposter.beginInterval("Broadcaster.broadcast")
     let snapshot = state.withLock { state -> Snapshot in
-      guard !state.terminated, !state.subscribers.isEmpty else { return .none }
+      guard !state.terminated else { return .none }
+      // Recorded before the empty-subscribers bail-out: a replaying subscriber
+      // that arrives later still needs the element broadcast while nobody was
+      // listening, which is the case that motivates keeping it at all.
+      state.latest = element
+      guard !state.subscribers.isEmpty else { return .none }
       if state.subscribers.count == 1, let only = state.subscribers.values.first {
         return .single(only)
       }
