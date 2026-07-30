@@ -48,8 +48,16 @@ extension Integration {
       // assertion below would hold whether or not the command was dropped.
       second._setStateForTesting(state: .paused, isPlaybackRequestedActive: true)
 
-      // Give the queued hop every chance to land.
-      try await Task.sleep(for: .milliseconds(200))
+      // Wait on a marker enqueued after the command rather than on the clock.
+      // Main-actor work runs in enqueue order, so the marker completing means
+      // the queued `pause()` has already had its turn. A fixed sleep would be
+      // both slower and flakier under load.
+      let drained = Mutex(false)
+      Task { @MainActor in drained.withLock { $0 = true } }
+      try #require(
+        await poll(timeout: .seconds(2), until: { drained.withLock { $0 } }),
+        "the main actor never drained, so the assertion below would prove nothing"
+      )
 
       #expect(
         second.isPlaybackRequestedActive,

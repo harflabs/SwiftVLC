@@ -966,7 +966,7 @@ final class IOSNativePiPMediaController: NSObject, IOSNativePiPMediaControlling,
   /// player can be replaced during that hop. Comparing the generation captured
   /// at entry against the one on arrival is how a command issued for the
   /// previous session is kept from being applied to its successor.
-  var callbackGeneration: UInt64 {
+  private var callbackGeneration: UInt64 {
     callbackSnapshot.withLock { $0.generation }
   }
 
