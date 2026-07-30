@@ -83,8 +83,13 @@ struct SubtitlesExternalCase: View {
     }
 
     do {
-      let local = URL.temporaryDirectory.appending(path: url.lastPathComponent)
-      try? FileManager.default.removeItem(at: local)
+      // A fresh directory per load. A name-based path would let a second
+      // subtitle with the same filename overwrite the file libVLC is still
+      // reading for the track already added, so each track keeps its own
+      // immutable backing file for as long as the player holds it.
+      let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      let local = directory.appending(path: url.lastPathComponent)
       try FileManager.default.copyItem(at: url, to: local)
       try player.addExternalTrack(from: local, type: .subtitle, select: true)
       loaded = local

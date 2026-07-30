@@ -64,8 +64,11 @@ struct MacSubtitlesExternalCase: View {
     }
 
     do {
-      let local = URL.temporaryDirectory.appending(path: url.lastPathComponent)
-      try? FileManager.default.removeItem(at: local)
+      // Per-load directory, for the reason given in the iOS case: a name-based
+      // path lets a same-named reload overwrite a file libVLC is still reading.
+      let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      let local = directory.appending(path: url.lastPathComponent)
       try FileManager.default.copyItem(at: url, to: local)
       try player.addExternalTrack(from: local, type: .subtitle, select: true)
       loadedURL = local
