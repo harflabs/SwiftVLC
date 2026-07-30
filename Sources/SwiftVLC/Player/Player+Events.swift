@@ -460,11 +460,6 @@ extension Player {
   /// real list-player advance cannot be driven from a test process without a
   /// list and live playback, so the native swap plus its event is staged
   /// directly.
-  func adoptMediaForTesting(_ media: Media) {
-    libvlc_media_player_set_media(pointer, media.pointer)
-    handleEvent(.mediaChanged)
-  }
-
   func _handleEventForTesting(_ event: PlayerEvent, source: OpaquePointer) {
     handleSourcedEvent(SourcedPlayerEvent(source: Self.sourceIdentifier(for: source), event: event))
   }
