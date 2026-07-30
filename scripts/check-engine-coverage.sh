@@ -55,9 +55,11 @@ if ! git rev-parse -q --verify "$tag^{commit}" >/dev/null; then
   exit 0
 fi
 
+# Basenames stripped in the pipeline rather than through `xargs basename`,
+# which needs a guard for empty input and is the only `xargs` in scripts/.
 released=$(git ls-tree --name-only "$tag" "$PATCHES_DIR/" 2>/dev/null \
-  | grep '\.patch$' | xargs -n1 basename 2>/dev/null | sort || true)
-current=$(find "$PATCHES_DIR" -maxdepth 1 -name '*.patch' -exec basename {} \; | sort)
+  | grep '\.patch$' | sed 's#.*/##' | sort || true)
+current=$(find "$PATCHES_DIR" -maxdepth 1 -type f -name '*.patch' | sed 's#.*/##' | sort)
 
 uncovered=$(comm -13 <(printf '%s\n' "$released") <(printf '%s\n' "$current"))
 
@@ -73,9 +75,19 @@ fi
 count=$(printf '%s\n' "$uncovered" | grep -c .)
 echo
 echo "$count patch(es) are in the tree but not in the engine CI links:"
-printf '  %s\n' $uncovered
 
-annotate "$count engine patch(es) are not in the binary CI tests against ($tag). Behaviour they change is untested until a release carries them: $(printf '%s ' $uncovered)"
+# Read loop rather than an unquoted expansion: word splitting and globbing
+# would mangle any patch name containing whitespace or a glob character.
+names=""
+while IFS= read -r patch; do
+  [ -n "$patch" ] || continue
+  echo "  $patch"
+  names="${names:+$names }$patch"
+done <<EOF
+$uncovered
+EOF
+
+annotate "$count engine patch(es) are not in the binary CI tests against ($tag). Behaviour they change is untested until a release carries them: $names"
 
 # Always succeeds. See the header for why.
 exit 0
