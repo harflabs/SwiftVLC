@@ -13,10 +13,18 @@
  * Not wired into CI: it needs a libvlc built from a patched tree, which CI
  * does not produce. Run it against a local engine build after changing 0015.
  *
+ * Compile against Sources/CLibVLC/include, NOT "$V/include". Those are the
+ * headers the xcframework ships and SwiftPM compiles against; the patched
+ * source tree's headers are not shipped anywhere. An earlier run used
+ * "$V/include" and passed while every shipped header still declared a
+ * `media_player_media_stopping` with no `reason` field, so the value reached
+ * the library and no consumer could read it. Using the vendored path makes
+ * this probe fail to compile in that situation, which is the point.
+ *
  *   V=scripts/.build-libvlc/vlc
  *   clang -o /tmp/stopping-reason-probe \
  *     scripts/patches/validation/stopping-reason-probe.c \
- *     -I "$V/include" -L "$V/build-asan-native/lib/.libs" -lvlc
+ *     -I Sources/CLibVLC/include -L "$V/build-asan-native/lib/.libs" -lvlc
  *   VLC_PLUGIN_PATH="$V/build-asan-native/modules" \
  *   DYLD_LIBRARY_PATH="$V/build-asan-native/src/.libs:$V/build-asan-native/lib/.libs" \
  *     /tmp/stopping-reason-probe <some-short-media-file>

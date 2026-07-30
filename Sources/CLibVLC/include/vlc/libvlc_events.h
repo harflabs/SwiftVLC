@@ -48,6 +48,22 @@ typedef struct libvlc_media_t libvlc_media_t;
 typedef struct libvlc_media_list_t libvlc_media_list_t;
 
 /**
+ * Enumeration of media stopping reasons
+ *
+ * Names and values match vlc_player_media_stopping_reason, and match the
+ * libvlc_stopping_reason_t that upstream later added for the
+ * libvlc_media_player_cbs API.
+ */
+typedef enum libvlc_stopping_reason_t {
+    /** media is stopping due to an error (default) */
+    libvlc_stopping_reason_error,
+    /** media has reached the end of stream */
+    libvlc_stopping_reason_eos,
+    /** media is stopping due to user request */
+    libvlc_stopping_reason_user,
+} libvlc_stopping_reason_t;
+
+/**
  * \ingroup libvlc_event
  * @{
  */
@@ -385,6 +401,7 @@ typedef struct libvlc_event_t
         struct
         {
             libvlc_media_t * media;
+            libvlc_stopping_reason_t reason;
         } media_player_media_stopping;
 
 
