@@ -1329,6 +1329,20 @@ compile_libvlc_catalyst() {
     info "Finished ${ACTUAL_ARCH} (Mac Catalyst) in ${platform_mins}m$((platform_secs % 60))s"
 }
 
+# Every slice below ships headers from ${REPO_ROOT}/Sources/CLibVLC/include --
+# a git-tracked copy of the libVLC public headers -- and NOT from the patched
+# ${VLC_SRC}/include. That same directory is what SwiftPM compiles against.
+#
+# So a patch in scripts/patches that changes a public header has to change the
+# vendored copy too, or the change reaches the compiled library and no consumer
+# can see it. Patch 0015 hit exactly that: it added a `reason` field that the
+# library populated while every shipped header still declared the struct
+# without it.
+#
+# The two trees are deliberately not byte-identical (the vendored copies carry
+# fuller doc comments), so there is no equality gate here. The guard is
+# Tests/SwiftVLCTests/Core/VendoredHeaderParityTests.swift, which reaches the
+# patched declarations through CLibVLC and stops compiling if they go missing.
 XCFRAMEWORK_ARGS=()
 
 if [ "$BUILD_IOS" = "yes" ]; then
