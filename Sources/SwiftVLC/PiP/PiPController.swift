@@ -199,7 +199,9 @@ public final class PiPController: NSObject {
   /// controller.
   @ObservationIgnored
   let pipEventBroadcaster = Broadcaster<PiPEvent>()
+  @ObservationIgnored
   let pipSnapshotBroadcaster = Broadcaster<PiPSnapshot>()
+  @ObservationIgnored
   private var pipSnapshotRevision: UInt64 = 0
 
   /// The best-known reason for an in-flight PiP stop, recorded by the

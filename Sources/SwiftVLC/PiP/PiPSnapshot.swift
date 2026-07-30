@@ -1,3 +1,4 @@
+#if os(iOS) || os(macOS)
 /// The Picture in Picture state a subscriber needs in order to act, delivered
 /// as a value rather than inferred from a sequence of events.
 ///
@@ -29,3 +30,4 @@ public struct PiPSnapshot: Hashable, Sendable {
   /// meaningful within one controller.
   public let revision: UInt64
 }
+#endif
