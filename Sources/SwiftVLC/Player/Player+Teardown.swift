@@ -228,6 +228,7 @@ extension Player {
     // post-shutdown subscriber must get an already-finished stream rather
     // than one that can never emit.
     stateTransitionBridge.terminate()
+    playbackStatusBridge.terminate()
     libvlc_media_player_set_nsobject(pointer, nil)
 
     let bridge = eventBridge

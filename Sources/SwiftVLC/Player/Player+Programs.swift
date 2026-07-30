@@ -147,6 +147,7 @@ extension Player {
     // point where the caller can be cancelled or another operation can take
     // over, and past that point this recast must stop mutating the session.
     sessionGeneration &+= 1
+    publishPlaybackStatus()
     let generation = sessionGeneration
 
     switch await Self.awaitPlaying(on: transitions) {

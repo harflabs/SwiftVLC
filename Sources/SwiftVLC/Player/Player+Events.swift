@@ -162,6 +162,9 @@ extension Player {
       if currentMedia?.pointer != sessionGenerationMedia {
         sessionGeneration &+= 1
         sessionGenerationMedia = currentMedia?.pointer
+        // The state has not changed, so `publishPlaybackState` will not run:
+        // without this the status would keep reporting the old session.
+        publishPlaybackStatus()
       }
       resetMediaDerivedState()
       refreshTracks()
@@ -252,6 +255,18 @@ extension Player {
     // `.encounteredError` and `.bufferingProgress`, so neither has ever
     // produced a `.stateChanged` to forward.
     stateTransitionBridge.broadcast(newState)
+    publishPlaybackStatus()
+  }
+
+  /// Republishes the current state paired with the session it belongs to.
+  ///
+  /// Called from both funnels rather than one: a state change keeps the same
+  /// generation, and a media change keeps the same state, so either alone
+  /// leaves ``Player/playbackStatus`` describing a pair that was never true.
+  func publishPlaybackStatus() {
+    playbackStatusBridge.broadcast(
+      PlaybackStatus(state: state, generation: PlaybackGeneration(sessionGeneration))
+    )
   }
 
   func publishPlaybackIntent(_ active: Bool) {
