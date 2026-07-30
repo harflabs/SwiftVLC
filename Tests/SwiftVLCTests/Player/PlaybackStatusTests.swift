@@ -15,11 +15,42 @@ extension Integration {
       let player = Player(instance: TestInstance.makeAudioOnly())
       try player.load(Media(url: TestMedia.twosecURL))
 
-      var iterator = player.playbackStatus.makeAsyncIterator()
-      let first = await iterator.next()
+      let stream = player.playbackStatus
+      player.playbackStatusBridge.terminate()
 
-      #expect(first?.generation == player.generation)
-      #expect(first?.state == player.state)
+      var received: [PlaybackStatus] = []
+      for await status in stream {
+        received.append(status)
+      }
+
+      #expect(received.last?.generation == player.generation)
+      #expect(received.last?.state == player.state)
+    }
+
+    /// The gap the first version had. Every other test here loads media first,
+    /// so all of them missed a player that has never published anything: the
+    /// broadcaster had no latest element, the replay yielded nothing, and a
+    /// subscriber to an idle player would wait indefinitely for a stream
+    /// documented as opening with the current status.
+    ///
+    /// Drained after terminating rather than awaited on an iterator: if the
+    /// replay is missing there is nothing to receive, and awaiting would hang
+    /// instead of failing. A test that hangs on regression reports nothing
+    /// useful.
+    @Test
+    func `A subscriber to a fresh player receives its idle status`() async {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+
+      let stream = player.playbackStatus
+      player.playbackStatusBridge.terminate()
+
+      var received: [PlaybackStatus] = []
+      for await status in stream {
+        received.append(status)
+      }
+
+      #expect(received.first?.state == .idle)
+      #expect(received.first?.generation == player.generation)
     }
 
     /// `load(_:)` starts a new session, and the status has to say so even
@@ -32,11 +63,16 @@ extension Integration {
 
       try player.load(Media(url: TestMedia.twosecURL))
 
-      var iterator = player.playbackStatus.makeAsyncIterator()
-      let latest = await iterator.next()
+      let stream = player.playbackStatus
+      player.playbackStatusBridge.terminate()
+
+      var received: [PlaybackStatus] = []
+      for await status in stream {
+        received.append(status)
+      }
 
       #expect(player.generation > before)
-      #expect(latest?.generation == player.generation)
+      #expect(received.last?.generation == player.generation)
     }
 
     /// The point of pairing them. Two sessions can sit in the same state, and
@@ -45,12 +81,18 @@ extension Integration {
     func `The same state in two sessions carries different generations`() async throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       try player.load(Media(url: TestMedia.silenceURL))
-      var iterator = player.playbackStatus.makeAsyncIterator()
-      let first = await iterator.next()
-
+      let stream = player.playbackStatus
       try player.load(Media(url: TestMedia.twosecURL))
-      let second = await iterator.next()
+      player.playbackStatusBridge.terminate()
 
+      var received: [PlaybackStatus] = []
+      for await status in stream {
+        received.append(status)
+      }
+
+      let first = received.first
+      let second = received.last
+      #expect(received.count >= 2)
       #expect(first?.state == second?.state)
       #expect(first?.generation != second?.generation)
     }

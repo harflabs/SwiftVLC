@@ -553,6 +553,10 @@ public final class Player {
     )
     playbackIntentBridge = Broadcaster<Bool>(defaultBufferSize: 16)
     startEventConsumer()
+    // Seeded so `playbackStatus` opens with the current pair from the moment
+    // the player exists: a subscriber attaching before any state change would
+    // otherwise replay nothing and wait, on an idle player forever.
+    publishPlaybackStatus()
   }
 
   static func makeNativePlayer(instance: VLCInstance) -> OpaquePointer {
