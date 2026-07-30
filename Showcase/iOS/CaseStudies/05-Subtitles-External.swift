@@ -11,6 +11,7 @@ struct SubtitlesExternalCase: View {
   @State private var player = Player()
   @State private var isPickingFile = false
   @State private var loaded: URL?
+  @State private var failure: String?
 
   var body: some View {
     Form {
@@ -44,6 +45,14 @@ struct SubtitlesExternalCase: View {
             Text(loaded.lastPathComponent).foregroundStyle(.secondary)
           }
         }
+
+        if let failure {
+          HStack {
+            Text("Failed")
+            Spacer()
+            Text(failure).foregroundStyle(.secondary)
+          }
+        }
       }
     }
     .showcaseFormStyle()
@@ -58,6 +67,12 @@ struct SubtitlesExternalCase: View {
     }
   }
 
+  /// The picker returns a security-scoped URL, and `addExternalTrack` only
+  /// registers the URI with libVLC — the demuxer opens the file later, on its
+  /// own thread. By then this function has returned and the scope is closed,
+  /// so libVLC gets `Operation not permitted` and the track never appears.
+  /// Copying into the container while access is held gives libVLC a path it
+  /// can read whenever it gets around to it.
   private func fileImporterCompleted(_ result: Result<URL, any Error>) {
     guard case .success(let url) = result else { return }
     let isAccessible = url.startAccessingSecurityScopedResource()
@@ -66,7 +81,20 @@ struct SubtitlesExternalCase: View {
         url.stopAccessingSecurityScopedResource()
       }
     }
-    try? player.addExternalTrack(from: url, type: .subtitle, select: true)
-    loaded = url
+
+    do {
+      let local = URL.temporaryDirectory.appending(path: url.lastPathComponent)
+      try? FileManager.default.removeItem(at: local)
+      try FileManager.default.copyItem(at: url, to: local)
+      try player.addExternalTrack(from: local, type: .subtitle, select: true)
+      loaded = local
+      failure = nil
+    } catch {
+      // Surfaced rather than swallowed: the previous `try?` reported every
+      // load as successful, so a track that never loaded looked identical to
+      // one that did.
+      loaded = nil
+      failure = error.localizedDescription
+    }
   }
 }

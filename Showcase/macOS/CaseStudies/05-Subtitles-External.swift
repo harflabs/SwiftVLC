@@ -6,6 +6,7 @@ struct MacSubtitlesExternalCase: View {
   @State private var player = Player()
   @State private var isPickingFile = false
   @State private var loadedURL: URL?
+  @State private var failure: String?
 
   private let subtitleTypes = [UTType(filenameExtension: "srt") ?? .plainText, .plainText, .text]
 
@@ -24,6 +25,8 @@ struct MacSubtitlesExternalCase: View {
             Text(loadedURL.lastPathComponent)
               .foregroundStyle(.secondary)
               .textSelection(.enabled)
+          } else if let failure {
+            MacPlaceholderRow(text: "Failed: \(failure)")
           } else {
             MacPlaceholderRow(text: "Choose an .srt or text subtitle file.")
           }
@@ -47,6 +50,10 @@ struct MacSubtitlesExternalCase: View {
     .onDisappear { player.stop() }
   }
 
+  /// See the iOS case for the full reasoning: `addExternalTrack` only registers
+  /// the URI, so libVLC opens the file on the demuxer thread after this
+  /// function has returned and the security scope has closed. Copy into the
+  /// container while access is held and hand libVLC the local path.
   private func fileImporterCompleted(_ result: Result<[URL], any Error>) {
     guard let url = try? result.get().first else { return }
     let isAccessible = url.startAccessingSecurityScopedResource()
@@ -55,7 +62,17 @@ struct MacSubtitlesExternalCase: View {
         url.stopAccessingSecurityScopedResource()
       }
     }
-    try? player.addExternalTrack(from: url, type: .subtitle, select: true)
-    loadedURL = url
+
+    do {
+      let local = URL.temporaryDirectory.appending(path: url.lastPathComponent)
+      try? FileManager.default.removeItem(at: local)
+      try FileManager.default.copyItem(at: url, to: local)
+      try player.addExternalTrack(from: local, type: .subtitle, select: true)
+      loadedURL = local
+      failure = nil
+    } catch {
+      loadedURL = nil
+      failure = error.localizedDescription
+    }
   }
 }
