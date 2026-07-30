@@ -49,15 +49,15 @@ extension Integration {
       }
     }
 
+    /// The `AVPictureInPictureController` SwiftVLC actually installed.
+    ///
+    /// Delegate callbacks from any other instance are rejected as belonging to
+    /// a replaced controller, so driving the delegate requires the real one.
     private func makePictureInPictureController(
       for controller: PiPController
     ) -> AVPictureInPictureController? {
       guard AVPictureInPictureController.isPictureInPictureSupported() else { return nil }
-      let contentSource = AVPictureInPictureController.ContentSource(
-        sampleBufferDisplayLayer: controller.layer,
-        playbackDelegate: controller._playbackDelegateForTesting
-      )
-      return AVPictureInPictureController(contentSource: contentSource)
+      return controller.pipController
     }
 
     // MARK: - handleSetPlaying

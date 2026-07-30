@@ -1,5 +1,7 @@
 #if os(iOS) || os(macOS)
 @testable import SwiftVLC
+import AVFoundation
+import AVKit
 import Testing
 
 /// ``PiPController/pipSnapshots`` exists because ``PiPController/pipEvents``
@@ -135,6 +137,48 @@ extension Integration {
       // would claim direct-PiP callback ownership on this same player as a
       // side effect of the test.
       #expect(controller.isCurrentAVController(ObjectIdentifier(player)) == false)
+    }
+
+    /// Criterion 4, exercised through the delegate rather than the predicate.
+    ///
+    /// A controller that was never installed stands in for one that has been
+    /// replaced: AVKit signals reach the main actor through a hop, so the
+    /// outgoing controller can still deliver a lifecycle callback after the
+    /// incoming one is in place. Applying it would report the new controller as
+    /// active on the strength of the old one's session.
+    ///
+    /// The installed controller is driven first, and that is load-bearing. It
+    /// proves the callback does arrive within the observation window, so the
+    /// negative assertion afterwards means "rejected" rather than "not yet
+    /// delivered". Without it the test passes whether or not the guard exists,
+    /// which is how the first version of it was hollow.
+    @Test
+    func `A delegate callback from a controller that is not installed is ignored`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let controller = PiPController(player: player)
+      let installed = try #require(controller.pipController)
+
+      controller.pictureInPictureControllerDidStartPictureInPicture(installed)
+      try #require(
+        await poll(timeout: .seconds(2), until: { controller.isActive }),
+        "the installed controller's callback never arrived, so the check below would prove nothing"
+      )
+
+      controller.pictureInPictureControllerDidStopPictureInPicture(installed)
+      try #require(await poll(timeout: .seconds(2), until: { !controller.isActive }))
+
+      let contentSource = AVPictureInPictureController.ContentSource(
+        sampleBufferDisplayLayer: controller.layer,
+        playbackDelegate: controller._playbackDelegateForTesting
+      )
+      let notInstalled = AVPictureInPictureController(contentSource: contentSource)
+
+      controller.pictureInPictureControllerDidStartPictureInPicture(notInstalled)
+      let leaked = try await poll(timeout: .milliseconds(500), until: { controller.isActive })
+      #expect(
+        leaked == false,
+        "a callback from a controller that was never installed set the active flag"
+      )
     }
 
     /// Both flags travel in one value. Published from a single funnel they

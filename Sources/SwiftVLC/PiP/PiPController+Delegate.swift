@@ -13,10 +13,14 @@ extension PiPController: AVPictureInPictureControllerDelegate {
   /// Picture in Picture, emits ``PiPEvent/willStart``, and clears any
   /// stale stop reason left by a previous failed or aborted attempt.
   public nonisolated func pictureInPictureControllerWillStartPictureInPicture(
-    _: AVPictureInPictureController
+    _ avController: AVPictureInPictureController
   ) {
+    let identity = ObjectIdentifier(avController)
     pipMainActorAsync { [weak self] in
-      guard let self else { return }
+      // Rejected unless it comes from the installed controller: the hop means
+      // a controller replaced in the meantime can still deliver, and its
+      // lifecycle describes a session that is over.
+      guard let self, isCurrentAVController(identity) else { return }
       pendingStopReason = nil
       // Auto-PiP starts arrive from AVKit without start() or an intent
       // transition — last chance to issue the deferred session
@@ -32,10 +36,14 @@ extension PiPController: AVPictureInPictureControllerDelegate {
   /// button labels and status UI in sync with system-driven PiP
   /// changes, and emits ``PiPEvent/didStart``.
   public nonisolated func pictureInPictureControllerDidStartPictureInPicture(
-    _: AVPictureInPictureController
+    _ avController: AVPictureInPictureController
   ) {
+    let identity = ObjectIdentifier(avController)
     pipMainActorAsync { [weak self] in
-      guard let self else { return }
+      // Rejected unless it comes from the installed controller: the hop means
+      // a controller replaced in the meantime can still deliver, and its
+      // lifecycle describes a session that is over.
+      guard let self, isCurrentAVController(identity) else { return }
       pendingStopReason = nil
       syncPlaybackStateForPictureInPicture()
       invalidatePictureInPicturePlaybackState()
@@ -50,10 +58,14 @@ extension PiPController: AVPictureInPictureControllerDelegate {
   /// ``PiPStopReason/userClosed`` for a restore-driven stop; the reason
   /// on the matching `didStop` is authoritative.
   public nonisolated func pictureInPictureControllerWillStopPictureInPicture(
-    _: AVPictureInPictureController
+    _ avController: AVPictureInPictureController
   ) {
+    let identity = ObjectIdentifier(avController)
     pipMainActorAsync { [weak self] in
-      guard let self else { return }
+      // Rejected unless it comes from the installed controller: the hop means
+      // a controller replaced in the meantime can still deliver, and its
+      // lifecycle describes a session that is over.
+      guard let self, isCurrentAVController(identity) else { return }
       pipEventBroadcaster.broadcast(.willStop(reason: resolveStopReason()))
     }
   }
@@ -63,10 +75,14 @@ extension PiPController: AVPictureInPictureControllerDelegate {
   /// emits ``PiPEvent/didStop(reason:)`` with the resolved stop reason
   /// (see ``PiPController/pipEvents``), consuming the pending reason.
   public nonisolated func pictureInPictureControllerDidStopPictureInPicture(
-    _: AVPictureInPictureController
+    _ avController: AVPictureInPictureController
   ) {
+    let identity = ObjectIdentifier(avController)
     pipMainActorAsync { [weak self] in
-      guard let self else { return }
+      // Rejected unless it comes from the installed controller: the hop means
+      // a controller replaced in the meantime can still deliver, and its
+      // lifecycle describes a session that is over.
+      guard let self, isCurrentAVController(identity) else { return }
       let reason = resolveStopReason()
       pendingStopReason = nil
       updatePiPActive(false)
@@ -84,11 +100,15 @@ extension PiPController: AVPictureInPictureControllerDelegate {
   /// ``PiPStopReason/userClosed``) — which is how callers distinguish
   /// "restore" from "close".
   public nonisolated func pictureInPictureController(
-    _: AVPictureInPictureController,
+    _ avController: AVPictureInPictureController,
     restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping @Sendable (Bool) -> Void
   ) {
+    let identity = ObjectIdentifier(avController)
     pipMainActorAsync { [weak self] in
-      guard let self else { return }
+      // Rejected unless it comes from the installed controller: the hop means
+      // a controller replaced in the meantime can still deliver, and its
+      // lifecycle describes a session that is over.
+      guard let self, isCurrentAVController(identity) else { return }
       // Record the reason before the host app's restore hook runs, so
       // the stop delegate callbacks see it no matter how AVKit orders
       // them relative to the hook's completion.
@@ -109,11 +129,15 @@ extension PiPController: AVPictureInPictureControllerDelegate {
   /// resyncs the observed flags so the UI doesn't stay stuck in a stale
   /// "starting" state.
   public nonisolated func pictureInPictureController(
-    _: AVPictureInPictureController,
+    _ avController: AVPictureInPictureController,
     failedToStartPictureInPictureWithError error: Error
   ) {
+    let identity = ObjectIdentifier(avController)
     pipMainActorAsync { [weak self] in
-      guard let self else { return }
+      // Rejected unless it comes from the installed controller: the hop means
+      // a controller replaced in the meantime can still deliver, and its
+      // lifecycle describes a session that is over.
+      guard let self, isCurrentAVController(identity) else { return }
       notePendingStopReason(.failure)
       updatePiPActive(false)
       pipEventBroadcaster.broadcast(.failedToStart(error))
@@ -148,7 +172,7 @@ final class PiPPlaybackDelegateProxy: NSObject, AVPictureInPictureSampleBufferPl
   weak var owner: PiPController?
 
   func pictureInPictureController(
-    _: AVPictureInPictureController,
+    _ avController: AVPictureInPictureController,
     setPlaying playing: Bool
   ) {
     pipMainActorAsync { [weak self] in
@@ -157,7 +181,7 @@ final class PiPPlaybackDelegateProxy: NSObject, AVPictureInPictureSampleBufferPl
   }
 
   func pictureInPictureControllerTimeRangeForPlayback(
-    _: AVPictureInPictureController
+    _ avController: AVPictureInPictureController
   ) -> CMTimeRange {
     resolveTimeRangeForPlayback()
   }
@@ -304,7 +328,7 @@ final class PiPPlaybackDelegateProxy: NSObject, AVPictureInPictureSampleBufferPl
   }
 
   func pictureInPictureControllerIsPlaybackPaused(
-    _: AVPictureInPictureController
+    _ avController: AVPictureInPictureController
   ) -> Bool {
     resolveIsPlaybackPaused()
   }
@@ -320,7 +344,7 @@ final class PiPPlaybackDelegateProxy: NSObject, AVPictureInPictureSampleBufferPl
   }
 
   func pictureInPictureController(
-    _: AVPictureInPictureController,
+    _ avController: AVPictureInPictureController,
     skipByInterval skipInterval: CMTime,
     completion completionHandler: @escaping @Sendable () -> Void
   ) {
@@ -334,7 +358,7 @@ final class PiPPlaybackDelegateProxy: NSObject, AVPictureInPictureSampleBufferPl
   }
 
   func pictureInPictureController(
-    _: AVPictureInPictureController,
+    _ avController: AVPictureInPictureController,
     didTransitionToRenderSize size: CMVideoDimensions
   ) {
     pipMainActorAsync { [weak self] in

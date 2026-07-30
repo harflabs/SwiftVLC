@@ -14,7 +14,16 @@ import Testing
 extension Integration {
   @Suite(.tags(.mainActor))
   @MainActor struct PiPEventsTests {
+    /// The `AVPictureInPictureController` SwiftVLC actually installed.
+    ///
+    /// Delegate callbacks are rejected unless they come from the installed
+    /// controller, so a freshly constructed instance would be treated as a
+    /// replaced one and dropped. The fallback keeps that a clear assertion
+    /// failure rather than a crash if no controller was installed.
     private func makeDummyAVController(for controller: PiPController) -> AVPictureInPictureController {
+      if let installed = controller.pipController {
+        return installed
+      }
       let contentSource = AVPictureInPictureController.ContentSource(
         sampleBufferDisplayLayer: controller.layer,
         playbackDelegate: controller._playbackDelegateForTesting
