@@ -13,3 +13,4 @@ febaea84d74ce7f1bf6fea77edfa202a9ac1bf8d2ddba5d5c2451bbab6c259f5  0004-samplebuf
 7b9a540a39b7629534d5ee48f3bed6f5b185450dd6ae0d915f9c7ef8ac4cc12a  0013-input-pause-deferral.patch
 2e0806024707d460d88c200aacb4a65fd560408a56aa633c817cff30f4d1a0f4  0014-decoder-out-state-pause-ack.patch
 15aa21d96c157bbc47d3161dace39a55fbefcb7cc614d16eef1cdc76f56645b6  0015-expose-stopping-reason.patch
+ea85b92b4239f4812542b3f4d4efe0600b42b23a331d524a811de9ddeb8fde29  0016-skip-vlc-test-subdir.patch

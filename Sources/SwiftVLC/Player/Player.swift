@@ -526,6 +526,15 @@ public final class Player {
   /// session, rather than reapplying stale tracks or transport state to
   /// someone else's media.
   var sessionGeneration: UInt64 = 0
+  /// The native media the generation was last advanced for.
+  ///
+  /// libVLC reports a media change back as `.mediaChanged` whether or not the
+  /// wrapper initiated it, so the handler cannot tell the two apart by the
+  /// event alone. Comparing identity does: a change this player asked for has
+  /// already advanced the generation and records itself here, while one that
+  /// arrives from elsewhere — a ``MediaListPlayer`` advancing the list through
+  /// libVLC directly — does not match and advances it.
+  var sessionGenerationMedia: OpaquePointer?
   let instance: VLCInstance
 
   // MARK: - Lifecycle
@@ -626,6 +635,9 @@ public final class Player {
     // Any recast still restoring the outgoing session no longer owns it.
     sessionGeneration &+= 1
     currentMedia = media
+    // Recorded so libVLC echoing this same change back as `.mediaChanged`
+    // does not advance the generation a second time.
+    sessionGenerationMedia = media.pointer
     resetMediaDerivedState()
     // No `markLibraryStop()` here: setting media on a *started* handle
     // replaces the input seamlessly — libVLC 4 emits `MediaStopping` for
@@ -671,6 +683,7 @@ public final class Player {
       // without going through it.
       sessionGeneration &+= 1
       currentMedia = media
+      sessionGenerationMedia = media.pointer
       // No `notifyMediaDependentObservables()` here: the swap already issued
       // it, and the keypaths it refreshes read from the native handle rather
       // than from `currentMedia`, so a second pass is pure churn.
