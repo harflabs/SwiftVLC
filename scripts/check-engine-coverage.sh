@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+#
+# check-engine-coverage.sh — report which engine patches CI is not testing.
+#
+# CI does not build libVLC. `ci-use-released-xcframework.sh` rewrites
+# Package.swift to the latest release's url + checksum, so every test job links
+# the engine that was built when that release was cut. That is deliberate: it
+# is what downstream SPM consumers resolve.
+#
+# The consequence is easy to miss. A patch added to scripts/patches/ after that
+# release is present in the source tree and absent from the binary under test,
+# so it can change libVLC behaviour while every gate stays green.
+#
+# That already happened. Patch 0007 changed `libvlc_media_player_get_media()`
+# to report the media the player core is using rather than the one last set.
+# Three tests depended on the old semantics and passed CI for as long as the
+# gap existed, failing the moment the suite ran against the patched engine.
+#
+# Non-blocking by design. Patches legitimately land before the release that
+# carries them, so failing here would wedge every PR. This emits warning
+# annotations instead, so the divergence is visible on the PR rather than
+# silent.
+#
+# Usage:
+#   ./scripts/check-engine-coverage.sh
+#
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$ROOT_DIR"
+
+PATCHES_DIR="scripts/patches"
+
+annotate() {
+  # GitHub renders `::warning::` on the PR; elsewhere it is just a line.
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    echo "::warning title=Engine patch not covered by CI::$1"
+  else
+    echo "WARNING: $1"
+  fi
+}
+
+tag=$(gh release view --json tagName -q .tagName 2>/dev/null || true)
+if [ -z "$tag" ]; then
+  echo "Could not resolve the latest release tag via gh; skipping coverage check." >&2
+  exit 0
+fi
+
+# Shallow CI checkouts do not fetch tags.
+git fetch origin "refs/tags/$tag:refs/tags/$tag" >/dev/null 2>&1 || true
+
+if ! git rev-parse -q --verify "$tag^{commit}" >/dev/null; then
+  echo "Tag $tag is not available locally; skipping coverage check." >&2
+  exit 0
+fi
+
+released=$(git ls-tree --name-only "$tag" "$PATCHES_DIR/" 2>/dev/null \
+  | grep '\.patch$' | xargs -n1 basename 2>/dev/null | sort || true)
+current=$(find "$PATCHES_DIR" -maxdepth 1 -name '*.patch' -exec basename {} \; | sort)
+
+uncovered=$(comm -13 <(printf '%s\n' "$released") <(printf '%s\n' "$current"))
+
+echo "Engine under test: $tag"
+echo "Patches in tree:   $(printf '%s\n' "$current" | grep -c . || true)"
+echo "Patches at $tag:   $(printf '%s\n' "$released" | grep -c . || true)"
+
+if [ -z "$uncovered" ]; then
+  echo "Every engine patch is covered by the release CI links."
+  exit 0
+fi
+
+count=$(printf '%s\n' "$uncovered" | grep -c .)
+echo
+echo "$count patch(es) are in the tree but not in the engine CI links:"
+printf '  %s\n' $uncovered
+
+annotate "$count engine patch(es) are not in the binary CI tests against ($tag). Behaviour they change is untested until a release carries them: $(printf '%s ' $uncovered)"
+
+# Always succeeds. See the header for why.
+exit 0
