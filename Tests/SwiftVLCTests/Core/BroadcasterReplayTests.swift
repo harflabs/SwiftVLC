@@ -19,7 +19,9 @@ extension Integration {
       broadcaster.terminate()
 
       var received: [Int] = []
-      for await value in stream { received.append(value) }
+      for await value in stream {
+        received.append(value)
+      }
 
       // 2 replayed, then 3 live. 1 is gone: this replays the latest, not a log.
       #expect(received == [2, 3])
@@ -37,7 +39,9 @@ extension Integration {
       broadcaster.terminate()
 
       var received: [Int] = []
-      for await value in stream { received.append(value) }
+      for await value in stream {
+        received.append(value)
+      }
 
       #expect(received == [7])
     }
@@ -49,7 +53,9 @@ extension Integration {
       broadcaster.terminate()
 
       var received: [Int] = []
-      for await value in stream { received.append(value) }
+      for await value in stream {
+        received.append(value)
+      }
 
       #expect(received.isEmpty)
     }
@@ -70,7 +76,9 @@ extension Integration {
       broadcaster.terminate()
 
       var received: [Int] = []
-      for await value in stream { received.append(value) }
+      for await value in stream {
+        received.append(value)
+      }
 
       #expect(received == [4])
     }
@@ -90,7 +98,9 @@ extension Integration {
       broadcaster.terminate()
 
       var received: [Int] = []
-      for await value in stream { received.append(value) }
+      for await value in stream {
+        received.append(value)
+      }
 
       #expect(received == [2])
     }
@@ -107,9 +117,13 @@ extension Integration {
       broadcaster.terminate()
 
       var a: [Int] = []
-      for await value in first { a.append(value) }
+      for await value in first {
+        a.append(value)
+      }
       var b: [Int] = []
-      for await value in second { b.append(value) }
+      for await value in second {
+        b.append(value)
+      }
 
       #expect(a == [42])
       #expect(b == [42])
