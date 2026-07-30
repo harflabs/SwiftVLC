@@ -1,0 +1,44 @@
+# Do not build VLC's own test programs.
+#
+# NOT an upstream backport, and not a fix to VLC. It removes `test` from the
+# top-level SUBDIRS so `make` never descends into it.
+#
+# SwiftVLC ships libvlccore and libvlc inside an xcframework. VLC's test/
+# directory builds standalone test programs that are never packaged, never
+# run by this build, and never run by CI. Building them is pure cost.
+#
+# It is also currently impossible. VLC's configure.ac declares libtool
+# languages for C++ and Windows Resource but not Objective-C, and the libtool
+# in the tree has no OBJC tag at all -- `available_tags='CXX RC '`. Automake
+# still emits an Objective-C link for test/iosvlc.m through libtool with no
+# `--tag`, so libtool has to infer one:
+#
+#   OBJCLD   vlccoreios
+#   libtool: link: unable to infer tagged configuration
+#   libtool:   error: specify a tag with '--tag'
+#
+# Inference works only while the link's compiler string matches $CC. Autoconf
+# 2.73 sets CC="clang -std=gnu23" while OBJC stays plain "clang", so the match
+# fails and every Apple slice dies in test/ -- after libvlccore and libvlc have
+# already linked successfully.
+#
+# That is a toolchain change, not a VLC bug and not one of ours: the same
+# sources built on 2026-07-15 with older autotools. Pinning autotools or
+# forcing OBJC to carry CC's flags would both be more fragile than simply not
+# building programs we do not ship.
+#
+# Verified by applying it to a build directory that had just failed and
+# re-running make: the build completes through doc/ and bin/ with test/ never
+# entered.
+diff --git a/Makefile.am b/Makefile.am
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -6,7 +6,7 @@
+ # something. DIST_SUBDIRS stores the directories where nothing is built but
+ # which have makefiles with distribution information.
+ #  - src (libvlccore) is nedeed by modules
+-SUBDIRS = compat po share src modules lib doc bin test
++SUBDIRS = compat po share src modules lib doc bin
+ DIST_SUBDIRS = m4 $(SUBDIRS)
+ 
+ EXTRA_DIST = \

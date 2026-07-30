@@ -355,6 +355,54 @@ echo "Validating release manifest rewrites..."
 validate_release_rewrites
 echo "Release rewrite validation passed."
 
+# ── Artifact freshness ────────────────────────────────────────────────────────
+#
+# Everything below packages whatever xcframework is in Vendor/. Nothing so far
+# has established that it was built from the sources this release will claim,
+# so a binary produced months ago against a different pin or patch set would be
+# published as new and nothing would notice (#97, second criterion).
+#
+# The build records its inputs beside the artifact; this compares them with what
+# the repository says now. It is not a reproducibility proof — two builds of the
+# same inputs are not yet compared — but it does refuse a demonstrably stale one.
+verify_artifact_provenance() {
+  local provenance="Vendor/libvlc-provenance.json"
+
+  if [[ ! -f "$provenance" ]]; then
+    echo "Error: $provenance not found." >&2
+    echo "  The xcframework in Vendor/ was built before provenance was recorded," >&2
+    echo "  so its inputs cannot be established. Rebuild with:" >&2
+    echo "    ./scripts/build-libvlc.sh --all" >&2
+    return 1
+  fi
+
+  local recorded_pin recorded_manifest current_pin current_manifest
+  recorded_pin=$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["pinnedRevision"])' "$provenance")
+  recorded_manifest=$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["patchManifestDigest"])' "$provenance")
+  current_pin=$(sed -n 's/^VLC_HASH="\(.*\)"$/\1/p' "$SCRIPT_DIR/build-libvlc.sh" | head -1)
+  current_manifest=$(shasum -a 256 "$SCRIPT_DIR/patches/manifest.sha256" | cut -d' ' -f1)
+
+  if [[ "$recorded_pin" != "$current_pin" ]]; then
+    echo "Error: the xcframework was built from a different engine pin." >&2
+    echo "  artifact: $recorded_pin" >&2
+    echo "  repo:     $current_pin" >&2
+    return 1
+  fi
+  if [[ "$recorded_manifest" != "$current_manifest" ]]; then
+    echo "Error: the xcframework was built from a different patch series." >&2
+    echo "  artifact manifest: $recorded_manifest" >&2
+    echo "  repo manifest:     $current_manifest" >&2
+    echo "  Rebuild so the shipped binary contains the patches this release claims." >&2
+    return 1
+  fi
+
+  echo "Artifact provenance verified: pin $current_pin, patch manifest ${current_manifest:0:12}…"
+}
+
+if ! verify_artifact_provenance; then
+  exit 1
+fi
+
 # ── Strip ─────────────────────────────────────────────────────────────────────
 
 WORK_DIR=$(make_temp_dir)
