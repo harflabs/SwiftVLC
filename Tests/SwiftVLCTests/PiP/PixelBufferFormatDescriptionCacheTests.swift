@@ -171,10 +171,19 @@ extension Integration {
 
       // And back: dropping the metadata must not keep serving the HDR one.
       CVBufferRemoveAttachment(buffer, kCVImageBufferMasteringDisplayColorVolumeKey)
+      #expect(
+        !CMVideoFormatDescriptionMatchesImageBuffer(hdr, imageBuffer: buffer),
+        "the HDR description still matched after its metadata was removed"
+      )
+
       let backToSDR = try #require(
         renderer.formatDescription(for: buffer, generation: generation)
       )
       #expect(hdr !== backToSDR)
+      // Identity alone would also hold if the cache recreated needlessly or
+      // handed back something that does not describe this buffer.
+      #expect(CMVideoFormatDescriptionMatchesImageBuffer(backToSDR, imageBuffer: buffer))
+      expectNoDifference(sampleCreationStatus(buffer: buffer, description: backToSDR), noErr)
       expectNoDifference(
         renderer.state.withLock { $0.formatDescriptionCreationCount },
         UInt64(3)
