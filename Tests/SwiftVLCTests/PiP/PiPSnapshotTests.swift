@@ -212,6 +212,103 @@ extension Integration {
       #expect(answered.withLock { $0 } == false)
     }
 
+    /// Criterion 3 of issue 84: restore completes exactly once.
+    ///
+    /// `onRestoreUserInterface` is host application code holding an escaping
+    /// callback. Nothing stops it answering twice, and AVKit's completion
+    /// handler must run once — invoking a system completion handler more than
+    /// once is undefined.
+    @Test
+    func `A restore hook that answers twice invokes AVKit once`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let controller = PiPController(player: player)
+      let installed = try #require(controller.pipController)
+
+      controller.onRestoreUserInterface = { completion in
+        completion(true)
+        completion(true)
+        completion(false)
+      }
+
+      let answers = Mutex<[Bool]>([])
+      controller.pictureInPictureController(
+        installed,
+        restoreUserInterfaceForPictureInPictureStopWithCompletionHandler: { restored in
+          answers.withLock { $0.append(restored) }
+        }
+      )
+
+      try #require(await poll(timeout: .seconds(2), until: { !answers.withLock { $0 }.isEmpty }))
+      #expect(
+        answers.withLock { $0 } == [true],
+        "a restore hook answering repeatedly invoked AVKit's completion handler more than once"
+      )
+    }
+
+    /// The other half of criterion 3: or a documented timeout.
+    ///
+    /// A hook that never answers would otherwise leave PiP teardown waiting
+    /// with nothing to surface it. The bound reports `false`, since claiming a
+    /// restore that did not happen is worse than reporting none.
+    ///
+    /// The bound is shortened here rather than waiting out the real one. An
+    /// earlier version of this test only asserted the constant's value and that
+    /// nothing had fired yet, which would have held whether or not the timeout
+    /// was ever wired up.
+    @Test
+    func `A restore hook that never answers is bounded`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let controller = PiPController(player: player)
+      let installed = try #require(controller.pipController)
+
+      let original = PiPController.restoreCompletionTimeout
+      PiPController.restoreCompletionTimeout = .milliseconds(50)
+      defer { PiPController.restoreCompletionTimeout = original }
+
+      // Swallows the callback entirely.
+      controller.onRestoreUserInterface = { _ in }
+
+      let answered = Mutex<Bool?>(nil)
+      controller.pictureInPictureController(
+        installed,
+        restoreUserInterfaceForPictureInPictureStopWithCompletionHandler: { restored in
+          answered.withLock { $0 = restored }
+        }
+      )
+
+      try #require(
+        await poll(timeout: .seconds(2), until: { answered.withLock { $0 } != nil }),
+        "a restore hook that never answered left AVKit's completion handler unresolved"
+      )
+      #expect(answered.withLock { $0 } == false)
+    }
+
+    /// The bound must not pre-empt a hook that does answer, or every slow but
+    /// legitimate restore would be reported as a failure.
+    @Test
+    func `A hook answering within the bound wins over the timeout`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let controller = PiPController(player: player)
+      let installed = try #require(controller.pipController)
+
+      let original = PiPController.restoreCompletionTimeout
+      PiPController.restoreCompletionTimeout = .seconds(5)
+      defer { PiPController.restoreCompletionTimeout = original }
+
+      controller.onRestoreUserInterface = { completion in completion(true) }
+
+      let answers = Mutex<[Bool]>([])
+      controller.pictureInPictureController(
+        installed,
+        restoreUserInterfaceForPictureInPictureStopWithCompletionHandler: { restored in
+          answers.withLock { $0.append(restored) }
+        }
+      )
+
+      try #require(await poll(timeout: .seconds(2), until: { !answers.withLock { $0 }.isEmpty }))
+      #expect(answers.withLock { $0 } == [true], "the timeout overrode a hook that answered in time")
+    }
+
     /// Both flags travel in one value. Published from a single funnel they
     /// could otherwise describe a pair that was never simultaneously true.
     @Test
