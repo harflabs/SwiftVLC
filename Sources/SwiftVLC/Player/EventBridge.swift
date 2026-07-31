@@ -268,6 +268,11 @@ private func playerEventCallback(
   // then `.endReached` from the same source, with no consumer-lag race
   // and internal source filtering working unchanged.
   let coordinator = context.endCoordinator
+  // Recorded before the `stopped` that follows it, so the decision below has
+  // the engine's own answer rather than only SwiftVLC's inference.
+  if event.pointee.type == Int32(libvlc_MediaPlayerMediaStopping.rawValue) {
+    coordinator.noteStoppingReason(event.pointee.u.media_player_media_stopping.reason)
+  }
   switch mapped {
   case .encounteredError:
     coordinator.markError()

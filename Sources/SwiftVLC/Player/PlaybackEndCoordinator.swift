@@ -1,3 +1,4 @@
+import CLibVLC
 import Synchronization
 
 /// Decides, on libVLC's event thread, whether a `stopped` transition is a
@@ -28,6 +29,9 @@ final class PlaybackEndCoordinator: Sendable {
     /// calls that never pass through `Player.stop()` — every
     /// list-initiated advancement would synthesize a spurious end.
     var suppressSynthesis = false
+    /// The engine's reason for the stop now in flight, when it supplied one.
+    /// Cleared by each `stopped`, so it can never describe a later one.
+    var stoppingReason: libvlc_stopping_reason_t?
   }
 
   private let state = Mutex(EndState())
@@ -67,18 +71,43 @@ final class PlaybackEndCoordinator: Sendable {
     state.withLock { $0.suppressSynthesis = suppressed }
   }
 
+  /// Records the engine's own reason for the stop that is about to arrive.
+  ///
+  /// libVLC reports this on `MediaPlayerMediaStopping`, which precedes the
+  /// `stopped` transition. It is authoritative: the player core knows whether
+  /// the input reached end of stream, was stopped by request, or failed.
+  func noteStoppingReason(_ reason: libvlc_stopping_reason_t) {
+    state.withLock { $0.stoppingReason = reason }
+  }
+
   /// Consumes a `stopped` transition on the event thread: returns `true`
   /// when it should synthesize ``PlayerEvent/endReached``, and clears the
   /// one-shot causes either way (each `stopped` accounts for whatever
   /// preceded it).
+  ///
+  /// When the engine supplied a reason, it decides. Only `eos` is a natural
+  /// end; `user` and `error` are not, and neither is a stop that arrived with
+  /// no reason at all. The inference below is the fallback for the latter, and
+  /// it is the weaker answer: it concludes "natural end" from the *absence* of
+  /// a known cause, so anything it has not been told about reads as end of
+  /// media. That is exactly what an authoritative reason removes.
   func consumeStoppedShouldSynthesizeEnd() -> Bool {
     state.withLock { state in
-      let synthesize = !state.libraryStopPending
+      defer {
+        state.libraryStopPending = false
+        state.sawErrorSinceLastPlay = false
+        state.stoppingReason = nil
+      }
+
+      if let reason = state.stoppingReason {
+        // Still honour list-player suppression: an advance through a playlist
+        // ends one media at eos without ending playback.
+        return reason == libvlc_stopping_reason_eos && !state.suppressSynthesis
+      }
+
+      return !state.libraryStopPending
         && !state.sawErrorSinceLastPlay
         && !state.suppressSynthesis
-      state.libraryStopPending = false
-      state.sawErrorSinceLastPlay = false
-      return synthesize
     }
   }
 }
