@@ -57,6 +57,16 @@ artifact_digest() {
     | cut -d' ' -f1
 }
 
+# An xcframework with no static libraries would still produce a stable digest —
+# shasum of empty input — so a record could be written that "qualifies" an
+# artifact containing nothing. Refuse before computing anything.
+SLICE_COUNT=$(find "$XCFW" -name '*.a' -type f | grep -c . || true)
+if [[ "$SLICE_COUNT" -eq 0 ]]; then
+  echo "Error: $XCFW contains no static libraries." >&2
+  echo "  Nothing to qualify. Rebuild with ./scripts/build-libvlc.sh --all." >&2
+  exit 1
+fi
+
 DIGEST="$(artifact_digest)"
 
 if [[ ! -f "$RECORD" ]]; then
@@ -105,10 +115,29 @@ required = {
     for h in matrix["hardware"]
 }
 
+rows = record.get("rows")
+if not isinstance(rows, list):
+    sys.exit(f"Error: {record_path} has no 'rows' array.")
+
 executed = {}
-for row in record.get("rows", []):
+duplicates = []
+for index, row in enumerate(rows):
+    if not isinstance(row, dict):
+        problems.append(f"row {index} is not an object")
+        continue
     key = (row.get("scenario"), row.get("hardware"))
+    if key in executed:
+        # Last-wins would let a failing row be masked by appending a passing
+        # duplicate, which defeats the point of the gate.
+        duplicates.append(key)
     executed[key] = row
+
+if duplicates:
+    listed = "\n".join(f"      {s} on {h}" for s, h in sorted(set(duplicates)))
+    problems.append(
+        f"{len(set(duplicates))} row(s) appear more than once:\n{listed}\n"
+        "    A duplicate can hide an earlier failure behind a later pass."
+    )
 
 missing = sorted(required - set(executed))
 if missing:
