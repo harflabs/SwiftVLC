@@ -150,7 +150,11 @@ extension Player {
     publishPlaybackStatus()
     let generation = sessionGeneration
 
-    switch await Self.awaitPlaying(on: statuses, atLeast: self.generation) {
+    // Scoped to the generation this recast captured, not a re-read of the
+    // property. They are equal here, and keeping them textually the same value
+    // is what stops a later edit from silently scoping the wait to a session
+    // this recast no longer owns.
+    switch await Self.awaitPlaying(on: statuses, atLeast: PlaybackGeneration(generation)) {
     case .playing:
       break
     case .failed:

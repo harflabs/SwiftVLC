@@ -267,8 +267,8 @@ extension Integration {
       #expect(result == .notReady)
     }
 
-    /// Builds a finite stream of states, finishing after the last one.
-    /// Builds a status stream at a single generation.
+    /// Builds a finite status stream at a single generation, finishing after
+    /// the last element.
     ///
     /// The wait is generation-scoped, so a bare `PlayerState` is no longer
     /// enough to describe an input. Cases that do not care about generation use
