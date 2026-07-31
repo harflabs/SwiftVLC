@@ -81,4 +81,24 @@ struct AuthoritativeStopReasonTests {
 
     #expect(!coordinator.consumeStoppedShouldSynthesizeEnd())
   }
+
+  /// A reason belongs to the handle that produced it.
+  ///
+  /// `MediaPlayerMediaStopping` can precede a handle replacement that lands
+  /// before the matching `stopped` is observed. Carrying the reason across
+  /// would let the outgoing session's end of stream confirm the successor's
+  /// first stop as a natural end.
+  @Test
+  func `A reason does not survive a handle replacement`() {
+    let coordinator = PlaybackEndCoordinator()
+    coordinator.noteStoppingReason(libvlc_stopping_reason_eos)
+
+    coordinator.clearForHandleReplacement()
+    coordinator.markLibraryStop()
+
+    #expect(
+      !coordinator.consumeStoppedShouldSynthesizeEnd(),
+      "an end-of-stream reason from a replaced handle confirmed the successor's stop as a natural end"
+    )
+  }
 }

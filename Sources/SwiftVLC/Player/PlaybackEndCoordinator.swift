@@ -62,6 +62,11 @@ final class PlaybackEndCoordinator: Sendable {
     state.withLock {
       $0.libraryStopPending = false
       $0.sawErrorSinceLastPlay = false
+      // A reason recorded on the outgoing handle describes a stop that will
+      // never arrive here. Left behind, it would classify the *successor's*
+      // first stop — `MediaPlayerMediaStopping` can precede a replacement that
+      // lands before the matching `stopped` is observed.
+      $0.stoppingReason = nil
     }
   }
 
@@ -85,12 +90,15 @@ final class PlaybackEndCoordinator: Sendable {
   /// one-shot causes either way (each `stopped` accounts for whatever
   /// preceded it).
   ///
-  /// When the engine supplied a reason, it decides. Only `eos` is a natural
-  /// end; `user` and `error` are not, and neither is a stop that arrived with
-  /// no reason at all. The inference below is the fallback for the latter, and
-  /// it is the weaker answer: it concludes "natural end" from the *absence* of
-  /// a known cause, so anything it has not been told about reads as end of
-  /// media. That is exactly what an authoritative reason removes.
+  /// When the engine supplied a reason, it decides: only `eos` is a natural
+  /// end, and `user` and `error` are not.
+  ///
+  /// When it supplied none, the inference below applies unchanged — an engine
+  /// that does not report a reason must keep working, not lose end-of-media
+  /// entirely. That fallback is the weaker answer, and knowing why matters: it
+  /// concludes "natural end" from the *absence* of a known cause, so anything
+  /// it has not been told about reads as end of media. Supplying a reason is
+  /// what removes the guesswork, not the fallback itself.
   func consumeStoppedShouldSynthesizeEnd() -> Bool {
     state.withLock { state in
       defer {
