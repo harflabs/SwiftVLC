@@ -119,6 +119,68 @@ extension Integration {
       )
     }
 
+    /// Issue 94 names HDR metadata explicitly, and the attachment case above
+    /// only covers colour primaries.
+    ///
+    /// The buffer here is deliberately **not** IOSurface-backed, unlike
+    /// `makePixelBuffer`. Probing the two constructions directly:
+    /// `CVBufferSetAttachment` of `kCVImageBufferMasteringDisplayColorVolumeKey`
+    /// on an IOSurface-backed buffer never reaches the format description —
+    /// the description built from that buffer does not carry the extension at
+    /// all, so `CMVideoFormatDescriptionMatchesImageBuffer` has nothing to
+    /// disagree about and keeps matching. Colour primaries does propagate,
+    /// which is why the case above works on the shared helper.
+    ///
+    /// So an IOSurface-backed HDR case would assert on a buffer that is not
+    /// actually HDR and would pass for the wrong reason. Real HDR frames carry
+    /// the metadata on the surface from the decoder, which this process cannot
+    /// produce. This covers the cache's invalidation on an HDR extension
+    /// change; coverage of decoder-produced HDR surfaces needs a device.
+    @Test
+    func `HDR metadata changes replace the cached description`() throws {
+      let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+      var created: CVPixelBuffer?
+      expectNoDifference(
+        CVPixelBufferCreate(kCFAllocatorDefault, 16, 9, kCVPixelFormatType_32BGRA, nil, &created),
+        kCVReturnSuccess
+      )
+      let buffer = try #require(created)
+      let generation = renderer.state.withLock { $0.renderGeneration }
+
+      let sdr = try #require(
+        renderer.formatDescription(for: buffer, generation: generation)
+      )
+
+      CVBufferSetAttachment(
+        buffer,
+        kCVImageBufferMasteringDisplayColorVolumeKey,
+        Data(repeating: 0, count: 24) as CFData,
+        .shouldPropagate
+      )
+
+      #expect(
+        !CMVideoFormatDescriptionMatchesImageBuffer(sdr, imageBuffer: buffer),
+        "an SDR description still matched a buffer carrying HDR mastering metadata"
+      )
+
+      let hdr = try #require(
+        renderer.formatDescription(for: buffer, generation: generation)
+      )
+      #expect(sdr !== hdr, "the cache reused an SDR description for an HDR buffer")
+      #expect(CMVideoFormatDescriptionMatchesImageBuffer(hdr, imageBuffer: buffer))
+
+      // And back: dropping the metadata must not keep serving the HDR one.
+      CVBufferRemoveAttachment(buffer, kCVImageBufferMasteringDisplayColorVolumeKey)
+      let backToSDR = try #require(
+        renderer.formatDescription(for: buffer, generation: generation)
+      )
+      #expect(hdr !== backToSDR)
+      expectNoDifference(
+        renderer.state.withLock { $0.formatDescriptionCreationCount },
+        UInt64(3)
+      )
+    }
+
     @Test
     func `A generation change clears the cache and stale work cannot evict its successor`() throws {
       let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
