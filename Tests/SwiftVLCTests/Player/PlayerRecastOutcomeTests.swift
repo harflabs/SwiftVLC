@@ -24,7 +24,7 @@ extension Integration {
     func `Reaching playing settles the wait`() async {
       let transitions = Self.stateStream([.opening, .buffering, .playing])
 
-      let result = await Player.awaitPlaying(on: transitions, timeout: .seconds(5))
+      let result = await Player.awaitPlaying(on: transitions, atLeast: PlaybackGeneration(1), timeout: .seconds(5))
 
       #expect(result == .playing)
     }
@@ -36,7 +36,7 @@ extension Integration {
     func `An error is reported as failed rather than arrival`() async {
       let transitions = Self.stateStream([.opening, .error])
 
-      let result = await Player.awaitPlaying(on: transitions, timeout: .seconds(5))
+      let result = await Player.awaitPlaying(on: transitions, atLeast: PlaybackGeneration(1), timeout: .seconds(5))
 
       #expect(result == .failed)
       #expect(result != .playing)
@@ -49,6 +49,7 @@ extension Integration {
 
       let result = await Player.awaitPlaying(
         on: transitions,
+        atLeast: PlaybackGeneration(1),
         timeout: .milliseconds(50)
       )
 
@@ -60,6 +61,7 @@ extension Integration {
     func `An empty transition stream times out`() async {
       let result = await Player.awaitPlaying(
         on: Self.stateStream([]),
+        atLeast: PlaybackGeneration(1),
         timeout: .milliseconds(50)
       )
 
@@ -71,9 +73,61 @@ extension Integration {
     func `Playing before an error settles`() async {
       let transitions = Self.stateStream([.playing, .error])
 
-      let result = await Player.awaitPlaying(on: transitions, timeout: .seconds(5))
+      let result = await Player.awaitPlaying(on: transitions, atLeast: PlaybackGeneration(1), timeout: .seconds(5))
 
       #expect(result == .playing)
+    }
+
+    /// #89 criterion 3. `recast(to:)` captures its stream before calling
+    /// `play()`, and same-player media replacement restarts a session on a
+    /// repeated `.playing`. On a stream of bare `PlayerState` the outgoing
+    /// session's own `.playing` is indistinguishable from the incoming one's,
+    /// so the wait would settle before the replacement had started.
+    @Test
+    func `A playing from the superseded generation does not settle the wait`() async {
+      // Generation 1 is the session being replaced; the recast owns 2.
+      let statuses = Self.statusStream([(.playing, 1), (.opening, 2), (.playing, 2)])
+
+      let result = await Player.awaitPlaying(
+        on: statuses,
+        atLeast: PlaybackGeneration(2),
+        timeout: .seconds(5)
+      )
+
+      #expect(result == .playing)
+    }
+
+    /// The half that makes the scoping load-bearing rather than incidental:
+    /// with nothing from the new generation, the stale `.playing` must not
+    /// stand in for one.
+    @Test
+    func `A stale playing alone times out rather than settling`() async {
+      let statuses = Self.statusStream([(.playing, 1), (.paused, 1)])
+
+      let result = await Player.awaitPlaying(
+        on: statuses,
+        atLeast: PlaybackGeneration(2),
+        timeout: .milliseconds(50)
+      )
+
+      #expect(
+        result == .timedOut,
+        "a .playing from the session being replaced settled a recast that owns a later generation"
+      )
+    }
+
+    /// A failure in the outgoing session is not this recast's failure.
+    @Test
+    func `An error from the superseded generation is ignored`() async {
+      let statuses = Self.statusStream([(.error, 1), (.playing, 2)])
+
+      let result = await Player.awaitPlaying(
+        on: statuses,
+        atLeast: PlaybackGeneration(2),
+        timeout: .seconds(5)
+      )
+
+      #expect(result == .playing, "an error from a superseded session failed the recast that replaced it")
     }
 
     // MARK: - Outcome surface
@@ -214,10 +268,34 @@ extension Integration {
     }
 
     /// Builds a finite stream of states, finishing after the last one.
-    private static func stateStream(_ states: [PlayerState]) -> AsyncStream<PlayerState> {
+    /// Builds a status stream at a single generation.
+    ///
+    /// The wait is generation-scoped, so a bare `PlayerState` is no longer
+    /// enough to describe an input. Cases that do not care about generation use
+    /// the one the wait is scoped to, which preserves their original meaning.
+    private static func stateStream(
+      _ states: [PlayerState],
+      generation: UInt64 = 1
+    ) -> AsyncStream<PlaybackStatus> {
       AsyncStream { continuation in
         for state in states {
-          continuation.yield(state)
+          continuation.yield(
+            PlaybackStatus(state: state, generation: PlaybackGeneration(generation))
+          )
+        }
+        continuation.finish()
+      }
+    }
+
+    /// Builds a stream whose elements carry differing generations.
+    private static func statusStream(
+      _ pairs: [(PlayerState, UInt64)]
+    ) -> AsyncStream<PlaybackStatus> {
+      AsyncStream { continuation in
+        for (state, generation) in pairs {
+          continuation.yield(
+            PlaybackStatus(state: state, generation: PlaybackGeneration(generation))
+          )
         }
         continuation.finish()
       }

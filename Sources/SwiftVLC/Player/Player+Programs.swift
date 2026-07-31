@@ -124,7 +124,7 @@ extension Player {
 
     selectedRenderer = renderer
     nativePlayerNeedsReplacementBeforePlayback = true
-    let transitions = stateTransitions
+    let statuses = playbackStatus
     do {
       try play()
     } catch {
@@ -150,7 +150,7 @@ extension Player {
     publishPlaybackStatus()
     let generation = sessionGeneration
 
-    switch await Self.awaitPlaying(on: transitions) {
+    switch await Self.awaitPlaying(on: statuses, atLeast: self.generation) {
     case .playing:
       break
     case .failed:
@@ -281,21 +281,35 @@ extension Player {
   /// - Parameter timeout: The defensive ceiling. Injectable so the outcome
   ///   mapping is testable against a synthetic transition stream; CI cannot
   ///   drive a real session to `.playing` (see `TestCondition.canPlayMedia`).
+  /// Waits for the *replacement* session to reach `.playing`.
+  ///
+  /// Scoped by generation rather than matching any `.playing`. A recast
+  /// captures its stream before calling `play()`, and same-player media
+  /// replacement restarts a session on a repeated `.playing`, so the outgoing
+  /// session's own transition is indistinguishable from the incoming one's on
+  /// a stream of bare `PlayerState`. Accepting it would report a settled
+  /// recast before the replacement had started.
+  ///
+  /// `atLeast` is the generation the recast owns. Anything older belongs to a
+  /// session this recast has already superseded and is ignored, including
+  /// `.error`: a failure in the outgoing session is not this recast's failure.
   static func awaitPlaying(
-    on transitions: AsyncStream<PlayerState>,
+    on statuses: AsyncStream<PlaybackStatus>,
+    atLeast generation: PlaybackGeneration,
     timeout: Duration = .seconds(10)
   )
     async -> RecastPlaybackResult {
     await withTaskGroup(of: RecastPlaybackResult?.self) { group in
       group.addTask {
-        for await state in transitions {
+        for await status in statuses {
+          guard status.generation >= generation else { continue }
           // `.error` is reported rather than silently treated as arrival:
           // the caller needs to know the replacement session failed, not
           // that it is playing.
-          if state == .playing {
+          if status.state == .playing {
             return .playing
           }
-          if state == .error {
+          if status.state == .error {
             return .failed
           }
         }

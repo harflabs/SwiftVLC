@@ -134,10 +134,13 @@ extension Integration {
       let player = Player(instance: TestInstance.shared)
       let bridge = player.eventBridge
       let source = Player.sourceIdentifier(for: player.pointer)
-      let transitions = player.stateTransitions
+      // The wait is generation-scoped now, so it consumes `playbackStatus`
+      // and is anchored to the player's current generation.
+      let statuses = player.playbackStatus
+      let generation = player.generation
 
       let result = Task {
-        await Player.awaitPlaying(on: transitions, timeout: .seconds(5))
+        await Player.awaitPlaying(on: statuses, atLeast: generation, timeout: .seconds(5))
       }
       // Give the wait a turn to subscribe before the error is broadcast.
       await Task.yield()
