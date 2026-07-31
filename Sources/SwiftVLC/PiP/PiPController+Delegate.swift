@@ -151,13 +151,24 @@ extension PiPController: AVPictureInPictureControllerDelegate {
       let answer: @MainActor @Sendable (Bool) -> Void = { restored in
         guard !answered.value else { return }
         answered.value = true
+        // Nothing left to bound. Without this the sleeping task, and the
+        // completion closure it retains, stay alive for the full timeout after
+        // even an immediate restore.
+        answered.timeout?.cancel()
+        answered.timeout = nil
         completionHandler(restored)
       }
 
       onRestoreUserInterface(answer)
 
-      Task { @MainActor in
+      // A hook that answered synchronously needs no timeout at all; starting
+      // one here would create a task whose only job is to wake up and find the
+      // latch already closed.
+      guard !answered.value else { return }
+
+      answered.timeout = Task { @MainActor in
         try? await Task.sleep(for: Self.restoreCompletionTimeout)
+        guard !Task.isCancelled else { return }
         // `false`: the interface was not restored within the bound. Reporting
         // success would tell AVKit a restore happened that did not.
         answer(false)
@@ -490,6 +501,10 @@ func pipMainActorAsync(_ body: @escaping @MainActor @Sendable () -> Void) {
 @MainActor
 final class RestoreAnswerLatch {
   var value = false
+  /// The bounded wait, held so the first answer can cancel it rather than
+  /// leaving it sleeping — and retaining the completion closure — for the full
+  /// timeout.
+  var timeout: Task<Void, Never>?
 }
 
 #endif

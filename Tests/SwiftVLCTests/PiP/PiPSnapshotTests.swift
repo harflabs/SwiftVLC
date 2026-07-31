@@ -309,6 +309,43 @@ extension Integration {
       #expect(answers.withLock { $0 } == [true], "the timeout overrode a hook that answered in time")
     }
 
+    /// A hook that answers immediately must not leave the bounded wait running.
+    /// Without cancellation the sleeping task — and the completion closure it
+    /// retains — stays alive for the full timeout after every restore, which is
+    /// invisible in behaviour and only shows up as retention.
+    ///
+    /// The bound is stretched well past the assertion so a leaked task would
+    /// still be sleeping when it is checked.
+    @Test
+    func `An immediate answer leaves no bounded wait running`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let controller = PiPController(player: player)
+      let installed = try #require(controller.pipController)
+
+      let original = PiPController.restoreCompletionTimeout
+      PiPController.restoreCompletionTimeout = .seconds(30)
+      defer { PiPController.restoreCompletionTimeout = original }
+
+      controller.onRestoreUserInterface = { completion in completion(true) }
+
+      weak var leaked: AnyObject?
+      do {
+        let probe = RestoreRetentionProbe()
+        leaked = probe
+        controller.pictureInPictureController(
+          installed,
+          restoreUserInterfaceForPictureInPictureStopWithCompletionHandler: { _ in
+            _ = probe
+          }
+        )
+      }
+
+      try #require(
+        await poll(timeout: .seconds(2), until: { leaked == nil }),
+        "the completion closure was still retained after an immediate answer, so the bounded wait outlived it"
+      )
+    }
+
     /// Both flags travel in one value. Published from a single funnel they
     /// could otherwise describe a pair that was never simultaneously true.
     @Test
@@ -327,3 +364,8 @@ extension Integration {
   }
 }
 #endif
+
+/// Stands in for anything the completion closure captures, so retention of the
+/// closure is observable. `Sendable` because the closure it rides in is
+/// `@Sendable`; it carries no state to race over.
+private final class RestoreRetentionProbe: @unchecked Sendable {}
