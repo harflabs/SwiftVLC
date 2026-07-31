@@ -425,6 +425,13 @@ if ! verify_artifact_provenance; then
   exit 1
 fi
 
+# Device qualification. CI cannot execute system PiP on hardware, so the matrix
+# in scripts/qualification is the acceptance gate. Refusing here is the point of
+# issue 88: nothing previously stopped an unqualified artifact being published.
+if ! "$SCRIPT_DIR/check-qualification.sh" "$VERSION" "$XCFW_PATH"; then
+  exit 1
+fi
+
 # ── Strip ─────────────────────────────────────────────────────────────────────
 
 WORK_DIR=$(make_temp_dir)

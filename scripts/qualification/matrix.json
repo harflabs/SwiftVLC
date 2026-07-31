@@ -1,0 +1,20 @@
+{
+  "description": "Physical-device rows that must be executed and passing before an xcframework can be released. Derived from the acceptance criteria of issue 88. Simulator runs never satisfy a row.",
+  "scenarios": [
+    { "id": "vod-controls",        "summary": "Finite VOD: play, pause, scrub, skip forward and back from the PiP controls" },
+    { "id": "live-media",          "summary": "Live stream with indefinite duration: PiP controls reflect an unbounded range" },
+    { "id": "restore",             "summary": "Restore from the PiP window back into the app" },
+    { "id": "close",               "summary": "Close the PiP window with the X control" },
+    { "id": "failed-start",        "summary": "PiP start refused or failing, surfaced rather than silent" },
+    { "id": "replacement",         "summary": "Same-player media replacement while PiP is active" },
+    { "id": "interruptions",       "summary": "Phone call or Siri interruption, and a route change such as Bluetooth disconnect" },
+    { "id": "background-audio",    "summary": "Audio continues with the app backgrounded" },
+    { "id": "long-stall",          "summary": "Sustained network stall and recovery while in PiP" }
+  ],
+  "hardware": [
+    { "id": "iphone-minimum", "summary": "iPhone on the minimum supported OS" },
+    { "id": "iphone-current", "summary": "iPhone on the current supported OS" },
+    { "id": "ipad-minimum",   "summary": "iPad on the minimum supported OS" },
+    { "id": "ipad-current",   "summary": "iPad on the current supported OS" }
+  ]
+}
