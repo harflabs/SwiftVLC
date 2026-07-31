@@ -57,6 +57,13 @@ extension Integration {
       var creations: UInt64 {
         renderer.state.withLock { $0.formatDescriptionCreationCount }
       }
+
+      /// Frames actually delivered to the layer. Unlike `creations`, which
+      /// settles at one for a steady stream, this advances per frame — so it
+      /// is the only counter that can show whether frames are *still* flowing.
+      var drained: UInt64 {
+        renderer.enqueueSnapshotForTesting.drainedSampleCount
+      }
     }
 
     /// The foundation: a real decode reaches the renderer and is converted.
@@ -105,9 +112,15 @@ extension Integration {
 
     /// Frames keep arriving across a seek.
     ///
-    /// A seek tears down and refills the decoder pipeline. If conversion stopped
-    /// there, PiP would freeze on the pre-seek picture — which on a device looks
-    /// like a stuck window rather than an error.
+    /// A seek tears down and refills the decoder pipeline. If conversion
+    /// stopped there, PiP would freeze on the pre-seek picture — on a device
+    /// that looks like a stuck window rather than an error.
+    ///
+    /// Asserts on `drainedSampleCount`, which advances per delivered frame.
+    /// The first version of this test compared `formatDescriptionCreationCount`
+    /// against a baseline, which is monotonic and settles at one for a steady
+    /// stream — so `>= baseline` held whether or not a single frame arrived
+    /// after the seek. It was a no-op.
     @Test(.timeLimit(.minutes(2)))
     func `Frames continue to arrive after a seek`() async throws {
       let player = Player(instance: TestInstance.makeVideoDecoding())
@@ -116,31 +129,22 @@ extension Integration {
 
       try player.play(url: TestMedia.testMP4URL)
       try #require(
-        await poll(timeout: .seconds(30), until: { harness.creations > 0 }),
-        "no decoded frame reached the renderer before the seek"
+        await poll(timeout: .seconds(30), until: { harness.drained > 0 }),
+        "no frame was delivered before the seek"
       )
       try #require(
         await poll(timeout: .seconds(20), until: { player.isSeekable }),
         "the fixture never became seekable"
       )
 
-      let renderGenerationBeforeSeek = harness.renderer.state.withLock { $0.renderGeneration }
       try player.seek(to: .milliseconds(500))
 
-      // The renderer must still be converting afterwards. Compared against a
-      // fresh baseline rather than the pre-seek total, so this cannot pass on
-      // frames that arrived before the seek.
-      let baseline = harness.creations
-      _ = renderGenerationBeforeSeek
-      try await Task.sleep(for: .seconds(2))
-
-      #expect(
-        harness.creations >= baseline,
-        "conversion stopped after the seek"
-      )
-      #expect(
-        harness.renderer.state.withLock { $0.displayLayer.layer } != nil,
-        "the display layer was lost across the seek"
+      // Baseline taken *after* the seek is issued, so nothing counted here can
+      // predate it.
+      let baseline = harness.drained
+      try #require(
+        await poll(timeout: .seconds(20), until: { harness.drained > baseline }),
+        "no frame was delivered after the seek; conversion stopped at the pipeline refill"
       )
     }
   }

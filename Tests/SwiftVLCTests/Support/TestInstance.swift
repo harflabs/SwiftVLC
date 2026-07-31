@@ -74,12 +74,26 @@ enum TestInstance {
   /// and video output modules. Use in tests that drive playback to
   /// `.playing` in a headless environment — the dummy outputs let the
   /// decoder progress the state machine without needing real hardware.
-  static func makeVideoDecoding() -> VLCInstance {
-    try! VLCInstance(arguments: VLCInstance.defaultArguments + ["--aout=dummy", "--quiet"])
-  }
-
   static func makePlayback() -> VLCInstance {
     try! VLCInstance(arguments: playbackArguments)
+  }
+
+  /// Creates an instance that decodes real video into caller-allocated
+  /// buffers.
+  ///
+  /// No `--vout` override: installing vmem callbacks makes libVLC route
+  /// decoded pictures to us instead of to a display vout, so no window server
+  /// is involved. That is what makes decoded frames observable in a test at
+  /// all — every other instance here disables video or sends it to the dummy
+  /// vout, where nothing is converted or timestamped.
+  ///
+  /// `--no-audio` rather than `--aout=dummy`: see the warning on
+  /// ``playbackArguments``. A dummy aout still runs alongside vmem, and that
+  /// combination with a real decoder trips an upstream ffmpeg
+  /// `bytestream.h:141 buf_size >= 0` assertion on these fixtures. These tests
+  /// need no audio at all, so the safe option is to have none.
+  static func makeVideoDecoding() -> VLCInstance {
+    try! VLCInstance(arguments: VLCInstance.defaultArguments + ["--no-audio", "--quiet"])
   }
 
   /// Creates an independent VLC instance with the dummy video output but
