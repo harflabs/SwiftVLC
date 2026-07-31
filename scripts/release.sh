@@ -196,7 +196,8 @@ remote_pattern = re.compile(
     r'\t\t\trepositoryURL = "https://github.com/harflabs/SwiftVLC";\n'
     r'\t\t\trequirement = \{\n'
     r'\t\t\t\tkind = (?:upToNextMajorVersion|exactVersion);\n'
-    r'\t\t\t\t(?:minimumVersion|version) = [0-9.]+;\n'
+    # Pre-release identifiers carry letters and hyphens: 1.1.0-beta.1.
+    r'\t\t\t\t(?:minimumVersion|version) = [0-9][0-9A-Za-z.\-]*;\n'
     r'\t\t\t\};\n'
     r'\t\t\};\n'
     r'/\* End XCRemoteSwiftPackageReference section \*/'
@@ -242,6 +243,37 @@ validate_release_rewrites() {
     switch_showcase_to_release_version
     grep -q 'name: "CLibVLC"' Package.swift
     grep -q 'kind = exactVersion;' "$SHOWCASE_PROJECT"
+
+    # Round trip. The release direction alone is not enough: setup-dev.sh has
+    # to be able to flip the *result* back to a local reference, and CI runs it
+    # on every job. v1.1.0-beta.1 passed this validator and still broke every
+    # PR, because setup-dev's version pattern was digits-only and could not
+    # match a pre-release identifier.
+    python3 - "$SHOWCASE_PROJECT" <<'ROUNDTRIP'
+import re
+import sys
+
+text = open(sys.argv[1]).read()
+# Keep in sync with the same pattern in setup-dev.sh.
+remote = re.compile(
+    r'/\* Begin XCRemoteSwiftPackageReference section \*/\n'
+    r'\t\tBA000001 /\* XCRemoteSwiftPackageReference "SwiftVLC" \*/ = \{\n'
+    r'\t\t\tisa = XCRemoteSwiftPackageReference;\n'
+    r'\t\t\trepositoryURL = "https://github.com/harflabs/SwiftVLC";\n'
+    r'\t\t\trequirement = \{\n'
+    r'\t\t\t\tkind = (?:upToNextMajorVersion|exactVersion);\n'
+    r'\t\t\t\t(?:minimumVersion|version) = [0-9][0-9A-Za-z.\-]*;\n'
+    r'\t\t\t\};\n'
+    r'\t\t\};\n'
+    r'/\* End XCRemoteSwiftPackageReference section \*/'
+)
+if not remote.search(text):
+    sys.exit(
+        "setup-dev.sh could not match the released Showcase reference.\n"
+        "  CI flips this back to a local package on every job, so releasing\n"
+        "  this would break every pull request."
+    )
+ROUNDTRIP
     grep -q "version = $VERSION;" "$SHOWCASE_PROJECT"
   ) || validation_status=$?
 

@@ -112,7 +112,8 @@ remote_pattern = re.compile(
     r'\t\t\trepositoryURL = "https://github.com/harflabs/SwiftVLC";\n'
     r'\t\t\trequirement = \{\n'
     r'\t\t\t\tkind = (?:upToNextMajorVersion|exactVersion);\n'
-    r'\t\t\t\t(?:minimumVersion|version) = [0-9.]+;\n'
+    # Pre-release identifiers carry letters and hyphens: 1.1.0-beta.1.
+    r'\t\t\t\t(?:minimumVersion|version) = [0-9][0-9A-Za-z.\-]*;\n'
     r'\t\t\t\};\n'
     r'\t\t\};\n'
     r'/\* End XCRemoteSwiftPackageReference section \*/'
