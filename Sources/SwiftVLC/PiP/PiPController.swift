@@ -1139,7 +1139,9 @@ public final class PiPController: NSObject {
     #if os(iOS)
     guard nativeBackend == nil else { return }
     #endif
-    renderer.setRenderSize(size)
+    // Flush only when the target actually moved. AVKit repeats this callback,
+    // and flushing on a redundant one discards queued frames for nothing.
+    guard renderer.setRenderSize(size) else { return }
     renderer.flushDisplayLayer()
   }
 

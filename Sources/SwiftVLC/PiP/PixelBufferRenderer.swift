@@ -133,16 +133,22 @@ final class PixelBufferRenderer: Sendable {
     return CMTime(value: CMTimeValue(rateDenominator), timescale: timescale)
   }
 
-  func setRenderSize(_ size: CMVideoDimensions?) {
+  /// Returns whether the target actually moved, so callers can skip work that
+  /// is only warranted by a real change — a display-layer flush, in
+  /// particular, which AVKit can otherwise be made to do for every redundant
+  /// render-size callback.
+  @discardableResult
+  func setRenderSize(_ size: CMVideoDimensions?) -> Bool {
     state.withLock {
       guard $0.renderSize?.width != size?.width || $0.renderSize?.height != size?.height else {
-        return
+        return false
       }
       $0.renderSize = size
       $0.renderPool = nil
       $0.renderPoolWidth = 0
       $0.renderPoolHeight = 0
       $0.advanceRenderGeneration()
+      return true
     }
   }
 

@@ -367,6 +367,27 @@ extension Integration {
       )
     }
 
+    /// A redundant render-size callback must not flush. AVKit repeats this
+    /// callback, and flushing discards queued frames — visible as a hitch for
+    /// no gain.
+    @Test
+    func `An unchanged render size does not advance the generation`() {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let controller = PiPController(player: player)
+      let size = CMVideoDimensions(width: 320, height: 180)
+
+      controller.handleRenderSizeTransition(size)
+      let afterFirst = controller.renderer.state.withLock { $0.renderGeneration }
+
+      controller.handleRenderSizeTransition(size)
+      let afterRepeat = controller.renderer.state.withLock { $0.renderGeneration }
+
+      #expect(
+        afterRepeat == afterFirst,
+        "a repeated render size advanced the render generation, so it also flushed the display layer"
+      )
+    }
+
     /// Both flags travel in one value. Published from a single funnel they
     /// could otherwise describe a pair that was never simultaneously true.
     @Test

@@ -414,8 +414,13 @@ final class PiPPlaybackDelegateProxy: NSObject, AVPictureInPictureSampleBufferPl
     _ avController: AVPictureInPictureController,
     didTransitionToRenderSize size: CMVideoDimensions
   ) {
+    let identity = ObjectIdentifier(avController)
     pipMainActorAsync { [weak self] in
-      self?.owner?.handleRenderSizeTransition(size)
+      // Now that this mutates conversion state, an outgoing controller's
+      // render size must not be applied to its successor — the same identity
+      // rule every other AVKit signal here follows.
+      guard let owner = self?.owner, owner.isCurrentAVController(identity) else { return }
+      owner.handleRenderSizeTransition(size)
     }
   }
 }

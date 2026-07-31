@@ -36,10 +36,12 @@ EXPECTED_SLICES=(
 
 VERSION=""
 DRY_RUN=false
+UNQUALIFIED=false
 
 for arg in "$@"; do
   case "$arg" in
     --dry-run)            DRY_RUN=true ;;
+    --unqualified)        UNQUALIFIED=true ;;
     --allow-dirty-branch)
       echo "Error: --allow-dirty-branch is no longer supported." >&2
       echo "  Releases advance origin/main and must be run from main." >&2
@@ -428,8 +430,22 @@ fi
 # Device qualification. CI cannot execute system PiP on hardware, so the matrix
 # in scripts/qualification is the acceptance gate. Refusing here is the point of
 # issue 88: nothing previously stopped an unqualified artifact being published.
-if ! "$SCRIPT_DIR/check-qualification.sh" "$VERSION" "$XCFW_PATH"; then
-  exit 1
+# Issue 88's criterion is "no release is *marked qualified* while a required
+# device row is unexecuted" — it forbids claiming qualification, not releasing.
+# `--unqualified` publishes as a GitHub pre-release and says so in the notes,
+# so the distinction is visible to anyone who finds the tag rather than only to
+# whoever ran this.
+if [[ "$UNQUALIFIED" == true ]]; then
+  echo "WARNING: releasing WITHOUT device qualification."
+  echo "  Publishing as a pre-release. It must not be described as qualified,"
+  echo "  and the device matrix in scripts/qualification still owes a run."
+else
+  if ! "$SCRIPT_DIR/check-qualification.sh" "$VERSION" "$XCFW_PATH"; then
+    echo "" >&2
+    echo "  To publish anyway as an explicitly unqualified pre-release:" >&2
+    echo "    $0 $VERSION --unqualified" >&2
+    exit 1
+  fi
 fi
 
 # ── Strip ─────────────────────────────────────────────────────────────────────
@@ -550,12 +566,20 @@ git push origin "$TAG"
 # ── GitHub Release ────────────────────────────────────────────────────────────
 
 echo "Creating GitHub Release..."
+RELEASE_FLAGS=()
+QUALIFICATION_NOTE=""
+if [[ "$UNQUALIFIED" == true ]]; then
+  RELEASE_FLAGS+=(--prerelease)
+  QUALIFICATION_NOTE=$'\n> **Not device-qualified.** The physical-device matrix in `scripts/qualification` has not been executed against this artifact. Published as a pre-release for that reason.\n'
+fi
+
 gh release create "$TAG" "$ZIP_PATH" \
   --repo "$REPO" \
+  ${RELEASE_FLAGS[@]+"${RELEASE_FLAGS[@]}"} \
   --title "SwiftVLC $TAG" \
   --notes "$(cat <<EOF
 ## libVLC xcframework
-
+$QUALIFICATION_NOTE
 Pre-built static xcframework for libVLC 4.0.
 
 **Platforms:** iOS 18+, macOS 15+, tvOS 18+, visionOS 2+, Mac Catalyst
