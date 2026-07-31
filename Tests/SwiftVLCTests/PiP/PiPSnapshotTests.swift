@@ -2,6 +2,7 @@
 @testable import SwiftVLC
 import AVFoundation
 import AVKit
+import CoreMedia
 import Synchronization
 import Testing
 
@@ -112,7 +113,7 @@ extension Integration {
     /// Criterion 3: a snapshot taken before the AVKit controller was recreated
     /// describes a controller that no longer exists. Pairing its active state
     /// with the new controller's identity is the confusion being prevented.
-    @Test
+    @Test(.enabled(if: AVPictureInPictureController.isPictureInPictureSupported()))
     func `The snapshot names which controller its flags describe`() async {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let controller = PiPController(player: player)
@@ -153,7 +154,7 @@ extension Integration {
     /// negative assertion afterwards means "rejected" rather than "not yet
     /// delivered". Without it the test passes whether or not the guard exists,
     /// which is how the first version of it was hollow.
-    @Test
+    @Test(.enabled(if: AVPictureInPictureController.isPictureInPictureSupported()))
     func `A delegate callback from a controller that is not installed is ignored`() async throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let controller = PiPController(player: player)
@@ -186,7 +187,7 @@ extension Integration {
     /// callback is accepted. Returning without calling it leaves the teardown
     /// it drives unresolved, which is a worse failure than the stale state the
     /// guard exists to prevent.
-    @Test
+    @Test(.enabled(if: AVPictureInPictureController.isPictureInPictureSupported()))
     func `A rejected restore callback still answers AVKit`() async throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let controller = PiPController(player: player)
@@ -218,7 +219,7 @@ extension Integration {
     /// callback. Nothing stops it answering twice, and AVKit's completion
     /// handler must run once — invoking a system completion handler more than
     /// once is undefined.
-    @Test
+    @Test(.enabled(if: AVPictureInPictureController.isPictureInPictureSupported()))
     func `A restore hook that answers twice invokes AVKit once`() async throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let controller = PiPController(player: player)
@@ -255,7 +256,7 @@ extension Integration {
     /// earlier version of this test only asserted the constant's value and that
     /// nothing had fired yet, which would have held whether or not the timeout
     /// was ever wired up.
-    @Test
+    @Test(.enabled(if: AVPictureInPictureController.isPictureInPictureSupported()))
     func `A restore hook that never answers is bounded`() async throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let controller = PiPController(player: player)
@@ -285,7 +286,7 @@ extension Integration {
 
     /// The bound must not pre-empt a hook that does answer, or every slow but
     /// legitimate restore would be reported as a failure.
-    @Test
+    @Test(.enabled(if: AVPictureInPictureController.isPictureInPictureSupported()))
     func `A hook answering within the bound wins over the timeout`() async throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let controller = PiPController(player: player)
@@ -316,7 +317,7 @@ extension Integration {
     ///
     /// The bound is stretched well past the assertion so a leaked task would
     /// still be sleeping when it is checked.
-    @Test
+    @Test(.enabled(if: AVPictureInPictureController.isPictureInPictureSupported()))
     func `An immediate answer leaves no bounded wait running`() async throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let controller = PiPController(player: player)
@@ -343,6 +344,26 @@ extension Integration {
       try #require(
         await poll(timeout: .seconds(2), until: { leaked == nil }),
         "the completion closure was still retained after an immediate answer, so the bounded wait outlived it"
+      )
+    }
+
+    /// Issue 93 criterion 2, at the controller boundary rather than the
+    /// renderer's. AVKit reports a PiP render size through the delegate; iOS
+    /// used to discard it, so a resize changed no work while macOS honoured
+    /// the same callback.
+    @Test
+    func `A PiP render size transition reaches the conversion target`() {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let controller = PiPController(player: player)
+
+      controller.handleRenderSizeTransition(
+        CMVideoDimensions(width: 320, height: 180)
+      )
+
+      let target = controller.renderer.state.withLock { $0.renderSize }
+      #expect(
+        target?.width == 320 && target?.height == 180,
+        "the render size was discarded, so a PiP resize changes no conversion work"
       )
     }
 

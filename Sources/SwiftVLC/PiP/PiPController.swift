@@ -1126,14 +1126,21 @@ public final class PiPController: NSObject {
   }
   #endif
 
+  /// Routes AVKit's PiP render size into the conversion target.
+  ///
+  /// iOS previously discarded this, so a PiP resize changed no work at all
+  /// while macOS already honoured it — issue 93 criterion 2. There was no
+  /// recorded reason for the asymmetry; it came in with a macOS-only change.
+  ///
+  /// `nativeBackend != nil` is still excluded: on that path libVLC owns the
+  /// vout and the sample-buffer renderer is not what feeds the PiP window, so
+  /// setting a render size would resize a surface nothing displays.
   func handleRenderSizeTransition(_ size: CMVideoDimensions) {
-    #if os(macOS)
+    #if os(iOS)
     guard nativeBackend == nil else { return }
+    #endif
     renderer.setRenderSize(size)
     renderer.flushDisplayLayer()
-    #else
-    _ = size
-    #endif
   }
 
   func handleSkip(

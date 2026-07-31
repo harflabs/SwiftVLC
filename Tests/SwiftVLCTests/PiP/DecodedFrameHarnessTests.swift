@@ -110,6 +110,51 @@ extension Integration {
       )
     }
 
+    /// Issue 93 criterion 2: a PiP resize must change the effective work, or
+    /// the reason it cannot must be documented.
+    ///
+    /// This is the assertion that previously needed a device. With real frames
+    /// flowing, setting a render size smaller than the source must make the
+    /// renderer allocate and convert into a pool at that size — which is the
+    /// work reduction the criterion is about. A no-op resize leaves the pool
+    /// untouched and fails here.
+    @Test(.timeLimit(.minutes(2)))
+    func `A smaller render size converts into a smaller pool`() async throws {
+      let player = Player(instance: TestInstance.makeVideoDecoding())
+      let harness = Harness(attachedTo: player)
+      defer { player.stop() }
+
+      try player.play(url: TestMedia.testMP4URL)
+      try #require(
+        await poll(timeout: .seconds(30), until: { harness.drained > 0 }),
+        "no frame was delivered before the resize"
+      )
+
+      // The source dimensions come from the player, not the renderer: the
+      // format callback sets width/height on a separate decode renderer, while
+      // this harness holds the display renderer that performs output
+      // conversion.
+      let source = try #require(player.videoSize, "the player never reported a video size")
+      try #require(source.width > 2 && source.height > 2, "the fixture is too small to scale down from")
+
+      let target = CMVideoDimensions(
+        width: Int32(source.width / 2),
+        height: Int32(source.height / 2)
+      )
+      harness.renderer.setRenderSize(target)
+
+      try #require(
+        await poll(timeout: .seconds(20), until: {
+          harness.renderer.state.withLock { $0.renderPoolWidth } == Int(target.width)
+        }),
+        "frames kept converting at full resolution after the render size shrank"
+      )
+
+      let pool = harness.renderer.state.withLock { ($0.renderPoolWidth, $0.renderPoolHeight) }
+      #expect(pool.0 == Int(target.width))
+      #expect(pool.1 == Int(target.height))
+    }
+
     /// Frames keep arriving across a seek.
     ///
     /// A seek tears down and refills the decoder pipeline. If conversion
