@@ -41,7 +41,18 @@ annotate() {
   fi
 }
 
-tag=$(gh release view --json tagName -q .tagName 2>/dev/null || true)
+# The newest published release, pre-releases included.
+#
+# `gh release view` with no tag returns the latest *non*-prerelease. During a
+# beta cycle that is the wrong artifact: it would keep CI on the previous
+# stable engine while the beta — the thing actually being validated — is tested
+# by nothing. Ordering is by creation date, so the newest wins whatever its
+# kind.
+newest_release_tag() {
+  gh release list --limit 1 --exclude-drafts --json tagName -q '.[0].tagName'
+}
+
+tag=$(newest_release_tag) 2>/dev/null || true
 if [ -z "$tag" ]; then
   echo "Could not resolve the latest release tag via gh; skipping coverage check." >&2
   exit 0

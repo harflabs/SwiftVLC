@@ -19,7 +19,18 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT_DIR"
 
-tag=$(gh release view --json tagName -q .tagName)
+# The newest published release, pre-releases included.
+#
+# `gh release view` with no tag returns the latest *non*-prerelease. During a
+# beta cycle that is the wrong artifact: it would keep CI on the previous
+# stable engine while the beta — the thing actually being validated — is tested
+# by nothing. Ordering is by creation date, so the newest wins whatever its
+# kind.
+newest_release_tag() {
+  gh release list --limit 1 --exclude-drafts --json tagName -q '.[0].tagName'
+}
+
+tag=$(newest_release_tag)
 if [ -z "$tag" ]; then
   echo "Error: could not resolve latest release tag via gh." >&2
   exit 1
