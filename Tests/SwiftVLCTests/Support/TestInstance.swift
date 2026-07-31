@@ -74,6 +74,10 @@ enum TestInstance {
   /// and video output modules. Use in tests that drive playback to
   /// `.playing` in a headless environment — the dummy outputs let the
   /// decoder progress the state machine without needing real hardware.
+  static func makeVideoDecoding() -> VLCInstance {
+    try! VLCInstance(arguments: VLCInstance.defaultArguments + ["--aout=dummy", "--quiet"])
+  }
+
   static func makePlayback() -> VLCInstance {
     try! VLCInstance(arguments: playbackArguments)
   }
