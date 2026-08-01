@@ -870,7 +870,7 @@ final class IOSNativePiPBackend: NSObject, @unchecked Sendable {
     owner?.handleNativePictureInPictureReady()
   }
 
-  private func setActive(_ isActive: Bool) {
+  func setActive(_ isActive: Bool) {
     guard self.isActive != isActive else { return }
     self.isActive = isActive
     owner?.handleNativePictureInPictureActiveChanged(isActive)

@@ -148,17 +148,31 @@ extension PiPController {
       // Preserve an accepted request's identity even if the player adopted
       // successor media before AVKit replied. An auto-start has no accepted
       // request, so it begins a fresh lifecycle here.
-      if !pipAcceptedStartPending {
+      if pipLifecycleAttributionPhase != .awaitingStart {
         capturePiPLifecycleAttribution()
       }
-    case .didStart, .willStop, .didStop, .failedToStart:
+      pipLifecycleAttributionPhase = .awaitingStart
+    case .didStart:
       if
         pipLifecycleMediaGeneration == nil
         || pipLifecycleControllerGeneration != pipControllerGeneration {
         capturePiPLifecycleAttribution()
       }
+      pipLifecycleAttributionPhase = .started
+    case .willStop, .didStop:
+      if
+        pipLifecycleMediaGeneration == nil
+        || pipLifecycleControllerGeneration != pipControllerGeneration {
+        capturePiPLifecycleAttribution()
+      }
+    case .failedToStart:
+      if
+        pipLifecycleMediaGeneration == nil
+        || pipLifecycleControllerGeneration != pipControllerGeneration {
+        capturePiPLifecycleAttribution()
+      }
+      pipLifecycleAttributionPhase = .failed
     }
-    pipAcceptedStartPending = false
 
     let envelope = PiPEventEnvelope(
       event: event,
@@ -176,22 +190,33 @@ extension PiPController {
   /// Captures attribution only when the backend confirms that it actually
   /// issued the request. Refused starts cannot later own a lifecycle callback.
   func noteAcceptedPiPStartRequest(_ result: PiPStartResult) -> PiPStartResult {
-    if result == .accepted {
+    guard result == .accepted else { return result }
+    switch pipLifecycleAttributionPhase {
+    case .idle, .failed:
       capturePiPLifecycleAttribution()
-      pipAcceptedStartPending = true
+      pipLifecycleAttributionPhase = .awaitingStart
+    case .awaitingStart, .started:
+      // Repeating start while AVKit is already starting/active still issues
+      // the backend method, but it does not begin a new PiP lifecycle.
+      break
     }
     return result
   }
 
-  private func capturePiPLifecycleAttribution() {
+  func capturePiPLifecycleAttribution() {
     pipLifecycleMediaGeneration = player.generation
     pipLifecycleControllerGeneration = pipControllerGeneration
+  }
+
+  func adoptActivePiPLifecycleAttribution() {
+    capturePiPLifecycleAttribution()
+    pipLifecycleAttributionPhase = .started
   }
 
   func clearPiPLifecycleAttribution() {
     pipLifecycleMediaGeneration = nil
     pipLifecycleControllerGeneration = nil
-    pipAcceptedStartPending = false
+    pipLifecycleAttributionPhase = .idle
   }
 
   /// The current Picture in Picture state, followed by every subsequent

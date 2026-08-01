@@ -218,10 +218,18 @@ public final class PiPController: NSObject {
   /// The concrete backend controller that owns the captured PiP lifecycle.
   @ObservationIgnored
   var pipLifecycleControllerGeneration: UInt64?
-  /// Whether the captured lifecycle came from an accepted explicit start and
-  /// is still waiting for its first AVKit/native lifecycle callback.
+  /// Which part of the attributed PiP lifecycle is in flight. This prevents a
+  /// redundant accepted start from stealing an active lifecycle while still
+  /// allowing a fresh request after a terminal start failure.
   @ObservationIgnored
-  var pipAcceptedStartPending = false
+  var pipLifecycleAttributionPhase: PiPLifecycleAttributionPhase = .idle
+
+  enum PiPLifecycleAttributionPhase {
+    case idle
+    case awaitingStart
+    case started
+    case failed
+  }
 
   /// The best-known reason for an in-flight PiP stop, recorded by the
   /// first discriminating signal (restore callback, start failure,
@@ -444,6 +452,9 @@ public final class PiPController: NSObject {
     nativeBackend.reconcileRequiresLinearPlayback(ifOwnedBy: self)
     updatePiPPossible(nativeBackend.isPossible)
     updatePiPActive(nativeBackend.isActive)
+    if nativeBackend.isActive {
+      adoptActivePiPLifecycleAttribution()
+    }
     startStateObserver()
     startPlaybackIntentObserver()
     player.registerNativeHandleSnapshotObserver(self)
@@ -478,6 +489,9 @@ public final class PiPController: NSObject {
     nativeBackend.owner = self
     updatePiPPossible(nativeBackend.isPossible)
     updatePiPActive(nativeBackend.isActive)
+    if nativeBackend.isActive {
+      adoptActivePiPLifecycleAttribution()
+    }
     startStateObserver()
     startPlaybackIntentObserver()
     player.registerNativeHandleSnapshotObserver(self)

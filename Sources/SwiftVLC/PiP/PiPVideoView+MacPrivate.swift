@@ -135,7 +135,7 @@ final class MacNativePiPBackend: NSObject, @unchecked Sendable {
     }
   }
 
-  private func setActive(_ isActive: Bool) {
+  func setActive(_ isActive: Bool) {
     guard self.isActive != isActive else { return }
     self.isActive = isActive
     Task { @MainActor [weak owner] in
