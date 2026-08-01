@@ -62,7 +62,9 @@ extension Player {
   // MARK: - handleEvent dispatch
 
   func handleSourcedEvent(_ sourcedEvent: SourcedPlayerEvent) {
-    guard sourcedEvent.source == Self.sourceIdentifier(for: pointer) else { return }
+    guard
+      sourcedEvent.nativeHandleGeneration == eventBridge.currentNativeHandleGeneration
+    else { return }
     guard isTimelineSampleCurrent(sourcedEvent) else { return }
     handleEvent(sourcedEvent.event)
   }
@@ -460,23 +462,22 @@ extension Player {
     currentMedia = Media(retaining: media)
   }
 
-  static func sourceIdentifier(for pointer: OpaquePointer) -> UInt {
-    UInt(bitPattern: UnsafeRawPointer(pointer))
-  }
-
   func _handleEventForTesting(_ event: PlayerEvent) {
     handleEvent(event)
   }
 
-  /// Injects an event attributed to a specific native handle, so tests can
-  /// exercise the source scoping in ``handleSourcedEvent(_:)`` — an event
-  /// arriving from a handle the player has already replaced must not be
-  /// applied to the current session.
+  /// Injects an event attributed to a native-handle generation, so tests can
+  /// exercise the scoping in ``handleSourcedEvent(_:)``.
   ///
   /// Staging the attribution is the point: a retiring handle emitting after
   /// its replacement is a race, not something a test can schedule.
-  func _handleEventForTesting(_ event: PlayerEvent, source: OpaquePointer) {
-    handleSourcedEvent(SourcedPlayerEvent(source: Self.sourceIdentifier(for: source), event: event))
+  func _handleEventForTesting(_ event: PlayerEvent, nativeHandleGeneration: UInt64) {
+    handleSourcedEvent(
+      SourcedPlayerEvent(
+        nativeHandleGeneration: nativeHandleGeneration,
+        event: event
+      )
+    )
   }
 
   func _hasDeferredPauseForTesting() -> Bool {

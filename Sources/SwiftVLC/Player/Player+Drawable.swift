@@ -298,14 +298,15 @@ extension Player {
 
     carryOverPerPlayerState(from: oldPointer, to: newPointer)
 
+    // Reattachment detaches the retiring generation, clears its pending
+    // terminal cause, then installs the successor generation as one operation.
     eventBridge.reattach(to: newEventManager)
     // The old handle's terminal events are unobservable from here on; a
     // pending stop/error cause would otherwise outlive its `Stopped` and
     // suppress the next genuine natural end. The same applies to its
-    // closing `voutChanged(0)` — the source filter drops it after the
+    // closing `voutChanged(0)` — the generation filter drops it after the
     // reattach — so reset the mirrored output count here instead of
     // leaving it pinned to the dead handle's outputs.
-    endCoordinator.clearForHandleReplacement()
     activeVideoOutputs = 0
     #if os(iOS) || os(macOS)
     moveDirectPiPVideoCallbacks(to: newLifetime)

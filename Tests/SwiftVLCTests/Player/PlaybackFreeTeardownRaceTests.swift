@@ -88,6 +88,7 @@ extension Integration {
           finished.withLock { $0 = true }
         }
 
+        var previousGeneration = player.eventBridge.currentNativeHandleGeneration
         for _ in 0..<10 {
           let oldPointer = player.pointer
           player.setDrawable(NSObject())
@@ -97,6 +98,12 @@ extension Integration {
             player.pointer != oldPointer,
             "swap did not replace the native player handle"
           )
+          let generation = player.eventBridge.currentNativeHandleGeneration
+          #expect(
+            generation > previousGeneration,
+            "native attachment generation did not advance across a handle swap"
+          )
+          previousGeneration = generation
         }
         #expect(
           !finished.withLock { $0 },

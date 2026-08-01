@@ -82,11 +82,11 @@ extension Integration {
     func `Internal consumer mirrors a buried one-shot event after a main-actor stall`() async throws {
       let player = Player(instance: TestInstance.shared)
       let bridge = player.eventBridge
-      let source = Player.sourceIdentifier(for: player.pointer)
+      let nativeHandleGeneration = bridge.currentNativeHandleGeneration
 
-      bridge._broadcastForTesting(.lengthChanged(.seconds(2)), source: source)
+      bridge._broadcastForTesting(.lengthChanged(.seconds(2)), nativeHandleGeneration: nativeHandleGeneration)
       for _ in 0..<128 {
-        bridge._broadcastForTesting(.timeChanged(.zero), source: source)
+        bridge._broadcastForTesting(.timeChanged(.zero), nativeHandleGeneration: nativeHandleGeneration)
       }
 
       try #require(
@@ -104,7 +104,7 @@ extension Integration {
     func `Unbounded policy and filter combine on the public events stream`() async {
       let player = Player(instance: TestInstance.shared)
       let bridge = player.eventBridge
-      let source = Player.sourceIdentifier(for: player.pointer)
+      let nativeHandleGeneration = bridge.currentNativeHandleGeneration
       let stream = player.events(policy: .unbounded, filter: { event in
         if case .timeChanged = event {
           return false
@@ -112,12 +112,12 @@ extension Integration {
         return true
       })
 
-      bridge._broadcastForTesting(.stateChanged(.opening), source: source)
+      bridge._broadcastForTesting(.stateChanged(.opening), nativeHandleGeneration: nativeHandleGeneration)
       for _ in 0..<150 {
-        bridge._broadcastForTesting(.timeChanged(.zero), source: source)
+        bridge._broadcastForTesting(.timeChanged(.zero), nativeHandleGeneration: nativeHandleGeneration)
       }
-      bridge._broadcastForTesting(.stateChanged(.playing), source: source)
-      bridge._broadcastForTesting(.mediaChanged, source: source)
+      bridge._broadcastForTesting(.stateChanged(.playing), nativeHandleGeneration: nativeHandleGeneration)
+      bridge._broadcastForTesting(.mediaChanged, nativeHandleGeneration: nativeHandleGeneration)
 
       var states: [PlayerState] = []
       var timeChangedCount = 0
@@ -145,7 +145,7 @@ extension Integration {
     func `stateTransitions is lossless and firehose-free without playback`() async throws {
       let player = Player(instance: TestInstance.shared)
       let bridge = player.eventBridge
-      let source = Player.sourceIdentifier(for: player.pointer)
+      let nativeHandleGeneration = bridge.currentNativeHandleGeneration
       let transitions = player.stateTransitions
 
       let collected = Mutex<[PlayerState]>([])
@@ -155,13 +155,13 @@ extension Integration {
         }
       }
 
-      bridge._broadcastForTesting(.stateChanged(.opening), source: source)
-      bridge._broadcastForTesting(.stateChanged(.playing), source: source)
+      bridge._broadcastForTesting(.stateChanged(.opening), nativeHandleGeneration: nativeHandleGeneration)
+      bridge._broadcastForTesting(.stateChanged(.playing), nativeHandleGeneration: nativeHandleGeneration)
       for _ in 0..<100 {
-        bridge._broadcastForTesting(.timeChanged(.zero), source: source)
+        bridge._broadcastForTesting(.timeChanged(.zero), nativeHandleGeneration: nativeHandleGeneration)
       }
-      bridge._broadcastForTesting(.stateChanged(.stopping), source: source)
-      bridge._broadcastForTesting(.stateChanged(.stopped), source: source)
+      bridge._broadcastForTesting(.stateChanged(.stopping), nativeHandleGeneration: nativeHandleGeneration)
+      bridge._broadcastForTesting(.stateChanged(.stopped), nativeHandleGeneration: nativeHandleGeneration)
 
       try #require(
         await poll(until: { collected.withLock { $0.count >= 4 } }),

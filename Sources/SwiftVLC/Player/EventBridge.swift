@@ -12,8 +12,9 @@ import Synchronization
 final class EventBridge: Sendable {
   private nonisolated(unsafe) var eventManager: OpaquePointer
   private let context: EventBridgeCallbackContext
-  private nonisolated(unsafe) let contextOpaque: UnsafeMutableRawPointer
+  private nonisolated(unsafe) var attachmentOpaque: UnsafeMutableRawPointer?
   private nonisolated(unsafe) var attachedEventTypes: [Int32]
+  private let nativeHandleGeneration = Mutex<UInt64>(1)
   private let invalidated = Mutex(false)
 
   init(eventManager: OpaquePointer, endCoordinator: PlaybackEndCoordinator) {
@@ -21,15 +22,18 @@ final class EventBridge: Sendable {
 
     let context = EventBridgeCallbackContext(endCoordinator: endCoordinator)
     self.context = context
-    let opaque = Unmanaged.passRetained(context).toOpaque()
-    contextOpaque = opaque
+    let attachment = EventBridgeCallbackAttachment(
+      context: context,
+      nativeHandleGeneration: 1
+    )
+    let opaque = Unmanaged.passRetained(attachment).toOpaque()
+    attachmentOpaque = opaque
 
     attachedEventTypes = Self.attachEvents(to: eventManager, opaque: opaque)
   }
 
   deinit {
     invalidate()
-    Unmanaged<EventBridgeCallbackContext>.fromOpaque(contextOpaque).release()
   }
 
   /// Detaches all event listeners and finishes all streams.
@@ -43,8 +47,14 @@ final class EventBridge: Sendable {
     }
     guard shouldCleanUp else { return }
 
-    Self.detachEvents(attachedEventTypes, from: eventManager, opaque: contextOpaque)
+    guard let attachmentOpaque else { return }
+    Self.detachEvents(attachedEventTypes, from: eventManager, opaque: attachmentOpaque)
     attachedEventTypes = []
+    self.attachmentOpaque = nil
+    // `libvlc_event_detach` takes the same event-manager lock that surrounds
+    // callback execution. Once every detach returns, no callback can still be
+    // borrowing this attachment token, so releasing it here is safe.
+    Unmanaged<EventBridgeCallbackAttachment>.fromOpaque(attachmentOpaque).release()
     // `terminate()`, not `finishAll()`: invalidation is permanent. The
     // mid-life native handle swap goes through `reattach(to:)` and never
     // lands here, so the only callers are shutdown and deinit — after which
@@ -61,13 +71,42 @@ final class EventBridge: Sendable {
   /// still points at the previous UIView. The Swift `Player.events` stream must
   /// survive that native-handle swap, so this detaches callbacks from the previous
   /// event manager and attaches the same broadcaster to the new one.
-  func reattach(to newEventManager: OpaquePointer) {
+  @discardableResult
+  func reattach(to newEventManager: OpaquePointer) -> UInt64 {
     let isInvalidated = invalidated.withLock { $0 }
-    guard !isInvalidated else { return }
+    guard !isInvalidated, let oldAttachmentOpaque = attachmentOpaque else {
+      return nativeHandleGeneration.withLock { $0 }
+    }
 
-    Self.detachEvents(attachedEventTypes, from: eventManager, opaque: contextOpaque)
+    Self.detachEvents(attachedEventTypes, from: eventManager, opaque: oldAttachmentOpaque)
+    Unmanaged<EventBridgeCallbackAttachment>.fromOpaque(oldAttachmentOpaque).release()
+
+    // The retiring handle cannot emit after detach returns. Clear its pending
+    // terminal classification before the successor is attached, so neither an
+    // old late callback nor an early successor callback can cross the reset.
+    context.endCoordinator.clearForHandleReplacement()
+
+    let generation = nativeHandleGeneration.withLock { generation in
+      precondition(generation < UInt64.max, "Native handle generation exhausted")
+      generation += 1
+      return generation
+    }
+    let attachment = EventBridgeCallbackAttachment(
+      context: context,
+      nativeHandleGeneration: generation
+    )
+    let newAttachmentOpaque = Unmanaged.passRetained(attachment).toOpaque()
     eventManager = newEventManager
-    attachedEventTypes = Self.attachEvents(to: newEventManager, opaque: contextOpaque)
+    attachmentOpaque = newAttachmentOpaque
+    attachedEventTypes = Self.attachEvents(to: newEventManager, opaque: newAttachmentOpaque)
+    return generation
+  }
+
+  /// Monotonic identity of the native player currently feeding this bridge.
+  /// Unlike a pointer address, it cannot alias a retired A handle after an
+  /// allocator reuses that address for a later C handle.
+  var currentNativeHandleGeneration: UInt64 {
+    nativeHandleGeneration.withLock { $0 }
   }
 
   /// Creates a new independent `AsyncStream` for consuming player events.
@@ -94,8 +133,16 @@ final class EventBridge: Sendable {
   /// Pushes an event through the same fan-out path the C callback uses,
   /// including subscription buffering — unlike
   /// `Player._handleEventForTesting`, which bypasses the bridge entirely.
-  func _broadcastForTesting(_ event: PlayerEvent, source: UInt) {
-    context.broadcast(event, source: source)
+  func _broadcastForTesting(_ event: PlayerEvent, nativeHandleGeneration: UInt64) {
+    context.broadcast(event, nativeHandleGeneration: nativeHandleGeneration)
+  }
+
+  /// Exercises the complete native callback ordering with a synthetic event.
+  func _emitNativeEventForTesting(_ event: libvlc_event_t) {
+    guard let attachmentOpaque else { return }
+    withUnsafePointer(to: event) { event in
+      playerEventCallback(event: event, opaque: attachmentOpaque)
+    }
   }
 
   static let playerEventTypes: [Int32] = [
@@ -160,7 +207,7 @@ final class EventBridge: Sendable {
 }
 
 struct SourcedPlayerEvent {
-  let source: UInt
+  let nativeHandleGeneration: UInt64
   let event: PlayerEvent
   /// The timeline revision current when libVLC emitted this event.
   ///
@@ -171,10 +218,28 @@ struct SourcedPlayerEvent {
   /// pre-seek rather than silently authoritative.
   let timelineRevision: UInt64
 
-  init(source: UInt, event: PlayerEvent, timelineRevision: UInt64 = 0) {
-    self.source = source
+  init(
+    nativeHandleGeneration: UInt64,
+    event: PlayerEvent,
+    timelineRevision: UInt64 = 0
+  ) {
+    self.nativeHandleGeneration = nativeHandleGeneration
     self.event = event
     self.timelineRevision = timelineRevision
+  }
+}
+
+/// Immutable identity and shared fan-out context for one native attachment.
+/// A fresh retained token is passed to libVLC on every handle replacement;
+/// callbacks can therefore never acquire a successor's generation by reading
+/// mutable shared state after they were emitted by a predecessor.
+private final class EventBridgeCallbackAttachment: Sendable {
+  let context: EventBridgeCallbackContext
+  let nativeHandleGeneration: UInt64
+
+  init(context: EventBridgeCallbackContext, nativeHandleGeneration: UInt64) {
+    self.context = context
+    self.nativeHandleGeneration = nativeHandleGeneration
   }
 }
 
@@ -202,7 +267,7 @@ private final class EventBridgeCallbackContext: Sendable {
     sourcedEvents.subscribe(policy: policy)
   }
 
-  func broadcast(_ event: PlayerEvent, source: UInt) {
+  func broadcast(_ event: PlayerEvent, nativeHandleGeneration: UInt64) {
     // Each broadcaster is gated on its own emptiness so a libVLC event
     // with no consumers costs neither the lock-and-snapshot nor the
     // sourced-wrapper construction. The sourced broadcast (the player's
@@ -212,7 +277,7 @@ private final class EventBridgeCallbackContext: Sendable {
     if !sourcedEvents.isEmpty {
       sourcedEvents.broadcast(
         SourcedPlayerEvent(
-          source: source,
+          nativeHandleGeneration: nativeHandleGeneration,
           event: event,
           timelineRevision: timelineRevision.withLock { $0 }
         )
@@ -257,34 +322,40 @@ private func playerEventCallback(
   let interval = Signposts.signposter.beginInterval("EventBridge.callback")
   defer { Signposts.signposter.endInterval("EventBridge.callback", interval) }
 
-  let context = Unmanaged<EventBridgeCallbackContext>.fromOpaque(opaque).takeUnretainedValue()
+  let attachment = Unmanaged<EventBridgeCallbackAttachment>.fromOpaque(opaque)
+    .takeUnretainedValue()
+  let context = attachment.context
 
   guard let mapped = mapEvent(event.pointee) else { return }
-  let source = sourceIdentifier(for: event.pointee)
-  context.broadcast(mapped, source: source)
-
-  // End-of-media synthesis happens here, on the event thread, immediately
-  // after the `stopped` broadcast: every subscriber observes `.stopped`
-  // then `.endReached` from the same source, with no consumer-lag race
-  // and internal source filtering working unchanged.
   let coordinator = context.endCoordinator
-  // Recorded before the `stopped` that follows it, so the decision below has
-  // the engine's own answer rather than only SwiftVLC's inference.
+  // Record every terminal fact before exposing its raw event. Public filters
+  // run synchronously on this thread and may issue player commands, so doing
+  // this after broadcast lets reentrant work classify the stop without the
+  // engine's authoritative cause.
   if event.pointee.type == Int32(libvlc_MediaPlayerMediaStopping.rawValue) {
     coordinator.noteStoppingReason(event.pointee.u.media_player_media_stopping.reason)
   }
+  let shouldSynthesizeEnd: Bool
   switch mapped {
   case .encounteredError:
     coordinator.markError()
-  case .stateChanged(.stopped) where coordinator.consumeStoppedShouldSynthesizeEnd():
-    context.broadcast(.endReached, source: source)
+    shouldSynthesizeEnd = false
+  case .stateChanged(.stopped):
+    shouldSynthesizeEnd = coordinator.consumeStoppedShouldSynthesizeEnd()
   default:
-    break
+    shouldSynthesizeEnd = false
   }
-}
 
-func sourceIdentifier(for event: libvlc_event_t) -> UInt {
-  event.p_obj.map { UInt(bitPattern: $0) } ?? 0
+  // Both emissions are made from the same immutable attachment token. Every
+  // subscriber therefore observes `.stopped` then `.endReached` with one
+  // generation, independent of consumer lag or native pointer reuse.
+  context.broadcast(mapped, nativeHandleGeneration: attachment.nativeHandleGeneration)
+  if shouldSynthesizeEnd {
+    context.broadcast(
+      .endReached,
+      nativeHandleGeneration: attachment.nativeHandleGeneration
+    )
+  }
 }
 
 /// Maps a single libVLC `libvlc_event_t` to a typed `PlayerEvent`.

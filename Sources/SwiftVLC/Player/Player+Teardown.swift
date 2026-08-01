@@ -66,7 +66,7 @@ extension Player {
     default:
       break
     }
-    let source = Self.sourceIdentifier(for: pointer)
+    let nativeHandleGeneration = eventBridge.currentNativeHandleGeneration
     let stream = eventBridge.makeSourcedStream(policy: .unbounded)
     // A terminal event that fired between the check above and the
     // subscription is invisible to the stream — re-check before waiting
@@ -80,7 +80,10 @@ extension Player {
       break
     }
     stop()
-    let outcome = await Self.awaitOutputSafeStop(on: stream, source: source)
+    let outcome = await Self.awaitOutputSafeStop(
+      on: stream,
+      nativeHandleGeneration: nativeHandleGeneration
+    )
     // The internal consumer mirrors the same terminal event onto
     // `state` on its own main-actor schedule and may still be draining
     // its backlog when the dedicated wait resumes. Reconcile here so
@@ -126,7 +129,7 @@ extension Player {
   ///   (see `TestCondition.canPlayMedia`).
   nonisolated static func awaitOutputSafeStop(
     on stream: AsyncStream<SourcedPlayerEvent>,
-    source: UInt,
+    nativeHandleGeneration: UInt64,
     timeout: Duration = .seconds(10)
   )
     async -> PlayerStopOutcome {
@@ -134,7 +137,7 @@ extension Player {
       group.addTask {
         for await sourced in stream {
           guard
-            sourced.source == source,
+            sourced.nativeHandleGeneration == nativeHandleGeneration,
             case .stateChanged(let state) = sourced.event
           else { continue }
           // Only `.stopped` ends the wait. An `.error` is ignored here: the

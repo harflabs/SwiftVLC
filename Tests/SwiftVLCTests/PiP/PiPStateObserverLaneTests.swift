@@ -118,19 +118,19 @@ extension Integration {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let controller = PiPController(player: player)
       let bridge = player.eventBridge
-      let source = Player.sourceIdentifier(for: player.pointer)
+      let nativeHandleGeneration = bridge.currentNativeHandleGeneration
 
       // Broadcast first, so it sits on the oldest side of the backlog — where
       // a newest-wins buffer evicts.
-      bridge._broadcastForTesting(.seekableChanged(true), source: source)
+      bridge._broadcastForTesting(.seekableChanged(true), nativeHandleGeneration: nativeHandleGeneration)
       // Both observer tasks are @MainActor and so is this test, so none of
       // this is delivered until the first suspension below: the whole burst
       // queues against a stalled consumer, which is the real-world condition.
       for index in 0..<500 {
-        bridge._broadcastForTesting(.timeChanged(.milliseconds(index)), source: source)
-        bridge._broadcastForTesting(.positionChanged(Double(index) / 500), source: source)
+        bridge._broadcastForTesting(.timeChanged(.milliseconds(index)), nativeHandleGeneration: nativeHandleGeneration)
+        bridge._broadcastForTesting(.positionChanged(Double(index) / 500), nativeHandleGeneration: nativeHandleGeneration)
       }
-      bridge._broadcastForTesting(.lengthChanged(.seconds(7)), source: source)
+      bridge._broadcastForTesting(.lengthChanged(.seconds(7)), nativeHandleGeneration: nativeHandleGeneration)
 
       #expect(
         await drainObserver(of: controller, untilDurationIs: 7000),
@@ -152,9 +152,9 @@ extension Integration {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let controller = PiPController(player: player)
       let bridge = player.eventBridge
-      let source = Player.sourceIdentifier(for: player.pointer)
+      let nativeHandleGeneration = bridge.currentNativeHandleGeneration
 
-      bridge._broadcastForTesting(.lengthChanged(.seconds(3)), source: source)
+      bridge._broadcastForTesting(.lengthChanged(.seconds(3)), nativeHandleGeneration: nativeHandleGeneration)
       #expect(await drainObserver(of: controller, untilDurationIs: 3000))
 
       // A tick alone, with no control event following it, has to reach the
@@ -162,7 +162,7 @@ extension Integration {
       // downstream effect keeps this independent of capability polling.
       var sawTick = false
       let timing = player.timingEvents
-      bridge._broadcastForTesting(.timeChanged(.milliseconds(42)), source: source)
+      bridge._broadcastForTesting(.timeChanged(.milliseconds(42)), nativeHandleGeneration: nativeHandleGeneration)
       for await event in timing {
         if case .timeChanged = event {
           sawTick = true

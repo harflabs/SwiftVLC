@@ -25,7 +25,7 @@ extension Integration {
 
       // A sample libVLC produced before the seek, still queued.
       let stale = SourcedPlayerEvent(
-        source: Player.sourceIdentifier(for: player.pointer),
+        nativeHandleGeneration: player.eventBridge.currentNativeHandleGeneration,
         event: .timeChanged(.seconds(3)),
         timelineRevision: player.acceptedTimelineRevision
       )
@@ -49,7 +49,7 @@ extension Integration {
       player._setStateForTesting(state: .paused, duration: .seconds(100), isSeekable: true)
 
       let stale = SourcedPlayerEvent(
-        source: Player.sourceIdentifier(for: player.pointer),
+        nativeHandleGeneration: player.eventBridge.currentNativeHandleGeneration,
         event: .positionChanged(0.03),
         timelineRevision: player.acceptedTimelineRevision
       )
@@ -73,7 +73,7 @@ extension Integration {
       try player.seek(to: .seconds(42))
 
       let fresh = SourcedPlayerEvent(
-        source: Player.sourceIdentifier(for: player.pointer),
+        nativeHandleGeneration: player.eventBridge.currentNativeHandleGeneration,
         event: .timeChanged(.seconds(43)),
         timelineRevision: player.acceptedTimelineRevision
       )
@@ -95,7 +95,7 @@ extension Integration {
       try player.seek(to: .seconds(80))
 
       let supersededSample = SourcedPlayerEvent(
-        source: Player.sourceIdentifier(for: player.pointer),
+        nativeHandleGeneration: player.eventBridge.currentNativeHandleGeneration,
         event: .timeChanged(.seconds(10)),
         timelineRevision: firstRevision
       )
@@ -115,7 +115,7 @@ extension Integration {
       try player.seek(to: .seconds(42))
 
       let staleTransition = SourcedPlayerEvent(
-        source: Player.sourceIdentifier(for: player.pointer),
+        nativeHandleGeneration: player.eventBridge.currentNativeHandleGeneration,
         event: .stateChanged(.playing),
         timelineRevision: 0
       )
@@ -145,7 +145,7 @@ extension Integration {
       try player.seek(to: .seconds(42), fast: true)
 
       let landed = SourcedPlayerEvent(
-        source: Player.sourceIdentifier(for: player.pointer),
+        nativeHandleGeneration: player.eventBridge.currentNativeHandleGeneration,
         event: .timeChanged(.seconds(40)),
         timelineRevision: concurrentRevision
       )
@@ -183,7 +183,7 @@ extension Integration {
       player._setStateForTesting(state: .paused, duration: .seconds(100), isSeekable: true)
 
       let previousGenerationSample = SourcedPlayerEvent(
-        source: Player.sourceIdentifier(for: player.pointer),
+        nativeHandleGeneration: player.eventBridge.currentNativeHandleGeneration,
         event: .timeChanged(.seconds(7)),
         timelineRevision: player.acceptedTimelineRevision
       )
@@ -218,7 +218,7 @@ extension Integration {
 
       // Produced by libVLC before the jump, still queued behind it.
       let stale = SourcedPlayerEvent(
-        source: Player.sourceIdentifier(for: player.pointer),
+        nativeHandleGeneration: player.eventBridge.currentNativeHandleGeneration,
         event: .timeChanged(.seconds(10)),
         timelineRevision: player.acceptedTimelineRevision
       )

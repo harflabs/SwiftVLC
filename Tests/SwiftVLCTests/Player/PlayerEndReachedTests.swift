@@ -36,9 +36,9 @@ extension Integration {
   @MainActor struct PlayerEndReachedTests {
     /// Natural end of the 1s fixture: exactly one `.endReached`, ordered
     /// after `.stateChanged(.stopped)` in the raw sequence, and a
-    /// parallel sourced subscription sees both carrying the same source.
+    /// parallel sourced subscription sees both carrying the same generation.
     @Test(.timeLimit(.minutes(1)))
-    func `Natural end emits exactly one endReached after stopped with the same source`() async throws {
+    func `Natural end emits exactly one endReached after stopped with the same generation`() async throws {
       let player = Player(instance: TestInstance.makePlayback())
       let stream = player.events(policy: .unbounded, filter: nil)
       let sourcedStream = player.eventBridge.makeSourcedStream(policy: .unbounded)
@@ -49,15 +49,15 @@ extension Integration {
           collected.withLock { $0.append(event) }
         }
       }
-      let stoppedSource = Mutex<UInt?>(nil)
-      let endSource = Mutex<UInt?>(nil)
+      let stoppedGeneration = Mutex<UInt64?>(nil)
+      let endGeneration = Mutex<UInt64?>(nil)
       let sourcedCollector = Task.detached { @Sendable in
         for await sourced in sourcedStream {
           switch sourced.event {
           case .stateChanged(.stopped):
-            stoppedSource.withLock { $0 = sourced.source }
+            stoppedGeneration.withLock { $0 = sourced.nativeHandleGeneration }
           case .endReached:
-            endSource.withLock { $0 = sourced.source }
+            endGeneration.withLock { $0 = sourced.nativeHandleGeneration }
           default:
             continue
           }
@@ -84,9 +84,9 @@ extension Integration {
       )
       #expect(stoppedIndex < endIndex, "endReached did not follow stopped: \(snapshot)")
 
-      let stopped = try #require(stoppedSource.withLock { $0 }, "sourced stream never saw stopped")
-      let end = try #require(endSource.withLock { $0 }, "sourced stream never saw endReached")
-      #expect(stopped == end, "stopped and endReached carried different sources")
+      let stopped = try #require(stoppedGeneration.withLock { $0 }, "sourced stream never saw stopped")
+      let end = try #require(endGeneration.withLock { $0 }, "sourced stream never saw endReached")
+      #expect(stopped == end, "stopped and endReached carried different generations")
     }
 
     @Test(.timeLimit(.minutes(1)))

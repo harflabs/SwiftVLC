@@ -86,24 +86,43 @@ extension Integration {
     }
 
     @Test
-    func `Stale terminal event from replaced native player does not clear playback intent`() throws {
+    func `A terminal event from generation A cannot mutate generation C`() throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let first = try Media(url: TestMedia.testMP4URL)
       let second = try Media(url: TestMedia.twosecURL)
+      let third = try Media(url: TestMedia.silenceURL)
 
       player.load(first)
       player._setStateForTesting(state: .playing, isPlaybackRequestedActive: true)
-      let oldPointer = player.pointer
+      let firstGeneration = player.eventBridge.currentNativeHandleGeneration
 
       do {
         try player.play(second)
       } catch {
         _ = error
       }
+      let secondGeneration = player.eventBridge.currentNativeHandleGeneration
+      #expect(secondGeneration > firstGeneration)
+
+      // Force another native replacement. A pointer-address filter can accept
+      // A here if the allocator reuses A's address for C; the monotonic token
+      // must reject it regardless of the concrete addresses chosen this run.
+      player._setStateForTesting(state: .playing, isPlaybackRequestedActive: true)
+      do {
+        try player.play(third)
+      } catch {
+        _ = error
+      }
+      let thirdGeneration = player.eventBridge.currentNativeHandleGeneration
 
       #expect(player.isPlaybackRequestedActive)
-      player._handleEventForTesting(.stateChanged(.stopped), source: oldPointer)
+      #expect(thirdGeneration > secondGeneration)
+      player._handleEventForTesting(
+        .stateChanged(.stopped),
+        nativeHandleGeneration: firstGeneration
+      )
       #expect(player.isPlaybackRequestedActive)
+      #expect(player.currentMedia === third)
       player.stop()
     }
 

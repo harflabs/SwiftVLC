@@ -42,17 +42,17 @@ extension Integration {
     func `A timing burst cannot evict a control event`() async {
       let player = Player(instance: TestInstance.shared)
       let bridge = player.eventBridge
-      let source = Player.sourceIdentifier(for: player.pointer)
+      let nativeHandleGeneration = bridge.currentNativeHandleGeneration
       let stream = player.controlEvents
 
-      bridge._broadcastForTesting(.lengthChanged(.seconds(2)), source: source)
+      bridge._broadcastForTesting(.lengthChanged(.seconds(2)), nativeHandleGeneration: nativeHandleGeneration)
       for index in 0..<500 {
-        bridge._broadcastForTesting(.timeChanged(.milliseconds(index)), source: source)
-        bridge._broadcastForTesting(.positionChanged(Double(index) / 500), source: source)
+        bridge._broadcastForTesting(.timeChanged(.milliseconds(index)), nativeHandleGeneration: nativeHandleGeneration)
+        bridge._broadcastForTesting(.positionChanged(Double(index) / 500), nativeHandleGeneration: nativeHandleGeneration)
       }
       // Bounds the drain: once this arrives, everything before it has been
       // delivered or dropped, so the assertions below are not racing.
-      bridge._broadcastForTesting(.mediaChanged, source: source)
+      bridge._broadcastForTesting(.mediaChanged, nativeHandleGeneration: nativeHandleGeneration)
 
       var sawBuriedControlEvent = false
       var timingEventCount = 0
@@ -79,15 +79,15 @@ extension Integration {
     func `The timing lane stays bounded and carries no control events`() async {
       let player = Player(instance: TestInstance.shared)
       let bridge = player.eventBridge
-      let source = Player.sourceIdentifier(for: player.pointer)
+      let nativeHandleGeneration = bridge.currentNativeHandleGeneration
       let stream = player.timingEvents
 
       for index in 0..<500 {
-        bridge._broadcastForTesting(.timeChanged(.milliseconds(index)), source: source)
+        bridge._broadcastForTesting(.timeChanged(.milliseconds(index)), nativeHandleGeneration: nativeHandleGeneration)
       }
       // A control event cannot bound this drain — it is filtered out — so the
       // final timing sample is the sentinel instead.
-      bridge._broadcastForTesting(.voutChanged(7), source: source)
+      bridge._broadcastForTesting(.voutChanged(7), nativeHandleGeneration: nativeHandleGeneration)
 
       var delivered: [PlayerEvent] = []
       drain: for await event in stream {

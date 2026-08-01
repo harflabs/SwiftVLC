@@ -21,7 +21,7 @@ extension Integration {
     func `A native error reaches the transition stream`() async throws {
       let player = Player(instance: TestInstance.shared)
       let bridge = player.eventBridge
-      let source = Player.sourceIdentifier(for: player.pointer)
+      let nativeHandleGeneration = bridge.currentNativeHandleGeneration
       let transitions = player.stateTransitions
       let collected = Mutex<[PlayerState]>([])
       let collector = Task.detached { @Sendable in
@@ -30,7 +30,7 @@ extension Integration {
         }
       }
 
-      bridge._broadcastForTesting(.encounteredError, source: source)
+      bridge._broadcastForTesting(.encounteredError, nativeHandleGeneration: nativeHandleGeneration)
 
       try #require(
         await poll(until: { collected.withLock { $0.contains(.error) } }),
@@ -43,7 +43,7 @@ extension Integration {
     func `Entering buffering reaches the transition stream`() async throws {
       let player = Player(instance: TestInstance.shared)
       let bridge = player.eventBridge
-      let source = Player.sourceIdentifier(for: player.pointer)
+      let nativeHandleGeneration = bridge.currentNativeHandleGeneration
       let transitions = player.stateTransitions
       let collected = Mutex<[PlayerState]>([])
       let collector = Task.detached { @Sendable in
@@ -52,7 +52,7 @@ extension Integration {
         }
       }
 
-      bridge._broadcastForTesting(.bufferingProgress(0.25), source: source)
+      bridge._broadcastForTesting(.bufferingProgress(0.25), nativeHandleGeneration: nativeHandleGeneration)
 
       try #require(
         await poll(until: { collected.withLock { $0.contains(.buffering) } }),
@@ -68,7 +68,7 @@ extension Integration {
     func `Buffering progress does not re-announce the state`() async throws {
       let player = Player(instance: TestInstance.shared)
       let bridge = player.eventBridge
-      let source = Player.sourceIdentifier(for: player.pointer)
+      let nativeHandleGeneration = bridge.currentNativeHandleGeneration
       let transitions = player.stateTransitions
       let collected = Mutex<[PlayerState]>([])
       let collector = Task.detached { @Sendable in
@@ -78,11 +78,11 @@ extension Integration {
       }
 
       for index in 0..<200 {
-        bridge._broadcastForTesting(.bufferingProgress(Float(index) / 200), source: source)
+        bridge._broadcastForTesting(.bufferingProgress(Float(index) / 200), nativeHandleGeneration: nativeHandleGeneration)
       }
       // Bounds the drain: once this lands, every buffering report before it
       // has been processed.
-      bridge._broadcastForTesting(.stateChanged(.playing), source: source)
+      bridge._broadcastForTesting(.stateChanged(.playing), nativeHandleGeneration: nativeHandleGeneration)
 
       try #require(
         await poll(until: { collected.withLock { $0.contains(.playing) } }),
@@ -133,7 +133,7 @@ extension Integration {
     func `The recast wait observes failure instead of timing out`() async {
       let player = Player(instance: TestInstance.shared)
       let bridge = player.eventBridge
-      let source = Player.sourceIdentifier(for: player.pointer)
+      let nativeHandleGeneration = bridge.currentNativeHandleGeneration
       // The wait is generation-scoped now, so it consumes `playbackStatus`
       // and is anchored to the player's current generation.
       let statuses = player.playbackStatus
@@ -144,7 +144,7 @@ extension Integration {
       }
       // Give the wait a turn to subscribe before the error is broadcast.
       await Task.yield()
-      bridge._broadcastForTesting(.encounteredError, source: source)
+      bridge._broadcastForTesting(.encounteredError, nativeHandleGeneration: nativeHandleGeneration)
 
       #expect(
         await result.value == .failed,

@@ -1,5 +1,6 @@
 @testable import SwiftVLC
 import CLibVLC
+import Synchronization
 import Testing
 
 /// Issue 85 criterion 4: an unattributed stop is never reported as a confirmed
@@ -100,5 +101,34 @@ struct AuthoritativeStopReasonTests {
       !coordinator.consumeStoppedShouldSynthesizeEnd(),
       "an end-of-stream reason from a replaced handle confirmed the successor's stop as a natural end"
     )
+  }
+
+  /// Public filters execute inline on libVLC's callback thread. Recording the
+  /// reason after fan-out lets reentrant work inspect or consume a stop before
+  /// its authoritative cause exists.
+  @Test
+  @MainActor
+  func `The stopping reason is recorded before the raw event is exposed`() {
+    let player = Player(instance: TestInstance.makeAudioOnly())
+    let coordinator = player.endCoordinator
+    let classificationObservedByFilter = Mutex<Bool?>(nil)
+    let stream = player.events(policy: .unbounded) { event in
+      guard case .mediaStopping = event else { return false }
+      classificationObservedByFilter.withLock {
+        $0 = coordinator.consumeStoppedShouldSynthesizeEnd()
+      }
+      return true
+    }
+
+    var event = libvlc_event_t()
+    event.type = Int32(libvlc_MediaPlayerMediaStopping.rawValue)
+    event.u.media_player_media_stopping.reason = libvlc_stopping_reason_error
+    player.eventBridge._emitNativeEventForTesting(event)
+
+    #expect(
+      classificationObservedByFilter.withLock { $0 } == false,
+      "the filter classified an engine-reported error as natural end"
+    )
+    withExtendedLifetime(stream) {}
   }
 }
