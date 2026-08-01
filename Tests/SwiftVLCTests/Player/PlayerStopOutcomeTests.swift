@@ -144,7 +144,11 @@ extension Integration {
     @Test
     func `A stopped event for the awaited generation reports stopped`() async {
       let stream = Self.eventStream([
-        SourcedPlayerEvent(nativeHandleGeneration: 7, event: .stateChanged(.stopped))
+        SourcedPlayerEvent(
+          nativeHandleGeneration: 7,
+          playbackGeneration: 0,
+          event: .stateChanged(.stopped)
+        )
       ])
 
       let outcome = await Player.awaitOutputSafeStop(
@@ -162,7 +166,11 @@ extension Integration {
     @Test
     func `An error event alone never reports output-safe`() async {
       let stream = Self.eventStream([
-        SourcedPlayerEvent(nativeHandleGeneration: 7, event: .stateChanged(.error))
+        SourcedPlayerEvent(
+          nativeHandleGeneration: 7,
+          playbackGeneration: 0,
+          event: .stateChanged(.error)
+        )
       ])
 
       let outcome = await Player.awaitOutputSafeStop(
@@ -180,8 +188,16 @@ extension Integration {
     @Test
     func `An error followed by a stop reports stopped`() async {
       let stream = Self.eventStream([
-        SourcedPlayerEvent(nativeHandleGeneration: 7, event: .stateChanged(.error)),
-        SourcedPlayerEvent(nativeHandleGeneration: 7, event: .stateChanged(.stopped))
+        SourcedPlayerEvent(
+          nativeHandleGeneration: 7,
+          playbackGeneration: 0,
+          event: .stateChanged(.error)
+        ),
+        SourcedPlayerEvent(
+          nativeHandleGeneration: 7,
+          playbackGeneration: 0,
+          event: .stateChanged(.stopped)
+        )
       ])
 
       let outcome = await Player.awaitOutputSafeStop(
@@ -198,7 +214,11 @@ extension Integration {
     @Test
     func `A stop from another generation is ignored`() async {
       let stream = Self.eventStream([
-        SourcedPlayerEvent(nativeHandleGeneration: 99, event: .stateChanged(.stopped))
+        SourcedPlayerEvent(
+          nativeHandleGeneration: 99,
+          playbackGeneration: 0,
+          event: .stateChanged(.stopped)
+        )
       ])
 
       let outcome = await Player.awaitOutputSafeStop(
@@ -214,8 +234,16 @@ extension Integration {
     @Test
     func `Unrelated events do not end the wait`() async {
       let stream = Self.eventStream([
-        SourcedPlayerEvent(nativeHandleGeneration: 7, event: .timeChanged(.seconds(1))),
-        SourcedPlayerEvent(nativeHandleGeneration: 7, event: .stateChanged(.playing))
+        SourcedPlayerEvent(
+          nativeHandleGeneration: 7,
+          playbackGeneration: 0,
+          event: .timeChanged(.seconds(1))
+        ),
+        SourcedPlayerEvent(
+          nativeHandleGeneration: 7,
+          playbackGeneration: 0,
+          event: .stateChanged(.playing)
+        )
       ])
 
       let outcome = await Player.awaitOutputSafeStop(

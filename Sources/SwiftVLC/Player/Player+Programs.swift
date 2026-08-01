@@ -117,6 +117,7 @@ extension Player {
     let wasPlaying = isPlaybackRequestedActive
     let priorRenderer = selectedRenderer
     let priorPointer = pointer
+    let priorNativeHandleGeneration = eventBridge.currentNativeHandleGeneration
     let priorNeedsReplacement = nativePlayerNeedsReplacementBeforePlayback
     let priorNeedsRebind = needsDrawableRebindForPlayback
     let priorSubtitle = selectedSubtitleTrack
@@ -146,7 +147,11 @@ extension Player {
     // gone, so every remaining step is restoration. Each suspension is a
     // point where the caller can be cancelled or another operation can take
     // over, and past that point this recast must stop mutating the session.
-    sessionGeneration &+= 1
+    sessionGeneration = eventBridge.synchronizePlaybackGeneration(
+      sessionGeneration &+ 1,
+      media: currentMedia?.pointer,
+      outgoingNativeHandleGeneration: priorNativeHandleGeneration
+    )
     publishPlaybackStatus()
     let generation = sessionGeneration
 

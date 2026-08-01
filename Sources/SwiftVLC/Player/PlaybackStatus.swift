@@ -20,9 +20,9 @@ public struct PlaybackGeneration: Hashable, Sendable, Comparable, CustomStringCo
 
   /// Orders two generations by when their sessions began.
   ///
-  /// The counter wraps on overflow, so ordering is only meaningful between
-  /// generations from the same player observed within one run. Reaching that
-  /// boundary needs 2^64 media changes.
+  /// Ordering is only meaningful between generations from the same player
+  /// observed within one run. SwiftVLC traps rather than aliasing an earlier
+  /// identity if the 64-bit counter is ever exhausted.
   public static func < (lhs: Self, rhs: Self) -> Bool {
     lhs.value < rhs.value
   }

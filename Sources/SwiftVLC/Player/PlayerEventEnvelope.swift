@@ -28,31 +28,35 @@ public struct NativePlayerGeneration: Hashable, Sendable, Comparable, CustomStri
   }
 }
 
-/// A raw player event paired with the native handle that emitted it.
+/// A raw player event paired with the native handle and playback session that
+/// emitted it.
 ///
 /// The legacy ``Player/events`` stream remains available for source
-/// compatibility. Consumers that retain, queue, or merge events across native
-/// handle replacement should use this envelope and compare
-/// ``nativeGeneration`` with ``Player/nativeEventGeneration`` before applying
-/// the event.
+/// compatibility. Consumers that retain, queue, or merge events should use
+/// this envelope and compare ``nativeGeneration`` with
+/// ``Player/nativeEventGeneration`` and ``playbackGeneration`` with
+/// ``Player/generation`` before applying the event.
 public struct PlayerEventEnvelope: Sendable {
   /// The raw event mapped from libVLC.
   public let event: PlayerEvent
   /// The native libVLC handle that emitted ``event``.
   public let nativeGeneration: NativePlayerGeneration
+  /// The media session that emitted ``event``.
+  public let playbackGeneration: PlaybackGeneration
 }
 
 extension Player {
   /// The native libVLC handle currently installed behind this player.
   ///
-  /// Compare this value with ``PlayerEventEnvelope/nativeGeneration`` before
-  /// applying an event that may have waited in a queue across renderer recast
-  /// or native-handle replacement.
+  /// Compare this value with ``PlayerEventEnvelope/nativeGeneration`` and the
+  /// current ``generation`` with the envelope's playback generation before
+  /// applying an event that may have waited in a queue across renderer recast,
+  /// native-handle replacement, or media change.
   public nonisolated var nativeEventGeneration: NativePlayerGeneration {
     eventBridge.currentNativePlayerGeneration
   }
 
-  /// Raw events paired with the native handle that emitted them.
+  /// Raw events paired with the native handle and media session that emitted them.
   ///
   /// The default newest-64 policy has the same bounded, lossy behavior as
   /// ``Player/events``. Use ``eventEnvelopes(policy:filter:)`` or the

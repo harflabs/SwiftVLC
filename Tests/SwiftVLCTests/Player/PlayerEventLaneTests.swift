@@ -1,4 +1,5 @@
 @testable import SwiftVLC
+import CLibVLC
 import Foundation
 import Testing
 
@@ -165,6 +166,76 @@ extension Integration {
       let stale = try #require(predecessorEnvelope)
       #expect(stale.nativeGeneration == predecessor)
       #expect(stale.nativeGeneration != player.nativeEventGeneration)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func `A queued predecessor event remains attributable after same-handle media replacement`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      let predecessor = player.generation
+      let nativeGeneration = player.nativeEventGeneration
+      let stream = player.controlEventEnvelopes
+
+      try player.load(Media(url: TestMedia.silenceURL))
+      let successor = player.generation
+      #expect(successor > predecessor)
+      #expect(player.nativeEventGeneration == nativeGeneration)
+
+      player.eventBridge._broadcastForTesting(
+        .stateChanged(.stopped),
+        nativeHandleGeneration: nativeGeneration.value,
+        playbackGeneration: predecessor.value
+      )
+      player.eventBridge._broadcastForTesting(
+        .mediaChanged,
+        nativeHandleGeneration: nativeGeneration.value,
+        playbackGeneration: successor.value
+      )
+
+      var predecessorEnvelope: PlayerEventEnvelope?
+      drain: for await envelope in stream {
+        switch envelope.event {
+        case .stateChanged(.stopped):
+          predecessorEnvelope = envelope
+        case .mediaChanged:
+          break drain
+        default:
+          break
+        }
+      }
+
+      let stale = try #require(predecessorEnvelope)
+      #expect(stale.nativeGeneration == player.nativeEventGeneration)
+      #expect(stale.playbackGeneration == predecessor)
+      #expect(stale.playbackGeneration != player.generation)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func `An external replay of the same media pointer starts a new generation`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let media = try Media(url: TestMedia.twosecURL)
+      let first = PlaybackGeneration(
+        player.eventBridge.synchronizePlaybackGeneration(1, media: media.pointer)
+      )
+      let stream = player.controlEventEnvelopes
+
+      var changed = libvlc_event_t()
+      changed.type = Int32(libvlc_MediaPlayerMediaChanged.rawValue)
+      changed.u.media_player_media_changed.new_media = media.pointer
+      player.eventBridge._emitNativeEventForTesting(changed)
+      player.eventBridge._emitNativeEventForTesting(changed)
+
+      var generations: [PlaybackGeneration] = []
+      for await envelope in stream {
+        guard case .mediaChanged = envelope.event else { continue }
+        generations.append(envelope.playbackGeneration)
+        if generations.count == 2 {
+          break
+        }
+      }
+
+      #expect(generations.first == first)
+      #expect(generations.last.map { $0 > first } == true)
     }
 
     @Test(.timeLimit(.minutes(1)))

@@ -89,11 +89,13 @@ extension Player {
     eventBridge.makeStream(policy: .unbounded, filter: { $0.lane == .control })
   }
 
-  /// Lossless control events paired with their native-handle generation.
+  /// Lossless control events paired with their native-handle and playback
+  /// generations.
   ///
   /// No timing volume can evict a value because timing events never enter
-  /// this stream. Compare each envelope with ``nativeEventGeneration`` before
-  /// applying work that may outlive a native-handle replacement.
+  /// this stream. Compare each envelope with ``nativeEventGeneration`` and
+  /// ``generation`` before applying work that may outlive a handle replacement
+  /// or media change.
   public nonisolated var controlEventEnvelopes: AsyncStream<PlayerEventEnvelope> {
     eventBridge.makeEnvelopeStream(policy: .unbounded) { envelope in
       envelope.event.lane == .control
@@ -128,7 +130,8 @@ extension Player {
     )
   }
 
-  /// Coalesced timing events paired with their native-handle generation.
+  /// Coalesced timing events paired with their native-handle and playback
+  /// generations.
   public nonisolated var timingEventEnvelopes: AsyncStream<PlayerEventEnvelope> {
     eventBridge.makeEnvelopeStream(policy: .newest(Self.timingLaneBufferSize)) { envelope in
       envelope.event.lane == .timing

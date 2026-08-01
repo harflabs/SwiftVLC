@@ -46,10 +46,10 @@ public enum PlayerEvent: Sendable, CustomStringConvertible {
   ///
   /// libVLC 4 reports natural end-of-media and a requested stop as the
   /// same `.stateChanged(.stopped)` transition; SwiftVLC synthesizes this
-  /// event when a `stopped` arrives that no library-issued stop, error,
-  /// or attached ``MediaListPlayer`` accounts for. Always delivered
-  /// immediately after the `.stateChanged(.stopped)` it belongs to, from
-  /// the same native handle. Not emitted while a ``MediaListPlayer``
+  /// event only when the engine's preceding stopping reason identifies a
+  /// clean end of stream. An unattributed stop is never treated as EOF.
+  /// Always delivered immediately after the `.stateChanged(.stopped)` it
+  /// belongs to, from the same native handle. Not emitted while a ``MediaListPlayer``
   /// drives this player — list advancement stops the handle between
   /// items.
   case endReached

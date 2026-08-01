@@ -37,7 +37,7 @@ public final class Player {
 
   /// Total media duration (nil until known).
   public internal(set) var duration: Duration? {
-    didSet { publishCapabilitySnapshot() }
+    didSet { didUpdateDuration() }
   }
 
   /// Whether the current media is seekable.
@@ -567,6 +567,10 @@ public final class Player {
   }
 
   isolated deinit {
+    eventBridge.finishCurrentPlaybackGeneration(
+      cause: .cancellation,
+      playbackGeneration: sessionGeneration
+    )
     eventTask?.cancel()
     _marqueeRestoreTask?.cancel()
     // The player is going away for good, so future subscribers must receive
@@ -639,26 +643,15 @@ public final class Player {
     // player can never play.
     guard !isShutdown else { return }
     // Any recast still restoring the outgoing session no longer owns it.
-    sessionGeneration &+= 1
+    sessionGeneration = eventBridge.synchronizePlaybackGeneration(
+      sessionGeneration &+ 1,
+      media: media.pointer
+    )
     currentMedia = media
-    // Recorded so libVLC echoing this same change back as `.mediaChanged`
-    // does not advance the generation a second time.
     sessionGenerationMedia = media.pointer
     publishPlaybackStatus()
     resetMediaDerivedState()
-    // No `markLibraryStop()` here: setting media on a *started* handle
-    // replaces the input seamlessly — libVLC 4 emits `MediaStopping` for
-    // the interrupted input but the player never leaves the started
-    // state, so no `Stopped` ever arrives to consume the flag. A mark
-    // here goes stale and silently swallows the new media's genuine
-    // natural end. (An explicit `stop()` before `load()` records its own
-    // flag, and its in-flight `Stopped` consumes it — see
-    // ``PlaybackEndCoordinator/clearForHandleReplacement()``.)
     libvlc_media_player_set_media(pointer, media.pointer)
-    // No eager `refreshTracks()` here. The track list isn't populated
-    // until libVLC emits `ESAdded` events after the demuxer opens, so
-    // the `.tracksChanged` / `.mediaChanged` handlers refresh from a
-    // single source of truth.
     notifyMediaDependentObservables()
   }
 
@@ -676,6 +669,7 @@ public final class Player {
       throw .invalidState("play(_:) called on a player that has been shut down")
     }
     if shouldReplaceNativePlayerBeforePlaybackLoad {
+      let outgoingNativeHandleGeneration = eventBridge.currentNativeHandleGeneration
       let resumeBeforeRelease = shouldResumeNativePlayerBeforeStop
       // Nothing is published until the native swap succeeds. Committing
       // `currentMedia` first meant a rejected renderer left every public
@@ -688,7 +682,11 @@ public final class Player {
       )
       // Same supersession bump as `load(_:)`: this branch replaces the media
       // without going through it.
-      sessionGeneration &+= 1
+      sessionGeneration = eventBridge.synchronizePlaybackGeneration(
+        sessionGeneration &+ 1,
+        media: media.pointer,
+        outgoingNativeHandleGeneration: outgoingNativeHandleGeneration
+      )
       currentMedia = media
       sessionGenerationMedia = media.pointer
       publishPlaybackStatus()
@@ -912,7 +910,7 @@ public final class Player {
     case .idle, .stopped, .error:
       break
     default:
-      endCoordinator.markLibraryStop()
+      eventBridge.markRequestedStop(playbackGeneration: sessionGeneration)
     }
     libvlc_media_player_stop_async(pointer)
   }

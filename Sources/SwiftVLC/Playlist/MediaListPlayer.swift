@@ -110,13 +110,11 @@ public final class MediaListPlayer {
     }
   }
 
-  /// Detach-time end-synthesis bookkeeping for a previously attached
-  /// player. A nil detach or final list-player teardown stops the still-bound
-  /// handle later, so it records that stop as library-initiated before lifting
-  /// suppression. Replacing or transferring an attachment does not stop the
-  /// old player and must not leave a stale stop mark that can swallow its next
-  /// genuine end. Suppression is lifted unless another list player has since
-  /// taken over the attachment.
+  /// Detach-time terminal bookkeeping for a previously attached player. A nil
+  /// detach or final list-player teardown stops the still-bound handle later,
+  /// so it records that stop as requested before lifting raw-end suppression.
+  /// Replacing or transferring an attachment does not stop the old player.
+  /// Suppression is lifted unless another list player has since taken over.
   private func detachForEndSynthesis(
     _ previous: Player,
     nativeStopWillFollow: Bool = true
@@ -126,7 +124,9 @@ public final class MediaListPlayer {
       case .idle, .stopped, .error:
         break
       default:
-        previous.endCoordinator.markLibraryStop()
+        previous.eventBridge.markRequestedStop(
+          playbackGeneration: previous.sessionGeneration
+        )
       }
     }
     let owner = previous.attachedMediaListPlayer

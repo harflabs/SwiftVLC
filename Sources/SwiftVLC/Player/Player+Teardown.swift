@@ -221,6 +221,10 @@ extension Player {
     publishPlaybackIntent(false)
     pauseTransition = nil
     deferredPauseCommand = nil
+    eventBridge.finishCurrentPlaybackGeneration(
+      cause: .cancellation,
+      playbackGeneration: sessionGeneration
+    )
     eventTask?.cancel()
     eventTask = nil
     _marqueeRestoreTask?.cancel()

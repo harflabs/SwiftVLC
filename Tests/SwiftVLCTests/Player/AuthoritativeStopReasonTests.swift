@@ -68,17 +68,15 @@ struct AuthoritativeStopReasonTests {
 
     // No reason supplied for this one, and no other cause recorded.
     #expect(
-      coordinator.consumeStoppedShouldSynthesizeEnd(),
-      "the fallback inference should apply once the reason is consumed"
+      !coordinator.consumeStoppedShouldSynthesizeEnd(),
+      "an unattributed successor stop was promoted to a confirmed end"
     )
   }
 
-  /// Without a reason the inference still applies, so an engine that does not
-  /// report one behaves as before rather than losing end-of-media entirely.
+  /// Without a reason, a stop is not evidence of a clean end of stream.
   @Test
   func `A library-issued stop without a reason is still not a natural end`() {
     let coordinator = PlaybackEndCoordinator()
-    coordinator.markLibraryStop()
 
     #expect(!coordinator.consumeStoppedShouldSynthesizeEnd())
   }
@@ -95,7 +93,6 @@ struct AuthoritativeStopReasonTests {
     coordinator.noteStoppingReason(libvlc_stopping_reason_eos)
 
     coordinator.clearForHandleReplacement()
-    coordinator.markLibraryStop()
 
     #expect(
       !coordinator.consumeStoppedShouldSynthesizeEnd(),

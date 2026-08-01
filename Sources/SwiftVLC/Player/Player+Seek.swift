@@ -114,7 +114,8 @@ extension Player {
   func commitSeekTarget(milliseconds: Int64, revision: UInt64) {
     acceptedTimelineRevision = revision
     currentTime = .milliseconds(milliseconds)
-    publishPosition(forTargetMilliseconds: milliseconds)
+    let position = publishPosition(forTargetMilliseconds: milliseconds)
+    recordAuthoritativeTimeline(position: position)
   }
 
   // MARK: - Lenient Seeking
@@ -156,6 +157,7 @@ extension Player {
       let durationMs = try? duration.checkedNonnegativeMilliseconds(parameter: "duration") {
       currentTime = .milliseconds(checkedMilliseconds(for: position, durationMs: durationMs))
     }
+    recordAuthoritativeTimeline(position: position.rawValue)
     return true
   }
 
@@ -209,7 +211,8 @@ extension Player {
           targetMs = Swift.min(targetMs, durationMs)
         }
         currentTime = .milliseconds(targetMs)
-        publishPosition(forTargetMilliseconds: targetMs)
+        let position = publishPosition(forTargetMilliseconds: targetMs)
+        recordAuthoritativeTimeline(position: position)
       }
     }
     return true
@@ -253,6 +256,7 @@ extension Player {
     let ms = libvlc_media_player_get_time(pointer)
     if ms >= 0 {
       currentTime = .milliseconds(ms)
+      recordAuthoritativeTimeline(position: nil)
     }
   }
 
@@ -286,15 +290,27 @@ extension Player {
   /// Publishes the fractional position derived from a just-issued seek
   /// target. libVLC emits no `positionChanged` while paused, so without
   /// this the ``position`` shadow would stay stale until playback resumes.
-  private func publishPosition(forTargetMilliseconds targetMs: Int64) {
+  @discardableResult
+  private func publishPosition(forTargetMilliseconds targetMs: Int64) -> Double? {
     guard
       let duration,
       let durationMs = try? duration.checkedNonnegativeMilliseconds(parameter: "duration"),
       durationMs > 0
-    else { return }
+    else { return nil }
     let fraction = Swift.min(1.0, Swift.max(0.0, Double(targetMs) / Double(durationMs)))
     withMutation(keyPath: \.position) {
       _position = fraction
     }
+    return fraction
+  }
+
+  /// Keeps terminal outcomes aligned with synchronous timeline mutations for
+  /// which libVLC does not guarantee a corresponding event.
+  private func recordAuthoritativeTimeline(position: Double?) {
+    eventBridge.updateAuthoritativeTimeline(
+      time: currentTime,
+      position: position,
+      playbackGeneration: sessionGeneration
+    )
   }
 }

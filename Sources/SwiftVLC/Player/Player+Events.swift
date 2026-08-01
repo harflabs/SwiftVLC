@@ -6,6 +6,13 @@ import Synchronization
 /// `@Observable` properties, plus the deferred-pause / playback-intent
 /// reconciliation state machine.
 extension Player {
+  /// Publishes every mirror fed by a duration mutation, including values
+  /// learned from the fallback native poll rather than an event callback.
+  func didUpdateDuration() {
+    publishCapabilitySnapshot()
+    eventBridge.updateKnownDuration(duration, playbackGeneration: sessionGeneration)
+  }
+
   // MARK: - Native state probes
 
   /// libVLC's view of the player state — read directly from the
@@ -65,6 +72,15 @@ extension Player {
     guard
       sourcedEvent.nativeHandleGeneration == eventBridge.currentNativeHandleGeneration
     else { return }
+    if case .mediaChanged = sourcedEvent.event {
+      guard sourcedEvent.playbackGeneration >= sessionGeneration else { return }
+      handleEvent(
+        sourcedEvent.event,
+        sourcePlaybackGeneration: sourcedEvent.playbackGeneration
+      )
+      return
+    }
+    guard sourcedEvent.playbackGeneration == sessionGeneration else { return }
     guard isTimelineSampleCurrent(sourcedEvent) else { return }
     handleEvent(sourcedEvent.event)
   }
@@ -91,7 +107,10 @@ extension Player {
   /// Maps a single `PlayerEvent` to the observable-property updates and
   /// state-machine transitions it implies. Called from
   /// `startEventConsumer`'s loop on every event the bridge yields.
-  func handleEvent(_ event: PlayerEvent) {
+  func handleEvent(
+    _ event: PlayerEvent,
+    sourcePlaybackGeneration: UInt64? = nil
+  ) {
     let interval = Signposts.signposter.beginInterval("Player.handleEvent")
     defer { Signposts.signposter.endInterval("Player.handleEvent", interval) }
     switch event {
@@ -157,12 +176,23 @@ extension Player {
       // whatever was restoring the previous session: a `MediaListPlayer`
       // advancing the list calls `libvlc_media_list_player_next` directly, so
       // `load(_:)` never runs and nothing else advances the generation.
-      // Compared by native identity rather than bumped unconditionally,
-      // because libVLC echoes the wrapper's own load back through here and a
-      // second advance would supersede a `recast(to:)` for a change it had
-      // already accounted for.
-      if currentMedia?.pointer != sessionGenerationMedia {
-        sessionGeneration &+= 1
+      // EventBridge distinguishes the wrapper's expected echo from an
+      // externally initiated change and stamps the authoritative generation.
+      // That remains correct even when a playlist intentionally reuses the
+      // exact same retained media pointer for consecutive sessions.
+      if
+        let sourcePlaybackGeneration,
+        sourcePlaybackGeneration > sessionGeneration {
+        sessionGeneration = sourcePlaybackGeneration
+        sessionGenerationMedia = currentMedia?.pointer
+        publishPlaybackStatus()
+      } else if currentMedia?.pointer != sessionGenerationMedia {
+        if sourcePlaybackGeneration == nil {
+          sessionGeneration = eventBridge.synchronizePlaybackGeneration(
+            sessionGeneration &+ 1,
+            media: currentMedia?.pointer
+          )
+        }
         sessionGenerationMedia = currentMedia?.pointer
         // The state has not changed, so `publishPlaybackState` will not run:
         // without this the status would keep reporting the old session.
@@ -475,6 +505,7 @@ extension Player {
     handleSourcedEvent(
       SourcedPlayerEvent(
         nativeHandleGeneration: nativeHandleGeneration,
+        playbackGeneration: sessionGeneration,
         event: event
       )
     )
