@@ -153,11 +153,12 @@ extension PiPController {
       // willStart. Keep failed identities until that stop is consumed or the
       // retry reaches didStart, which is the boundary that retires a failure
       // with no trailing terminal callback.
-      promoteQueuedPiPStartAttributionIfNeeded()
       // Preserve an accepted request's identity even if the player adopted
       // successor media before AVKit replied. An auto-start has no accepted
       // request, so it begins a fresh lifecycle here.
-      if pipLifecycleAttributionPhase != .awaitingStart {
+      if
+        pipLifecycleAttribution == nil
+        || pipLifecycleAttribution?.controllerGeneration != pipControllerGeneration {
         capturePiPLifecycleAttribution(mediaGeneration: mediaGenerationOverride)
       }
       pipLifecycleAttributionPhase = .awaitingStart
@@ -167,7 +168,6 @@ extension PiPController {
       // didStart directly, and a backend callback should still promote the
       // accepted successor if no willStart was observable.
       failedPiPLifecycleAttributions.removeAll(keepingCapacity: true)
-      promoteQueuedPiPStartAttributionIfNeeded()
       if
         pipLifecycleAttribution == nil
         || pipLifecycleAttribution?.controllerGeneration != pipControllerGeneration {
@@ -243,12 +243,16 @@ extension PiPController {
       capturePiPLifecycleAttribution()
       pipLifecycleAttributionPhase = .awaitingStart
     case .awaitingStart:
-      if nativeBackend != nil, !isActive {
+      #if os(iOS)
+      if let nativeBackend, !nativeBackend.isActive, !isActive {
         // The native backend cannot observe AVKit's failed-to-start callback.
         // A later accepted request while still inactive therefore supersedes
         // the unobservable attempt instead of preserving it forever.
         capturePiPLifecycleAttribution()
       }
+      #else
+      return result
+      #endif
     case .started:
       // Repeating start while AVKit is active still issues the backend method,
       // but it does not begin a new PiP lifecycle.
@@ -280,6 +284,17 @@ extension PiPController {
     pipLifecycleAttribution = queuedPiPStartAttribution
     self.queuedPiPStartAttribution = nil
     pipLifecycleAttributionPhase = .awaitingStart
+  }
+
+  /// Resolves the media identity a native backend must persist while active.
+  /// An accepted explicit request owns the lifecycle even when the native
+  /// active signal arrives after the player has adopted successor media.
+  func attributedNativePiPStartMediaGeneration(
+    signaledMediaGeneration: PlaybackGeneration?
+  ) -> PlaybackGeneration {
+    currentPiPLifecycleAttribution(
+      mediaGeneration: signaledMediaGeneration
+    ).mediaGeneration
   }
 
   func adoptActivePiPLifecycleAttribution(

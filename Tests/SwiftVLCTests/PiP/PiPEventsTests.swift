@@ -192,6 +192,33 @@ extension Integration {
     }
 
     @Test
+    func `A late willStart remains with the attempt stopped before it began`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      let controller = PiPController(player: player)
+      let avController = makeDummyAVController(for: controller)
+      let stream = controller.pipEventEnvelopes
+      let stoppedMediaGeneration = player.generation
+
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      controller.stop()
+      try player.load(Media(url: TestMedia.silenceURL))
+      let retryMediaGeneration = player.generation
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+
+      controller.pictureInPictureControllerWillStartPictureInPicture(avController)
+      controller.pictureInPictureControllerDidStartPictureInPicture(avController)
+      controller.pictureInPictureControllerDidStopPictureInPicture(avController)
+      controller.pictureInPictureControllerWillStartPictureInPicture(avController)
+
+      let envelopes = await collect(4, from: stream)
+      #expect(envelopes.prefix(3).allSatisfy {
+        $0.mediaGeneration == stoppedMediaGeneration
+      })
+      #expect(envelopes[3].mediaGeneration == retryMediaGeneration)
+    }
+
+    @Test
     func `A fresh accepted start after failure captures the new media`() async throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       try player.load(Media(url: TestMedia.twosecURL))
@@ -538,14 +565,11 @@ extension Integration {
     }
 
     @Test
-    func `A later inactive native start supersedes an unobservable failed attempt`() async throws {
+    func `A later inactive iOS native start supersedes an unobservable failed attempt`() async throws {
+      #if os(iOS)
       let player = Player(instance: TestInstance.makeAudioOnly())
       try player.load(Media(url: TestMedia.twosecURL))
-      #if os(iOS)
       let backend = IOSNativePiPBackend()
-      #else
-      let backend = MacNativePiPBackend()
-      #endif
       backend.attach(to: player)
       let controller = PiPController(player: player, nativeBackend: backend)
       let stream = controller.pipEventEnvelopes
@@ -558,7 +582,29 @@ extension Integration {
 
       let envelope = try #require(await collect(1, from: stream).first)
       #expect(envelope.mediaGeneration == retryMediaGeneration)
+      #endif
     }
+
+    #if os(macOS)
+    @Test
+    func `A macOS active update queued to its owner preserves the accepted media`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      let backend = MacNativePiPBackend()
+      backend.attach(to: player)
+      let controller = PiPController(player: player, nativeBackend: backend)
+      let stream = controller.pipEventEnvelopes
+      let acceptedGeneration = player.generation
+
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      backend.setActive(true)
+      try player.load(Media(url: TestMedia.silenceURL))
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+
+      let envelope = try #require(await collect(1, from: stream).first)
+      #expect(envelope.mediaGeneration == acceptedGeneration)
+    }
+    #endif
 
     @Test
     func `Callback snapshot publishes media generation before a callback hop`() throws {
@@ -604,6 +650,36 @@ extension Integration {
         Issue.record("Expected .didStop, got \(envelope.event)")
         return
       }
+    }
+
+    @Test
+    func `An active native backend persists accepted media across owner reconstruction`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      #if os(iOS)
+      let backend = IOSNativePiPBackend()
+      #else
+      let backend = MacNativePiPBackend()
+      #endif
+      backend.attach(to: player)
+      let original = PiPController(player: player, nativeBackend: backend)
+      let acceptedGeneration = player.generation
+      #expect(original.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+
+      try player.load(Media(url: TestMedia.silenceURL))
+      #if os(iOS)
+      backend.setActive(true, mediaGeneration: player.generation)
+      #else
+      backend.setActive(true)
+      #endif
+
+      let successor = PiPController(player: player, nativeBackend: backend)
+      let stream = successor.pipEventEnvelopes
+      backend.setActive(false)
+
+      let envelope = try #require(await collect(1, from: stream).first)
+      #expect(envelope.mediaGeneration == acceptedGeneration)
+      withExtendedLifetime(original) {}
     }
 
     @Test

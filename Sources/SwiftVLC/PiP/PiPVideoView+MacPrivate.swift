@@ -139,8 +139,11 @@ final class MacNativePiPBackend: NSObject, @unchecked Sendable {
   func setActive(_ isActive: Bool) {
     guard self.isActive != isActive else { return }
     if isActive {
-      activeMediaGeneration = owner?.player.generation
+      let signaledMediaGeneration = owner?.player.generation
         ?? mediaController.player?.generation
+      activeMediaGeneration = owner?.attributedNativePiPStartMediaGeneration(
+        signaledMediaGeneration: signaledMediaGeneration
+      ) ?? signaledMediaGeneration
     }
     let lifecycleMediaGeneration = activeMediaGeneration
     self.isActive = isActive

@@ -906,9 +906,12 @@ final class IOSNativePiPBackend: NSObject, @unchecked Sendable {
   ) {
     guard self.isActive != isActive else { return }
     if isActive {
-      activeMediaGeneration = mediaGeneration
+      let signaledMediaGeneration = mediaGeneration
         ?? owner?.player.generation
         ?? mediaController.player?.generation
+      activeMediaGeneration = owner?.attributedNativePiPStartMediaGeneration(
+        signaledMediaGeneration: signaledMediaGeneration
+      ) ?? signaledMediaGeneration
     }
     let lifecycleMediaGeneration = activeMediaGeneration
     self.isActive = isActive
