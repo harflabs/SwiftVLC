@@ -773,11 +773,15 @@ final class IOSNativePiPBackend: NSObject, @unchecked Sendable {
   ) {
     guard controller.responds(to: IOSNativePiPSelector.setStateChangeEventHandler) else { return }
 
+    let mediaController = mediaController
     let handler: IOSNativePiPStateChangeEventHandler = { [weak self] isStarted in
+      let mediaGeneration = isStarted
+        ? mediaController.callbackSnapshot.withLock { $0.playbackGeneration }
+        : nil
       Task { @MainActor in
         guard let self else { return }
         self.callbackGenerations.performIfCurrent(generation) {
-          self.setActive(isStarted)
+          self.setActive(isStarted, mediaGeneration: mediaGeneration)
         }
       }
     }
@@ -812,15 +816,19 @@ final class IOSNativePiPBackend: NSObject, @unchecked Sendable {
       }
     }
 
+    let mediaController = mediaController
     activeObservation = avController.observe(
       \.isPictureInPictureActive,
       options: [.initial, .new]
     ) { [weak self] controller, _ in
       let isActive = controller.isPictureInPictureActive
+      let mediaGeneration = isActive
+        ? mediaController.callbackSnapshot.withLock { $0.playbackGeneration }
+        : nil
       Task { @MainActor [weak self] in
         guard let self else { return }
         callbackGenerations.performIfCurrent(generation) {
-          self.setActive(isActive)
+          self.setActive(isActive, mediaGeneration: mediaGeneration)
         }
       }
     }
@@ -871,10 +879,14 @@ final class IOSNativePiPBackend: NSObject, @unchecked Sendable {
     owner?.handleNativePictureInPictureReady()
   }
 
-  func setActive(_ isActive: Bool) {
+  func setActive(
+    _ isActive: Bool,
+    mediaGeneration: PlaybackGeneration? = nil
+  ) {
     guard self.isActive != isActive else { return }
     if isActive {
-      activeMediaGeneration = owner?.player.generation
+      activeMediaGeneration = mediaGeneration
+        ?? owner?.player.generation
         ?? mediaController.player?.generation
     }
     let lifecycleMediaGeneration = activeMediaGeneration
@@ -950,11 +962,13 @@ final class IOSNativePiPMediaController: NSObject, IOSNativePiPMediaControlling,
   @MainActor
   func refreshCallbackSnapshot() {
     let pointer = player?.pointer
+    let playbackGeneration = player?.generation
     callbackSnapshot.withLock { snapshot in
       if snapshot.playerPointer != pointer {
         snapshot.generation &+= 1
       }
       snapshot.playerPointer = pointer
+      snapshot.playbackGeneration = playbackGeneration
     }
   }
 
@@ -967,6 +981,7 @@ final class IOSNativePiPMediaController: NSObject, IOSNativePiPMediaControlling,
         snapshot.generation &+= 1
       }
       snapshot.playerPointer = nil
+      snapshot.playbackGeneration = nil
     }
   }
 

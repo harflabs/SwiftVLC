@@ -521,14 +521,16 @@ public final class Player {
   /// media load. Clock samples stamped older than this are stale and are
   /// dropped rather than allowed to overwrite the seek target.
   var acceptedTimelineRevision: UInt64 = 0
-  /// Bumped whenever the session a ``recast(to:)`` is restoring is taken over
-  /// — by another recast or by a media load. An in-flight recast compares this
-  /// after every suspension and stops mutating once it no longer owns the
-  /// session, rather than reapplying stale tracks or transport state to
-  /// someone else's media.
-  var sessionGeneration: UInt64 = 0
+  /// Bumped when ``recast(to:)`` is superseded so suspended work rejects stale restoration.
+  var sessionGeneration: UInt64 = 0 {
+    didSet {
+      #if os(iOS) || os(macOS)
+      refreshNativeHandleSnapshots()
+      #endif
+    }
+  }
+
   /// The native media the generation was last advanced for.
-  ///
   /// libVLC reports a media change back as `.mediaChanged` whether or not the
   /// wrapper initiated it, so the handler cannot tell the two apart by the
   /// event alone. Comparing identity does: a change this player asked for has

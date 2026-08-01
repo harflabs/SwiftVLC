@@ -151,7 +151,7 @@ public final class PiPController: NSObject {
   #endif
   #if os(macOS)
   @ObservationIgnored
-  private var nativeBackend: MacNativePiPBackend?
+  var nativeBackend: MacNativePiPBackend?
   #endif
 
   /// Whether AVKit may start PiP automatically when the app moves to
@@ -220,6 +220,10 @@ public final class PiPController: NSObject {
   /// consuming the old stop cannot relabel or clear the retry.
   @ObservationIgnored
   var failedPiPLifecycleAttributions: [PiPLifecycleAttribution] = []
+  /// A start accepted while an older lifecycle is still waiting for its stop.
+  /// Promoted only after that stop is consumed.
+  @ObservationIgnored
+  var queuedPiPStartAttribution: PiPLifecycleAttribution?
   /// Which part of the attributed PiP lifecycle is in flight. This prevents a
   /// redundant accepted start from stealing an active lifecycle while still
   /// allowing a fresh request after a terminal start failure.

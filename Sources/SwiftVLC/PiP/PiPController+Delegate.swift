@@ -16,6 +16,7 @@ extension PiPController: AVPictureInPictureControllerDelegate {
     _ avController: AVPictureInPictureController
   ) {
     let identity = ObjectIdentifier(avController)
+    let mediaGeneration = callbackSnapshot.withLock { $0.playbackGeneration }
     pipMainActorAsync { [weak self] in
       // Rejected unless it comes from the installed controller: the hop means
       // a controller replaced in the meantime can still deliver, and its
@@ -28,7 +29,7 @@ extension PiPController: AVPictureInPictureControllerDelegate {
       activateAudioSessionIfNeeded()
       syncPlaybackStateForPictureInPicture()
       invalidatePictureInPicturePlaybackState()
-      publishPiPEvent(.willStart)
+      publishPiPEvent(.willStart, mediaGeneration: mediaGeneration)
     }
   }
 
@@ -39,6 +40,7 @@ extension PiPController: AVPictureInPictureControllerDelegate {
     _ avController: AVPictureInPictureController
   ) {
     let identity = ObjectIdentifier(avController)
+    let mediaGeneration = callbackSnapshot.withLock { $0.playbackGeneration }
     pipMainActorAsync { [weak self] in
       // Rejected unless it comes from the installed controller: the hop means
       // a controller replaced in the meantime can still deliver, and its
@@ -48,7 +50,7 @@ extension PiPController: AVPictureInPictureControllerDelegate {
       syncPlaybackStateForPictureInPicture()
       invalidatePictureInPicturePlaybackState()
       updatePiPActive(true)
-      publishPiPEvent(.didStart)
+      publishPiPEvent(.didStart, mediaGeneration: mediaGeneration)
     }
   }
 
@@ -61,12 +63,16 @@ extension PiPController: AVPictureInPictureControllerDelegate {
     _ avController: AVPictureInPictureController
   ) {
     let identity = ObjectIdentifier(avController)
+    let mediaGeneration = callbackSnapshot.withLock { $0.playbackGeneration }
     pipMainActorAsync { [weak self] in
       // Rejected unless it comes from the installed controller: the hop means
       // a controller replaced in the meantime can still deliver, and its
       // lifecycle describes a session that is over.
       guard let self, isCurrentAVController(identity) else { return }
-      publishPiPEvent(.willStop(reason: resolveStopReason()))
+      publishPiPEvent(
+        .willStop(reason: resolveStopReason()),
+        mediaGeneration: mediaGeneration
+      )
     }
   }
 
@@ -78,6 +84,7 @@ extension PiPController: AVPictureInPictureControllerDelegate {
     _ avController: AVPictureInPictureController
   ) {
     let identity = ObjectIdentifier(avController)
+    let mediaGeneration = callbackSnapshot.withLock { $0.playbackGeneration }
     pipMainActorAsync { [weak self] in
       // Rejected unless it comes from the installed controller: the hop means
       // a controller replaced in the meantime can still deliver, and its
@@ -86,7 +93,7 @@ extension PiPController: AVPictureInPictureControllerDelegate {
       let reason = resolveStopReason()
       pendingStopReason = nil
       updatePiPActive(false)
-      publishPiPEvent(.didStop(reason: reason))
+      publishPiPEvent(.didStop(reason: reason), mediaGeneration: mediaGeneration)
     }
   }
 
@@ -186,6 +193,7 @@ extension PiPController: AVPictureInPictureControllerDelegate {
     failedToStartPictureInPictureWithError error: Error
   ) {
     let identity = ObjectIdentifier(avController)
+    let mediaGeneration = callbackSnapshot.withLock { $0.playbackGeneration }
     pipMainActorAsync { [weak self] in
       // Rejected unless it comes from the installed controller: the hop means
       // a controller replaced in the meantime can still deliver, and its
@@ -193,7 +201,7 @@ extension PiPController: AVPictureInPictureControllerDelegate {
       guard let self, isCurrentAVController(identity) else { return }
       notePendingStopReason(.failure)
       updatePiPActive(false)
-      publishPiPEvent(.failedToStart(error))
+      publishPiPEvent(.failedToStart(error), mediaGeneration: mediaGeneration)
     }
   }
 }

@@ -34,6 +34,10 @@ struct PiPCallbackSnapshot: @unchecked Sendable {
   /// The generation is what makes that guarantee checkable rather than
   /// incidental.
   var generation: UInt64 = 0
+  /// Media session paired with the cached handle at publication time.
+  /// Native activity signals capture this before hopping to the main actor,
+  /// so a media replacement during that hop cannot relabel the lifecycle.
+  var playbackGeneration: PlaybackGeneration?
 
   /// `true` once a handle has been published, so a query can distinguish
   /// "not attached yet" from "attached to a player that reports nothing".
@@ -60,6 +64,7 @@ extension PiPController: NativeHandleSnapshotObserver {
     let pointer: OpaquePointer? = player.pointer
     let timebase = controlTimebase
     let active = pipPlaybackActive
+    let playbackGeneration = player.generation
 
     callbackSnapshot.withLock { snapshot in
       if snapshot.playerPointer != pointer {
@@ -68,6 +73,7 @@ extension PiPController: NativeHandleSnapshotObserver {
       snapshot.playerPointer = pointer
       snapshot.controlTimebase = timebase
       snapshot.isPlaybackActive = active
+      snapshot.playbackGeneration = playbackGeneration
     }
   }
 
@@ -78,6 +84,7 @@ extension PiPController: NativeHandleSnapshotObserver {
       snapshot.playerPointer = nil
       snapshot.controlTimebase = nil
       snapshot.isPlaybackActive = false
+      snapshot.playbackGeneration = nil
       snapshot.generation &+= 1
     }
   }

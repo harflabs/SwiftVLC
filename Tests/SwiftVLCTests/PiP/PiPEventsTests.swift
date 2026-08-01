@@ -254,6 +254,45 @@ extension Integration {
     }
 
     @Test
+    func `A failure that loses stop precedence preserves the old lifecycle and queues its retry`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      let controller = PiPController(player: player)
+      let avController = makeDummyAVController(for: controller)
+      let stream = controller.pipEventEnvelopes
+      let originalMediaGeneration = player.generation
+      let failure = NSError(domain: "swiftvlc.test.pip.restore-precedence", code: 1)
+
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      controller.pictureInPictureControllerWillStartPictureInPicture(avController)
+      controller.pictureInPictureControllerDidStartPictureInPicture(avController)
+      controller.pictureInPictureController(
+        avController,
+        restoreUserInterfaceForPictureInPictureStopWithCompletionHandler: { _ in }
+      )
+      controller.pictureInPictureController(
+        avController,
+        failedToStartPictureInPictureWithError: failure
+      )
+
+      try player.load(Media(url: TestMedia.silenceURL))
+      let retryMediaGeneration = player.generation
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      controller.pictureInPictureControllerDidStopPictureInPicture(avController)
+      controller.pictureInPictureControllerWillStartPictureInPicture(avController)
+
+      let envelopes = await collect(5, from: stream)
+      #expect(envelopes.prefix(4).allSatisfy {
+        $0.mediaGeneration == originalMediaGeneration
+      })
+      #expect(envelopes[4].mediaGeneration == retryMediaGeneration)
+      guard case .didStop(reason: .restoreRequested) = envelopes[3].event else {
+        Issue.record("Expected restore to retain stop precedence")
+        return
+      }
+    }
+
+    @Test
     func `restore then stop reports restoreRequested, plain stop reports userClosed`() async {
       let player = Player(instance: TestInstance.shared)
       let controller = PiPController(player: player)
@@ -459,6 +498,48 @@ extension Integration {
       let events = await collect(2, from: stream)
       #expect(events.map(\.controllerGeneration) == [1, 1])
       #expect(events.allSatisfy { $0.mediaGeneration == player.generation })
+    }
+
+    @Test
+    func `A later inactive native start supersedes an unobservable failed attempt`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      #if os(iOS)
+      let backend = IOSNativePiPBackend()
+      #else
+      let backend = MacNativePiPBackend()
+      #endif
+      backend.attach(to: player)
+      let controller = PiPController(player: player, nativeBackend: backend)
+      let stream = controller.pipEventEnvelopes
+
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      try player.load(Media(url: TestMedia.silenceURL))
+      let retryMediaGeneration = player.generation
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      controller.handleNativePictureInPictureActiveChanged(true)
+
+      let envelope = try #require(await collect(1, from: stream).first)
+      #expect(envelope.mediaGeneration == retryMediaGeneration)
+    }
+
+    @Test
+    func `Callback snapshot publishes media generation before a callback hop`() throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      let controller = PiPController(player: player)
+      let signalGeneration = controller.callbackSnapshot.withLock {
+        $0.playbackGeneration
+      }
+
+      try player.load(Media(url: TestMedia.silenceURL))
+      let successorGeneration = controller.callbackSnapshot.withLock {
+        $0.playbackGeneration
+      }
+
+      #expect(signalGeneration != nil)
+      #expect(signalGeneration != successorGeneration)
+      #expect(successorGeneration == player.generation)
     }
 
     @Test

@@ -154,6 +154,7 @@ extension PiPController {
       // older stop reason at the same boundary, so discard its saved identity
       // as well.
       failedPiPLifecycleAttributions.removeAll(keepingCapacity: true)
+      promoteQueuedPiPStartAttributionIfNeeded()
       // Preserve an accepted request's identity even if the player adopted
       // successor media before AVKit replied. An auto-start has no accepted
       // request, so it begins a fresh lifecycle here.
@@ -163,6 +164,11 @@ extension PiPController {
       pipLifecycleAttributionPhase = .awaitingStart
       attribution = currentPiPLifecycleAttribution(mediaGeneration: mediaGenerationOverride)
     case .didStart:
+      // Defensive counterpart to `willStart`: the native path synthesizes
+      // didStart directly, and a backend callback should still promote the
+      // accepted successor if no willStart was observable.
+      failedPiPLifecycleAttributions.removeAll(keepingCapacity: true)
+      promoteQueuedPiPStartAttributionIfNeeded()
       if
         pipLifecycleAttribution == nil
         || pipLifecycleAttribution?.controllerGeneration != pipControllerGeneration {
@@ -184,8 +190,10 @@ extension PiPController {
       }
     case .failedToStart:
       attribution = currentPiPLifecycleAttribution(mediaGeneration: mediaGenerationOverride)
-      failedPiPLifecycleAttributions.append(attribution)
-      clearCurrentPiPLifecycleAttribution()
+      if pendingStopReason == .failure {
+        failedPiPLifecycleAttributions.append(attribution)
+        clearCurrentPiPLifecycleAttribution()
+      }
     }
 
     let envelope = PiPEventEnvelope(
@@ -198,6 +206,7 @@ extension PiPController {
 
     if case .didStop(let reason) = event, reason != .failure {
       clearCurrentPiPLifecycleAttribution()
+      promoteQueuedPiPStartAttributionIfNeeded()
     }
   }
 
@@ -221,13 +230,24 @@ extension PiPController {
   /// issued the request. Refused starts cannot later own a lifecycle callback.
   func noteAcceptedPiPStartRequest(_ result: PiPStartResult) -> PiPStartResult {
     guard result == .accepted else { return result }
+    if pipLifecycleAttribution != nil, pendingStopReason != nil {
+      queuedPiPStartAttribution = makePiPLifecycleAttribution()
+      return result
+    }
     switch pipLifecycleAttributionPhase {
     case .idle:
       capturePiPLifecycleAttribution()
       pipLifecycleAttributionPhase = .awaitingStart
-    case .awaitingStart, .started:
-      // Repeating start while AVKit is already starting/active still issues
-      // the backend method, but it does not begin a new PiP lifecycle.
+    case .awaitingStart:
+      if nativeBackend != nil, !isActive {
+        // The native backend cannot observe AVKit's failed-to-start callback.
+        // A later accepted request while still inactive therefore supersedes
+        // the unobservable attempt instead of preserving it forever.
+        capturePiPLifecycleAttribution()
+      }
+    case .started:
+      // Repeating start while AVKit is active still issues the backend method,
+      // but it does not begin a new PiP lifecycle.
       break
     }
     return result
@@ -237,12 +257,25 @@ extension PiPController {
   func capturePiPLifecycleAttribution(
     mediaGeneration: PlaybackGeneration? = nil
   ) -> PiPLifecycleAttribution {
-    let attribution = PiPLifecycleAttribution(
+    let attribution = makePiPLifecycleAttribution(mediaGeneration: mediaGeneration)
+    pipLifecycleAttribution = attribution
+    return attribution
+  }
+
+  private func makePiPLifecycleAttribution(
+    mediaGeneration: PlaybackGeneration? = nil
+  ) -> PiPLifecycleAttribution {
+    PiPLifecycleAttribution(
       mediaGeneration: mediaGeneration ?? player.generation,
       controllerGeneration: pipControllerGeneration
     )
-    pipLifecycleAttribution = attribution
-    return attribution
+  }
+
+  private func promoteQueuedPiPStartAttributionIfNeeded() {
+    guard let queuedPiPStartAttribution else { return }
+    pipLifecycleAttribution = queuedPiPStartAttribution
+    self.queuedPiPStartAttribution = nil
+    pipLifecycleAttributionPhase = .awaitingStart
   }
 
   func adoptActivePiPLifecycleAttribution(
@@ -255,6 +288,7 @@ extension PiPController {
   func clearPiPLifecycleAttribution() {
     clearCurrentPiPLifecycleAttribution()
     failedPiPLifecycleAttributions.removeAll(keepingCapacity: false)
+    queuedPiPStartAttribution = nil
   }
 
   /// The current Picture in Picture state, followed by every subsequent
