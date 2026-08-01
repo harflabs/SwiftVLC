@@ -324,6 +324,41 @@ extension Integration {
     }
 
     @Test
+    func `A second failed attempt retires an earlier failure without a trailing stop`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      let controller = PiPController(player: player)
+      let avController = makeDummyAVController(for: controller)
+      let stream = controller.pipEventEnvelopes
+      let firstMediaGeneration = player.generation
+      let failure = NSError(domain: "swiftvlc.test.pip.consecutive-failures", code: 1)
+
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      controller.pictureInPictureController(
+        avController,
+        failedToStartPictureInPictureWithError: failure
+      )
+
+      try player.load(Media(url: TestMedia.silenceURL))
+      let secondMediaGeneration = player.generation
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      controller.pictureInPictureController(
+        avController,
+        failedToStartPictureInPictureWithError: failure
+      )
+      controller.pictureInPictureControllerDidStopPictureInPicture(avController)
+
+      let envelopes = await collect(3, from: stream)
+      #expect(envelopes[0].mediaGeneration == firstMediaGeneration)
+      #expect(envelopes[1].mediaGeneration == secondMediaGeneration)
+      #expect(envelopes[2].mediaGeneration == secondMediaGeneration)
+      guard case .didStop(reason: .failure) = envelopes[2].event else {
+        Issue.record("Expected the second failed attempt's trailing stop")
+        return
+      }
+    }
+
+    @Test
     func `A retry accepted during an undiscriminated stop keeps its media`() async throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       try player.load(Media(url: TestMedia.twosecURL))

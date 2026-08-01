@@ -150,7 +150,7 @@ extension PiPController {
     switch event {
     case .willStart:
       // A failed attempt's trailing stop can arrive after its retry reaches
-      // willStart. Keep failed identities until that stop is consumed or the
+      // willStart. Keep the failed identity until that stop is consumed or the
       // retry reaches didStart, which is the boundary that retires a failure
       // with no trailing terminal callback.
       // Preserve an accepted request's identity even if the player adopted
@@ -167,7 +167,7 @@ extension PiPController {
       // Defensive counterpart to `willStart`: the native path synthesizes
       // didStart directly, and a backend callback should still promote the
       // accepted successor if no willStart was observable.
-      failedPiPLifecycleAttributions.removeAll(keepingCapacity: true)
+      failedPiPLifecycleAttribution = nil
       if
         pipLifecycleAttribution == nil
         || pipLifecycleAttribution?.controllerGeneration != pipControllerGeneration {
@@ -176,22 +176,27 @@ extension PiPController {
       pipLifecycleAttributionPhase = .started
       attribution = currentPiPLifecycleAttribution(mediaGeneration: mediaGenerationOverride)
     case .willStop(let reason):
-      if reason == .failure, let failedAttribution = failedPiPLifecycleAttributions.first {
+      if reason == .failure, let failedAttribution = failedPiPLifecycleAttribution {
         attribution = failedAttribution
       } else {
         pipLifecycleAttributionPhase = .stopping
         attribution = currentPiPLifecycleAttribution(mediaGeneration: mediaGenerationOverride)
       }
     case .didStop(let reason):
-      if reason == .failure, !failedPiPLifecycleAttributions.isEmpty {
-        attribution = failedPiPLifecycleAttributions.removeFirst()
+      if reason == .failure, let failedAttribution = failedPiPLifecycleAttribution {
+        attribution = failedAttribution
+        failedPiPLifecycleAttribution = nil
       } else {
         attribution = currentPiPLifecycleAttribution(mediaGeneration: mediaGenerationOverride)
       }
     case .failedToStart:
       attribution = currentPiPLifecycleAttribution(mediaGeneration: mediaGenerationOverride)
       if pendingStopReason == .failure {
-        failedPiPLifecycleAttributions.append(attribution)
+        // A later failed-to-start callback is a terminal progress boundary for
+        // any earlier failed attempt whose optional didStop never arrived.
+        // Keep only the latest failure so its own terminal stop cannot consume
+        // a stale predecessor's identity.
+        failedPiPLifecycleAttribution = attribution
         clearCurrentPiPLifecycleAttribution()
       }
     }
@@ -238,11 +243,11 @@ extension PiPController {
     if
       pipLifecycleAttributionPhase == .idle,
       pipLifecycleAttribution == nil,
-      failedPiPLifecycleAttributions.isEmpty {
+      failedPiPLifecycleAttribution == nil {
       pendingStopReason = nil
     }
     let currentLifecycleIsStopping = pipLifecycleAttributionPhase == .stopping
-      || (pendingStopReason != nil && failedPiPLifecycleAttributions.isEmpty)
+      || (pendingStopReason != nil && failedPiPLifecycleAttribution == nil)
     if pipLifecycleAttribution != nil, currentLifecycleIsStopping {
       if queuedPiPStartAttribution == nil {
         queuedPiPStartAttribution = makePiPLifecycleAttribution()
@@ -326,7 +331,7 @@ extension PiPController {
 
   func clearPiPLifecycleAttribution() {
     clearCurrentPiPLifecycleAttribution()
-    failedPiPLifecycleAttributions.removeAll(keepingCapacity: false)
+    failedPiPLifecycleAttribution = nil
     queuedPiPStartAttribution = nil
   }
 
@@ -364,7 +369,7 @@ extension PiPController {
     if let pendingStopReason {
       return pendingStopReason
     }
-    if !failedPiPLifecycleAttributions.isEmpty {
+    if failedPiPLifecycleAttribution != nil {
       return .failure
     }
     if player.didReachEnd {

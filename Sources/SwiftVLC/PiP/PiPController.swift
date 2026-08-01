@@ -215,11 +215,13 @@ public final class PiPController: NSObject {
   /// player has already adopted another media.
   @ObservationIgnored
   var pipLifecycleAttribution: PiPLifecycleAttribution?
-  /// Failed starts can be followed by a trailing stop after another start has
-  /// already been accepted. Keep their identity outside the new lifecycle so
-  /// consuming the old stop cannot relabel or clear the retry.
+  /// A failed start can be followed by a trailing stop after another start has
+  /// already been accepted. Keep its identity outside the new lifecycle so
+  /// consuming the old stop cannot relabel or clear the retry. A later failure
+  /// replaces this slot: reaching the next terminal start outcome proves the
+  /// earlier failure omitted its optional stop callback.
   @ObservationIgnored
-  var failedPiPLifecycleAttributions: [PiPLifecycleAttribution] = []
+  var failedPiPLifecycleAttribution: PiPLifecycleAttribution?
   /// A start accepted while an older lifecycle is still waiting for its stop.
   /// Promoted only after that stop is consumed.
   @ObservationIgnored
