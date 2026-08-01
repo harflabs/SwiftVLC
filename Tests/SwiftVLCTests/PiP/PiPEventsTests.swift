@@ -209,9 +209,17 @@ extension Integration {
       let retryMediaGeneration = player.generation
       #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
       controller.pictureInPictureControllerWillStartPictureInPicture(avController)
+      controller.pictureInPictureControllerDidStartPictureInPicture(avController)
+      controller.pictureInPictureControllerDidStopPictureInPicture(avController)
 
-      let envelopes = await collect(2, from: stream)
-      #expect(envelopes[1].mediaGeneration == retryMediaGeneration)
+      let envelopes = await collect(4, from: stream)
+      #expect(envelopes.dropFirst().allSatisfy {
+        $0.mediaGeneration == retryMediaGeneration
+      })
+      guard case .didStop(reason: .userClosed) = envelopes[3].event else {
+        Issue.record("Expected the successful retry's independent stop")
+        return
+      }
     }
 
     @Test
@@ -236,23 +244,48 @@ extension Integration {
       #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
 
       // AVKit may finish the failed lifecycle after the application has
-      // already issued its retry. That old stop must consume only the saved
-      // failed identity, leaving the accepted retry intact.
-      controller.pictureInPictureControllerDidStopPictureInPicture(avController)
+      // already issued its retry and delivered willStart. That old stop must
+      // consume only the saved failed identity, leaving the retry intact.
       controller.pictureInPictureControllerWillStartPictureInPicture(avController)
+      controller.pictureInPictureControllerDidStopPictureInPicture(avController)
       controller.pictureInPictureControllerDidStartPictureInPicture(avController)
       controller.pictureInPictureControllerDidStopPictureInPicture(avController)
 
       let envelopes = await collect(5, from: stream)
       #expect(envelopes[0].mediaGeneration == failedMediaGeneration)
-      #expect(envelopes[1].mediaGeneration == failedMediaGeneration)
-      #expect(envelopes.dropFirst(2).allSatisfy {
+      #expect(envelopes[2].mediaGeneration == failedMediaGeneration)
+      #expect([envelopes[1], envelopes[3], envelopes[4]].allSatisfy {
         $0.mediaGeneration == retryMediaGeneration
       })
-      guard case .didStop(reason: .failure) = envelopes[1].event else {
+      guard case .didStop(reason: .failure) = envelopes[2].event else {
         Issue.record("Expected the failed attempt's trailing stop")
         return
       }
+    }
+
+    @Test
+    func `A retry accepted during an undiscriminated stop keeps its media`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      let controller = PiPController(player: player)
+      let avController = makeDummyAVController(for: controller)
+      let stream = controller.pipEventEnvelopes
+
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      controller.pictureInPictureControllerWillStartPictureInPicture(avController)
+      controller.pictureInPictureControllerDidStartPictureInPicture(avController)
+      controller.pictureInPictureControllerWillStopPictureInPicture(avController)
+
+      try player.load(Media(url: TestMedia.silenceURL))
+      let retryMediaGeneration = player.generation
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      try player.load(Media(url: TestMedia.twosecURL))
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      controller.pictureInPictureControllerDidStopPictureInPicture(avController)
+      controller.pictureInPictureControllerWillStartPictureInPicture(avController)
+
+      let envelopes = await collect(5, from: stream)
+      #expect(envelopes[4].mediaGeneration == retryMediaGeneration)
     }
 
     @Test

@@ -223,7 +223,11 @@ final class IOSNativePiPDrawableAttachment: UIView, IOSNativePiPDrawable {
   @objc(pictureInPictureReady)
   nonisolated func pictureInPictureReady() -> IOSNativePictureInPictureReadyBlock {
     let attachment = attachment
+    let nativeMediaController = nativeMediaController
     return { [weak nativePiPBackend] windowController in
+      let mediaGeneration = nativeMediaController.callbackSnapshot.withLock {
+        $0.playbackGeneration
+      }
       nonisolated(unsafe) let windowController = windowController
       Task { @MainActor in
         guard
@@ -234,7 +238,8 @@ final class IOSNativePiPDrawableAttachment: UIView, IOSNativePiPDrawable {
         else { return }
         nativePiPBackend.handlePictureInPictureReady(
           windowController,
-          generation: generation
+          generation: generation,
+          mediaGeneration: mediaGeneration
         )
       }
     }
@@ -642,12 +647,20 @@ final class IOSNativePiPBackend: NSObject, @unchecked Sendable {
       let attachment = callbackGenerations.currentAttachment(),
       let generation = callbackGenerations.reserveReadyCallback(for: attachment)
     else { return }
-    handlePictureInPictureReady(controller, generation: generation)
+    let mediaGeneration = mediaController.callbackSnapshot.withLock {
+      $0.playbackGeneration
+    }
+    handlePictureInPictureReady(
+      controller,
+      generation: generation,
+      mediaGeneration: mediaGeneration
+    )
   }
 
   func handlePictureInPictureReady(
     _ controller: AnyObject,
-    generation: IOSNativePiPCallbackGenerations.ReadyCallback
+    generation: IOSNativePiPCallbackGenerations.ReadyCallback,
+    mediaGeneration: PlaybackGeneration?
   ) {
     guard let controller = controller as? NSObject else { return }
 
@@ -661,7 +674,11 @@ final class IOSNativePiPBackend: NSObject, @unchecked Sendable {
 
       windowController = controller
       installStateChangeHandler(on: controller, generation: generation)
-      observeAVPictureInPictureController(on: controller, generation: generation)
+      observeAVPictureInPictureController(
+        on: controller,
+        generation: generation,
+        initialActiveMediaGeneration: mediaGeneration
+      )
 
       if avPictureInPictureController == nil {
         setPossible(true)
@@ -791,7 +808,8 @@ final class IOSNativePiPBackend: NSObject, @unchecked Sendable {
 
   private func observeAVPictureInPictureController(
     on controller: NSObject,
-    generation: IOSNativePiPCallbackGenerations.ReadyCallback
+    generation: IOSNativePiPCallbackGenerations.ReadyCallback,
+    initialActiveMediaGeneration: PlaybackGeneration?
   ) {
     guard controller.responds(to: IOSNativePiPSelector.avPictureInPictureController) else { return }
     guard let avController = controller.value(forKey: "avPipController") as? AVPictureInPictureController else { return }
@@ -801,7 +819,10 @@ final class IOSNativePiPBackend: NSObject, @unchecked Sendable {
     avController.canStartPictureInPictureAutomaticallyFromInline =
       startsAutomaticallyFromInline
     setPossible(avController.isPictureInPicturePossible)
-    setActive(avController.isPictureInPictureActive)
+    setActive(
+      avController.isPictureInPictureActive,
+      mediaGeneration: initialActiveMediaGeneration
+    )
 
     possibleObservation = avController.observe(
       \.isPictureInPicturePossible,

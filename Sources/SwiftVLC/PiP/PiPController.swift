@@ -235,10 +235,11 @@ public final class PiPController: NSObject {
     let controllerGeneration: UInt64
   }
 
-  enum PiPLifecycleAttributionPhase {
+  enum PiPLifecycleAttributionPhase: Equatable {
     case idle
     case awaitingStart
     case started
+    case stopping
   }
 
   /// The best-known reason for an in-flight PiP stop, recorded by the

@@ -149,11 +149,10 @@ extension PiPController {
     let attribution: PiPLifecycleAttribution
     switch event {
     case .willStart:
-      // Reaching a successor start callback means AVKit did not emit a
-      // trailing stop for any older failed attempt. The delegate clears the
-      // older stop reason at the same boundary, so discard its saved identity
-      // as well.
-      failedPiPLifecycleAttributions.removeAll(keepingCapacity: true)
+      // A failed attempt's trailing stop can arrive after its retry reaches
+      // willStart. Keep failed identities until that stop is consumed or the
+      // retry reaches didStart, which is the boundary that retires a failure
+      // with no trailing terminal callback.
       promoteQueuedPiPStartAttributionIfNeeded()
       // Preserve an accepted request's identity even if the player adopted
       // successor media before AVKit replied. An auto-start has no accepted
@@ -180,6 +179,7 @@ extension PiPController {
       if reason == .failure, let failedAttribution = failedPiPLifecycleAttributions.first {
         attribution = failedAttribution
       } else {
+        pipLifecycleAttributionPhase = .stopping
         attribution = currentPiPLifecycleAttribution(mediaGeneration: mediaGenerationOverride)
       }
     case .didStop(let reason):
@@ -230,17 +230,16 @@ extension PiPController {
   /// issued the request. Refused starts cannot later own a lifecycle callback.
   func noteAcceptedPiPStartRequest(_ result: PiPStartResult) -> PiPStartResult {
     guard result == .accepted else { return result }
-    if
-      pipLifecycleAttribution != nil,
-      pendingStopReason != nil,
-      failedPiPLifecycleAttributions.isEmpty {
+    let currentLifecycleIsStopping = pipLifecycleAttributionPhase == .stopping
+      || (pendingStopReason != nil && failedPiPLifecycleAttributions.isEmpty)
+    if pipLifecycleAttribution != nil, currentLifecycleIsStopping {
       if queuedPiPStartAttribution == nil {
         queuedPiPStartAttribution = makePiPLifecycleAttribution()
       }
       return result
     }
     switch pipLifecycleAttributionPhase {
-    case .idle:
+    case .idle, .stopping:
       capturePiPLifecycleAttribution()
       pipLifecycleAttributionPhase = .awaitingStart
     case .awaitingStart:
@@ -329,6 +328,9 @@ extension PiPController {
   func resolveStopReason() -> PiPStopReason {
     if let pendingStopReason {
       return pendingStopReason
+    }
+    if !failedPiPLifecycleAttributions.isEmpty {
+      return .failure
     }
     if player.didReachEnd {
       return .mediaEnded
