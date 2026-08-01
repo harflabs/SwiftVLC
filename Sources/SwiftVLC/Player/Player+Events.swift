@@ -36,6 +36,11 @@ extension Player {
   /// is disabled or not initialized, libVLC reports a negative volume
   /// sentinel and no aout stream participates in that assertion.
   var canIssueNativePause: Bool {
+    #if DEBUG
+    if let _nativePauseSafetyOverrideForTesting {
+      return _nativePauseSafetyOverrideForTesting
+    }
+    #endif
     if libvlc_media_player_get_time(pointer) > 0 {
       return true
     }
@@ -411,7 +416,10 @@ extension Player {
     deferredPauseCommand = nil
     switch command {
     case .pause:
-      _ = issuePause(playbackGeneration: playbackGeneration)
+      _ = issuePause(
+        playbackGeneration: playbackGeneration,
+        recordsPlaybackControlIntent: false
+      )
     case .resume:
       _ = issueResume(playbackGeneration: playbackGeneration)
     }

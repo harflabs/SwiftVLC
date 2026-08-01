@@ -485,6 +485,57 @@ extension Integration {
     }
 
     @Test
+    func `A generation-bound fresh PiP pause replaces stale list resume intent`() {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let generation: UInt64 = 1
+      _ = player.eventBridge.synchronizePlaybackGeneration(generation, media: nil)
+      player._nativePlaybackStateOverrideForTesting = .playing
+      player._nativeCanPauseOverrideForTesting = true
+      player._nativePauseSafetyOverrideForTesting = true
+      player._setStateForTesting(state: .playing, isPlaybackRequestedActive: true)
+      player.setPlaybackControlIntent(.resume)
+
+      #expect(player.issuePause(playbackGeneration: generation))
+      #expect(player.playbackControlIntent == .pause)
+      #expect(!player.isPlaybackRequestedActive)
+
+      player.handleEvent(.mediaChanged, sourcePlaybackGeneration: generation)
+
+      #expect(
+        player.playbackControlIntent == .pause,
+        "media adoption resurrected the list resume that preceded the PiP pause"
+      )
+      #expect(!player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `A generation-bound pause repairs advancement during the native command`() {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let capturedGeneration: UInt64 = 1
+      _ = player.eventBridge.synchronizePlaybackGeneration(capturedGeneration, media: nil)
+      player._nativePlaybackStateOverrideForTesting = .playing
+      player._nativeCanPauseOverrideForTesting = true
+      player._nativePauseSafetyOverrideForTesting = true
+      player._setStateForTesting(state: .playing, isPlaybackRequestedActive: true)
+      player.setPlaybackControlIntent(.resume)
+      player._pauseProbeHookForTesting = { stage in
+        guard stage == .nativePause else { return }
+        player._pauseProbeHookForTesting = nil
+        _ = player.eventBridge.synchronizePlaybackGeneration(
+          capturedGeneration + 1,
+          media: nil
+        )
+      }
+
+      #expect(!player.issuePause(playbackGeneration: capturedGeneration))
+      #expect(player.pauseTransition == nil)
+      #expect(player.pauseTransitionPlaybackGeneration == nil)
+      #expect(player.deferredPauseCommand == nil)
+      #expect(player.playbackControlIntent == .resume)
+      #expect(player.isPlaybackRequestedActive)
+    }
+
+    @Test
     func `An outgoing resume retry cannot clear a successor pause`() {
       let player = Player(instance: TestInstance.shared)
       player._setStateForTesting(state: .paused)

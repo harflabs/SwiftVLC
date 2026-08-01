@@ -63,7 +63,10 @@ public final class PiPController: NSObject {
   struct PlaybackDriver {
     /// `nil` follows the current media; a concrete value binds deferred work
     /// to the media generation that originally scheduled it.
-    let pause: @MainActor (_ playbackGeneration: UInt64?) -> Bool
+    let pause: @MainActor (
+      _ playbackGeneration: UInt64?,
+      _ recordsPlaybackControlIntent: Bool
+    ) -> Bool
     let resume: @MainActor () -> Bool
     let cancelPendingPause: @MainActor () -> Void
     let shouldResume: @MainActor () -> Bool
@@ -74,7 +77,12 @@ public final class PiPController: NSObject {
 
     static func live(player: Player) -> Self {
       Self(
-        pause: { player.issuePause(playbackGeneration: $0) },
+        pause: {
+          player.issuePause(
+            playbackGeneration: $0,
+            recordsPlaybackControlIntent: $1
+          )
+        },
         resume: { player.issueResume() },
         cancelPendingPause: { player.cancelPendingPause() },
         shouldResume: { player.shouldResumeForExternalPlayRequest },
@@ -893,6 +901,10 @@ public final class PiPController: NSObject {
     let debounce = pauseDebounce
     let task = Task { @MainActor [weak self] in
       var attemptsRemaining = Self.maxDeferredPauseAttempts
+      // The first native attempt is the fresh PiP transport command. Later
+      // calls are retries of that same command and must not overwrite a newer
+      // playlist play/resume intent that arrived between attempts.
+      var hasAttemptedPlayerPause = false
       while !Task.isCancelled {
         do {
           try await Task.sleep(for: debounce)
@@ -912,7 +924,9 @@ public final class PiPController: NSObject {
 
         switch player.state {
         case .playing:
-          if playbackDriver.pause(playbackGeneration) {
+          let recordsPlaybackControlIntent = !hasAttemptedPlayerPause
+          hasAttemptedPlayerPause = true
+          if playbackDriver.pause(playbackGeneration, recordsPlaybackControlIntent) {
             deferredPause = .issued
             deferredPauseOutcome = .issued
             return
@@ -956,6 +970,11 @@ public final class PiPController: NSObject {
   /// leaving it there would show paused controls over playing media — the
   /// visible half of this bug. Republish the truth on both surfaces.
   private func settleUnpausableInput() {
+    // `issuePause` can reject synchronously while retaining a player-owned
+    // deferred command for a later pausable/time event. Retire that command
+    // before publishing a terminal result, or it could pause playback after
+    // observers were told this attempt had been rejected.
+    playbackDriver.cancelPendingPause()
     deferredPauseOutcome = .rejected
     guard player.state.isActive else { return }
     player.setPlaybackIntentFromExternalControl(true)

@@ -85,10 +85,13 @@ extension Player {
   }
 
   @discardableResult
-  func issuePause(playbackGeneration requestedGeneration: UInt64? = nil) -> Bool {
+  func issuePause(
+    playbackGeneration requestedGeneration: UInt64? = nil,
+    recordsPlaybackControlIntent: Bool = true
+  ) -> Bool {
     let followsCurrentGeneration = requestedGeneration == nil
     let previousPlaybackControlIntent = playbackControlIntent
-    if followsCurrentGeneration {
+    if recordsPlaybackControlIntent {
       playbackControlIntent = .pause
     }
     var playbackGeneration = requestedGeneration ?? eventBridge.currentPlaybackGeneration
@@ -106,7 +109,14 @@ extension Player {
           current: generationBeforeProbe,
           followsCurrentGeneration: followsCurrentGeneration
         )
-      else { return false }
+      else {
+        rollbackBoundPauseIntentIfNeeded(
+          recordsPlaybackControlIntent: recordsPlaybackControlIntent,
+          followsCurrentGeneration: followsCurrentGeneration,
+          previousPlaybackControlIntent: previousPlaybackControlIntent
+        )
+        return false
+      }
       playbackGeneration = revalidatedGeneration
 
       guard pauseTransition == nil else {
@@ -135,7 +145,14 @@ extension Player {
           current: generationAfterStateProbe,
           followsCurrentGeneration: followsCurrentGeneration
         )
-      else { return false }
+      else {
+        rollbackBoundPauseIntentIfNeeded(
+          recordsPlaybackControlIntent: recordsPlaybackControlIntent,
+          followsCurrentGeneration: followsCurrentGeneration,
+          previousPlaybackControlIntent: previousPlaybackControlIntent
+        )
+        return false
+      }
       if generationAfterStateProbe != playbackGeneration {
         playbackGeneration = generationAfterStateProbe
         if probeAttempt < 2 {
@@ -175,16 +192,22 @@ extension Player {
         publishPlaybackIntent(false)
         return false
       default:
-        if followsCurrentGeneration {
+        if recordsPlaybackControlIntent {
           #if DEBUG
           _pauseProbeHookForTesting?(.pauseRollback)
           #endif
-          let didRestorePreviousIntent = eventBridge.performIfCurrentPlaybackGeneration(
-            playbackGeneration
-          ) {
+          let didRestorePreviousIntent: Bool
+          if followsCurrentGeneration {
+            didRestorePreviousIntent = eventBridge.performIfCurrentPlaybackGeneration(
+              playbackGeneration
+            ) {
+              playbackControlIntent = previousPlaybackControlIntent
+            }
+          } else {
             playbackControlIntent = previousPlaybackControlIntent
+            didRestorePreviousIntent = true
           }
-          if !didRestorePreviousIntent {
+          if !didRestorePreviousIntent, followsCurrentGeneration {
             retainDeferredPause(
               playbackGeneration: playbackGeneration,
               followsCurrentGeneration: true
@@ -197,7 +220,12 @@ extension Player {
       // Keep this probe side-effect free until its generation is validated.
       // Refreshing observable capabilities here could publish values from a
       // successor under the outgoing media's generation.
+      #if DEBUG
+      let nativeCanPause = _nativeCanPauseOverrideForTesting
+        ?? libvlc_media_player_can_pause(pointer)
+      #else
       let nativeCanPause = libvlc_media_player_can_pause(pointer)
+      #endif
       let nativePauseIsSafe = canIssueNativePause
       #if DEBUG
       _pauseProbeHookForTesting?(.capability)
@@ -209,7 +237,14 @@ extension Player {
           current: generationAfterCapabilityProbe,
           followsCurrentGeneration: followsCurrentGeneration
         )
-      else { return false }
+      else {
+        rollbackBoundPauseIntentIfNeeded(
+          recordsPlaybackControlIntent: recordsPlaybackControlIntent,
+          followsCurrentGeneration: followsCurrentGeneration,
+          previousPlaybackControlIntent: previousPlaybackControlIntent
+        )
+        return false
+      }
       if generationAfterCapabilityProbe != playbackGeneration {
         playbackGeneration = generationAfterCapabilityProbe
         if probeAttempt < 2 {
@@ -230,19 +265,45 @@ extension Player {
       }
 
       setPauseTransition(.pausing, playbackGeneration: playbackGeneration)
-      deferredPauseCommand = nil
+      if deferredPauseCommandPlaybackGeneration == playbackGeneration {
+        deferredPauseCommand = nil
+      }
       publishPlaybackIntent(false)
       libvlc_media_player_set_pause(pointer, 1)
+      #if DEBUG
+      _pauseProbeHookForTesting?(.nativePause)
+      #endif
 
       // Close the final check-to-command race. The native pause may already
       // have reached either side of the media boundary; retaining the request
       // for a newly observed successor guarantees the latest media still
       // settles paused after adoption clears the outgoing transition.
-      if followsCurrentGeneration {
-        let generationAfterPause = eventBridge.currentPlaybackGeneration
-        if generationAfterPause != playbackGeneration {
+      let generationAfterPause = eventBridge.currentPlaybackGeneration
+      if generationAfterPause != playbackGeneration {
+        if followsCurrentGeneration {
           setDeferredPauseCommand(.pause, playbackGeneration: generationAfterPause)
+          return true
         }
+
+        // This request was deliberately bound to the captured media. The
+        // callback lane can still advance in the few instructions between the
+        // last check and `set_pause`. Undo a pause that may have reached the
+        // successor, retire only the outgoing transition, and let the latest
+        // persistent intent decide whether a fresh successor pause is queued.
+        libvlc_media_player_set_pause(pointer, 0)
+        clearPauseControlState(for: playbackGeneration)
+        if recordsPlaybackControlIntent {
+          playbackControlIntent = previousPlaybackControlIntent
+        }
+        if playbackControlIntent == .pause {
+          setDeferredPauseCommand(.pause, playbackGeneration: generationAfterPause)
+          publishPlaybackIntent(false)
+        } else {
+          publishPlaybackIntent(
+            playbackControlIntent == .resume || state.isActive
+          )
+        }
+        return false
       }
       return true
     }
@@ -260,6 +321,19 @@ extension Player {
       : playbackGeneration
     setDeferredPauseCommand(.pause, playbackGeneration: generation)
     publishPlaybackIntent(false)
+  }
+
+  /// A fresh command can be generation-bound (PiP debounce) without following
+  /// later media. If that bound is already stale, restore the transport intent
+  /// that existed before the command; retries do not own that global intent.
+  private func rollbackBoundPauseIntentIfNeeded(
+    recordsPlaybackControlIntent: Bool,
+    followsCurrentGeneration: Bool,
+    previousPlaybackControlIntent: DeferredPauseCommand?
+  ) {
+    guard recordsPlaybackControlIntent, !followsCurrentGeneration else { return }
+    playbackControlIntent = previousPlaybackControlIntent
+    publishPlaybackIntent(previousPlaybackControlIntent == .resume || state.isActive)
   }
 
   @discardableResult

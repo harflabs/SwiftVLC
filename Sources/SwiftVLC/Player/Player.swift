@@ -469,6 +469,7 @@ public final class Player {
   enum PauseProbeStage {
     case state
     case capability
+    case nativePause
     case pauseRollback
     case resumeState
     case resumeRollback
@@ -478,6 +479,10 @@ public final class Player {
   var _pauseProbeHookForTesting: ((PauseProbeStage) -> Void)?
   @ObservationIgnored
   var _nativePlaybackStateOverrideForTesting: PlayerState?
+  @ObservationIgnored
+  var _nativeCanPauseOverrideForTesting: Bool?
+  @ObservationIgnored
+  var _nativePauseSafetyOverrideForTesting: Bool?
   #endif
 
   var pauseTransition: PauseTransition? {

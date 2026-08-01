@@ -13,6 +13,7 @@ extension Integration {
     @MainActor
     final class PlaybackRecorder {
       var pauseCount = 0
+      var pauseRecordsIntent: [Bool] = []
       var resumeCount = 0
       var cancelPendingPauseCount = 0
       var shouldResume = false
@@ -24,8 +25,9 @@ extension Integration {
 
       var driver: PiPController.PlaybackDriver {
         .init(
-          pause: { _ in
+          pause: { _, recordsPlaybackControlIntent in
             self.pauseCount += 1
+            self.pauseRecordsIntent.append(recordsPlaybackControlIntent)
             return self.pauseSucceeds
           },
           resume: {
@@ -81,6 +83,38 @@ extension Integration {
         "intent stayed inactive while playback continued — paused UI over playing media"
       )
       #expect(controller._pipPlaybackActiveForTesting())
+      #expect(recorder.cancelPendingPauseCount == 1)
+      #expect(recorder.pauseRecordsIntent.first == true)
+      #expect(
+        recorder.pauseRecordsIntent.dropFirst().allSatisfy { !$0 },
+        "a retry was incorrectly promoted to a fresh transport command"
+      )
+    }
+
+    /// A live player can retain a pause that native capability checks reject.
+    /// Terminal rejection must retire that player-owned command before the
+    /// public outcome becomes visible, or a later capability event can execute
+    /// a pause after the controller has declared the request finished.
+    @Test
+    func `Terminal rejection retires the player-owned deferred pause`() async {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      player._nativePlaybackStateOverrideForTesting = .playing
+      player._nativeCanPauseOverrideForTesting = false
+      player._setStateForTesting(state: .playing, isPlaybackRequestedActive: true)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: .live(player: player),
+        pauseDebounce: .milliseconds(1)
+      )
+
+      controller._setPlayingForTesting(false)
+
+      #expect(await awaitDeferredPauseOutcome(controller))
+      #expect(controller.deferredPauseOutcome == .rejected)
+      #expect(player.deferredPauseCommand == nil)
+      #expect(player.deferredPauseCommandPlaybackGeneration == nil)
+      #expect(player.playbackControlIntent == .resume)
+      #expect(player.isPlaybackRequestedActive)
     }
 
     /// Apps need to react when a deferred pause settles, rather than polling

@@ -120,7 +120,7 @@ extension Integration {
 
       var driver: PiPController.PlaybackDriver {
         .init(
-          pause: { _ in
+          pause: { _, _ in
             self.pauseCount += 1
             return true
           },
