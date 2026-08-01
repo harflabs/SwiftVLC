@@ -456,8 +456,54 @@ public final class Player {
     case resume
   }
 
-  var pauseTransition: PauseTransition?
-  var deferredPauseCommand: DeferredPauseCommand?
+  /// Latest explicit transport intent. Unlike a generation-scoped deferred
+  /// command, this survives a native playlist boundary so adoption can carry
+  /// a pause or resume that raced with the media switch.
+  @ObservationIgnored
+  var playbackControlIntent: DeferredPauseCommand?
+
+  #if DEBUG
+  /// Lets deterministic tests advance the callback-lane generation at the
+  /// otherwise unschedulable boundaries between a native probe and its
+  /// generation revalidation. Compiled out of release builds.
+  enum PauseProbeStage {
+    case state
+    case capability
+    case pauseRollback
+    case resumeState
+    case resumeRollback
+  }
+
+  @ObservationIgnored
+  var _pauseProbeHookForTesting: ((PauseProbeStage) -> Void)?
+  @ObservationIgnored
+  var _nativePlaybackStateOverrideForTesting: PlayerState?
+  #endif
+
+  var pauseTransition: PauseTransition? {
+    didSet {
+      pauseTransitionPlaybackGeneration = pauseTransition == nil
+        ? nil
+        : eventBridge.currentPlaybackGeneration
+    }
+  }
+
+  /// Native playback generation the in-flight transition was issued against.
+  var pauseTransitionPlaybackGeneration: UInt64?
+  var deferredPauseCommand: DeferredPauseCommand? {
+    didSet {
+      deferredPauseCommandPlaybackGeneration = deferredPauseCommand == nil
+        ? nil
+        : eventBridge.currentPlaybackGeneration
+    }
+  }
+
+  /// Native playback generation the deferred command was accepted against.
+  /// The event bridge can advance before its media-change event reaches the
+  /// main actor, so this is more authoritative than `sessionGeneration` while
+  /// a MediaListPlayer is opening its next item.
+  var deferredPauseCommandPlaybackGeneration: UInt64?
+
   /// Shadow of the string last passed to `Marquee.setText`. libVLC's text
   /// renderer keys its glyph-bitmap cache on the text string, so a style-
   /// only write (color/opacity/fontSize) hits the cached entry and draws
@@ -652,6 +698,7 @@ public final class Player {
     currentMedia = media
     sessionGenerationMedia = media.pointer
     publishPlaybackStatus()
+    playbackControlIntent = nil
     resetMediaDerivedState()
     libvlc_media_player_set_media(pointer, media.pointer)
     notifyMediaDependentObservables()
@@ -695,6 +742,7 @@ public final class Player {
       // No `notifyMediaDependentObservables()` here: the swap already issued
       // it, and the keypaths it refreshes read from the native handle rather
       // than from `currentMedia`, so a second pass is pure churn.
+      playbackControlIntent = nil
       resetMediaDerivedState()
     } else {
       load(media)
@@ -727,13 +775,14 @@ public final class Player {
     try prepareDrawableForPlayback()
     didReachEnd = false
     if libvlc_media_player_play(pointer) == -1 {
+      playbackControlIntent = nil
       publishPlaybackIntent(false)
       publishPlaybackState(Self.stateAfterRejectedStart(previous: state))
       let reason = libvlc_errmsg().map { String(cString: $0) } ?? "unknown"
       throw .playbackFailed(reason: reason)
     }
     nativePlayerHasStartedPlayback = true
-    publishPlaybackIntent(true)
+    setPlaybackControlIntent(.resume)
   }
 
   /// The lifecycle state to publish when libVLC refuses to start.
@@ -750,98 +799,6 @@ public final class Player {
   /// is not something a test can force, including on an empty player.
   nonisolated static func stateAfterRejectedStart(previous: PlayerState) -> PlayerState {
     previous.isActive ? .error : previous
-  }
-
-  /// Pauses playback.
-  ///
-  /// If libVLC is visually playing but has not yet reached a stable,
-  /// pausable state, SwiftVLC keeps the pause request pending and issues
-  /// it once the native player reports that pausing is safe. With real
-  /// audio output, the first audio timestamp must also have advanced
-  /// beyond zero; pausing before that point can leave libVLC's aout
-  /// stream with stale pause timing.
-  public func pause() {
-    _ = issuePause()
-  }
-
-  /// Resumes playback from pause.
-  public func resume() {
-    _ = issueResume()
-  }
-
-  @discardableResult
-  func issuePause() -> Bool {
-    guard pauseTransition == nil else {
-      deferredPauseCommand = .pause
-      publishPlaybackIntent(false)
-      return false
-    }
-    switch state {
-    case .playing:
-      break
-    case .opening, .buffering:
-      deferredPauseCommand = .pause
-      publishPlaybackIntent(false)
-      return false
-    case .paused:
-      publishPlaybackIntent(false)
-      return false
-    default:
-      return false
-    }
-    refreshNativeStateIfNeeded()
-    guard isPausable, canIssueNativePause else {
-      deferredPauseCommand = .pause
-      publishPlaybackIntent(false)
-      return false
-    }
-
-    pauseTransition = .pausing
-    deferredPauseCommand = nil
-    publishPlaybackIntent(false)
-    libvlc_media_player_set_pause(pointer, 1)
-    return true
-  }
-
-  @discardableResult
-  func issueResume() -> Bool {
-    guard pauseTransition == nil else {
-      deferredPauseCommand = .resume
-      publishPlaybackIntent(true)
-      return true
-    }
-    if deferredPauseCommand == .pause {
-      deferredPauseCommand = nil
-      publishPlaybackIntent(true)
-      return true
-    }
-    cancelPendingPause()
-    let nativeState = nativePlaybackState
-    guard nativeState == .paused else {
-      if state == .paused, nativeState.isActive {
-        publishPlaybackState(nativeState)
-        publishPlaybackIntent(true)
-        return true
-      }
-      if state.isActive {
-        publishPlaybackIntent(true)
-        return true
-      }
-      return false
-    }
-
-    pauseTransition = .resuming
-    deferredPauseCommand = nil
-    publishPlaybackIntent(true)
-    libvlc_media_player_set_pause(pointer, 0)
-    return true
-  }
-
-  func cancelPendingPause() {
-    if deferredPauseCommand == .pause {
-      deferredPauseCommand = nil
-      publishPlaybackIntent(true)
-    }
   }
 
   var shouldResumeForExternalPlayRequest: Bool {
@@ -892,9 +849,7 @@ public final class Player {
     if shouldResumeNativePlayerBeforeStop {
       libvlc_media_player_set_pause(pointer, 0)
     }
-    pauseTransition = nil
-    deferredPauseCommand = nil
-    publishPlaybackIntent(false)
+    clearPlaybackControlForExternalStop()
     if nativePlayerHasHostedDrawable {
       nativePlayerNeedsReplacementBeforePlayback = true
       needsDrawableRebindForPlayback = true

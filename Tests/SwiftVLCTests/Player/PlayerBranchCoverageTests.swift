@@ -129,6 +129,7 @@ extension Integration {
       player.cancelPendingPause()
 
       #expect(player.deferredPauseCommand == nil)
+      #expect(player.playbackControlIntent == .resume)
       #expect(player.isPlaybackRequestedActive)
     }
 

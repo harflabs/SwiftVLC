@@ -755,7 +755,7 @@ extension Integration {
     }
 
     @Test
-    func `macOS native PiP media controller defaults without player`() async {
+    func `macOS native PiP media controller defaults without player`() async throws {
       let mediaController = MacNativePiPMediaController()
       let didComplete = Box(false)
 
@@ -765,7 +765,7 @@ extension Integration {
         didComplete.value = true
       }
 
-      await Task.yield()
+      try #require(await poll(until: { didComplete.value }))
 
       #expect(didComplete.value)
       #expect(mediaController.mediaLength() == -1)
@@ -775,7 +775,7 @@ extension Integration {
     }
 
     @Test
-    func `macOS native PiP media controller reads player defaults and completes seek`() async {
+    func `macOS native PiP media controller reads player defaults and completes seek`() async throws {
       let player = Player(instance: TestInstance.shared)
       player._setStateForTesting(
         currentTime: .seconds(5),
@@ -793,7 +793,7 @@ extension Integration {
         didComplete.value = true
       }
 
-      await Task.yield()
+      try #require(await poll(until: { didComplete.value }))
       player.setPlaybackIntentFromExternalControl(false)
 
       #expect(didComplete.value)

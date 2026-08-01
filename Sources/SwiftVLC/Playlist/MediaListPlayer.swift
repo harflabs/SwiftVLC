@@ -179,6 +179,9 @@ public final class MediaListPlayer {
   /// Starts playing the media list from the beginning.
   public func play() {
     libvlc_media_list_player_play(pointer)
+    if _mediaList?.isEmpty == false {
+      publishAcceptedPlayIntent()
+    }
   }
 
   /// Toggles between playing and paused. No-op in transient states
@@ -207,12 +210,26 @@ public final class MediaListPlayer {
 
   /// Pauses playback.
   public func pause() {
-    libvlc_media_list_player_set_pause(pointer, 1)
+    if let mediaPlayer = _mediaPlayer {
+      // The list-player "playing" flag can become true while the attached
+      // media player is still opening or waiting for its first audio
+      // timestamp. Sending the raw list-player pause in that window can be
+      // lost (and bypasses Player's audio-output safety gate). Route through
+      // the attached wrapper so its deferred-pause state machine retries the
+      // command as soon as the shared native handle is pausable.
+      mediaPlayer.pause()
+    } else {
+      libvlc_media_list_player_set_pause(pointer, 1)
+    }
   }
 
   /// Resumes playback.
   public func resume() {
-    libvlc_media_list_player_set_pause(pointer, 0)
+    if let mediaPlayer = _mediaPlayer {
+      mediaPlayer.resume()
+    } else {
+      libvlc_media_list_player_set_pause(pointer, 0)
+    }
   }
 
   /// Whether the list player is currently playing.
@@ -240,6 +257,7 @@ public final class MediaListPlayer {
     guard libvlc_media_list_player_play_item_at_index(pointer, index) == 0 else {
       throw .operationFailed("Play item at index \(index)")
     }
+    publishAcceptedPlayIntent()
   }
 
   /// Plays a specific media item from the list.
@@ -252,11 +270,13 @@ public final class MediaListPlayer {
     guard libvlc_media_list_player_play_item(pointer, media.pointer) == 0 else {
       throw .operationFailed("Play media item")
     }
+    publishAcceptedPlayIntent()
   }
 
   /// Stops playback asynchronously.
   public func stop() {
     libvlc_media_list_player_stop_async(pointer)
+    _mediaPlayer?.clearPlaybackControlForExternalStop()
   }
 
   /// Advances to the next item in the list.
@@ -265,6 +285,7 @@ public final class MediaListPlayer {
     guard libvlc_media_list_player_next(pointer) == 0 else {
       throw .operationFailed("Advance to next item")
     }
+    publishAcceptedPlayIntent()
   }
 
   /// Goes back to the previous item in the list.
@@ -273,6 +294,17 @@ public final class MediaListPlayer {
     guard libvlc_media_list_player_previous(pointer) == 0 else {
       throw .operationFailed("Go to previous item")
     }
+    publishAcceptedPlayIntent()
+  }
+
+  /// Records an accepted list play before reconciling the shared native
+  /// handle. Prepublishing resume makes a stable native-idle response preserve
+  /// the accepted command, while `issueResume` replaces an older deferred or
+  /// in-flight pause when list playback is already starting.
+  private func publishAcceptedPlayIntent() {
+    guard let mediaPlayer = _mediaPlayer else { return }
+    mediaPlayer.setPlaybackControlIntent(.resume)
+    mediaPlayer.resume()
   }
 
   /// Relinquishes a player that another list player is about to adopt. Keep

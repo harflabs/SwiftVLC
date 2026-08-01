@@ -1,4 +1,5 @@
 @testable import SwiftVLC
+import Synchronization
 import Testing
 
 extension Integration {
@@ -124,8 +125,578 @@ extension Integration {
       listPlayer.play()
       try #require(await poll(until: { listPlayer.isPlaying }), "Waiting for: listPlayer.isPlaying")
       listPlayer.pause()
-      try #require(await poll(until: { listPlayer.state == .paused }), "Waiting for: listPlayer.state == .paused")
+      let immediateDiagnostic =
+        "after pause: list=\(listPlayer.state), player=\(player.state), native=\(player.nativePlaybackState), "
+          + "pausable=\(player.isPausable), deferred=\(String(describing: player.deferredPauseCommand)), "
+          + "transition=\(String(describing: player.pauseTransition)); "
+      let reachedPaused = try await poll(until: { listPlayer.state == .paused })
+      let diagnostic =
+        immediateDiagnostic
+          + "at timeout: list=\(listPlayer.state), player=\(player.state), native=\(player.nativePlaybackState), "
+          + "pausable=\(player.isPausable), deferred=\(String(describing: player.deferredPauseCommand)), "
+          + "transition=\(String(describing: player.pauseTransition))"
+      #expect(
+        reachedPaused,
+        Comment(rawValue: diagnostic)
+      )
       listPlayer.stop()
+    }
+
+    @Test
+    func `Pause while cached playback is opening is deferred`() {
+      let instance = TestInstance.shared
+      let player = Player(instance: instance)
+      player._setStateForTesting(state: .opening, isPlaybackRequestedActive: true)
+
+      player.pause()
+
+      #expect(player.deferredPauseCommand == .pause)
+      #expect(player.isPlaybackRequestedActive == false)
+    }
+
+    @Test
+    func `Resume cancels an attached player's deferred pause`() {
+      let instance = TestInstance.shared
+      let listPlayer = MediaListPlayer(instance: instance)
+      let player = Player(instance: instance)
+      listPlayer.mediaPlayer = player
+      player.setDeferredPauseCommand(.pause, playbackGeneration: player.sessionGeneration)
+      player.publishPlaybackIntent(false)
+
+      listPlayer.resume()
+
+      #expect(player.deferredPauseCommand == nil)
+      #expect(player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `List play and stop publish explicit transport intent only for a playable list`() throws {
+      let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.shared)
+      listPlayer.mediaPlayer = player
+      player.setPlaybackControlIntent(.pause)
+
+      listPlayer.play()
+
+      #expect(player.playbackControlIntent == .pause)
+      #expect(!player.isPlaybackRequestedActive)
+
+      let list = MediaList()
+      try list.append(Media(url: TestMedia.twosecURL))
+      listPlayer.mediaList = list
+      listPlayer.play()
+
+      #expect(player.playbackControlIntent == .resume)
+      #expect(player.isPlaybackRequestedActive)
+
+      player.setPauseTransition(
+        .pausing,
+        playbackGeneration: player.eventBridge.currentPlaybackGeneration
+      )
+      player.setDeferredPauseCommand(
+        .pause,
+        playbackGeneration: player.eventBridge.currentPlaybackGeneration
+      )
+      player.setPlaybackControlIntent(.pause)
+      listPlayer.stop()
+
+      #expect(player.playbackControlIntent == nil)
+      #expect(player.pauseTransition == nil)
+      #expect(player.deferredPauseCommand == nil)
+      #expect(!player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `Idle pause rejection preserves the previous transport intent`() {
+      let player = Player(instance: TestInstance.shared)
+      player._nativePlaybackStateOverrideForTesting = .idle
+      player.setPlaybackControlIntent(.resume)
+
+      player.pause()
+
+      #expect(player.playbackControlIntent == .resume)
+      #expect(player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `Idle resume rejection preserves the previous transport intent`() {
+      let player = Player(instance: TestInstance.shared)
+      player._nativePlaybackStateOverrideForTesting = .idle
+      player.setPlaybackControlIntent(.pause)
+
+      player.resume()
+
+      #expect(player.playbackControlIntent == .pause)
+      #expect(!player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `Pause rollback cannot erase intent after callback-lane advancement`() {
+      let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.shared)
+      listPlayer.mediaPlayer = player
+      player._nativePlaybackStateOverrideForTesting = .idle
+      player.setPlaybackControlIntent(.resume)
+      player._pauseProbeHookForTesting = { stage in
+        guard stage == .pauseRollback else { return }
+        _ = player.eventBridge.synchronizePlaybackGeneration(1, media: nil)
+      }
+
+      player.pause()
+
+      #expect(player.playbackControlIntent == .pause)
+      #expect(player.deferredPauseCommand == .pause)
+      #expect(player.deferredPauseCommandPlaybackGeneration == 1)
+      #expect(!player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `Resume rollback cannot erase intent after callback-lane advancement`() {
+      let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.shared)
+      listPlayer.mediaPlayer = player
+      player._nativePlaybackStateOverrideForTesting = .idle
+      player.setPlaybackControlIntent(.pause)
+      player._pauseProbeHookForTesting = { stage in
+        guard stage == .resumeRollback else { return }
+        _ = player.eventBridge.synchronizePlaybackGeneration(1, media: nil)
+      }
+
+      player.resume()
+
+      #expect(player.playbackControlIntent == .resume)
+      #expect(player.deferredPauseCommand == .resume)
+      #expect(player.deferredPauseCommandPlaybackGeneration == 1)
+      #expect(player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `Accepted list play supersedes a deferred pause while opening`() throws {
+      let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+      let player = Player(instance: TestInstance.shared)
+      listPlayer.mediaPlayer = player
+      let list = MediaList()
+      try list.append(Media(url: TestMedia.twosecURL))
+      listPlayer.mediaList = list
+      player._nativePlaybackStateOverrideForTesting = .opening
+      player.setDeferredPauseCommand(
+        .pause,
+        playbackGeneration: player.eventBridge.currentPlaybackGeneration
+      )
+      player.setPlaybackControlIntent(.pause)
+
+      listPlayer.play()
+
+      #expect(player.playbackControlIntent == .resume)
+      #expect(player.deferredPauseCommand == .resume)
+      #expect(
+        player.deferredPauseCommandPlaybackGeneration
+          == player.eventBridge.currentPlaybackGeneration
+      )
+      #expect(player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `Pause cancellation carries resume rather than stale pause into adoption`() {
+      let player = Player(instance: TestInstance.shared)
+      player._nativePlaybackStateOverrideForTesting = .playing
+      player.setDeferredPauseCommand(.pause, playbackGeneration: 0)
+      player.setPlaybackControlIntent(.pause)
+
+      player.cancelPendingPause()
+      _ = player.eventBridge.synchronizePlaybackGeneration(1, media: nil)
+      player.handleEvent(.mediaChanged, sourcePlaybackGeneration: 1)
+
+      #expect(player.playbackControlIntent == .resume)
+      #expect(player.deferredPauseCommand == nil)
+      #expect(player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `Media adoption preserves a pause accepted for its native generation`() {
+      let player = Player(instance: TestInstance.shared)
+      let adoptedGeneration: UInt64 = 1
+      player.sessionGeneration = adoptedGeneration
+      _ = player.eventBridge.synchronizePlaybackGeneration(adoptedGeneration, media: nil)
+      player.deferredPauseCommand = .pause
+
+      player.resetMediaDerivedState()
+
+      #expect(player.deferredPauseCommand == .pause)
+    }
+
+    @Test
+    func `Playlist pause decisions use successor native state while adoption is queued`() {
+      for staleState in [PlayerState.idle, .stopped, .playing] {
+        #expect(
+          Player.pauseDecisionState(
+            cached: staleState,
+            native: .opening,
+            hasAttachedMediaListPlayer: true,
+            callbackLaneIsAhead: true
+          ) == .opening
+        )
+      }
+      #expect(
+        Player.pauseDecisionState(
+          cached: .playing,
+          native: .idle,
+          hasAttachedMediaListPlayer: true,
+          callbackLaneIsAhead: true
+        ) == .opening
+      )
+      #expect(
+        Player.pauseDecisionState(
+          cached: .stopped,
+          native: .idle,
+          hasAttachedMediaListPlayer: true,
+          callbackLaneIsAhead: false,
+          mediaListPlaybackActive: true
+        ) == .opening
+      )
+      #expect(
+        Player.pauseDecisionState(
+          cached: .stopped,
+          native: .stopped,
+          hasAttachedMediaListPlayer: true,
+          callbackLaneIsAhead: false,
+          mediaListPlaybackActive: true
+        ) == .opening
+      )
+      #expect(
+        Player.pauseDecisionState(
+          cached: .stopped,
+          native: .idle,
+          hasAttachedMediaListPlayer: true,
+          callbackLaneIsAhead: false,
+          mediaListPlaybackActive: false
+        ) == .idle
+      )
+      #expect(
+        Player.pauseDecisionState(
+          cached: .stopped,
+          native: .opening,
+          hasAttachedMediaListPlayer: true,
+          callbackLaneIsAhead: false
+        ) == .opening
+      )
+      #expect(
+        Player.pauseDecisionState(
+          cached: .stopped,
+          native: .paused,
+          hasAttachedMediaListPlayer: true,
+          callbackLaneIsAhead: false
+        ) == .paused
+      )
+      #expect(
+        Player.pauseDecisionState(
+          cached: .stopped,
+          native: .opening,
+          hasAttachedMediaListPlayer: false,
+          callbackLaneIsAhead: true
+        ) == .stopped
+      )
+      #expect(
+        Player.pauseDecisionState(
+          cached: .playing,
+          native: .idle,
+          hasAttachedMediaListPlayer: true,
+          callbackLaneIsAhead: false
+        ) == .playing
+      )
+    }
+
+    @Test
+    func `Fresh pause control follows a generation that advances during native probes`() {
+      #expect(
+        Player.revalidatedPauseGeneration(
+          captured: 1,
+          current: 2,
+          followsCurrentGeneration: true
+        ) == 2
+      )
+      #expect(
+        Player.revalidatedPauseGeneration(
+          captured: 1,
+          current: 2,
+          followsCurrentGeneration: false
+        ) == nil
+      )
+    }
+
+    @Test
+    func `Fresh pause retains the newest generation after repeated state probe races`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .playing)
+      var generation: UInt64 = 0
+      player._pauseProbeHookForTesting = { stage in
+        guard stage == .state else { return }
+        generation &+= 1
+        _ = player.eventBridge.synchronizePlaybackGeneration(generation, media: nil)
+      }
+
+      #expect(!player.issuePause())
+      #expect(generation == 3)
+      #expect(player.deferredPauseCommand == .pause)
+      #expect(player.deferredPauseCommandPlaybackGeneration == generation)
+      #expect(!player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `Fresh pause retains the newest generation after repeated capability probe races`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(
+        state: .playing,
+        duration: .seconds(120),
+        isSeekable: true,
+        isPausable: true
+      )
+      let capabilityBeforeRace = player.capabilitySnapshot.withLock { $0 }
+      var generation: UInt64 = 0
+      player._pauseProbeHookForTesting = { stage in
+        guard stage == .capability else { return }
+        generation &+= 1
+        _ = player.eventBridge.synchronizePlaybackGeneration(generation, media: nil)
+      }
+
+      #expect(!player.issuePause())
+      #expect(generation == 3)
+      #expect(player.deferredPauseCommand == .pause)
+      #expect(player.deferredPauseCommandPlaybackGeneration == generation)
+      #expect(!player.isPlaybackRequestedActive)
+      #expect(player.capabilitySnapshot.withLock { $0 } == capabilityBeforeRace)
+    }
+
+    @Test
+    func `Fresh resume retains the newest generation after repeated state probe races`() {
+      let player = Player(instance: TestInstance.shared)
+      var generation: UInt64 = 0
+      player._pauseProbeHookForTesting = { stage in
+        guard stage == .resumeState else { return }
+        generation &+= 1
+        _ = player.eventBridge.synchronizePlaybackGeneration(generation, media: nil)
+      }
+
+      #expect(player.issueResume())
+      #expect(generation == 3)
+      #expect(player.deferredPauseCommand == .resume)
+      #expect(player.deferredPauseCommandPlaybackGeneration == generation)
+      #expect(player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `An outgoing resume retry cannot clear a successor pause`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .paused)
+      _ = player.eventBridge.synchronizePlaybackGeneration(1, media: nil)
+      player.setDeferredPauseCommand(.pause, playbackGeneration: 1)
+
+      #expect(!player.issueResume(playbackGeneration: 0))
+      #expect(player.deferredPauseCommand == .pause)
+      #expect(player.deferredPauseCommandPlaybackGeneration == 1)
+    }
+
+    @Test
+    func `Resume unpauses when a recovered successor pause already landed`() {
+      let player = Player(instance: TestInstance.shared)
+      let generation: UInt64 = 1
+      player.sessionGeneration = generation
+      _ = player.eventBridge.synchronizePlaybackGeneration(generation, media: nil)
+      player._nativePlaybackStateOverrideForTesting = .paused
+      player.setDeferredPauseCommand(.pause, playbackGeneration: generation)
+      player.publishPlaybackIntent(false)
+
+      #expect(player.issueResume())
+      #expect(player.deferredPauseCommand == nil)
+      #expect(player.pauseTransition == .resuming)
+      #expect(player.pauseTransitionPlaybackGeneration == generation)
+      #expect(player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `External media adoption carries pause intent to the successor`() {
+      let player = Player(instance: TestInstance.shared)
+      player._nativePlaybackStateOverrideForTesting = .opening
+      player._setStateForTesting(state: .playing, isPlaybackRequestedActive: true)
+      player.setPlaybackControlIntent(.pause)
+      _ = player.eventBridge.synchronizePlaybackGeneration(1, media: nil)
+
+      player.handleEvent(.mediaChanged, sourcePlaybackGeneration: 1)
+
+      #expect(player.sessionGeneration == 1)
+      #expect(player.deferredPauseCommand == .pause)
+      #expect(player.deferredPauseCommandPlaybackGeneration == 1)
+      #expect(!player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `External media adoption preserves active intent through its queued-state gap`() {
+      let player = Player(instance: TestInstance.shared)
+      player._nativePlaybackStateOverrideForTesting = .playing
+      player._setStateForTesting(state: .paused, isPlaybackRequestedActive: false)
+      player.setPlaybackControlIntent(.resume)
+      _ = player.eventBridge.synchronizePlaybackGeneration(1, media: nil)
+
+      player.handleEvent(.mediaChanged, sourcePlaybackGeneration: 1)
+
+      #expect(player.sessionGeneration == 1)
+      #expect(player.state == .playing)
+      #expect(player.deferredPauseCommand == nil)
+      #expect(player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `External media adoption retains resume until a late pause settles`() {
+      let player = Player(instance: TestInstance.shared)
+      player._nativePlaybackStateOverrideForTesting = .opening
+      player._setStateForTesting(state: .playing, isPlaybackRequestedActive: false)
+      player.setPlaybackControlIntent(.resume)
+      _ = player.eventBridge.synchronizePlaybackGeneration(1, media: nil)
+
+      player.handleEvent(.mediaChanged, sourcePlaybackGeneration: 1)
+
+      #expect(player.deferredPauseCommand == .resume)
+      #expect(player.deferredPauseCommandPlaybackGeneration == 1)
+      #expect(player.isPlaybackRequestedActive)
+
+      player._nativePlaybackStateOverrideForTesting = .paused
+      player.performDeferredPauseCommandIfNeeded()
+
+      #expect(player.deferredPauseCommand == nil)
+      #expect(player.pauseTransition == .resuming)
+      #expect(player.pauseTransitionPlaybackGeneration == 1)
+      #expect(player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `Media adoption preserves an in-flight pause transition for its generation`() {
+      let player = Player(instance: TestInstance.shared)
+      let adoptedGeneration: UInt64 = 1
+      player.sessionGeneration = adoptedGeneration
+      _ = player.eventBridge.synchronizePlaybackGeneration(adoptedGeneration, media: nil)
+      player.setPauseTransition(.pausing, playbackGeneration: adoptedGeneration)
+
+      player.resetMediaDerivedState()
+
+      #expect(player.pauseTransition == .pausing)
+      #expect(player.pauseTransitionPlaybackGeneration == adoptedGeneration)
+      #expect(!player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `A queued pause overrides an older resume transition during adoption`() {
+      let player = Player(instance: TestInstance.shared)
+      let adoptedGeneration: UInt64 = 1
+      player.sessionGeneration = adoptedGeneration
+      _ = player.eventBridge.synchronizePlaybackGeneration(adoptedGeneration, media: nil)
+      player.setPauseTransition(.resuming, playbackGeneration: adoptedGeneration)
+      player.setDeferredPauseCommand(.pause, playbackGeneration: adoptedGeneration)
+      player.publishPlaybackIntent(true)
+
+      player.resetMediaDerivedState()
+
+      #expect(!player.isPlaybackRequestedActive)
+      #expect(player.pauseTransition == .resuming)
+      #expect(player.deferredPauseCommand == .pause)
+    }
+
+    @Test
+    func `A queued resume overrides an older pause transition during adoption`() {
+      let player = Player(instance: TestInstance.shared)
+      let adoptedGeneration: UInt64 = 1
+      player.sessionGeneration = adoptedGeneration
+      _ = player.eventBridge.synchronizePlaybackGeneration(adoptedGeneration, media: nil)
+      player.setPauseTransition(.pausing, playbackGeneration: adoptedGeneration)
+      player.setDeferredPauseCommand(.resume, playbackGeneration: adoptedGeneration)
+      player.publishPlaybackIntent(false)
+
+      player.resetMediaDerivedState()
+
+      #expect(player.isPlaybackRequestedActive)
+      #expect(player.pauseTransition == .pausing)
+      #expect(player.deferredPauseCommand == .resume)
+    }
+
+    @Test
+    func `An intermediate adoption preserves pause work for a later queued item`() {
+      let player = Player(instance: TestInstance.shared)
+      player.sessionGeneration = 1
+      _ = player.eventBridge.synchronizePlaybackGeneration(2, media: nil)
+      player.setPauseTransition(.pausing, playbackGeneration: 2)
+      player.setDeferredPauseCommand(.resume, playbackGeneration: 2)
+
+      player.resetMediaDerivedState()
+
+      #expect(player.pauseTransition == .pausing)
+      #expect(player.pauseTransitionPlaybackGeneration == 2)
+      #expect(player.deferredPauseCommand == .resume)
+      #expect(player.deferredPauseCommandPlaybackGeneration == 2)
+      #expect(player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `Pause cancels an older queued resume when cached playback is paused`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .paused, isPlaybackRequestedActive: true)
+      player.setDeferredPauseCommand(.resume, playbackGeneration: player.sessionGeneration)
+
+      player.pause()
+
+      #expect(player.deferredPauseCommand == nil)
+      #expect(player.deferredPauseCommandPlaybackGeneration == nil)
+      #expect(!player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `Media adoption cancels an outgoing in-flight pause transition`() {
+      let player = Player(instance: TestInstance.shared)
+      player.setPauseTransition(.pausing, playbackGeneration: 0)
+      let adoptedGeneration: UInt64 = 1
+      player.sessionGeneration = adoptedGeneration
+      _ = player.eventBridge.synchronizePlaybackGeneration(adoptedGeneration, media: nil)
+
+      player.resetMediaDerivedState()
+
+      #expect(player.pauseTransition == nil)
+      #expect(player.pauseTransitionPlaybackGeneration == nil)
+    }
+
+    @Test
+    func `Retrying an outgoing deferred command cancels before touching the successor`() {
+      let player = Player(instance: TestInstance.shared)
+      player._setStateForTesting(state: .opening)
+      player.setDeferredPauseCommand(.pause, playbackGeneration: 0)
+      _ = player.eventBridge.synchronizePlaybackGeneration(1, media: nil)
+
+      player.performDeferredPauseCommandIfNeeded()
+
+      #expect(player.deferredPauseCommand == nil)
+      #expect(player.deferredPauseCommandPlaybackGeneration == nil)
+    }
+
+    @Test
+    func `Outgoing terminal event preserves a successor pause command`() {
+      let player = Player(instance: TestInstance.shared)
+      _ = player.eventBridge.synchronizePlaybackGeneration(1, media: nil)
+      player.setDeferredPauseCommand(.pause, playbackGeneration: 1)
+
+      player._handleEventForTesting(.stateChanged(.stopped))
+
+      #expect(player.deferredPauseCommand == .pause)
+      #expect(player.deferredPauseCommandPlaybackGeneration == 1)
+    }
+
+    @Test
+    func `Media adoption cancels a pause from the outgoing generation`() {
+      let player = Player(instance: TestInstance.shared)
+      player.deferredPauseCommand = .pause
+      let adoptedGeneration: UInt64 = 1
+      player.sessionGeneration = adoptedGeneration
+      _ = player.eventBridge.synchronizePlaybackGeneration(adoptedGeneration, media: nil)
+
+      player.resetMediaDerivedState()
+
+      #expect(player.deferredPauseCommand == nil)
     }
 
     @Test

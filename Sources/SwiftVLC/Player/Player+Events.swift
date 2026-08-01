@@ -18,7 +18,12 @@ extension Player {
   /// libVLC's view of the player state — read directly from the
   /// underlying handle, not the cached `state` property.
   var nativePlaybackState: PlayerState {
-    PlayerState(from: libvlc_media_player_get_state(pointer))
+    #if DEBUG
+    if let _nativePlaybackStateOverrideForTesting {
+      return _nativePlaybackStateOverrideForTesting
+    }
+    #endif
+    return PlayerState(from: libvlc_media_player_get_state(pointer))
   }
 
   /// Whether issuing `set_pause(1)` right now is safe with respect to
@@ -171,6 +176,8 @@ extension Player {
       withMutation(keyPath: \.hasVideoOutput) {}
 
     case .mediaChanged:
+      let previousSessionGeneration = sessionGeneration
+      let playbackControlIntent = playbackControlIntent
       syncCurrentMediaFromNative()
       // A media change the wrapper did not initiate still has to supersede
       // whatever was restoring the previous session: a `MediaListPlayer`
@@ -198,14 +205,21 @@ extension Player {
         // without this the status would keep reporting the old session.
         publishPlaybackStatus()
       }
-      resetMediaDerivedState()
+      let adoptedExternalGeneration = sessionGeneration > previousSessionGeneration
+      let carriesPlaybackControl = adoptedExternalGeneration && playbackControlIntent != nil
+      resetMediaDerivedState(preservingPlaybackIntent: carriesPlaybackControl)
+      if adoptedExternalGeneration, let playbackControlIntent {
+        reconcilePauseControlAfterExternalMediaAdoption(
+          playbackGeneration: sessionGeneration,
+          command: playbackControlIntent
+        )
+      }
       refreshTracks()
       notifyMediaDependentObservables()
 
     case .encounteredError:
       publishPlaybackState(.error)
-      pauseTransition = nil
-      deferredPauseCommand = nil
+      clearPauseControlState(for: sessionGeneration)
       reconcilePlaybackIntent(for: .error)
 
     case .bufferingProgress(let pct):
@@ -316,6 +330,11 @@ extension Player {
     publishPlaybackIntent(active)
   }
 
+  func setPlaybackControlIntent(_ command: DeferredPauseCommand) {
+    playbackControlIntent = command
+    publishPlaybackIntent(command == .resume)
+  }
+
   /// Reconciles the published playback intent with libVLC's reported
   /// state, *unless* a user-initiated transition is in flight. While
   /// pausing or resuming, the intent published by `pause()`/`resume()`
@@ -331,6 +350,7 @@ extension Player {
       publishPlaybackIntent(false)
 
     case .idle, .stopped, .stopping, .error:
+      guard !hasPauseControl(after: sessionGeneration) else { return }
       publishPlaybackIntent(false)
     }
   }
@@ -342,28 +362,58 @@ extension Player {
   func updatePauseTransition(for newState: PlayerState) {
     switch (pauseTransition, newState) {
     case (.pausing, .paused), (.resuming, .playing):
+      guard pauseTransitionPlaybackGeneration == sessionGeneration else { return }
       pauseTransition = nil
       performDeferredPauseCommandIfNeeded()
     case (_, .idle), (_, .stopped), (_, .stopping), (_, .error):
-      pauseTransition = nil
-      deferredPauseCommand = nil
+      clearPauseControlState(for: sessionGeneration)
     default:
       break
     }
   }
 
+  /// Clears only pause work owned by `playbackGeneration`. A queued event for
+  /// an outgoing playlist item must not erase work already accepted for its
+  /// successor on the callback lane.
+  func clearPauseControlState(for playbackGeneration: UInt64) {
+    if pauseTransitionPlaybackGeneration == playbackGeneration {
+      pauseTransition = nil
+    }
+    if deferredPauseCommandPlaybackGeneration == playbackGeneration {
+      deferredPauseCommand = nil
+    }
+  }
+
+  /// Whether the callback lane has already accepted pause/resume work for a
+  /// media generation that the main actor has not adopted yet.
+  func hasPauseControl(after playbackGeneration: UInt64) -> Bool {
+    (pauseTransitionPlaybackGeneration ?? 0) > playbackGeneration
+      || (deferredPauseCommandPlaybackGeneration ?? 0) > playbackGeneration
+  }
+
   /// If a pause/resume command was deferred (because the player wasn't
   /// in a stable state at the time), retry it now.
   func performDeferredPauseCommandIfNeeded() {
-    guard pauseTransition == nil, let command = deferredPauseCommand else {
+    guard
+      pauseTransition == nil,
+      let command = deferredPauseCommand,
+      let playbackGeneration = deferredPauseCommandPlaybackGeneration,
+      playbackGeneration == sessionGeneration
+    else {
+      return
+    }
+    guard playbackGeneration == eventBridge.currentPlaybackGeneration else {
+      // The callback lane has already adopted a successor. Retrying this
+      // outgoing command would act on the shared native handle's new media.
+      deferredPauseCommand = nil
       return
     }
     deferredPauseCommand = nil
     switch command {
     case .pause:
-      pause()
+      _ = issuePause(playbackGeneration: playbackGeneration)
     case .resume:
-      resume()
+      _ = issueResume(playbackGeneration: playbackGeneration)
     }
   }
 
@@ -372,7 +422,7 @@ extension Player {
   /// Resets the observable state that depends on the current media —
   /// times, duration, seek/pause flags, buffer fill. Called when media
   /// is loaded or replaced.
-  func resetMediaDerivedState() {
+  func resetMediaDerivedState(preservingPlaybackIntent: Bool = false) {
     // New media, new timeline: clock samples still queued from the previous
     // one describe a media that is no longer loaded and must not be applied.
     acceptedTimelineRevision = eventBridge.advanceTimelineRevision()
@@ -381,9 +431,32 @@ extension Player {
     // "duration cleared, seekability still the previous media's". Suppress
     // those partial publishes and emit one atomic snapshot below.
     isSuppressingCapabilityPublish = true
-    pauseTransition = nil
-    deferredPauseCommand = nil
-    publishPlaybackIntent(false)
+    if
+      let pauseTransitionPlaybackGeneration,
+      pauseTransitionPlaybackGeneration < sessionGeneration {
+      pauseTransition = nil
+    }
+    // A native MediaListPlayer can advance the event bridge and accept a
+    // pause for a later item before queued media-change events reach the main
+    // actor. Preserve current and future commands through each adoption;
+    // commands from an older media generation are still retired.
+    if
+      let deferredPauseCommandPlaybackGeneration,
+      deferredPauseCommandPlaybackGeneration < sessionGeneration {
+      deferredPauseCommand = nil
+    }
+    // A deferred command was requested after the in-flight transition, so it
+    // is the latest user intent and wins when both survive adoption.
+    let intendsActivePlayback = if preservingPlaybackIntent {
+      isPlaybackRequestedActive
+    } else {
+      switch deferredPauseCommand {
+      case .pause: false
+      case .resume: true
+      case nil: pauseTransition == .resuming
+      }
+    }
+    publishPlaybackIntent(intendsActivePlayback)
     currentTime = .zero
     duration = nil
     isSeekable = false
@@ -400,6 +473,19 @@ extension Player {
     // generation carrying the outgoing media's capability — which would make
     // it distrust the poll for the rest of that media's lifetime.
     advanceCapabilityGeneration()
+  }
+
+  /// Re-applies the latest user intent to a media generation advanced by the
+  /// native callback lane. This is the authoritative close for a media switch
+  /// that occurs after `pause()` or `resume()` performs its final generation
+  /// read: adoption cannot clear the intent or leave the successor untouched.
+  func reconcilePauseControlAfterExternalMediaAdoption(
+    playbackGeneration: UInt64,
+    command: DeferredPauseCommand
+  ) {
+    guard !hasPauseControl(after: playbackGeneration) else { return }
+    setDeferredPauseCommand(command, playbackGeneration: playbackGeneration)
+    performDeferredPauseCommandIfNeeded()
   }
 
   /// Signals every observable whose value is read live from libVLC and

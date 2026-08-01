@@ -114,6 +114,24 @@ final class EventBridge: Sendable {
     NativePlayerGeneration(currentNativeHandleGeneration)
   }
 
+  /// Playback generation already accepted by the callback lane, which can be
+  /// ahead of the main actor while a native media-change event is queued.
+  var currentPlaybackGeneration: UInt64 {
+    context.currentPlaybackGeneration
+  }
+
+  /// Runs a main-actor mutation only if the callback lane is still on the
+  /// expected playback generation. The comparison and mutation share the
+  /// callback lane's lifecycle lock, giving callers a real linearization point
+  /// against a concurrent native media-change callback.
+  @MainActor
+  func performIfCurrentPlaybackGeneration(
+    _ expectedGeneration: UInt64,
+    _ mutation: () -> Void
+  ) -> Bool {
+    context.performIfCurrentPlaybackGeneration(expectedGeneration, mutation)
+  }
+
   /// Creates a new independent `AsyncStream` for consuming player events.
   /// Each stream is offered events broadcast after creation that pass its
   /// filter. Delivery under consumer lag follows `policy`.
@@ -563,6 +581,18 @@ private final class EventBridgeCallbackContext: Sendable {
 
   var currentPlaybackGeneration: UInt64 {
     playbackLifecycle.withLock { $0.currentGeneration }
+  }
+
+  @MainActor
+  func performIfCurrentPlaybackGeneration(
+    _ expectedGeneration: UInt64,
+    _ mutation: () -> Void
+  ) -> Bool {
+    playbackLifecycle.withLock { state in
+      guard state.currentGeneration == expectedGeneration else { return false }
+      mutation()
+      return true
+    }
   }
 
   func noteExternalMediaChanged(
