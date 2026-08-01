@@ -884,6 +884,7 @@ public final class PiPController: NSObject {
     deferredPauseOutcome = nil
 
     let generation = DeferredPauseState.nextGeneration(after: deferredPause)
+    let playbackGeneration = player.generation
     let debounce = pauseDebounce
     let task = Task { @MainActor [weak self] in
       var attemptsRemaining = Self.maxDeferredPauseAttempts
@@ -898,6 +899,11 @@ public final class PiPController: NSObject {
         // controller alive while it is deciding whether to issue the pause.
         guard let self else { return }
         guard !Task.isCancelled, currentDeferredPauseGeneration == generation, !pipPlaybackActive else { return }
+        guard player.generation == playbackGeneration else {
+          deferredPause = .idle
+          deferredPauseOutcome = .cancelled
+          return
+        }
 
         switch player.state {
         case .playing:

@@ -113,6 +113,27 @@ extension Integration {
       #expect(fired.withLock { $0 }, "settled outcome did not invalidate Observation")
     }
 
+    @Test
+    func `Media replacement cancels a deferred pause before it reaches the successor`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let recorder = PlaybackRecorder()
+      player._setStateForTesting(state: .playing)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: recorder.driver,
+        pauseDebounce: .milliseconds(20)
+      )
+
+      controller._setPlayingForTesting(false)
+      let replacement = try Media(url: TestMedia.silenceURL)
+      player.load(replacement)
+
+      let settled = await awaitDeferredPauseOutcome(controller)
+      #expect(settled)
+      #expect(controller.deferredPauseOutcome == .cancelled)
+      #expect(recorder.pauseCount == 0, "the outgoing media's pause reached its successor")
+    }
+
     /// A rejection that clears must still pause: the bound exists to stop
     /// runaway retries, not to give up on a slow input.
     @Test
