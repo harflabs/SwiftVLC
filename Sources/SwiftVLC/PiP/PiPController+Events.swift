@@ -142,49 +142,79 @@ extension PiPController {
   /// Broadcasts one transition onto the compatibility and attributed streams.
   /// The lifecycle's media generation is captured by an accepted explicit
   /// start, or by the first callback for a system-initiated start.
-  func publishPiPEvent(_ event: PiPEvent) {
+  func publishPiPEvent(
+    _ event: PiPEvent,
+    mediaGeneration mediaGenerationOverride: PlaybackGeneration? = nil
+  ) {
+    let attribution: PiPLifecycleAttribution
     switch event {
     case .willStart:
+      // Reaching a successor start callback means AVKit did not emit a
+      // trailing stop for any older failed attempt. The delegate clears the
+      // older stop reason at the same boundary, so discard its saved identity
+      // as well.
+      failedPiPLifecycleAttributions.removeAll(keepingCapacity: true)
       // Preserve an accepted request's identity even if the player adopted
       // successor media before AVKit replied. An auto-start has no accepted
       // request, so it begins a fresh lifecycle here.
       if pipLifecycleAttributionPhase != .awaitingStart {
-        capturePiPLifecycleAttribution()
+        capturePiPLifecycleAttribution(mediaGeneration: mediaGenerationOverride)
       }
       pipLifecycleAttributionPhase = .awaitingStart
+      attribution = currentPiPLifecycleAttribution(mediaGeneration: mediaGenerationOverride)
     case .didStart:
       if
-        pipLifecycleMediaGeneration == nil
-        || pipLifecycleControllerGeneration != pipControllerGeneration {
-        capturePiPLifecycleAttribution()
+        pipLifecycleAttribution == nil
+        || pipLifecycleAttribution?.controllerGeneration != pipControllerGeneration {
+        capturePiPLifecycleAttribution(mediaGeneration: mediaGenerationOverride)
       }
       pipLifecycleAttributionPhase = .started
-    case .willStop, .didStop:
-      if
-        pipLifecycleMediaGeneration == nil
-        || pipLifecycleControllerGeneration != pipControllerGeneration {
-        capturePiPLifecycleAttribution()
+      attribution = currentPiPLifecycleAttribution(mediaGeneration: mediaGenerationOverride)
+    case .willStop(let reason):
+      if reason == .failure, let failedAttribution = failedPiPLifecycleAttributions.first {
+        attribution = failedAttribution
+      } else {
+        attribution = currentPiPLifecycleAttribution(mediaGeneration: mediaGenerationOverride)
+      }
+    case .didStop(let reason):
+      if reason == .failure, !failedPiPLifecycleAttributions.isEmpty {
+        attribution = failedPiPLifecycleAttributions.removeFirst()
+      } else {
+        attribution = currentPiPLifecycleAttribution(mediaGeneration: mediaGenerationOverride)
       }
     case .failedToStart:
-      if
-        pipLifecycleMediaGeneration == nil
-        || pipLifecycleControllerGeneration != pipControllerGeneration {
-        capturePiPLifecycleAttribution()
-      }
-      pipLifecycleAttributionPhase = .failed
+      attribution = currentPiPLifecycleAttribution(mediaGeneration: mediaGenerationOverride)
+      failedPiPLifecycleAttributions.append(attribution)
+      clearCurrentPiPLifecycleAttribution()
     }
 
     let envelope = PiPEventEnvelope(
       event: event,
-      mediaGeneration: pipLifecycleMediaGeneration ?? player.generation,
-      controllerGeneration: pipLifecycleControllerGeneration ?? pipControllerGeneration
+      mediaGeneration: attribution.mediaGeneration,
+      controllerGeneration: attribution.controllerGeneration
     )
     pipEventBroadcaster.broadcast(event)
     pipEventEnvelopeBroadcaster.broadcast(envelope)
 
-    if case .didStop = event {
-      clearPiPLifecycleAttribution()
+    if case .didStop(let reason) = event, reason != .failure {
+      clearCurrentPiPLifecycleAttribution()
     }
+  }
+
+  private func currentPiPLifecycleAttribution(
+    mediaGeneration: PlaybackGeneration?
+  ) -> PiPLifecycleAttribution {
+    if
+      let pipLifecycleAttribution,
+      pipLifecycleAttribution.controllerGeneration == pipControllerGeneration {
+      return pipLifecycleAttribution
+    }
+    return capturePiPLifecycleAttribution(mediaGeneration: mediaGeneration)
+  }
+
+  private func clearCurrentPiPLifecycleAttribution() {
+    pipLifecycleAttribution = nil
+    pipLifecycleAttributionPhase = .idle
   }
 
   /// Captures attribution only when the backend confirms that it actually
@@ -192,7 +222,7 @@ extension PiPController {
   func noteAcceptedPiPStartRequest(_ result: PiPStartResult) -> PiPStartResult {
     guard result == .accepted else { return result }
     switch pipLifecycleAttributionPhase {
-    case .idle, .failed:
+    case .idle:
       capturePiPLifecycleAttribution()
       pipLifecycleAttributionPhase = .awaitingStart
     case .awaitingStart, .started:
@@ -203,20 +233,28 @@ extension PiPController {
     return result
   }
 
-  func capturePiPLifecycleAttribution() {
-    pipLifecycleMediaGeneration = player.generation
-    pipLifecycleControllerGeneration = pipControllerGeneration
+  @discardableResult
+  func capturePiPLifecycleAttribution(
+    mediaGeneration: PlaybackGeneration? = nil
+  ) -> PiPLifecycleAttribution {
+    let attribution = PiPLifecycleAttribution(
+      mediaGeneration: mediaGeneration ?? player.generation,
+      controllerGeneration: pipControllerGeneration
+    )
+    pipLifecycleAttribution = attribution
+    return attribution
   }
 
-  func adoptActivePiPLifecycleAttribution() {
-    capturePiPLifecycleAttribution()
+  func adoptActivePiPLifecycleAttribution(
+    mediaGeneration: PlaybackGeneration?
+  ) {
+    capturePiPLifecycleAttribution(mediaGeneration: mediaGeneration)
     pipLifecycleAttributionPhase = .started
   }
 
   func clearPiPLifecycleAttribution() {
-    pipLifecycleMediaGeneration = nil
-    pipLifecycleControllerGeneration = nil
-    pipLifecycleAttributionPhase = .idle
+    clearCurrentPiPLifecycleAttribution()
+    failedPiPLifecycleAttributions.removeAll(keepingCapacity: false)
   }
 
   /// The current Picture in Picture state, followed by every subsequent

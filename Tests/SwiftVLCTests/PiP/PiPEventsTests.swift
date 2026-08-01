@@ -215,6 +215,45 @@ extension Integration {
     }
 
     @Test
+    func `A failed attempt's trailing stop does not consume its accepted retry`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      let controller = PiPController(player: player)
+      let avController = makeDummyAVController(for: controller)
+      let stream = controller.pipEventEnvelopes
+      let failedMediaGeneration = player.generation
+      let failure = NSError(domain: "swiftvlc.test.pip.overlapping-retry", code: 1)
+
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      controller.pictureInPictureController(
+        avController,
+        failedToStartPictureInPictureWithError: failure
+      )
+      try player.load(Media(url: TestMedia.silenceURL))
+      let retryMediaGeneration = player.generation
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+
+      // AVKit may finish the failed lifecycle after the application has
+      // already issued its retry. That old stop must consume only the saved
+      // failed identity, leaving the accepted retry intact.
+      controller.pictureInPictureControllerDidStopPictureInPicture(avController)
+      controller.pictureInPictureControllerWillStartPictureInPicture(avController)
+      controller.pictureInPictureControllerDidStartPictureInPicture(avController)
+      controller.pictureInPictureControllerDidStopPictureInPicture(avController)
+
+      let envelopes = await collect(5, from: stream)
+      #expect(envelopes[0].mediaGeneration == failedMediaGeneration)
+      #expect(envelopes[1].mediaGeneration == failedMediaGeneration)
+      #expect(envelopes.dropFirst(2).allSatisfy {
+        $0.mediaGeneration == retryMediaGeneration
+      })
+      guard case .didStop(reason: .failure) = envelopes[1].event else {
+        Issue.record("Expected the failed attempt's trailing stop")
+        return
+      }
+    }
+
+    @Test
     func `restore then stop reports restoreRequested, plain stop reports userClosed`() async {
       let player = Player(instance: TestInstance.shared)
       let controller = PiPController(player: player)
@@ -423,7 +462,7 @@ extension Integration {
     }
 
     @Test
-    func `Adopting active native PiP seeds its media generation`() async throws {
+    func `Adopting active native PiP retains its original media generation`() async throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       try player.load(Media(url: TestMedia.twosecURL))
       #if os(iOS)
@@ -431,14 +470,15 @@ extension Integration {
       #else
       let backend = MacNativePiPBackend()
       #endif
+      backend.attach(to: player)
       backend.setActive(true)
       let lifecycleMediaGeneration = player.generation
+      try player.load(Media(url: TestMedia.silenceURL))
       let controller = PiPController(player: player, nativeBackend: backend)
       let stream = controller.pipEventEnvelopes
 
       #expect(controller.isActive)
-      try player.load(Media(url: TestMedia.silenceURL))
-      controller.handleNativePictureInPictureActiveChanged(false)
+      backend.setActive(false)
 
       let envelope = try #require(await collect(1, from: stream).first)
       #expect(envelope.mediaGeneration == lifecycleMediaGeneration)

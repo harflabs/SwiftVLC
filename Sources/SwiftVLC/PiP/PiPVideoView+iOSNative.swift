@@ -599,6 +599,7 @@ final class IOSNativePiPBackend: NSObject, @unchecked Sendable {
 
   private(set) var isPossible = false
   private(set) var isActive = false
+  private(set) var activeMediaGeneration: PlaybackGeneration?
   private(set) var requiresLinearPlayback = true
   private(set) var startsAutomaticallyFromInline = true
   private(set) var playbackStateInvalidationCount: UInt64 = 0
@@ -872,8 +873,19 @@ final class IOSNativePiPBackend: NSObject, @unchecked Sendable {
 
   func setActive(_ isActive: Bool) {
     guard self.isActive != isActive else { return }
+    if isActive {
+      activeMediaGeneration = owner?.player.generation
+        ?? mediaController.player?.generation
+    }
+    let lifecycleMediaGeneration = activeMediaGeneration
     self.isActive = isActive
-    owner?.handleNativePictureInPictureActiveChanged(isActive)
+    owner?.handleNativePictureInPictureActiveChanged(
+      isActive,
+      mediaGeneration: lifecycleMediaGeneration
+    )
+    if !isActive {
+      activeMediaGeneration = nil
+    }
   }
 }
 
