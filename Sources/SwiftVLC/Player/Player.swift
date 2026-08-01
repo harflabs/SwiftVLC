@@ -470,6 +470,18 @@ public final class Player {
   @ObservationIgnored
   var playbackControlIntentRevision: UInt64 = 0
 
+  /// Receipt for the most recent pause that reached libVLC.
+  ///
+  /// A deferred pause can be issued by the event consumer while the PiP
+  /// controller is sleeping between retries. The intent revision alone says
+  /// which command is current, not whether that command actually crossed the
+  /// native boundary, so the controller needs this exact generation/revision
+  /// pair to distinguish an issued pause from a still-pending one.
+  @ObservationIgnored
+  var lastIssuedPausePlaybackGeneration: UInt64?
+  @ObservationIgnored
+  var lastIssuedPausePlaybackControlRevision: UInt64?
+
   #if DEBUG
   /// Lets deterministic tests advance the callback-lane generation at the
   /// otherwise unschedulable boundaries between a native probe and its

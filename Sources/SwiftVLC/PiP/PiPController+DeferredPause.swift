@@ -77,6 +77,19 @@ extension PiPController {
           setDeferredPauseOutcome(.cancelled)
           return
         }
+        if
+          let ownedPlaybackControlRevision,
+          player.didIssuePause(
+            playbackGeneration: playbackGeneration,
+            playbackControlRevision: ownedPlaybackControlRevision
+          ) {
+          // Player's event lane can retry a retained command while this task
+          // sleeps. That native acceptance belongs to this exact PiP command
+          // even though it did not come from the synchronous attempt below.
+          deferredPause = .issued
+          setDeferredPauseOutcome(.issued)
+          return
+        }
 
         switch player.state {
         case .playing:

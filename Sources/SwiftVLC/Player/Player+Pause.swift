@@ -269,6 +269,7 @@ extension Player {
         deferredPauseCommand = nil
       }
       publishPlaybackIntent(false)
+      let issuedPlaybackControlRevision = playbackControlIntentRevision
       libvlc_media_player_set_pause(pointer, 1)
       #if DEBUG
       _pauseProbeHookForTesting?(.nativePause)
@@ -305,6 +306,8 @@ extension Player {
         }
         return false
       }
+      lastIssuedPausePlaybackGeneration = playbackGeneration
+      lastIssuedPausePlaybackControlRevision = issuedPlaybackControlRevision
       return true
     }
     return false
@@ -491,15 +494,61 @@ extension Player {
     playbackControlRevision: UInt64? = nil,
     restoringPlaybackControlIntent: DeferredPauseCommand = .resume
   ) {
+    if let playbackControlRevision {
+      guard playbackControlIntentRevision == playbackControlRevision else { return }
+
+      // Exact command identity is stronger than the captured generation. A
+      // playlist adoption can migrate the same retained command onto its
+      // successor without changing this revision; requiring the obsolete
+      // generation in that case leaves the PiP-owned pause live after the
+      // controller has reported cancellation.
+      let ownsPendingPause = deferredPauseCommand == .pause
+      let ownsIssuedPause = didIssuePause(
+        playbackGeneration: nil,
+        playbackControlRevision: playbackControlRevision
+      )
+      guard ownsPendingPause || ownsIssuedPause else { return }
+
+      if ownsPendingPause {
+        deferredPauseCommand = nil
+      }
+      if ownsIssuedPause, restoringPlaybackControlIntent == .resume {
+        // The event lane may already have sent the pause while the controller
+        // slept. Queueing a resume through the normal state machine handles
+        // both an in-flight `.pausing` transition and an already-paused input.
+        _ = issueResume()
+      } else {
+        setPlaybackControlIntent(restoringPlaybackControlIntent)
+      }
+      return
+    }
+
     guard deferredPauseCommand == .pause else { return }
     if let playbackGeneration {
       guard deferredPauseCommandPlaybackGeneration == playbackGeneration else { return }
     }
-    if let playbackControlRevision {
-      guard playbackControlIntentRevision == playbackControlRevision else { return }
-    }
     deferredPauseCommand = nil
     setPlaybackControlIntent(restoringPlaybackControlIntent)
+  }
+
+  /// Whether an exact explicit pause reached the native player.
+  ///
+  /// Passing `nil` for `playbackGeneration` intentionally follows a command
+  /// that playlist adoption migrated to a successor. The revision still has
+  /// to be current, so an older PiP cleanup cannot classify or undo a newer
+  /// app pause.
+  func didIssuePause(
+    playbackGeneration: UInt64?,
+    playbackControlRevision: UInt64
+  ) -> Bool {
+    guard
+      playbackControlIntentRevision == playbackControlRevision,
+      lastIssuedPausePlaybackControlRevision == playbackControlRevision
+    else { return false }
+    if let playbackGeneration {
+      return lastIssuedPausePlaybackGeneration == playbackGeneration
+    }
+    return true
   }
 
   /// Retires every pause/resume command when an external owner of the shared
