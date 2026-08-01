@@ -6,14 +6,16 @@
 /// Picture went on to appear. AVKit can still fail asynchronously after
 /// accepting a start — a call arriving, the app losing audio focus, the system
 /// declining under memory pressure — and those arrive on
-/// ``PiPController/pipEvents`` as ordered lifecycle events. Keeping the two
-/// separate matters: a caller that wants to fall back to full-screen playback
-/// needs to know immediately that the request never left the building, and
-/// waiting on an event that will never arrive is indistinguishable from waiting
-/// on one that is merely slow.
+/// ``PiPController/pipEventEnvelopes`` as ordered, generation-attributed
+/// lifecycle events. The compatibility ``PiPController/pipEvents`` stream
+/// carries the same transitions without their identities. Keeping the
+/// immediate result and asynchronous lifecycle separate matters: a caller that
+/// wants to fall back to full-screen playback needs to know immediately that
+/// the request never left the building, and waiting on an event that will never
+/// arrive is indistinguishable from waiting on one that is merely slow.
 public enum PiPStartResult: Sendable, Equatable {
-  /// The backend start request was issued. Watch ``PiPController/pipEvents``
-  /// for what happens next.
+  /// The backend start request was issued. Watch
+  /// ``PiPController/pipEventEnvelopes`` for what happens next.
   case accepted
 
   /// No media is loaded, so there is nothing to show. Load media first.

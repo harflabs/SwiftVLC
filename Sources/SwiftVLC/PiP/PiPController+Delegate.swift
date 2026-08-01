@@ -28,7 +28,7 @@ extension PiPController: AVPictureInPictureControllerDelegate {
       activateAudioSessionIfNeeded()
       syncPlaybackStateForPictureInPicture()
       invalidatePictureInPicturePlaybackState()
-      pipEventBroadcaster.broadcast(.willStart)
+      publishPiPEvent(.willStart)
     }
   }
 
@@ -48,7 +48,7 @@ extension PiPController: AVPictureInPictureControllerDelegate {
       syncPlaybackStateForPictureInPicture()
       invalidatePictureInPicturePlaybackState()
       updatePiPActive(true)
-      pipEventBroadcaster.broadcast(.didStart)
+      publishPiPEvent(.didStart)
     }
   }
 
@@ -66,7 +66,7 @@ extension PiPController: AVPictureInPictureControllerDelegate {
       // a controller replaced in the meantime can still deliver, and its
       // lifecycle describes a session that is over.
       guard let self, isCurrentAVController(identity) else { return }
-      pipEventBroadcaster.broadcast(.willStop(reason: resolveStopReason()))
+      publishPiPEvent(.willStop(reason: resolveStopReason()))
     }
   }
 
@@ -86,7 +86,7 @@ extension PiPController: AVPictureInPictureControllerDelegate {
       let reason = resolveStopReason()
       pendingStopReason = nil
       updatePiPActive(false)
-      pipEventBroadcaster.broadcast(.didStop(reason: reason))
+      publishPiPEvent(.didStop(reason: reason))
     }
   }
 
@@ -193,7 +193,7 @@ extension PiPController: AVPictureInPictureControllerDelegate {
       guard let self, isCurrentAVController(identity) else { return }
       notePendingStopReason(.failure)
       updatePiPActive(false)
-      pipEventBroadcaster.broadcast(.failedToStart(error))
+      publishPiPEvent(.failedToStart(error))
     }
   }
 }

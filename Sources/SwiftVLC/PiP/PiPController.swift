@@ -200,6 +200,8 @@ public final class PiPController: NSObject {
   @ObservationIgnored
   let pipEventBroadcaster = Broadcaster<PiPEvent>()
   @ObservationIgnored
+  let pipEventEnvelopeBroadcaster = Broadcaster<PiPEventEnvelope>()
+  @ObservationIgnored
   let pipSnapshotBroadcaster = Broadcaster<PiPSnapshot>()
   @ObservationIgnored
   private var pipSnapshotRevision: UInt64 = 0
@@ -208,6 +210,18 @@ public final class PiPController: NSObject {
   /// from a replaced one can be told apart from a current one.
   @ObservationIgnored
   private(set) var pipControllerGeneration: UInt64 = 0
+  /// The media generation captured when the current PiP lifecycle began.
+  /// Kept until its terminal `didStop`, so a delayed failure/stop remains
+  /// attributable after the player has already adopted another media.
+  @ObservationIgnored
+  var pipLifecycleMediaGeneration: PlaybackGeneration?
+  /// The concrete backend controller that owns the captured PiP lifecycle.
+  @ObservationIgnored
+  var pipLifecycleControllerGeneration: UInt64?
+  /// Whether the captured lifecycle came from an accepted explicit start and
+  /// is still waiting for its first AVKit/native lifecycle callback.
+  @ObservationIgnored
+  var pipAcceptedStartPending = false
 
   /// The best-known reason for an in-flight PiP stop, recorded by the
   /// first discriminating signal (restore callback, start failure,
@@ -403,6 +417,7 @@ public final class PiPController: NSObject {
     self.nativeBackend = nativeBackend
 
     super.init()
+    pipControllerGeneration = 1
     // Seeded here, not on first change: a controller whose flags never move
     // would otherwise leave `pipSnapshots` with nothing to replay.
     publishPiPSnapshot()
@@ -454,6 +469,7 @@ public final class PiPController: NSObject {
     self.nativeBackend = nativeBackend
 
     super.init()
+    pipControllerGeneration = 1
     // Seeded here, not on first change: a controller whose flags never move
     // would otherwise leave `pipSnapshots` with nothing to replay.
     publishPiPSnapshot()
@@ -506,6 +522,7 @@ public final class PiPController: NSObject {
 
   isolated deinit {
     pipEventBroadcaster.terminate()
+    pipEventEnvelopeBroadcaster.terminate()
     pipSnapshotBroadcaster.terminate()
     cancelDeferredPause()
     stateObserverTask?.cancel()
@@ -543,7 +560,8 @@ public final class PiPController: NSObject {
   /// not tell a request that reached AVKit from one that never left the
   /// controller — and therefore could not decide whether to fall back to
   /// full-screen playback. Asynchronous AVKit failure after an accepted start
-  /// stays where it belongs, on ``pipEvents``.
+  /// stays where it belongs, on ``pipEventEnvelopes`` (or the compatibility
+  /// ``pipEvents`` stream when generation attribution is not needed).
   @discardableResult
   public func start() -> PiPStartResult {
     guard player.currentMedia != nil else { return .noMedia }
@@ -558,18 +576,18 @@ public final class PiPController: NSObject {
       if nativeBackend.isPossible {
         activateAudioSessionIfNeeded()
       }
-      return nativeBackend.start()
+      return noteAcceptedPiPStartRequest(nativeBackend.start())
     }
     #endif
     #if os(macOS)
     if let nativeBackend {
-      return nativeBackend.start()
+      return noteAcceptedPiPStartRequest(nativeBackend.start())
     }
     #endif
     guard let pipController else { return .backendUnavailable }
     activateAudioSessionIfNeeded()
     pipController.startPictureInPicture()
-    return .accepted
+    return noteAcceptedPiPStartRequest(.accepted)
   }
 
   /// Stops Picture-in-Picture.
@@ -672,7 +690,9 @@ public final class PiPController: NSObject {
     controller.canStartPictureInPictureAutomaticallyFromInline = startsAutomaticallyFromInline
     #endif
     pipControllerGeneration &+= 1
+    clearPiPLifecycleAttribution()
     pipController = controller
+    publishPiPSnapshot()
     updatePiPPossible(controller.isPictureInPicturePossible)
     updatePiPActive(controller.isPictureInPictureActive)
     observePiPState(of: controller)
@@ -1114,9 +1134,9 @@ public final class PiPController: NSObject {
     updatePiPActive(isActive)
     guard changed else { return }
     if isActive {
-      pipEventBroadcaster.broadcast(.didStart)
+      publishPiPEvent(.didStart)
     } else {
-      pipEventBroadcaster.broadcast(.didStop(reason: .unknown))
+      publishPiPEvent(.didStop(reason: .unknown))
       pendingStopReason = nil
     }
   }

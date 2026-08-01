@@ -110,8 +110,22 @@ or when your layout needs more control than ``PiPVideoView`` offers:
 ```swift
 let controller = PiPController(player: player)
 container.layer.addSublayer(controller.layer)
-controller.start()
+switch controller.start() {
+case .accepted:
+  // Observe pipEventEnvelopes for the attributed asynchronous outcome.
+  break
+case .noMedia, .notPossible, .backendUnavailable:
+  // Keep or restore the inline presentation.
+  break
+}
 ```
+
+A ``PiPStartResult/accepted`` result means only that SwiftVLC issued the
+backend request. AVKit may still reject it asynchronously. Consume
+``PiPController/pipEventEnvelopes`` when callbacks can outlive a media change
+or controller reconstruction; each envelope carries the media and controller
+generation that owns the lifecycle. ``PiPController/pipEvents`` remains the
+unattributed compatibility stream.
 
 ``PiPController/layer`` uses `videoGravity = .resizeAspect`. Size the
 parent view to the aspect ratio you want. On macOS, the direct public
@@ -205,6 +219,8 @@ compile the PiP wrapper on visionOS. ``PiPController`` and
 - ``PiPController/isPossible``
 - ``PiPController/isActive``
 - ``PiPController/layer``
+- ``PiPController/pipEventEnvelopes``
+- ``PiPController/pipSnapshots``
 
 ### Control
 - ``PiPController/start()``

@@ -55,6 +55,27 @@ public enum PiPEvent: Sendable {
   case failedToStart(any Error)
 }
 
+/// A Picture-in-Picture lifecycle transition paired with the controller and
+/// media generations that own it.
+///
+/// AVKit callbacks are asynchronous. A start failure or stop can arrive after
+/// the player has adopted another media or the direct backend has replaced its
+/// AVKit controller. These identities let queued consumers reject a transition
+/// that no longer belongs to their current session.
+///
+/// Controller-generation ordering is meaningful only within the owning
+/// ``PiPController``. Its streams finish when that owner deinits, so a view
+/// reconstruction must replace the subscription along with the controller.
+public struct PiPEventEnvelope: Sendable {
+  /// The lifecycle transition reported by AVKit or the native backend.
+  public let event: PiPEvent
+  /// Media session active when the PiP lifecycle began.
+  public let mediaGeneration: PlaybackGeneration
+  /// AVKit controller or native-backend generation that emitted the event.
+  /// Ordering is meaningful only within the owning ``PiPController``.
+  public let controllerGeneration: UInt64
+}
+
 // MARK: - Lifecycle event stream
 
 extension PiPController {
@@ -106,6 +127,71 @@ extension PiPController {
   /// reason as authoritative.
   public var pipEvents: AsyncStream<PiPEvent> {
     pipEventBroadcaster.subscribe(policy: .unbounded)
+  }
+
+  /// Lossless PiP lifecycle events carrying controller and media identity.
+  ///
+  /// Prefer this stream when work can remain queued across a player media
+  /// change or an AVKit backend-controller replacement. Each access returns an
+  /// independent unbounded stream, and streams finish when this controller
+  /// deinits, matching ``pipEvents``.
+  public var pipEventEnvelopes: AsyncStream<PiPEventEnvelope> {
+    pipEventEnvelopeBroadcaster.subscribe(policy: .unbounded)
+  }
+
+  /// Broadcasts one transition onto the compatibility and attributed streams.
+  /// The lifecycle's media generation is captured by an accepted explicit
+  /// start, or by the first callback for a system-initiated start.
+  func publishPiPEvent(_ event: PiPEvent) {
+    switch event {
+    case .willStart:
+      // Preserve an accepted request's identity even if the player adopted
+      // successor media before AVKit replied. An auto-start has no accepted
+      // request, so it begins a fresh lifecycle here.
+      if !pipAcceptedStartPending {
+        capturePiPLifecycleAttribution()
+      }
+    case .didStart, .willStop, .didStop, .failedToStart:
+      if
+        pipLifecycleMediaGeneration == nil
+        || pipLifecycleControllerGeneration != pipControllerGeneration {
+        capturePiPLifecycleAttribution()
+      }
+    }
+    pipAcceptedStartPending = false
+
+    let envelope = PiPEventEnvelope(
+      event: event,
+      mediaGeneration: pipLifecycleMediaGeneration ?? player.generation,
+      controllerGeneration: pipLifecycleControllerGeneration ?? pipControllerGeneration
+    )
+    pipEventBroadcaster.broadcast(event)
+    pipEventEnvelopeBroadcaster.broadcast(envelope)
+
+    if case .didStop = event {
+      clearPiPLifecycleAttribution()
+    }
+  }
+
+  /// Captures attribution only when the backend confirms that it actually
+  /// issued the request. Refused starts cannot later own a lifecycle callback.
+  func noteAcceptedPiPStartRequest(_ result: PiPStartResult) -> PiPStartResult {
+    if result == .accepted {
+      capturePiPLifecycleAttribution()
+      pipAcceptedStartPending = true
+    }
+    return result
+  }
+
+  private func capturePiPLifecycleAttribution() {
+    pipLifecycleMediaGeneration = player.generation
+    pipLifecycleControllerGeneration = pipControllerGeneration
+  }
+
+  func clearPiPLifecycleAttribution() {
+    pipLifecycleMediaGeneration = nil
+    pipLifecycleControllerGeneration = nil
+    pipAcceptedStartPending = false
   }
 
   /// The current Picture in Picture state, followed by every subsequent

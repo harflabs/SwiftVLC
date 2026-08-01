@@ -49,6 +49,21 @@ extension Integration {
       return collected
     }
 
+    private func collect(
+      _ count: Int,
+      from stream: AsyncStream<PiPEventEnvelope>
+    )
+      async -> [PiPEventEnvelope] {
+      var collected: [PiPEventEnvelope] = []
+      for await event in stream {
+        collected.append(event)
+        if collected.count == count {
+          break
+        }
+      }
+      return collected
+    }
+
     @Test
     func `willStart and didStart delegate callbacks emit events`() async {
       let player = Player(instance: TestInstance.shared)
@@ -99,6 +114,60 @@ extension Integration {
       #expect(nsError.code == 42)
       // failedToStart must also resync isActive to false.
       #expect(controller.isActive == false)
+    }
+
+    @Test
+    func `An accepted start failure retains its controller and media generation`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      let controller = PiPController(player: player)
+      let avController = makeDummyAVController(for: controller)
+      let stream = controller.pipEventEnvelopes
+      let acceptedMediaGeneration = player.generation
+      let acceptedControllerGeneration = controller.pipControllerGeneration
+
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      try player.load(Media(url: TestMedia.silenceURL))
+      #expect(player.generation > acceptedMediaGeneration)
+
+      let failure = NSError(domain: "swiftvlc.test.pip.generation", code: 17)
+      controller.pictureInPictureController(
+        avController,
+        failedToStartPictureInPictureWithError: failure
+      )
+
+      let envelope = try #require(await collect(1, from: stream).first)
+      #expect(envelope.mediaGeneration == acceptedMediaGeneration)
+      #expect(envelope.controllerGeneration == acceptedControllerGeneration)
+      guard case .failedToStart(let error) = envelope.event else {
+        Issue.record("Expected .failedToStart, got \(envelope.event)")
+        return
+      }
+      #expect((error as NSError).code == 17)
+    }
+
+    @Test
+    func `willStart does not steal an accepted request for successor media`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      let controller = PiPController(player: player)
+      let avController = makeDummyAVController(for: controller)
+      let stream = controller.pipEventEnvelopes
+      let acceptedMediaGeneration = player.generation
+
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      try player.load(Media(url: TestMedia.silenceURL))
+      controller.pictureInPictureControllerWillStartPictureInPicture(avController)
+      controller.pictureInPictureControllerDidStartPictureInPicture(avController)
+
+      let envelopes = await collect(2, from: stream)
+      #expect(envelopes.map(\.mediaGeneration) == [
+        acceptedMediaGeneration,
+        acceptedMediaGeneration
+      ])
+      #expect(envelopes.allSatisfy {
+        $0.controllerGeneration == controller.pipControllerGeneration
+      })
     }
 
     @Test
@@ -291,6 +360,25 @@ extension Integration {
     }
 
     @Test
+    func `Native backend events carry one nonzero controller generation`() async {
+      let player = Player(instance: TestInstance.shared)
+      #if os(iOS)
+      let backend = IOSNativePiPBackend()
+      #else
+      let backend = MacNativePiPBackend()
+      #endif
+      let controller = PiPController(player: player, nativeBackend: backend)
+      let stream = controller.pipEventEnvelopes
+
+      controller.handleNativePictureInPictureActiveChanged(true)
+      controller.handleNativePictureInPictureActiveChanged(false)
+
+      let events = await collect(2, from: stream)
+      #expect(events.map(\.controllerGeneration) == [1, 1])
+      #expect(events.allSatisfy { $0.mediaGeneration == player.generation })
+    }
+
+    @Test
     func `pipEvents stream finishes when the controller deinits`() async throws {
       let player = Player(instance: TestInstance.shared)
       var controller: PiPController? = PiPController(player: player)
@@ -302,6 +390,19 @@ extension Integration {
       // rather than suspend forever.
       for await event in stream {
         Issue.record("Expected no events, got \(event)")
+      }
+    }
+
+    @Test
+    func `pipEventEnvelopes stream finishes when the controller deinits`() async throws {
+      let player = Player(instance: TestInstance.shared)
+      var controller: PiPController? = PiPController(player: player)
+      let stream = try #require(controller?.pipEventEnvelopes)
+
+      controller = nil
+
+      for await event in stream {
+        Issue.record("Expected no envelopes, got \(event)")
       }
     }
 
@@ -324,6 +425,23 @@ extension Integration {
         Issue.record("Both subscribers should see .willStart first")
         return
       }
+    }
+
+    @Test
+    func `multiple envelope subscribers receive identical attribution`() async {
+      let player = Player(instance: TestInstance.shared)
+      let controller = PiPController(player: player)
+      let avController = makeDummyAVController(for: controller)
+      let first = controller.pipEventEnvelopes
+      let second = controller.pipEventEnvelopes
+
+      controller.pictureInPictureControllerWillStartPictureInPicture(avController)
+      controller.pictureInPictureControllerDidStartPictureInPicture(avController)
+
+      let a = await collect(2, from: first)
+      let b = await collect(2, from: second)
+      #expect(a.map(\.mediaGeneration) == b.map(\.mediaGeneration))
+      #expect(a.map(\.controllerGeneration) == b.map(\.controllerGeneration))
     }
   }
 }
