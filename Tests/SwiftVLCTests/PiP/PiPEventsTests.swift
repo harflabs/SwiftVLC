@@ -427,12 +427,13 @@ extension Integration {
     }
 
     @Test
-    func `A failure stop promotes the retry queued by an undiscriminated stop`() async throws {
+    func `A failed queued retry is not promoted after the older stop`() async throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       try player.load(Media(url: TestMedia.twosecURL))
       let controller = PiPController(player: player)
       let avController = makeDummyAVController(for: controller)
       let stream = controller.pipEventEnvelopes
+      let originalMediaGeneration = player.generation
       let failure = NSError(domain: "swiftvlc.test.pip.queued-failure", code: 1)
 
       #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
@@ -444,10 +445,13 @@ extension Integration {
       let retryMediaGeneration = player.generation
       #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
 
-      // The media can move again before AVKit finishes the old failed
-      // lifecycle. The queued retry, not this signal-time generation, owns the
-      // next start.
+      // The media can move again before AVKit reports that the queued retry
+      // failed. That failure still belongs to the accepted retry. Once the
+      // older lifecycle stops, the failed retry must not be promoted as a
+      // phantom awaiting start; a later willStart is an automatic start for
+      // the signal-time media.
       try player.load(Media(url: TestMedia.twosecURL))
+      let automaticMediaGeneration = player.generation
       controller.pictureInPictureController(
         avController,
         failedToStartPictureInPictureWithError: failure
@@ -456,9 +460,11 @@ extension Integration {
       controller.pictureInPictureControllerWillStartPictureInPicture(avController)
 
       let envelopes = await collect(6, from: stream)
-      #expect(envelopes[5].mediaGeneration == retryMediaGeneration)
-      guard case .didStop(reason: .failure) = envelopes[4].event else {
-        Issue.record("Expected the failed lifecycle's trailing stop")
+      #expect(envelopes[3].mediaGeneration == retryMediaGeneration)
+      #expect(envelopes[4].mediaGeneration == originalMediaGeneration)
+      #expect(envelopes[5].mediaGeneration == automaticMediaGeneration)
+      guard case .didStop(reason: .userClosed) = envelopes[4].event else {
+        Issue.record("Expected the older lifecycle's undiscriminated stop")
         return
       }
     }

@@ -210,6 +210,11 @@ public final class PiPController: NSObject {
   /// from a replaced one can be told apart from a current one.
   @ObservationIgnored
   private(set) var pipControllerGeneration: UInt64 = 0
+  /// Monotonic identity for start attempts within this controller. Controller
+  /// generation alone cannot order two overlapping requests issued to the
+  /// same AVKit controller.
+  @ObservationIgnored
+  var pipLifecycleSequence: UInt64 = 0
   /// Identity captured when the current PiP lifecycle began. Kept until its
   /// terminal `didStop`, so a delayed callback remains attributable after the
   /// player has already adopted another media.
@@ -235,6 +240,7 @@ public final class PiPController: NSObject {
   struct PiPLifecycleAttribution {
     let mediaGeneration: PlaybackGeneration
     let controllerGeneration: UInt64
+    let sequence: UInt64
   }
 
   struct FailedPiPLifecycle {

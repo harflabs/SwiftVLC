@@ -198,7 +198,6 @@ extension PiPController: AVPictureInPictureControllerDelegate {
       // a controller replaced in the meantime can still deliver, and its
       // lifecycle describes a session that is over.
       guard let self, isCurrentAVController(identity) else { return }
-      notePendingStopReason(.failure)
       updatePiPActive(false)
       publishPiPEvent(.failedToStart(error), mediaGeneration: mediaGeneration)
     }
