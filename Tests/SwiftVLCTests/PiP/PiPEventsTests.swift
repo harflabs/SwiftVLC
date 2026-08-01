@@ -384,6 +384,43 @@ extension Integration {
     }
 
     @Test
+    func `A failure stop promotes the retry queued by an undiscriminated stop`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      let controller = PiPController(player: player)
+      let avController = makeDummyAVController(for: controller)
+      let stream = controller.pipEventEnvelopes
+      let failure = NSError(domain: "swiftvlc.test.pip.queued-failure", code: 1)
+
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      controller.pictureInPictureControllerWillStartPictureInPicture(avController)
+      controller.pictureInPictureControllerDidStartPictureInPicture(avController)
+      controller.pictureInPictureControllerWillStopPictureInPicture(avController)
+
+      try player.load(Media(url: TestMedia.silenceURL))
+      let retryMediaGeneration = player.generation
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+
+      // The media can move again before AVKit finishes the old failed
+      // lifecycle. The queued retry, not this signal-time generation, owns the
+      // next start.
+      try player.load(Media(url: TestMedia.twosecURL))
+      controller.pictureInPictureController(
+        avController,
+        failedToStartPictureInPictureWithError: failure
+      )
+      controller.pictureInPictureControllerDidStopPictureInPicture(avController)
+      controller.pictureInPictureControllerWillStartPictureInPicture(avController)
+
+      let envelopes = await collect(6, from: stream)
+      #expect(envelopes[5].mediaGeneration == retryMediaGeneration)
+      guard case .didStop(reason: .failure) = envelopes[4].event else {
+        Issue.record("Expected the failed lifecycle's trailing stop")
+        return
+      }
+    }
+
+    @Test
     func `A failure that loses stop precedence preserves the old lifecycle and queues its retry`() async throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       try player.load(Media(url: TestMedia.twosecURL))

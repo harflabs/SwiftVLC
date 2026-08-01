@@ -209,8 +209,15 @@ extension PiPController {
     pipEventBroadcaster.broadcast(event)
     pipEventEnvelopeBroadcaster.broadcast(envelope)
 
-    if case .didStop(let reason) = event, reason != .failure {
-      clearCurrentPiPLifecycleAttribution()
+    if case .didStop(let reason) = event {
+      if reason != .failure {
+        clearCurrentPiPLifecycleAttribution()
+      }
+      // A failed-to-start callback clears the failed lifecycle before its
+      // optional trailing stop arrives. That stop still releases a retry
+      // accepted while the old lifecycle was stopping. Conversely, when an
+      // independently accepted retry is already current, promotion must not
+      // overwrite it.
       promoteQueuedPiPStartAttributionIfNeeded()
     }
   }
@@ -296,7 +303,10 @@ extension PiPController {
   }
 
   private func promoteQueuedPiPStartAttributionIfNeeded() {
-    guard let queuedPiPStartAttribution else { return }
+    guard
+      pipLifecycleAttribution == nil,
+      let queuedPiPStartAttribution
+    else { return }
     pipLifecycleAttribution = queuedPiPStartAttribution
     self.queuedPiPStartAttribution = nil
     pipLifecycleAttributionPhase = .awaitingStart
@@ -319,6 +329,19 @@ extension PiPController {
     }
     return currentPiPLifecycleAttribution(
       mediaGeneration: signaledMediaGeneration
+    ).mediaGeneration
+  }
+
+  /// Resolves an iOS native active signal against the exact accepted request
+  /// snapshotted when that signal arrived. The request generation is passed by
+  /// value so another accepted start during the callback's main-actor hop
+  /// cannot replace its provenance.
+  func attributedNativePiPStartMediaGeneration(
+    signaledMediaGeneration: PlaybackGeneration?,
+    acceptedRequestMediaGeneration: PlaybackGeneration?
+  ) -> PlaybackGeneration {
+    capturePiPLifecycleAttribution(
+      mediaGeneration: acceptedRequestMediaGeneration ?? signaledMediaGeneration
     ).mediaGeneration
   }
 
