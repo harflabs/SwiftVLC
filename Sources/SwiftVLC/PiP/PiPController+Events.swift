@@ -179,27 +179,24 @@ extension PiPController {
       // older failed attempt whose optional stop never arrived. Do not retire
       // a newer queued failure when AVKit repeats didStart for the older
       // lifecycle that is still stopping.
-      if
-        let failedPiPLifecycle,
-        failedPiPLifecycle.attribution.sequence < attribution.sequence,
-        !failedPiPLifecycle.willStopObserved {
-        self.failedPiPLifecycle = nil
+      failedPiPLifecycles.removeAll {
+        $0.attribution.sequence < attribution.sequence && !$0.willStopObserved
       }
     case .willStop:
-      if failedLifecycleOwnsNextStop, let failedPiPLifecycle {
+      if failedLifecycleOwnsNextStop, let failedPiPLifecycle = failedPiPLifecycles.first {
         attribution = failedPiPLifecycle.attribution
         // Once AVKit has promised a terminal callback for this failed
         // lifecycle, a newer didStart must not retire it as an omitted stop.
         // Keep it until the matching didStop consumes the slot.
-        self.failedPiPLifecycle?.willStopObserved = true
+        failedPiPLifecycles[0].willStopObserved = true
       } else {
         pipLifecycleAttributionPhase = .stopping
         attribution = currentPiPLifecycleAttribution(mediaGeneration: mediaGenerationOverride)
       }
     case .didStop:
-      if failedLifecycleOwnsNextStop, let failedPiPLifecycle {
+      if failedLifecycleOwnsNextStop, let failedPiPLifecycle = failedPiPLifecycles.first {
         attribution = failedPiPLifecycle.attribution
-        self.failedPiPLifecycle = nil
+        failedPiPLifecycles.removeFirst()
         consumedFailedLifecycle = true
       } else {
         attribution = currentPiPLifecycleAttribution(mediaGeneration: mediaGenerationOverride)
@@ -214,7 +211,7 @@ extension PiPController {
         // older lifecycle remains current until its own didStop arrives.
         attribution = queuedPiPStartAttribution
         self.queuedPiPStartAttribution = nil
-        failedPiPLifecycle = FailedPiPLifecycle(
+        recordFailedPiPLifecycle(
           attribution: attribution,
           stopReason: .failure
         )
@@ -224,7 +221,7 @@ extension PiPController {
         // signal already won the stop reason. Preserve that winning reason
         // alongside the retired lifecycle instead of leaving a dead awaiting
         // start in the current slot forever.
-        failedPiPLifecycle = FailedPiPLifecycle(
+        recordFailedPiPLifecycle(
           attribution: attribution,
           stopReason: pendingStopReason ?? .failure
         )
@@ -254,6 +251,24 @@ extension PiPController {
       // overwrite it.
       promoteQueuedPiPStartAttributionIfNeeded()
     }
+  }
+
+  /// Publishes a native transition that crossed a controller handoff without
+  /// consuming lifecycle state the successor may already have created. The
+  /// backend supplies the media identity captured at signal time; only the
+  /// public envelope/compatibility streams need to inherit the new owner's
+  /// controller generation.
+  func publishTransferredNativePiPEvent(
+    _ event: PiPEvent,
+    mediaGeneration: PlaybackGeneration?
+  ) {
+    let attribution = makePiPLifecycleAttribution(mediaGeneration: mediaGeneration)
+    pipEventBroadcaster.broadcast(event)
+    pipEventEnvelopeBroadcaster.broadcast(PiPEventEnvelope(
+      event: event,
+      mediaGeneration: attribution.mediaGeneration,
+      controllerGeneration: attribution.controllerGeneration
+    ))
   }
 
   private func currentPiPLifecycleAttribution(
@@ -298,7 +313,7 @@ extension PiPController {
       pendingStopReason = nil
     }
     let currentLifecycleIsStopping = pipLifecycleAttributionPhase == .stopping
-      || (pendingStopReason != nil && failedPiPLifecycle == nil)
+      || (pendingStopReason != nil && failedPiPLifecycles.isEmpty)
     if pipLifecycleAttribution != nil, currentLifecycleIsStopping {
       if queuedPiPStartAttribution == nil {
         queuedPiPStartAttribution = makePiPLifecycleAttribution()
@@ -358,6 +373,34 @@ extension PiPController {
     pipLifecycleAttributionPhase = .awaitingStart
   }
 
+  /// Saves a failed start in accepted-request order. Reaching a newer failed
+  /// start proves that any older failure without `willStop` omitted its
+  /// optional terminal callback. A failure for which AVKit already emitted
+  /// `willStop` remains queued until its matching `didStop` arrives.
+  private func recordFailedPiPLifecycle(
+    attribution: PiPLifecycleAttribution,
+    stopReason: PiPStopReason
+  ) {
+    failedPiPLifecycles.removeAll {
+      $0.attribution.sequence < attribution.sequence && !$0.willStopObserved
+    }
+    if
+      let existingIndex = failedPiPLifecycles.firstIndex(where: {
+        $0.attribution.sequence == attribution.sequence
+      }) {
+      guard !failedPiPLifecycles[existingIndex].willStopObserved else { return }
+      failedPiPLifecycles[existingIndex] = FailedPiPLifecycle(
+        attribution: attribution,
+        stopReason: stopReason
+      )
+      return
+    }
+    failedPiPLifecycles.append(FailedPiPLifecycle(
+      attribution: attribution,
+      stopReason: stopReason
+    ))
+  }
+
   /// Resolves the media identity a native backend must persist while active.
   /// An accepted explicit request owns the lifecycle even when the native
   /// active signal arrives after the player has adopted successor media. An
@@ -400,7 +443,7 @@ extension PiPController {
 
   func clearPiPLifecycleAttribution() {
     clearCurrentPiPLifecycleAttribution()
-    failedPiPLifecycle = nil
+    failedPiPLifecycles.removeAll(keepingCapacity: true)
     queuedPiPStartAttribution = nil
   }
 
@@ -436,7 +479,7 @@ extension PiPController {
   /// independently current lifecycle's reason; otherwise use that current
   /// reason, natural end of media, or the user's close affordance.
   func resolveStopReason() -> PiPStopReason {
-    if failedLifecycleOwnsNextStop, let failedPiPLifecycle {
+    if failedLifecycleOwnsNextStop, let failedPiPLifecycle = failedPiPLifecycles.first {
       return failedPiPLifecycle.stopReason
     }
     if let pendingStopReason {
@@ -453,7 +496,7 @@ extension PiPController {
   /// to didStop, so accepted-start sequence is the only reliable discriminator
   /// when a retry fails while an older session is still stopping.
   private var failedLifecycleOwnsNextStop: Bool {
-    guard let failedPiPLifecycle else { return false }
+    guard let failedPiPLifecycle = failedPiPLifecycles.first else { return false }
     guard let pipLifecycleAttribution else { return true }
     return failedPiPLifecycle.attribution.sequence < pipLifecycleAttribution.sequence
   }

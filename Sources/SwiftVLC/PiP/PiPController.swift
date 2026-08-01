@@ -220,13 +220,13 @@ public final class PiPController: NSObject {
   /// player has already adopted another media.
   @ObservationIgnored
   var pipLifecycleAttribution: PiPLifecycleAttribution?
-  /// A failed start can be followed by a trailing stop after another start has
-  /// already been accepted. Keep its identity and stop reason outside the new
-  /// lifecycle so consuming the old stop cannot relabel or clear the retry. A
-  /// later failure replaces this slot: reaching the next terminal start
-  /// outcome proves the earlier failure omitted its optional stop callback.
+  /// Failed starts can each be followed by a trailing stop after newer starts
+  /// have already been accepted. Keep their identities and stop reasons in
+  /// accepted-start order outside the current lifecycle, so consuming an old
+  /// stop cannot relabel or clear a retry. A later terminal start outcome
+  /// retires only older failures for which AVKit never promised a stop.
   @ObservationIgnored
-  var failedPiPLifecycle: FailedPiPLifecycle?
+  var failedPiPLifecycles: [FailedPiPLifecycle] = []
   /// A start accepted while an older lifecycle is still waiting for its stop.
   /// Promoted only after that stop is consumed.
   @ObservationIgnored
@@ -1166,7 +1166,9 @@ public final class PiPController: NSObject {
   /// PiP down. See ``pipEvents``.
   func handleNativePictureInPictureActiveChanged(
     _ isActive: Bool,
-    mediaGeneration: PlaybackGeneration? = nil
+    mediaGeneration: PlaybackGeneration? = nil,
+    forceTransitionEvent: Bool = false,
+    preservesCurrentLifecycle: Bool = false
   ) {
     #if os(iOS)
     if isActive {
@@ -1179,7 +1181,14 @@ public final class PiPController: NSObject {
     #endif
     let changed = self.isActive != isActive
     updatePiPActive(isActive)
-    guard changed else { return }
+    guard changed || forceTransitionEvent else { return }
+    if preservesCurrentLifecycle {
+      publishTransferredNativePiPEvent(
+        isActive ? .didStart : .didStop(reason: .unknown),
+        mediaGeneration: mediaGeneration
+      )
+      return
+    }
     if isActive {
       publishPiPEvent(.didStart, mediaGeneration: mediaGeneration)
     } else {

@@ -145,6 +145,50 @@ extension Integration {
     }
 
     @Test
+    func `Promised failed stop remains ordered ahead of a failed retry`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      let controller = PiPController(player: player)
+      let avController = makeDummyAVController(for: controller)
+      let stream = controller.pipEventEnvelopes
+      let originalMediaGeneration = player.generation
+      let originalFailure = NSError(domain: "swiftvlc.test.pip.promised-failure", code: 1)
+      let retryFailure = NSError(domain: "swiftvlc.test.pip.retry-failure", code: 2)
+
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      controller.pictureInPictureController(
+        avController,
+        failedToStartPictureInPictureWithError: originalFailure
+      )
+      controller.pictureInPictureControllerWillStopPictureInPicture(avController)
+
+      try player.load(Media(url: TestMedia.silenceURL))
+      let retryMediaGeneration = player.generation
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      controller.pictureInPictureController(
+        avController,
+        failedToStartPictureInPictureWithError: retryFailure
+      )
+
+      controller.pictureInPictureControllerDidStopPictureInPicture(avController)
+      controller.pictureInPictureControllerDidStopPictureInPicture(avController)
+
+      let envelopes = await collect(5, from: stream)
+      #expect(envelopes[1].mediaGeneration == originalMediaGeneration)
+      #expect(envelopes[2].mediaGeneration == retryMediaGeneration)
+      #expect(envelopes[3].mediaGeneration == originalMediaGeneration)
+      #expect(envelopes[4].mediaGeneration == retryMediaGeneration)
+      guard case .didStop(reason: .failure) = envelopes[3].event else {
+        Issue.record("Expected the promised original failure stop first")
+        return
+      }
+      guard case .didStop(reason: .failure) = envelopes[4].event else {
+        Issue.record("Expected the failed retry stop second")
+        return
+      }
+    }
+
+    @Test
     func `A cleanup stop after failure cannot poison a successful retry`() async throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       try player.load(Media(url: TestMedia.twosecURL))

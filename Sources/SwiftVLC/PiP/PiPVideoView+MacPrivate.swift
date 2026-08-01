@@ -15,7 +15,13 @@ import Synchronization
 @MainActor
 final class MacNativePiPBackend: NSObject, @unchecked Sendable {
   let mediaController = MacNativePiPMediaController()
-  weak var owner: PiPController?
+  weak var owner: PiPController? {
+    didSet {
+      ownerGeneration &+= 1
+      scheduleActiveTransitionDeliveryIfNeeded()
+    }
+  }
+
   weak var hostView: MacNativePiPHostView?
   weak var drawableView: MacNativePiPDrawableView?
 
@@ -23,6 +29,16 @@ final class MacNativePiPBackend: NSObject, @unchecked Sendable {
   private(set) var isPossible = false
   private(set) var isActive = false
   private(set) var activeMediaGeneration: PlaybackGeneration?
+  private struct PendingActiveTransition {
+    let isActive: Bool
+    let mediaGeneration: PlaybackGeneration?
+    let playerIdentity: ObjectIdentifier
+    let ownerGeneration: UInt64
+  }
+
+  private var ownerGeneration: UInt64 = 0
+  private var pendingActiveTransitions: [PendingActiveTransition] = []
+  private var hasScheduledActiveTransitionDelivery = false
 
   func adopt(
     hostView: MacNativePiPHostView,
@@ -138,10 +154,11 @@ final class MacNativePiPBackend: NSObject, @unchecked Sendable {
 
   func setActive(_ isActive: Bool) {
     guard self.isActive != isActive else { return }
+    let signaledOwner = owner
     if isActive {
-      let signaledMediaGeneration = owner?.player.generation
+      let signaledMediaGeneration = signaledOwner?.player.generation
         ?? mediaController.player?.generation
-      activeMediaGeneration = owner?.attributedNativePiPStartMediaGeneration(
+      activeMediaGeneration = signaledOwner?.attributedNativePiPStartMediaGeneration(
         signaledMediaGeneration: signaledMediaGeneration,
         preservesAcceptedRequest: true
       ) ?? signaledMediaGeneration
@@ -151,10 +168,44 @@ final class MacNativePiPBackend: NSObject, @unchecked Sendable {
     if !isActive {
       activeMediaGeneration = nil
     }
-    Task { @MainActor [weak owner] in
-      owner?.handleNativePictureInPictureActiveChanged(
-        isActive,
-        mediaGeneration: lifecycleMediaGeneration
+    // A same-player SwiftUI reconstruction can replace `owner` before this
+    // deferred delivery runs. Persist transitions that were signalled to a
+    // live owner and route them to whichever controller currently owns that
+    // player's adopted backend. Initial ownerless state is still adopted from
+    // `isActive` and must not synthesize a historical event.
+    guard let signaledOwner else { return }
+    pendingActiveTransitions.append(PendingActiveTransition(
+      isActive: isActive,
+      mediaGeneration: lifecycleMediaGeneration,
+      playerIdentity: ObjectIdentifier(signaledOwner.player),
+      ownerGeneration: ownerGeneration
+    ))
+    scheduleActiveTransitionDeliveryIfNeeded()
+  }
+
+  private func scheduleActiveTransitionDeliveryIfNeeded() {
+    guard
+      !pendingActiveTransitions.isEmpty,
+      !hasScheduledActiveTransitionDelivery
+    else { return }
+    hasScheduledActiveTransitionDelivery = true
+    Task { @MainActor [weak self] in
+      self?.deliverPendingActiveTransitions()
+    }
+  }
+
+  private func deliverPendingActiveTransitions() {
+    hasScheduledActiveTransitionDelivery = false
+    guard let owner else { return }
+    let ownerIdentity = ObjectIdentifier(owner.player)
+    let transitions = pendingActiveTransitions
+    pendingActiveTransitions.removeAll(keepingCapacity: true)
+    for transition in transitions where transition.playerIdentity == ownerIdentity {
+      owner.handleNativePictureInPictureActiveChanged(
+        transition.isActive,
+        mediaGeneration: transition.mediaGeneration,
+        forceTransitionEvent: true,
+        preservesCurrentLifecycle: transition.ownerGeneration != ownerGeneration
       )
     }
   }

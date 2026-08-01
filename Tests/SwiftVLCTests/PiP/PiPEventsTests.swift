@@ -758,6 +758,45 @@ extension Integration {
       let envelope = try #require(await collect(1, from: stream).first)
       #expect(envelope.mediaGeneration == acceptedGeneration)
     }
+
+    @Test
+    func `A queued macOS transition follows a same-player owner handoff`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      let backend = MacNativePiPBackend()
+      backend.attach(to: player)
+      let original = PiPController(player: player, nativeBackend: backend)
+      let originalStream = original.pipEventEnvelopes
+
+      backend.setActive(true)
+      _ = try #require(await collect(1, from: originalStream).first)
+      let lifecycleMediaGeneration = try #require(backend.activeMediaGeneration)
+
+      // `setActive(false)` defers observer delivery. Reconstruct the
+      // controller synchronously before that task runs; the transition must
+      // follow the adopted same-player backend instead of the captured owner.
+      backend.setActive(false)
+      let successor = PiPController(player: player, nativeBackend: backend)
+      let successorStream = successor.pipEventEnvelopes
+      try player.load(Media(url: TestMedia.silenceURL))
+      let retryMediaGeneration = player.generation
+      #expect(successor.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      backend.setActive(true)
+
+      let envelopes = await collect(2, from: successorStream)
+      #expect(backend.owner === successor)
+      #expect(envelopes[0].mediaGeneration == lifecycleMediaGeneration)
+      #expect(envelopes[1].mediaGeneration == retryMediaGeneration)
+      guard case .didStop(reason: .unknown) = envelopes[0].event else {
+        Issue.record("Expected the queued stop on the successor owner")
+        return
+      }
+      guard case .didStart = envelopes[1].event else {
+        Issue.record("Expected the successor's accepted retry to remain current")
+        return
+      }
+      withExtendedLifetime(original) {}
+    }
     #endif
 
     @Test
