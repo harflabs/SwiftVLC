@@ -230,8 +230,13 @@ extension PiPController {
   /// issued the request. Refused starts cannot later own a lifecycle callback.
   func noteAcceptedPiPStartRequest(_ result: PiPStartResult) -> PiPStartResult {
     guard result == .accepted else { return result }
-    if pipLifecycleAttribution != nil, pendingStopReason != nil {
-      queuedPiPStartAttribution = makePiPLifecycleAttribution()
+    if
+      pipLifecycleAttribution != nil,
+      pendingStopReason != nil,
+      failedPiPLifecycleAttributions.isEmpty {
+      if queuedPiPStartAttribution == nil {
+        queuedPiPStartAttribution = makePiPLifecycleAttribution()
+      }
       return result
     }
     switch pipLifecycleAttributionPhase {

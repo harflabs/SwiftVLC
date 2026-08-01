@@ -232,6 +232,8 @@ extension Integration {
       try player.load(Media(url: TestMedia.silenceURL))
       let retryMediaGeneration = player.generation
       #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      try player.load(Media(url: TestMedia.twosecURL))
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
 
       // AVKit may finish the failed lifecycle after the application has
       // already issued its retry. That old stop must consume only the saved
@@ -277,6 +279,8 @@ extension Integration {
 
       try player.load(Media(url: TestMedia.silenceURL))
       let retryMediaGeneration = player.generation
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      try player.load(Media(url: TestMedia.twosecURL))
       #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
       controller.pictureInPictureControllerDidStopPictureInPicture(avController)
       controller.pictureInPictureControllerWillStartPictureInPicture(avController)
