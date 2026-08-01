@@ -195,9 +195,29 @@ extension Integration {
       )
     }
 
-    /// Leaving a pausable state cancels the retry rather than exhausting it.
     @Test
-    func `Leaving a playing state cancels the deferred pause`() async {
+    func `A newer play command cancels the pending pause with no native call`() async {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let recorder = PlaybackRecorder()
+      player._setStateForTesting(state: .playing)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: recorder.driver,
+        pauseDebounce: .milliseconds(20)
+      )
+
+      controller._setPlayingForTesting(false)
+      controller._setPlayingForTesting(true)
+
+      #expect(controller.deferredPauseOutcome == .cancelled)
+      try? await Task.sleep(for: .milliseconds(60))
+      #expect(recorder.pauseCount == 0, "a cancelled task issued a late duplicate pause")
+    }
+
+    /// `.stopped` represents both an explicit stop and natural end of media,
+    /// so this pins both terminal paths required by the issue.
+    @Test
+    func `Stop or end cancels the deferred pause`() async {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let recorder = PlaybackRecorder()
       recorder.pauseSucceeds = false

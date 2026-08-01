@@ -298,10 +298,9 @@ public final class PiPController: NSObject {
   /// How a deferred PiP pause finished.
   ///
   /// Not surfaced on ``PiPEvent`` because that is a public non-frozen enum and
-  /// adding a case would be source-breaking for exhaustive switches. The
-  /// user-visible half of the outcome is reconciled onto
-  /// ``Player/isPlaybackRequestedActive`` instead, which is already
-  /// observable.
+  /// adding a case would be source-breaking for exhaustive switches. Observe
+  /// ``deferredPauseOutcome`` separately for this command result; playback
+  /// intent is also reconciled onto ``Player/isPlaybackRequestedActive``.
   public enum DeferredPauseOutcome: Sendable, Equatable {
     /// libVLC accepted the pause.
     case issued
