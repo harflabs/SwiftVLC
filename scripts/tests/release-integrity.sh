@@ -128,6 +128,12 @@ bash -n \
   scripts/resolve-release-artifact.sh \
   scripts/setup-dev.sh
 
+# GitHub's macOS runners still execute these scripts with Bash 3.2. An empty
+# array expansion under nounset fails there even though newer Bash accepts it.
+if grep -En '\$\{[A-Za-z_][A-Za-z0-9_]*\[@\]\}' scripts/setup-dev.sh >/dev/null; then
+  fail "setup-dev.sh contains an array expansion that is unsafe under Bash 3.2 nounset"
+fi
+
 artifact_info=$(./scripts/resolve-release-artifact.sh)
 actual_tag=$(printf '%s' "$artifact_info" \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag"])')

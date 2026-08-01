@@ -178,11 +178,11 @@ if [[ "$SKIP_DOWNLOAD" == true ]]; then
   fi
   echo "Keeping existing xcframework at $XCFW_DIR (--skip-download)."
 else
-  resolve_args=()
   if [[ -n "$VERSION" ]]; then
-    resolve_args+=(--tag "$VERSION")
+    artifact_info=$("$SCRIPT_DIR/resolve-release-artifact.sh" --tag "$VERSION")
+  else
+    artifact_info=$("$SCRIPT_DIR/resolve-release-artifact.sh")
   fi
-  artifact_info=$("$SCRIPT_DIR/resolve-release-artifact.sh" "${resolve_args[@]}")
   RESOLVED_TAG=$(printf '%s' "$artifact_info" \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag"])')
   RESOLVED_URL=$(printf '%s' "$artifact_info" \
