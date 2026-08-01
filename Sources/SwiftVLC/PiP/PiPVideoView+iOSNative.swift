@@ -601,6 +601,11 @@ final class IOSNativePiPBackend: NSObject, @unchecked Sendable {
   private var possibleObservation: NSKeyValueObservation?
   private var activeObservation: NSKeyValueObservation?
   private var stateChangeEventHandler: IOSNativePiPStateChangeEventHandler?
+  /// The native window controller that accepted the most recent explicit
+  /// start. A later ready callback replaces `windowController` and clears
+  /// this identity; an active signal from that replacement is therefore an
+  /// automatic start, not a delayed result of the old request.
+  private weak var acceptedStartWindowController: NSObject?
 
   private(set) var isPossible = false
   private(set) var isActive = false
@@ -695,7 +700,11 @@ final class IOSNativePiPBackend: NSObject, @unchecked Sendable {
       warnIfVideoOutputBlocksPictureInPicture()
       return .notPossible
     }
-    return performWindowControllerAction(IOSNativePiPSelector.start)
+    let result = performWindowControllerAction(IOSNativePiPSelector.start)
+    if result == .accepted {
+      acceptedStartWindowController = windowController
+    }
+    return result
   }
 
   /// One-time diagnostic for the common misconfiguration where a custom
@@ -781,6 +790,7 @@ final class IOSNativePiPBackend: NSObject, @unchecked Sendable {
     activeObservation = nil
     avPictureInPictureController = nil
     stateChangeEventHandler = nil
+    acceptedStartWindowController = nil
     windowController = nil
   }
 
@@ -909,9 +919,12 @@ final class IOSNativePiPBackend: NSObject, @unchecked Sendable {
       let signaledMediaGeneration = mediaGeneration
         ?? owner?.player.generation
         ?? mediaController.player?.generation
+      let preservesAcceptedRequest = acceptedStartWindowController === windowController
       activeMediaGeneration = owner?.attributedNativePiPStartMediaGeneration(
-        signaledMediaGeneration: signaledMediaGeneration
+        signaledMediaGeneration: signaledMediaGeneration,
+        preservesAcceptedRequest: preservesAcceptedRequest
       ) ?? signaledMediaGeneration
+      acceptedStartWindowController = nil
     }
     let lifecycleMediaGeneration = activeMediaGeneration
     self.isActive = isActive

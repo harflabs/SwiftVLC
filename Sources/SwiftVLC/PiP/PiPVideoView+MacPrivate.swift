@@ -142,7 +142,8 @@ final class MacNativePiPBackend: NSObject, @unchecked Sendable {
       let signaledMediaGeneration = owner?.player.generation
         ?? mediaController.player?.generation
       activeMediaGeneration = owner?.attributedNativePiPStartMediaGeneration(
-        signaledMediaGeneration: signaledMediaGeneration
+        signaledMediaGeneration: signaledMediaGeneration,
+        preservesAcceptedRequest: true
       ) ?? signaledMediaGeneration
     }
     let lifecycleMediaGeneration = activeMediaGeneration

@@ -664,7 +664,13 @@ extension Integration {
       backend.attach(to: player)
       let original = PiPController(player: player, nativeBackend: backend)
       let acceptedGeneration = player.generation
+      #if os(iOS)
+      let windowController = NativePiPWindowControllerProbe()
+      backend.handlePictureInPictureReady(windowController)
+      #expect(original.noteAcceptedPiPStartRequest(backend.start()) == .accepted)
+      #else
       #expect(original.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      #endif
 
       try player.load(Media(url: TestMedia.silenceURL))
       #if os(iOS)
@@ -680,6 +686,32 @@ extension Integration {
       let envelope = try #require(await collect(1, from: stream).first)
       #expect(envelope.mediaGeneration == acceptedGeneration)
       withExtendedLifetime(original) {}
+    }
+
+    @Test
+    func `An automatic native start retires an accepted request from a replaced controller`() async throws {
+      #if os(iOS)
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      let backend = IOSNativePiPBackend()
+      backend.attach(to: player)
+      let controller = PiPController(player: player, nativeBackend: backend)
+      let stream = controller.pipEventEnvelopes
+
+      backend.handlePictureInPictureReady(NativePiPWindowControllerProbe())
+      #expect(controller.noteAcceptedPiPStartRequest(backend.start()) == .accepted)
+
+      try player.load(Media(url: TestMedia.silenceURL))
+      let automaticMediaGeneration = player.generation
+      // libVLC rebuilt its native window controller for the successor media.
+      // An active signal from this controller cannot be the result of the
+      // explicit request sent to the retired controller.
+      backend.handlePictureInPictureReady(NativePiPWindowControllerProbe())
+      backend.setActive(true, mediaGeneration: automaticMediaGeneration)
+
+      let envelope = try #require(await collect(1, from: stream).first)
+      #expect(envelope.mediaGeneration == automaticMediaGeneration)
+      #endif
     }
 
     @Test
@@ -749,4 +781,10 @@ extension Integration {
     }
   }
 }
+
+#if os(iOS)
+private final class NativePiPWindowControllerProbe: NSObject {
+  @objc func startPictureInPicture() {}
+}
+#endif
 #endif

@@ -288,11 +288,20 @@ extension PiPController {
 
   /// Resolves the media identity a native backend must persist while active.
   /// An accepted explicit request owns the lifecycle even when the native
-  /// active signal arrives after the player has adopted successor media.
+  /// active signal arrives after the player has adopted successor media. An
+  /// activation from a replacement native window controller cannot have been
+  /// caused by a request issued to the previous controller, so it begins a
+  /// system-initiated lifecycle at signal time instead.
   func attributedNativePiPStartMediaGeneration(
-    signaledMediaGeneration: PlaybackGeneration?
+    signaledMediaGeneration: PlaybackGeneration?,
+    preservesAcceptedRequest: Bool
   ) -> PlaybackGeneration {
-    currentPiPLifecycleAttribution(
+    if !preservesAcceptedRequest {
+      return capturePiPLifecycleAttribution(
+        mediaGeneration: signaledMediaGeneration
+      ).mediaGeneration
+    }
+    return currentPiPLifecycleAttribution(
       mediaGeneration: signaledMediaGeneration
     ).mediaGeneration
   }
