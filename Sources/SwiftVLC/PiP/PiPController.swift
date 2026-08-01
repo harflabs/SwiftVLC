@@ -246,6 +246,7 @@ public final class PiPController: NSObject {
   struct FailedPiPLifecycle {
     let attribution: PiPLifecycleAttribution
     let stopReason: PiPStopReason
+    var willStopObserved = false
   }
 
   enum PiPLifecycleAttributionPhase: Equatable {

@@ -181,12 +181,17 @@ extension PiPController {
       // lifecycle that is still stopping.
       if
         let failedPiPLifecycle,
-        failedPiPLifecycle.attribution.sequence < attribution.sequence {
+        failedPiPLifecycle.attribution.sequence < attribution.sequence,
+        !failedPiPLifecycle.willStopObserved {
         self.failedPiPLifecycle = nil
       }
     case .willStop:
       if failedLifecycleOwnsNextStop, let failedPiPLifecycle {
         attribution = failedPiPLifecycle.attribution
+        // Once AVKit has promised a terminal callback for this failed
+        // lifecycle, a newer didStart must not retire it as an omitted stop.
+        // Keep it until the matching didStop consumes the slot.
+        self.failedPiPLifecycle?.willStopObserved = true
       } else {
         pipLifecycleAttributionPhase = .stopping
         attribution = currentPiPLifecycleAttribution(mediaGeneration: mediaGenerationOverride)
@@ -289,8 +294,7 @@ extension PiPController {
     // like an overlapping retry.
     if
       pipLifecycleAttributionPhase == .idle,
-      pipLifecycleAttribution == nil,
-      failedPiPLifecycle == nil {
+      pipLifecycleAttribution == nil {
       pendingStopReason = nil
     }
     let currentLifecycleIsStopping = pipLifecycleAttributionPhase == .stopping

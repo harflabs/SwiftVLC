@@ -1011,7 +1011,7 @@ final class IOSNativePiPBackend: NSObject, @unchecked Sendable {
       activeMediaGeneration = owner?.attributedNativePiPStartMediaGeneration(
         signaledMediaGeneration: signaledMediaGeneration,
         acceptedRequestMediaGeneration: acceptedStart?.mediaGeneration
-      ) ?? signaledMediaGeneration
+      ) ?? acceptedStart?.mediaGeneration ?? signaledMediaGeneration
       callbackGenerations.clearAcceptedStart()
     }
     let lifecycleMediaGeneration = activeMediaGeneration

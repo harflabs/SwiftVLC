@@ -108,6 +108,108 @@ extension Integration {
         $0.mediaGeneration == retryMediaGeneration
       })
     }
+
+    @Test
+    func `A failed willStop survives a newer didStart until didStop`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      let controller = PiPController(player: player)
+      let avController = makeDummyAVController(for: controller)
+      let stream = controller.pipEventEnvelopes
+      let failedMediaGeneration = player.generation
+      let failure = NSError(domain: "swiftvlc.test.pip.failed-will-stop", code: 1)
+
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      controller.pictureInPictureController(
+        avController,
+        failedToStartPictureInPictureWithError: failure
+      )
+      controller.pictureInPictureControllerWillStopPictureInPicture(avController)
+
+      try player.load(Media(url: TestMedia.silenceURL))
+      let retryMediaGeneration = player.generation
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      controller.pictureInPictureControllerWillStartPictureInPicture(avController)
+      controller.pictureInPictureControllerDidStartPictureInPicture(avController)
+      controller.pictureInPictureControllerDidStopPictureInPicture(avController)
+      controller.pictureInPictureControllerDidStopPictureInPicture(avController)
+
+      let envelopes = await collect(6, from: stream)
+      #expect(envelopes[1].mediaGeneration == failedMediaGeneration)
+      #expect(envelopes[4].mediaGeneration == failedMediaGeneration)
+      #expect(envelopes[5].mediaGeneration == retryMediaGeneration)
+      guard case .didStop(reason: .failure) = envelopes[4].event else {
+        Issue.record("Expected the promised failed-lifecycle stop")
+        return
+      }
+    }
+
+    @Test
+    func `A cleanup stop after failure cannot poison a successful retry`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      let controller = PiPController(player: player)
+      let avController = makeDummyAVController(for: controller)
+      let stream = controller.pipEventEnvelopes
+      let failure = NSError(domain: "swiftvlc.test.pip.failed-cleanup-stop", code: 1)
+
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      controller.pictureInPictureController(
+        avController,
+        failedToStartPictureInPictureWithError: failure
+      )
+      controller.stop()
+      #expect(controller.pendingStopReason == .unknown)
+
+      try player.load(Media(url: TestMedia.silenceURL))
+      let retryMediaGeneration = player.generation
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      #expect(controller.pendingStopReason == nil)
+      controller.pictureInPictureControllerWillStartPictureInPicture(avController)
+      controller.pictureInPictureControllerDidStartPictureInPicture(avController)
+      controller.pictureInPictureControllerDidStopPictureInPicture(avController)
+
+      let envelopes = await collect(4, from: stream)
+      #expect(envelopes.dropFirst().allSatisfy {
+        $0.mediaGeneration == retryMediaGeneration
+      })
+      guard case .didStop(reason: .userClosed) = envelopes[3].event else {
+        Issue.record("Expected the retry's independent user-close reason")
+        return
+      }
+    }
+
+    #if os(iOS)
+    @Test
+    func `An ownerless native active signal retains its accepted media`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      let backend = IOSNativePiPBackend()
+      let attachment = backend.attach(to: player)
+      _ = try #require(backend.callbackGenerations.reserveReadyCallback(for: attachment))
+      var original: PiPController? = PiPController(player: player, nativeBackend: backend)
+      weak var releasedOriginal = original
+      let acceptedMediaGeneration = player.generation
+      #expect(backend.callbackGenerations.recordAcceptedStart(
+        mediaGeneration: acceptedMediaGeneration
+      ))
+
+      original = nil
+      await Task.yield()
+      #expect(releasedOriginal == nil)
+      #expect(backend.owner == nil)
+
+      try player.load(Media(url: TestMedia.silenceURL))
+      backend.setActive(true, mediaGeneration: player.generation)
+      let successor = PiPController(player: player, nativeBackend: backend)
+      let stream = successor.pipEventEnvelopes
+      backend.setActive(false)
+
+      let envelope = try #require(await collect(1, from: stream).first)
+      #expect(envelope.mediaGeneration == acceptedMediaGeneration)
+      withExtendedLifetime(successor) {}
+    }
+    #endif
   }
 }
 #endif
