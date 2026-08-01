@@ -61,7 +61,9 @@ public final class PiPController: NSObject {
   private nonisolated static let allowsPrivateMacOSAPIStorage = Atomic<Bool>(false)
 
   struct PlaybackDriver {
-    let pause: @MainActor () -> Bool
+    /// `nil` follows the current media; a concrete value binds deferred work
+    /// to the media generation that originally scheduled it.
+    let pause: @MainActor (_ playbackGeneration: UInt64?) -> Bool
     let resume: @MainActor () -> Bool
     let cancelPendingPause: @MainActor () -> Void
     let shouldResume: @MainActor () -> Bool
@@ -72,7 +74,7 @@ public final class PiPController: NSObject {
 
     static func live(player: Player) -> Self {
       Self(
-        pause: { player.issuePause() },
+        pause: { player.issuePause(playbackGeneration: $0) },
         resume: { player.issueResume() },
         cancelPendingPause: { player.cancelPendingPause() },
         shouldResume: { player.shouldResumeForExternalPlayRequest },
@@ -883,7 +885,11 @@ public final class PiPController: NSObject {
     deferredPauseOutcome = nil
 
     let generation = DeferredPauseState.nextGeneration(after: deferredPause)
-    let playbackGeneration = player.generation
+    // The native callback lane can advance before the main actor adopts the
+    // corresponding mediaChanged event. Bind the delayed command to that
+    // authoritative generation so an outgoing pause cannot reach a successor
+    // during the adoption gap.
+    let playbackGeneration = player.eventBridge.currentPlaybackGeneration
     let debounce = pauseDebounce
     let task = Task { @MainActor [weak self] in
       var attemptsRemaining = Self.maxDeferredPauseAttempts
@@ -898,7 +904,7 @@ public final class PiPController: NSObject {
         // controller alive while it is deciding whether to issue the pause.
         guard let self else { return }
         guard !Task.isCancelled, currentDeferredPauseGeneration == generation, !pipPlaybackActive else { return }
-        guard player.generation == playbackGeneration else {
+        guard player.eventBridge.currentPlaybackGeneration == playbackGeneration else {
           deferredPause = .idle
           deferredPauseOutcome = .cancelled
           return
@@ -906,7 +912,7 @@ public final class PiPController: NSObject {
 
         switch player.state {
         case .playing:
-          if playbackDriver.pause() {
+          if playbackDriver.pause(playbackGeneration) {
             deferredPause = .issued
             deferredPauseOutcome = .issued
             return

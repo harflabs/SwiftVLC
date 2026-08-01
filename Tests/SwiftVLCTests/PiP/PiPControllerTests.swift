@@ -24,7 +24,7 @@ extension Integration {
 
       var driver: PiPController.PlaybackDriver {
         .init(
-          pause: {
+          pause: { _ in
             self.pauseCount += 1
             return self.pauseSucceeds
           },
@@ -132,6 +132,59 @@ extension Integration {
       #expect(settled)
       #expect(controller.deferredPauseOutcome == .cancelled)
       #expect(recorder.pauseCount == 0, "the outgoing media's pause reached its successor")
+    }
+
+    @Test
+    func `Callback-lane media advancement cancels pause before main-actor adoption`() async {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let recorder = PlaybackRecorder()
+      player._setStateForTesting(state: .playing)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: recorder.driver,
+        pauseDebounce: .milliseconds(20)
+      )
+
+      controller._setPlayingForTesting(false)
+      let adoptedGeneration = player.eventBridge.currentPlaybackGeneration + 1
+      _ = player.eventBridge.synchronizePlaybackGeneration(
+        adoptedGeneration,
+        media: nil
+      )
+
+      let settled = await awaitDeferredPauseOutcome(controller)
+      #expect(settled)
+      #expect(player.generation.value < adoptedGeneration)
+      #expect(controller.deferredPauseOutcome == .cancelled)
+      #expect(recorder.pauseCount == 0, "the outgoing media's pause reached the callback-lane successor")
+    }
+
+    @Test
+    func `Media advancement inside the live pause probe cancels the old command`() async {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      player._setStateForTesting(state: .playing)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: .live(player: player),
+        pauseDebounce: .milliseconds(1)
+      )
+      let scheduledGeneration = player.eventBridge.currentPlaybackGeneration
+      player._pauseProbeHookForTesting = { stage in
+        guard stage == .state else { return }
+        player._pauseProbeHookForTesting = nil
+        _ = player.eventBridge.synchronizePlaybackGeneration(
+          scheduledGeneration + 1,
+          media: nil
+        )
+      }
+
+      controller._setPlayingForTesting(false)
+
+      let settled = await awaitDeferredPauseOutcome(controller)
+      #expect(settled)
+      #expect(controller.deferredPauseOutcome == .cancelled)
+      #expect(player.pauseTransition == nil)
+      #expect(player.deferredPauseCommand == nil)
     }
 
     /// A rejection that clears must still pause: the bound exists to stop

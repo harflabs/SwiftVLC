@@ -17,7 +17,7 @@ extension Integration {
 
       var driver: PiPController.PlaybackDriver {
         .init(
-          pause: { true },
+          pause: { _ in true },
           resume: { true },
           cancelPendingPause: {},
           shouldResume: { false },

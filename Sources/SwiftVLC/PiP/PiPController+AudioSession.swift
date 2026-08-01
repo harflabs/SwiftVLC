@@ -166,7 +166,7 @@ extension PiPController {
       activateAudioSessionIfNeeded()
     }
     if reaction.pausesPlayback {
-      _ = playbackDriver.pause()
+      _ = playbackDriver.pause(nil)
     }
   }
 
