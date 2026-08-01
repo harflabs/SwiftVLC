@@ -324,6 +324,49 @@ extension Integration {
     }
 
     @Test
+    func `A failed stop cannot consume the programmatic stop reason of its retry`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      let controller = PiPController(player: player)
+      let avController = makeDummyAVController(for: controller)
+      let stream = controller.pipEventEnvelopes
+      let failedMediaGeneration = player.generation
+      let failure = NSError(domain: "swiftvlc.test.pip.retry-stop", code: 1)
+
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      controller.pictureInPictureController(
+        avController,
+        failedToStartPictureInPictureWithError: failure
+      )
+
+      try player.load(Media(url: TestMedia.silenceURL))
+      let retryMediaGeneration = player.generation
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      controller.stop()
+
+      // The first stop still belongs to the failed attempt. Its reason and
+      // attribution must move together, leaving the retry's programmatic stop
+      // intact across the later will-start callback.
+      controller.pictureInPictureControllerDidStopPictureInPicture(avController)
+      controller.pictureInPictureControllerWillStartPictureInPicture(avController)
+      controller.pictureInPictureControllerDidStopPictureInPicture(avController)
+
+      let envelopes = await collect(4, from: stream)
+      #expect(envelopes[0].mediaGeneration == failedMediaGeneration)
+      #expect(envelopes[1].mediaGeneration == failedMediaGeneration)
+      #expect(envelopes[2].mediaGeneration == retryMediaGeneration)
+      #expect(envelopes[3].mediaGeneration == retryMediaGeneration)
+      guard case .didStop(reason: .failure) = envelopes[1].event else {
+        Issue.record("Expected the failed attempt's trailing stop")
+        return
+      }
+      guard case .didStop(reason: .unknown) = envelopes[3].event else {
+        Issue.record("Expected the retry's programmatic stop reason")
+        return
+      }
+    }
+
+    @Test
     func `A second failed attempt retires an earlier failure without a trailing stop`() async throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       try player.load(Media(url: TestMedia.twosecURL))

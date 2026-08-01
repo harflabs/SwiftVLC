@@ -216,12 +216,12 @@ public final class PiPController: NSObject {
   @ObservationIgnored
   var pipLifecycleAttribution: PiPLifecycleAttribution?
   /// A failed start can be followed by a trailing stop after another start has
-  /// already been accepted. Keep its identity outside the new lifecycle so
-  /// consuming the old stop cannot relabel or clear the retry. A later failure
-  /// replaces this slot: reaching the next terminal start outcome proves the
-  /// earlier failure omitted its optional stop callback.
+  /// already been accepted. Keep its identity and stop reason outside the new
+  /// lifecycle so consuming the old stop cannot relabel or clear the retry. A
+  /// later failure replaces this slot: reaching the next terminal start
+  /// outcome proves the earlier failure omitted its optional stop callback.
   @ObservationIgnored
-  var failedPiPLifecycleAttribution: PiPLifecycleAttribution?
+  var failedPiPLifecycle: FailedPiPLifecycle?
   /// A start accepted while an older lifecycle is still waiting for its stop.
   /// Promoted only after that stop is consumed.
   @ObservationIgnored
@@ -235,6 +235,11 @@ public final class PiPController: NSObject {
   struct PiPLifecycleAttribution {
     let mediaGeneration: PlaybackGeneration
     let controllerGeneration: UInt64
+  }
+
+  struct FailedPiPLifecycle {
+    let attribution: PiPLifecycleAttribution
+    let stopReason: PiPStopReason
   }
 
   enum PiPLifecycleAttributionPhase: Equatable {

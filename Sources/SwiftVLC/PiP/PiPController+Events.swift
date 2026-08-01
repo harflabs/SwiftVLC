@@ -147,6 +147,7 @@ extension PiPController {
     mediaGeneration mediaGenerationOverride: PlaybackGeneration? = nil
   ) {
     let attribution: PiPLifecycleAttribution
+    var consumedFailedLifecycle = false
     switch event {
     case .willStart:
       // A failed attempt's trailing stop can arrive after its retry reaches
@@ -167,7 +168,7 @@ extension PiPController {
       // Defensive counterpart to `willStart`: the native path synthesizes
       // didStart directly, and a backend callback should still promote the
       // accepted successor if no willStart was observable.
-      failedPiPLifecycleAttribution = nil
+      failedPiPLifecycle = nil
       if
         pipLifecycleAttribution == nil
         || pipLifecycleAttribution?.controllerGeneration != pipControllerGeneration {
@@ -176,16 +177,17 @@ extension PiPController {
       pipLifecycleAttributionPhase = .started
       attribution = currentPiPLifecycleAttribution(mediaGeneration: mediaGenerationOverride)
     case .willStop(let reason):
-      if reason == .failure, let failedAttribution = failedPiPLifecycleAttribution {
-        attribution = failedAttribution
+      if reason == .failure, let failedPiPLifecycle {
+        attribution = failedPiPLifecycle.attribution
       } else {
         pipLifecycleAttributionPhase = .stopping
         attribution = currentPiPLifecycleAttribution(mediaGeneration: mediaGenerationOverride)
       }
     case .didStop(let reason):
-      if reason == .failure, let failedAttribution = failedPiPLifecycleAttribution {
-        attribution = failedAttribution
-        failedPiPLifecycleAttribution = nil
+      if reason == .failure, let failedPiPLifecycle {
+        attribution = failedPiPLifecycle.attribution
+        self.failedPiPLifecycle = nil
+        consumedFailedLifecycle = true
       } else {
         attribution = currentPiPLifecycleAttribution(mediaGeneration: mediaGenerationOverride)
       }
@@ -196,7 +198,14 @@ extension PiPController {
         // any earlier failed attempt whose optional didStop never arrived.
         // Keep only the latest failure so its own terminal stop cannot consume
         // a stale predecessor's identity.
-        failedPiPLifecycleAttribution = attribution
+        failedPiPLifecycle = FailedPiPLifecycle(
+          attribution: attribution,
+          stopReason: .failure
+        )
+        // The failure reason now belongs to the saved failed lifecycle. The
+        // current slot must be free for a retry accepted before the optional
+        // trailing stop arrives.
+        pendingStopReason = nil
         clearCurrentPiPLifecycleAttribution()
       }
     }
@@ -209,8 +218,9 @@ extension PiPController {
     pipEventBroadcaster.broadcast(event)
     pipEventEnvelopeBroadcaster.broadcast(envelope)
 
-    if case .didStop(let reason) = event {
-      if reason != .failure {
+    if case .didStop = event {
+      if !consumedFailedLifecycle {
+        pendingStopReason = nil
         clearCurrentPiPLifecycleAttribution()
       }
       // A failed-to-start callback clears the failed lifecycle before its
@@ -238,6 +248,17 @@ extension PiPController {
     pipLifecycleAttributionPhase = .idle
   }
 
+  /// Clears a stop reason recorded while no lifecycle existed. A reason tied
+  /// to an accepted or already-signalled lifecycle must survive `willStart`:
+  /// an application may stop an accepted retry before AVKit reports its start.
+  func clearUnownedStopReasonBeforeStart() {
+    guard
+      pipLifecycleAttributionPhase == .idle,
+      pipLifecycleAttribution == nil
+    else { return }
+    pendingStopReason = nil
+  }
+
   /// Captures attribution only when the backend confirms that it actually
   /// issued the request. Refused starts cannot later own a lifecycle callback.
   func noteAcceptedPiPStartRequest(_ result: PiPStartResult) -> PiPStartResult {
@@ -250,11 +271,11 @@ extension PiPController {
     if
       pipLifecycleAttributionPhase == .idle,
       pipLifecycleAttribution == nil,
-      failedPiPLifecycleAttribution == nil {
+      failedPiPLifecycle == nil {
       pendingStopReason = nil
     }
     let currentLifecycleIsStopping = pipLifecycleAttributionPhase == .stopping
-      || (pendingStopReason != nil && failedPiPLifecycleAttribution == nil)
+      || (pendingStopReason != nil && failedPiPLifecycle == nil)
     if pipLifecycleAttribution != nil, currentLifecycleIsStopping {
       if queuedPiPStartAttribution == nil {
         queuedPiPStartAttribution = makePiPLifecycleAttribution()
@@ -354,7 +375,7 @@ extension PiPController {
 
   func clearPiPLifecycleAttribution() {
     clearCurrentPiPLifecycleAttribution()
-    failedPiPLifecycleAttribution = nil
+    failedPiPLifecycle = nil
     queuedPiPStartAttribution = nil
   }
 
@@ -385,15 +406,16 @@ extension PiPController {
     pendingStopReason = reason
   }
 
-  /// Resolves the stop reason for the in-flight stop without clearing
-  /// it: pending discriminating signal, else natural end of media,
-  /// else the user's close affordance.
+  /// Resolves the stop reason for the in-flight stop without clearing it. A
+  /// failed attempt awaiting its optional trailing stop wins before the
+  /// independently current lifecycle's reason; otherwise use that current
+  /// reason, natural end of media, or the user's close affordance.
   func resolveStopReason() -> PiPStopReason {
+    if let failedPiPLifecycle {
+      return failedPiPLifecycle.stopReason
+    }
     if let pendingStopReason {
       return pendingStopReason
-    }
-    if failedPiPLifecycleAttribution != nil {
-      return .failure
     }
     if player.didReachEnd {
       return .mediaEnded

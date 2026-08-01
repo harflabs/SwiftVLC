@@ -22,7 +22,7 @@ extension PiPController: AVPictureInPictureControllerDelegate {
       // a controller replaced in the meantime can still deliver, and its
       // lifecycle describes a session that is over.
       guard let self, isCurrentAVController(identity) else { return }
-      pendingStopReason = nil
+      clearUnownedStopReasonBeforeStart()
       // Auto-PiP starts arrive from AVKit without start() or an intent
       // transition — last chance to issue the deferred session
       // activation before the PiP window owns playback.
@@ -46,7 +46,7 @@ extension PiPController: AVPictureInPictureControllerDelegate {
       // a controller replaced in the meantime can still deliver, and its
       // lifecycle describes a session that is over.
       guard let self, isCurrentAVController(identity) else { return }
-      pendingStopReason = nil
+      clearUnownedStopReasonBeforeStart()
       syncPlaybackStateForPictureInPicture()
       invalidatePictureInPicturePlaybackState()
       updatePiPActive(true)
@@ -91,7 +91,6 @@ extension PiPController: AVPictureInPictureControllerDelegate {
       // lifecycle describes a session that is over.
       guard let self, isCurrentAVController(identity) else { return }
       let reason = resolveStopReason()
-      pendingStopReason = nil
       updatePiPActive(false)
       publishPiPEvent(.didStop(reason: reason), mediaGeneration: mediaGeneration)
     }
