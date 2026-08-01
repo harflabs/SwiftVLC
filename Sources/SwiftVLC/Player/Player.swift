@@ -460,7 +460,15 @@ public final class Player {
   /// command, this survives a native playlist boundary so adoption can carry
   /// a pause or resume that raced with the media switch.
   @ObservationIgnored
-  var playbackControlIntent: DeferredPauseCommand?
+  var playbackControlIntent: DeferredPauseCommand? {
+    didSet { playbackControlIntentRevision &+= 1 }
+  }
+
+  /// Monotonic identity of the latest explicit transport command. PiP uses
+  /// this to retire only the pause it owns without erasing a newer app command
+  /// that happens to target the same media generation.
+  @ObservationIgnored
+  var playbackControlIntentRevision: UInt64 = 0
 
   #if DEBUG
   /// Lets deterministic tests advance the callback-lane generation at the

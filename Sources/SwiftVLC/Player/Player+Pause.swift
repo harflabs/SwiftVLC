@@ -333,7 +333,12 @@ extension Player {
   ) {
     guard recordsPlaybackControlIntent, !followsCurrentGeneration else { return }
     playbackControlIntent = previousPlaybackControlIntent
-    publishPlaybackIntent(previousPlaybackControlIntent == .resume || state.isActive)
+    let intendsActivePlayback = switch previousPlaybackControlIntent {
+    case .pause: false
+    case .resume: true
+    case nil: state.isActive
+    }
+    publishPlaybackIntent(intendsActivePlayback)
   }
 
   @discardableResult
@@ -481,11 +486,20 @@ extension Player {
     return false
   }
 
-  func cancelPendingPause() {
-    if deferredPauseCommand == .pause {
-      deferredPauseCommand = nil
-      setPlaybackControlIntent(.resume)
+  func cancelPendingPause(
+    playbackGeneration: UInt64? = nil,
+    playbackControlRevision: UInt64? = nil,
+    restoringPlaybackControlIntent: DeferredPauseCommand = .resume
+  ) {
+    guard deferredPauseCommand == .pause else { return }
+    if let playbackGeneration {
+      guard deferredPauseCommandPlaybackGeneration == playbackGeneration else { return }
     }
+    if let playbackControlRevision {
+      guard playbackControlIntentRevision == playbackControlRevision else { return }
+    }
+    deferredPauseCommand = nil
+    setPlaybackControlIntent(restoringPlaybackControlIntent)
   }
 
   /// Retires every pause/resume command when an external owner of the shared

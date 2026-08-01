@@ -122,10 +122,10 @@ extension Integration {
         .init(
           pause: { _, _ in
             self.pauseCount += 1
-            return true
+            return .init(accepted: true, playbackControlRevision: nil)
           },
           resume: { true },
-          cancelPendingPause: {},
+          cancelPendingPause: { _, _, _ in },
           shouldResume: { false },
           skip: { _ in .issued }
         )

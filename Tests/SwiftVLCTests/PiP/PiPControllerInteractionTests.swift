@@ -31,13 +31,13 @@ extension Integration {
         .init(
           pause: { _, _ in
             self.pauseCount += 1
-            return self.pauseResult
+            return .init(accepted: self.pauseResult, playbackControlRevision: nil)
           },
           resume: {
             self.resumeCount += 1
             return self.resumeResult
           },
-          cancelPendingPause: {
+          cancelPendingPause: { _, _, _ in
             self.cancelPendingPauseCount += 1
           },
           shouldResume: { self.shouldResume },

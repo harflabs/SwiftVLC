@@ -438,6 +438,39 @@ extension Integration {
     }
 
     @Test
+    func `Restoring a preceding pause keeps published intent inactive`() {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      player._setStateForTesting(state: .playing, isPlaybackRequestedActive: false)
+      player.setPlaybackControlIntent(.pause)
+      _ = player.eventBridge.synchronizePlaybackGeneration(1, media: nil)
+
+      #expect(!player.issuePause(playbackGeneration: 0))
+      #expect(player.playbackControlIntent == .pause)
+      #expect(!player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `Scoped PiP cancellation preserves a newer pause on the same generation`() {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let generation: UInt64 = 1
+      _ = player.eventBridge.synchronizePlaybackGeneration(generation, media: nil)
+      player.setDeferredPauseCommand(.pause, playbackGeneration: generation)
+      player.setPlaybackControlIntent(.pause)
+      let piPRevision = player.playbackControlIntentRevision
+      player.setPlaybackControlIntent(.pause)
+
+      player.cancelPendingPause(
+        playbackGeneration: generation,
+        playbackControlRevision: piPRevision
+      )
+
+      #expect(player.deferredPauseCommand == .pause)
+      #expect(player.deferredPauseCommandPlaybackGeneration == generation)
+      #expect(player.playbackControlIntent == .pause)
+      #expect(!player.isPlaybackRequestedActive)
+    }
+
+    @Test
     func `A bound pause that reaches a terminal state restores the preceding intent`() {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let generation: UInt64 = 1

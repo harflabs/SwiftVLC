@@ -28,13 +28,16 @@ extension Integration {
           pause: { _, recordsPlaybackControlIntent in
             self.pauseCount += 1
             self.pauseRecordsIntent.append(recordsPlaybackControlIntent)
-            return self.pauseSucceeds
+            return .init(
+              accepted: self.pauseSucceeds,
+              playbackControlRevision: nil
+            )
           },
           resume: {
             self.resumeCount += 1
             return true
           },
-          cancelPendingPause: {
+          cancelPendingPause: { _, _, _ in
             self.cancelPendingPauseCount += 1
           },
           shouldResume: { self.shouldResume },
@@ -219,6 +222,113 @@ extension Integration {
       #expect(controller.deferredPauseOutcome == .cancelled)
       #expect(player.pauseTransition == nil)
       #expect(player.deferredPauseCommand == nil)
+    }
+
+    @Test
+    func `Media advancement after a retained PiP pause retires only that command`() async {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let scheduledGeneration = player.eventBridge.currentPlaybackGeneration
+      player._nativePlaybackStateOverrideForTesting = .playing
+      player._nativeCanPauseOverrideForTesting = false
+      player._setStateForTesting(state: .playing, isPlaybackRequestedActive: true)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: .live(player: player),
+        pauseDebounce: .milliseconds(1)
+      )
+      var retryCount = 0
+      controller._deferredPauseRetryHookForTesting = {
+        retryCount += 1
+        guard retryCount == 2 else { return }
+        controller._deferredPauseRetryHookForTesting = nil
+        _ = player.eventBridge.synchronizePlaybackGeneration(
+          scheduledGeneration + 1,
+          media: nil
+        )
+      }
+
+      controller._setPlayingForTesting(false)
+
+      #expect(await awaitDeferredPauseOutcome(controller))
+      #expect(controller.deferredPauseOutcome == .cancelled)
+      #expect(player.deferredPauseCommand == nil)
+      #expect(player.deferredPauseCommandPlaybackGeneration == nil)
+      #expect(player.playbackControlIntent == .resume)
+      #expect(player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `A newer resume aborts the next PiP retry before it can pause`() async {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      player._nativePlaybackStateOverrideForTesting = .playing
+      player._nativeCanPauseOverrideForTesting = false
+      player._setStateForTesting(state: .playing, isPlaybackRequestedActive: true)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: .live(player: player),
+        pauseDebounce: .milliseconds(1)
+      )
+      var retryCount = 0
+      controller._deferredPauseRetryHookForTesting = {
+        retryCount += 1
+        guard retryCount == 2 else { return }
+        controller._deferredPauseRetryHookForTesting = nil
+        player.resume()
+      }
+
+      controller._setPlayingForTesting(false)
+
+      #expect(await awaitDeferredPauseOutcome(controller))
+      #expect(controller.deferredPauseOutcome == .cancelled)
+      #expect(player.deferredPauseCommand == nil)
+      #expect(player.playbackControlIntent == .resume)
+      #expect(player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `A newer app pause supersedes PiP cleanup without being erased`() async {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      player._nativePlaybackStateOverrideForTesting = .opening
+      player._setStateForTesting(state: .opening, isPlaybackRequestedActive: true)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: .live(player: player),
+        pauseDebounce: .milliseconds(1)
+      )
+      controller._deferredPauseRetryHookForTesting = {
+        controller._deferredPauseRetryHookForTesting = nil
+        player.pause()
+      }
+
+      controller._setPlayingForTesting(false)
+
+      #expect(await awaitDeferredPauseOutcome(controller))
+      #expect(controller.deferredPauseOutcome == .cancelled)
+      #expect(player.deferredPauseCommand == .pause)
+      #expect(player.playbackControlIntent == .pause)
+      #expect(!player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `Bounded PiP cleanup preserves a pause that predated the attempt`() async {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      player._nativePlaybackStateOverrideForTesting = .playing
+      player._nativeCanPauseOverrideForTesting = false
+      player._setStateForTesting(state: .playing, isPlaybackRequestedActive: false)
+      player.setPlaybackControlIntent(.pause)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: .live(player: player),
+        pauseDebounce: .milliseconds(1)
+      )
+
+      controller._setPlayingForTesting(false)
+
+      #expect(await awaitDeferredPauseOutcome(controller))
+      #expect(controller.deferredPauseOutcome == .cancelled)
+      #expect(player.deferredPauseCommand == .pause)
+      #expect(player.playbackControlIntent == .pause)
+      #expect(!player.isPlaybackRequestedActive)
     }
 
     /// A rejection that clears must still pause: the bound exists to stop
