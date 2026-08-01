@@ -127,6 +127,16 @@ or controller reconstruction; each envelope carries the media and controller
 generation that owns the lifecycle. ``PiPController/pipEvents`` remains the
 unattributed compatibility stream.
 
+PiP pause requests can be deferred while libVLC is opening or buffering.
+Observe ``PiPController/deferredPauseOutcome`` when your UI needs the terminal
+result. It is `nil` while an attempt is in flight, becomes
+``PiPController/DeferredPauseOutcome/issued`` when libVLC accepts the pause,
+``PiPController/DeferredPauseOutcome/cancelled`` when the request is
+superseded, and ``PiPController/DeferredPauseOutcome/rejected`` when the input
+remains unpausable through the bounded retry window. A rejection also restores
+active playback intent, keeping observable controls consistent with continuing
+native playback.
+
 ``PiPController/layer`` uses `videoGravity = .resizeAspect`. Size the
 parent view to the aspect ratio you want. On macOS, the direct public
 sample-buffer path may reflect system support but is not the recommended
@@ -219,6 +229,7 @@ compile the PiP wrapper on visionOS. ``PiPController`` and
 - ``PiPController/isPossible``
 - ``PiPController/isActive``
 - ``PiPController/layer``
+- ``PiPController/deferredPauseOutcome``
 - ``PiPController/pipEventEnvelopes``
 - ``PiPController/pipSnapshots``
 

@@ -83,6 +83,36 @@ extension Integration {
       #expect(controller._pipPlaybackActiveForTesting())
     }
 
+    /// Apps need to react when a deferred pause settles, rather than polling
+    /// an internal diagnostic while playback intent has already changed.
+    @Test
+    func `Deferred pause outcome invalidates observation when it settles`() async {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let recorder = PlaybackRecorder()
+      recorder.pauseSucceeds = false
+      player._setStateForTesting(state: .playing)
+      let controller = PiPController(
+        player: player,
+        playbackDriver: recorder.driver,
+        pauseDebounce: .milliseconds(1)
+      )
+
+      controller._setPlayingForTesting(false)
+      #expect(controller.deferredPauseOutcome == nil)
+
+      let fired = Mutex(false)
+      withObservationTracking {
+        _ = controller.deferredPauseOutcome
+      } onChange: {
+        fired.withLock { $0 = true }
+      }
+
+      let settled = await awaitDeferredPauseOutcome(controller)
+      #expect(settled)
+      #expect(controller.deferredPauseOutcome == .rejected)
+      #expect(fired.withLock { $0 }, "settled outcome did not invalidate Observation")
+    }
+
     /// A rejection that clears must still pause: the bound exists to stop
     /// runaway retries, not to give up on a slow input.
     @Test

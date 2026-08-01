@@ -302,7 +302,7 @@ public final class PiPController: NSObject {
   /// user-visible half of the outcome is reconciled onto
   /// ``Player/isPlaybackRequestedActive`` instead, which is already
   /// observable.
-  enum DeferredPauseOutcome: Equatable {
+  public enum DeferredPauseOutcome: Sendable, Equatable {
     /// libVLC accepted the pause.
     case issued
     /// Superseded, or the session left a pausable state before it could be
@@ -313,11 +313,13 @@ public final class PiPController: NSObject {
     case rejected
   }
 
-  /// The outcome of the most recent deferred pause, or `nil` while one is in
-  /// flight. Internal rather than public: it exists so the bound and the
-  /// reconciliation are assertable.
-  @ObservationIgnored
-  private(set) var deferredPauseOutcome: DeferredPauseOutcome?
+  /// The outcome of the most recent deferred pause.
+  ///
+  /// This property is `nil` before the first attempt and while a new attempt
+  /// is in flight. Observe it to learn whether libVLC accepted the pause,
+  /// whether another command cancelled it, or whether SwiftVLC restored
+  /// active playback intent after exhausting the bounded retry window.
+  public private(set) var deferredPauseOutcome: DeferredPauseOutcome?
 
   fileprivate enum DeferredPauseState {
     /// No deferred pause in flight; libVLC matches PiP intent.

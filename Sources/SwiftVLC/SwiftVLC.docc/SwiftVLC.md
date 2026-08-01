@@ -130,6 +130,7 @@ audio and video overlay APIs.
 
 - ``PiPVideoView``
 - ``PiPController``
+- ``PiPController/DeferredPauseOutcome``
 
 ### Chapters, titles, and programs
 
