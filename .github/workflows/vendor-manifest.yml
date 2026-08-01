@@ -46,11 +46,11 @@ jobs:
         timeout-minutes: 5
         with:
           path: Vendor
-          key: libvlc-xcf-vendor-${{ hashFiles('Package.swift') }}
+          key: libvlc-xcf-vendor-v2-${{ hashFiles('Package.swift') }}
           enableCrossOsArchive: false
 
-      # Download the latest released libvlc xcframework into Vendor/
-      # (setup-dev.sh resolves it via gh release).
+      # Download the exact released libvlc xcframework declared by Package.swift
+      # into Vendor/. setup-dev.sh verifies the tag and GitHub asset digest.
       - name: Set up Vendor + local Swift package
         timeout-minutes: 5
         env:

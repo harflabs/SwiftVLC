@@ -5,7 +5,7 @@
 # / `swift test` and local Showcase development work on a fresh clone.
 #
 # Usage:
-#   ./scripts/setup-dev.sh                  # install latest release (or keep existing)
+#   ./scripts/setup-dev.sh                  # install release declared by Package.swift
 #   ./scripts/setup-dev.sh v0.3.0           # pin to a specific release tag
 #   ./scripts/setup-dev.sh --force          # always re-download, even if Vendor/ exists
 #   ./scripts/setup-dev.sh --skip-download  # only flip local references
@@ -15,6 +15,7 @@ set -euo pipefail
 
 REPO="harflabs/SwiftVLC"
 XCFW_DIR="Vendor/libvlc.xcframework"
+INSTALL_RECORD="Vendor/.swiftvlc-release.json"
 SHOWCASE_PROJECT="Showcase/SwiftVLCShowcase.xcodeproj/project.pbxproj"
 ZIP_NAME="libvlc.xcframework.zip"
 
@@ -177,37 +178,105 @@ if [[ "$SKIP_DOWNLOAD" == true ]]; then
   fi
   echo "Keeping existing xcframework at $XCFW_DIR (--skip-download)."
 else
+  resolve_args=()
+  if [[ -n "$VERSION" ]]; then
+    resolve_args+=(--tag "$VERSION")
+  fi
+  artifact_info=$("$SCRIPT_DIR/resolve-release-artifact.sh" "${resolve_args[@]}")
+  RESOLVED_TAG=$(printf '%s' "$artifact_info" \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag"])')
+  RESOLVED_URL=$(printf '%s' "$artifact_info" \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')
+  RESOLVED_CHECKSUM=$(printf '%s' "$artifact_info" \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["checksum"])')
+
   NEED_DOWNLOAD=false
   if [[ ! -d "$XCFW_DIR" ]]; then
     NEED_DOWNLOAD=true
   elif [[ "$FORCE" == true ]]; then
     echo "Removing existing $XCFW_DIR (--force)..."
     rm -rf "$XCFW_DIR"
+    rm -f "$INSTALL_RECORD"
     NEED_DOWNLOAD=true
   else
-    echo "Keeping existing xcframework at $XCFW_DIR (pass --force to re-download)."
+    installed_values=$(python3 - "$INSTALL_RECORD" <<'PYEOF' || true
+import json
+import sys
+
+try:
+    record = json.load(open(sys.argv[1]))
+    print(record["tag"])
+    print(record["checksum"])
+    print(record["treeDigest"])
+except (OSError, ValueError, KeyError):
+    pass
+PYEOF
+)
+    installed_tag=$(printf '%s\n' "$installed_values" | sed -n '1p')
+    installed_checksum=$(printf '%s\n' "$installed_values" | sed -n '2p')
+    installed_tree_digest=$(printf '%s\n' "$installed_values" | sed -n '3p')
+    actual_tree_digest=$("$SCRIPT_DIR/artifact-tree-digest.py" \
+      "$XCFW_DIR" 2>/dev/null || true)
+    if [[ "$installed_tag" == "$RESOLVED_TAG" \
+      && "$installed_checksum" == "$RESOLVED_CHECKSUM" \
+      && "$installed_tree_digest" == "$actual_tree_digest" ]]; then
+      echo "Keeping verified $RESOLVED_TAG xcframework at $XCFW_DIR."
+    else
+      echo "Replacing unverified or stale xcframework at $XCFW_DIR..."
+      rm -rf "$XCFW_DIR"
+      rm -f "$INSTALL_RECORD"
+      NEED_DOWNLOAD=true
+    fi
   fi
 
   if [[ "$NEED_DOWNLOAD" == true ]]; then
     require_gh
     mkdir -p Vendor
 
-    echo "Downloading $ZIP_NAME..."
-    if [[ -n "$VERSION" ]]; then
-      gh release download "$VERSION" --repo "$REPO" --pattern "$ZIP_NAME" --dir Vendor/
-    else
-      gh release download --repo "$REPO" --pattern "$ZIP_NAME" --dir Vendor/
+    echo "Downloading $ZIP_NAME from $RESOLVED_TAG..."
+    rm -f "Vendor/$ZIP_NAME"
+    gh release download "$RESOLVED_TAG" \
+      --repo "$REPO" --pattern "$ZIP_NAME" --dir Vendor/
+
+    downloaded_checksum=$(swift package compute-checksum "Vendor/$ZIP_NAME")
+    if [[ "$downloaded_checksum" != "$RESOLVED_CHECKSUM" ]]; then
+      rm -f "Vendor/$ZIP_NAME"
+      echo "Error: downloaded asset checksum does not match $RESOLVED_TAG." >&2
+      echo "  expected: $RESOLVED_CHECKSUM" >&2
+      echo "  actual:   $downloaded_checksum" >&2
+      exit 1
     fi
 
     echo "Extracting..."
     (cd Vendor && ditto -x -k "$ZIP_NAME" . && rm "$ZIP_NAME")
     echo "  Installed to $XCFW_DIR"
 
-    # Fix duplicate symbols (json_parse_error/json_read) in the static library.
-    # Two VLC plugins (ytdl, chromecast) each compile their own copy; the
-    # Apple linker in Xcode 16+ treats duplicates as errors on Mac Catalyst.
-    echo "Fixing duplicate symbols in static libraries..."
-    "$SCRIPT_DIR/fix-duplicate-symbols.sh" "$XCFW_DIR"
+    # A release asset is immutable input. It was fixed before packaging; doing
+    # another mutation here would make CI test bytes consumers never receive.
+    echo "Verifying duplicate symbols in released libraries..."
+    "$SCRIPT_DIR/fix-duplicate-symbols.sh" --verify "$XCFW_DIR"
+
+    RESOLVED_TREE_DIGEST=$("$SCRIPT_DIR/artifact-tree-digest.py" "$XCFW_DIR")
+
+    RESOLVED_TAG="$RESOLVED_TAG" \
+      RESOLVED_URL="$RESOLVED_URL" \
+      RESOLVED_CHECKSUM="$RESOLVED_CHECKSUM" \
+      RESOLVED_TREE_DIGEST="$RESOLVED_TREE_DIGEST" \
+      INSTALL_RECORD="$INSTALL_RECORD" \
+      python3 - <<'PYEOF'
+import json
+import os
+
+record = {
+    "tag": os.environ["RESOLVED_TAG"],
+    "url": os.environ["RESOLVED_URL"],
+    "checksum": os.environ["RESOLVED_CHECKSUM"],
+    "treeDigest": os.environ["RESOLVED_TREE_DIGEST"],
+}
+with open(os.environ["INSTALL_RECORD"], "w") as output:
+    json.dump(record, output, indent=2, sort_keys=True)
+    output.write("\n")
+PYEOF
   fi
 fi
 

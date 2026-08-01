@@ -5,10 +5,12 @@
 # Prerequisites:
 #   - ./scripts/build-libvlc.sh --all  (produces Vendor/libvlc.xcframework)
 #   - gh authed (gh auth login)
-#   - Clean Package.swift + Showcase project on main
+#   - A completely clean, up-to-date main checkout
 #
 # Usage:
 #   ./scripts/release.sh 0.1.0
+#   ./scripts/release.sh 0.1.0 --prepare /path/to/candidate
+#   ./scripts/release.sh 0.1.0 --candidate /path/to/candidate
 #   ./scripts/release.sh 0.1.0 --dry-run            # strip/zip/checksum only, no push
 #
 set -euo pipefail
@@ -37,11 +39,26 @@ EXPECTED_SLICES=(
 VERSION=""
 DRY_RUN=false
 UNQUALIFIED=false
+PREPARE_DIR=""
+CANDIDATE_DIR=""
 
-for arg in "$@"; do
-  case "$arg" in
-    --dry-run)            DRY_RUN=true ;;
-    --unqualified)        UNQUALIFIED=true ;;
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run)
+      DRY_RUN=true
+      shift ;;
+    --unqualified)
+      UNQUALIFIED=true
+      shift ;;
+    --prepare)
+      [[ $# -ge 2 ]] || { echo "Error: --prepare requires a directory." >&2; exit 2; }
+      PREPARE_DIR="$2"
+      DRY_RUN=true
+      shift 2 ;;
+    --candidate)
+      [[ $# -ge 2 ]] || { echo "Error: --candidate requires a directory." >&2; exit 2; }
+      CANDIDATE_DIR="$2"
+      shift 2 ;;
     --allow-dirty-branch)
       echo "Error: --allow-dirty-branch is no longer supported." >&2
       echo "  Releases advance origin/main and must be run from main." >&2
@@ -50,14 +67,15 @@ for arg in "$@"; do
       sed -n 's/^# \{0,1\}//p' "$0" | sed -n '/^Usage:/,/^$/p'
       exit 0 ;;
     -*)
-      echo "Error: unknown flag '$arg'" >&2
+      echo "Error: unknown flag '$1'" >&2
       exit 1 ;;
     *)
       if [[ -n "$VERSION" ]]; then
-        echo "Error: version already specified ('$VERSION'), got extra arg '$arg'" >&2
+        echo "Error: version already specified ('$VERSION'), got extra arg '$1'" >&2
         exit 1
       fi
-      VERSION="$arg" ;;
+      VERSION="$1"
+      shift ;;
   esac
 done
 
@@ -72,6 +90,24 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 RELEASE_URL="https://github.com/$REPO/releases/download/$TAG/$ZIP_NAME"
 cd "$ROOT_DIR"
+
+if [[ -n "$PREPARE_DIR" && -n "$CANDIDATE_DIR" ]]; then
+  echo "Error: --prepare and --candidate are mutually exclusive." >&2
+  exit 2
+fi
+if [[ "$DRY_RUN" == false && "$UNQUALIFIED" == false && -z "$CANDIDATE_DIR" ]]; then
+  echo "Error: a qualified release must consume a prepared candidate directory." >&2
+  echo "  First: $0 $VERSION --prepare /path/to/candidate" >&2
+  echo "  Then qualify that directory and release with --candidate." >&2
+  exit 1
+fi
+if [[ -n "$CANDIDATE_DIR" ]]; then
+  CANDIDATE_DIR="$(cd "$CANDIDATE_DIR" 2>/dev/null && pwd)" || {
+    echo "Error: candidate directory not found." >&2
+    exit 1
+  }
+  XCFW_PATH="$CANDIDATE_DIR/libvlc.xcframework"
+fi
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -328,15 +364,16 @@ if ! command -v gh &>/dev/null; then
   exit 1
 fi
 
-if [[ "$DRY_RUN" == false ]]; then
+if [[ "$DRY_RUN" == false || -n "$PREPARE_DIR" ]]; then
   if ! gh auth status &>/dev/null; then
     echo "Error: Not authenticated with gh. Run: gh auth login" >&2
     exit 1
   fi
 
-  if [[ -n "$(git status --porcelain -- Package.swift "$SHOWCASE_PROJECT")" ]]; then
-    echo "Error: Package.swift or $SHOWCASE_PROJECT has uncommitted changes." >&2
-    echo "  Commit or stash them first." >&2
+  if [[ -n "$(git status --porcelain)" ]]; then
+    echo "Error: the working tree is not clean." >&2
+    echo "  Every release input and script must come from a committed checkout." >&2
+    git status --short >&2
     exit 1
   fi
 
@@ -361,6 +398,17 @@ if [[ "$DRY_RUN" == false ]]; then
   if [[ "$CURRENT_BRANCH" != "main" ]]; then
     echo "Error: refusing to release from branch '$CURRENT_BRANCH'." >&2
     echo "  Release commits advance origin/main, so rerun from main." >&2
+    exit 1
+  fi
+
+  git fetch --quiet origin main --tags
+  LOCAL_HEAD=$(git rev-parse HEAD)
+  REMOTE_MAIN=$(git rev-parse origin/main)
+  if [[ "$LOCAL_HEAD" != "$REMOTE_MAIN" ]]; then
+    echo "Error: local main is not exactly origin/main." >&2
+    echo "  local:       $LOCAL_HEAD" >&2
+    echo "  origin/main: $REMOTE_MAIN" >&2
+    echo "  Fetch and fast-forward before preparing a release." >&2
     exit 1
   fi
 
@@ -459,52 +507,112 @@ if ! verify_artifact_provenance; then
   exit 1
 fi
 
-# Device qualification. CI cannot execute system PiP on hardware, so the matrix
-# in scripts/qualification is the acceptance gate. Refusing here is the point of
-# issue 88: nothing previously stopped an unqualified artifact being published.
-# Issue 88's criterion is "no release is *marked qualified* while a required
-# device row is unexecuted" — it forbids claiming qualification, not releasing.
-# `--unqualified` publishes as a GitHub pre-release and says so in the notes,
-# so the distinction is visible to anyone who finds the tag rather than only to
-# whoever ran this.
-if [[ "$UNQUALIFIED" == true ]]; then
-  echo "WARNING: releasing WITHOUT device qualification."
-  echo "  Publishing as a pre-release. It must not be described as qualified,"
-  echo "  and the device matrix in scripts/qualification still owes a run."
-else
-  if ! "$SCRIPT_DIR/check-qualification.sh" "$VERSION" "$XCFW_PATH"; then
-    echo "" >&2
-    echo "  To publish anyway as an explicitly unqualified pre-release:" >&2
-    echo "    $0 $VERSION --unqualified" >&2
+# ── Prepare or load immutable candidate ───────────────────────────────────────
+
+if [[ -n "$CANDIDATE_DIR" ]]; then
+  CANDIDATE_MANIFEST="$CANDIDATE_DIR/release-candidate.json"
+  ZIP_PATH="$CANDIDATE_DIR/$ZIP_NAME"
+  WORK_XCFW="$XCFW_PATH"
+
+  for candidate_file in "$CANDIDATE_MANIFEST" "$ZIP_PATH" \
+    "$CANDIDATE_DIR/libvlc-provenance.json"; do
+    if [[ ! -f "$candidate_file" ]]; then
+      echo "Error: prepared candidate is missing $candidate_file." >&2
+      exit 1
+    fi
+  done
+
+  echo "Verifying immutable release candidate..."
+  CANDIDATE_VALUES=$(python3 - "$CANDIDATE_MANIFEST" "$VERSION" <<'PY'
+import json
+import sys
+
+path, version = sys.argv[1:3]
+try:
+    candidate = json.load(open(path))
+except (OSError, ValueError) as error:
+    sys.exit(f"Error: cannot read candidate manifest: {error}")
+
+required = {
+    "version",
+    "artifactDigestAlgorithm",
+    "artifactDigest",
+    "zipChecksum",
+    "provenanceChecksum",
+}
+missing = sorted(required - candidate.keys())
+if missing:
+    sys.exit(f"Error: candidate manifest is missing: {', '.join(missing)}")
+if candidate["version"] != version:
+    sys.exit(
+        f"Error: candidate is for {candidate['version']!r}, not {version!r}"
+    )
+if candidate["artifactDigestAlgorithm"] != "swiftvlc-tree-v1":
+    sys.exit("Error: candidate uses an unsupported artifact digest algorithm")
+print(candidate["artifactDigest"])
+print(candidate["zipChecksum"])
+print(candidate["provenanceChecksum"])
+PY
+)
+  CANDIDATE_TREE_DIGEST=$(printf '%s\n' "$CANDIDATE_VALUES" | sed -n '1p')
+  EXPECTED_ZIP_CHECKSUM=$(printf '%s\n' "$CANDIDATE_VALUES" | sed -n '2p')
+  EXPECTED_PROVENANCE_CHECKSUM=$(printf '%s\n' "$CANDIDATE_VALUES" | sed -n '3p')
+
+  ACTUAL_TREE_DIGEST=$("$SCRIPT_DIR/artifact-tree-digest.py" "$WORK_XCFW")
+  CHECKSUM=$(swift package compute-checksum "$ZIP_PATH")
+  ACTUAL_PROVENANCE_CHECKSUM=$(shasum -a 256 \
+    "$CANDIDATE_DIR/libvlc-provenance.json" | cut -d' ' -f1)
+  if [[ "$ACTUAL_TREE_DIGEST" != "$CANDIDATE_TREE_DIGEST" ]]; then
+    echo "Error: prepared XCFramework changed after candidate creation." >&2
     exit 1
   fi
+  if [[ "$CHECKSUM" != "$EXPECTED_ZIP_CHECKSUM" ]]; then
+    echo "Error: prepared zip changed after candidate creation." >&2
+    exit 1
+  fi
+  if [[ "$ACTUAL_PROVENANCE_CHECKSUM" != "$EXPECTED_PROVENANCE_CHECKSUM" ]]; then
+    echo "Error: prepared provenance changed after candidate creation." >&2
+    exit 1
+  fi
+
+  # Prove the zip expands to the qualified tree; matching independent digests
+  # is stronger than trusting that the side-by-side directory was the source.
+  WORK_DIR=$(make_temp_dir)
+  ditto -x -k "$ZIP_PATH" "$WORK_DIR/unpacked"
+  PACKED_TREE_DIGEST=$("$SCRIPT_DIR/artifact-tree-digest.py" \
+    "$WORK_DIR/unpacked/libvlc.xcframework")
+  if [[ "$PACKED_TREE_DIGEST" != "$CANDIDATE_TREE_DIGEST" ]]; then
+    echo "Error: prepared zip does not contain the qualified XCFramework." >&2
+    exit 1
+  fi
+else
+  WORK_DIR=$(make_temp_dir)
+  WORK_XCFW="$WORK_DIR/libvlc.xcframework"
+
+  echo "Copying xcframework to temp dir..."
+  cp -R "$XCFW_PATH" "$WORK_XCFW"
+
+  echo "Stripping debug symbols from .a files..."
+  BEFORE_SIZE=$(du -sh "$WORK_XCFW" | cut -f1)
+  find "$WORK_XCFW" -name '*.a' -exec strip -S {} \;
+  AFTER_SIZE=$(du -sh "$WORK_XCFW" | cut -f1)
+  echo "  Before: $BEFORE_SIZE → After: $AFTER_SIZE"
+
+  echo "Verifying duplicate symbols in stripped libraries..."
+  "$SCRIPT_DIR/fix-duplicate-symbols.sh" --verify "$WORK_XCFW"
+
+  echo "Creating zip..."
+  ZIP_PATH="$WORK_DIR/$ZIP_NAME"
+  (cd "$WORK_DIR" && ditto -c -k --keepParent libvlc.xcframework "$ZIP_NAME")
+
+  echo "Computing checksum..."
+  CHECKSUM=$(swift package compute-checksum "$ZIP_PATH")
 fi
-
-# ── Strip ─────────────────────────────────────────────────────────────────────
-
-WORK_DIR=$(make_temp_dir)
-
-echo "Copying xcframework to temp dir..."
-cp -R "$XCFW_PATH" "$WORK_DIR/libvlc.xcframework"
-
-echo "Stripping debug symbols from .a files..."
-BEFORE_SIZE=$(du -sh "$WORK_DIR/libvlc.xcframework" | cut -f1)
-find "$WORK_DIR/libvlc.xcframework" -name '*.a' -exec strip -S {} \;
-AFTER_SIZE=$(du -sh "$WORK_DIR/libvlc.xcframework" | cut -f1)
-echo "  Before: $BEFORE_SIZE → After: $AFTER_SIZE"
-
-echo "Verifying duplicate symbols in stripped libraries..."
-"$SCRIPT_DIR/fix-duplicate-symbols.sh" --verify "$WORK_DIR/libvlc.xcframework"
-
-# ── Zip ───────────────────────────────────────────────────────────────────────
-
-echo "Creating zip..."
-ZIP_PATH="$WORK_DIR/$ZIP_NAME"
-(cd "$WORK_DIR" && ditto -c -k --keepParent libvlc.xcframework "$ZIP_NAME")
 
 ZIP_SIZE=$(stat -f%z "$ZIP_PATH")
 ZIP_SIZE_MB=$((ZIP_SIZE / 1024 / 1024))
 echo "  Zip size: ${ZIP_SIZE_MB} MB"
+echo "  SHA256: $CHECKSUM"
 
 if [[ "$ZIP_SIZE" -ge "$MAX_SIZE" ]]; then
   echo "Error: Zip is ${ZIP_SIZE_MB} MB — exceeds GitHub's 2 GB limit." >&2
@@ -512,11 +620,60 @@ if [[ "$ZIP_SIZE" -ge "$MAX_SIZE" ]]; then
   exit 1
 fi
 
-# ── Checksum ──────────────────────────────────────────────────────────────────
+if [[ -n "$PREPARE_DIR" ]]; then
+  if [[ -e "$PREPARE_DIR" ]]; then
+    echo "Error: prepare destination already exists: $PREPARE_DIR" >&2
+    exit 1
+  fi
+  mkdir -p "$(dirname "$PREPARE_DIR")"
+  mkdir "$PREPARE_DIR"
+  cp -R "$WORK_XCFW" "$PREPARE_DIR/libvlc.xcframework"
+  cp "$ZIP_PATH" "$PREPARE_DIR/$ZIP_NAME"
+  cp "$(dirname "$XCFW_PATH")/libvlc-provenance.json" \
+    "$PREPARE_DIR/libvlc-provenance.json"
 
-echo "Computing checksum..."
-CHECKSUM=$(swift package compute-checksum "$ZIP_PATH")
-echo "  SHA256: $CHECKSUM"
+  CANDIDATE_TREE_DIGEST=$("$SCRIPT_DIR/artifact-tree-digest.py" "$WORK_XCFW")
+  PROVENANCE_CHECKSUM=$(shasum -a 256 \
+    "$PREPARE_DIR/libvlc-provenance.json" | cut -d' ' -f1)
+  VERSION="$VERSION" \
+    CANDIDATE_TREE_DIGEST="$CANDIDATE_TREE_DIGEST" \
+    CHECKSUM="$CHECKSUM" \
+    PROVENANCE_CHECKSUM="$PROVENANCE_CHECKSUM" \
+    python3 - "$PREPARE_DIR/release-candidate.json" <<'PY'
+import json
+import os
+import sys
+
+candidate = {
+    "version": os.environ["VERSION"],
+    "artifactDigestAlgorithm": "swiftvlc-tree-v1",
+    "artifactDigest": os.environ["CANDIDATE_TREE_DIGEST"],
+    "zipChecksum": os.environ["CHECKSUM"],
+    "provenanceChecksum": os.environ["PROVENANCE_CHECKSUM"],
+}
+with open(sys.argv[1], "w") as output:
+    json.dump(candidate, output, indent=2, sort_keys=True)
+    output.write("\n")
+PY
+  echo "Prepared immutable candidate at $PREPARE_DIR"
+fi
+
+# Device qualification must describe the exact post-strip tree that the zip
+# contains. Preparation intentionally precedes qualification; stable publishing
+# later requires --candidate and refuses to rebuild or mutate those bytes.
+if [[ -n "$PREPARE_DIR" ]]; then
+  echo "Candidate prepared but not yet device-qualified."
+elif [[ "$UNQUALIFIED" == true ]]; then
+  echo "WARNING: releasing WITHOUT device qualification."
+  echo "  Publishing as a pre-release. It must not be described as qualified,"
+  echo "  and the device matrix in scripts/qualification still owes a run."
+else
+  if ! "$SCRIPT_DIR/check-qualification.sh" "$VERSION" "$WORK_XCFW"; then
+    echo "" >&2
+    echo "  Qualify the prepared candidate before publishing stable." >&2
+    exit 1
+  fi
+fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 
@@ -552,14 +709,13 @@ fi
 #
 # Mechanics:
 #   1. Rewrite Package.swift and the Showcase app, commit, and tag.
-#   2. Push the tag first so GitHub can attach the release asset to the exact
-#      commit without advancing origin/main yet.
-#   3. Create the GitHub Release and upload the zip.
-#   4. Fast-forward origin/main to the same commit, so main always points at
-#      the latest published binary and Showcase package version.
+#   2. Push the tag and create a draft GitHub Release containing the asset.
+#   3. Fast-forward origin/main to the same commit.
+#   4. Publish the already-uploaded draft. A failed main push therefore never
+#      leaves a public stable release detached from main.
 #
-# If the tag push succeeds but later steps fail, origin/main is still untouched.
-# Finish the GitHub Release (or delete the tag) and then retry the main push.
+# If the tag or draft upload succeeds but the main push fails, nothing public
+# has been published. Repair or remove the draft/tag before retrying.
 
 echo ""
 echo "Creating release commit on $CURRENT_BRANCH..."
@@ -597,16 +753,21 @@ git push origin "$TAG"
 
 # ── GitHub Release ────────────────────────────────────────────────────────────
 
-echo "Creating GitHub Release..."
-RELEASE_FLAGS=()
+echo "Creating draft GitHub Release..."
+RELEASE_FLAGS=(--draft)
+RELEASE_ASSETS=("$ZIP_PATH" "$(dirname "$XCFW_PATH")/libvlc-provenance.json")
+if [[ -n "$CANDIDATE_DIR" ]]; then
+  RELEASE_ASSETS+=("$CANDIDATE_DIR/release-candidate.json")
+fi
 QUALIFICATION_NOTE=""
 if [[ "$UNQUALIFIED" == true ]]; then
   RELEASE_FLAGS+=(--prerelease)
   QUALIFICATION_NOTE=$'\n> **Not device-qualified.** The physical-device matrix in `scripts/qualification` has not been executed against this artifact. Published as a pre-release for that reason.\n'
 fi
 
-gh release create "$TAG" "$ZIP_PATH" \
+gh release create "$TAG" "${RELEASE_ASSETS[@]}" \
   --repo "$REPO" \
+  --verify-tag \
   ${RELEASE_FLAGS[@]+"${RELEASE_FLAGS[@]}"} \
   --title "SwiftVLC $TAG" \
   --notes "$(cat <<EOF
@@ -626,6 +787,9 @@ echo "Pushing $CURRENT_BRANCH to origin/main..."
 git push origin HEAD:main
 
 echo "  origin/main → $TAG_COMMIT"
+
+echo "Publishing GitHub Release..."
+gh release edit "$TAG" --repo "$REPO" --draft=false
 
 echo ""
 echo "Release $TAG published: https://github.com/$REPO/releases/tag/$TAG"

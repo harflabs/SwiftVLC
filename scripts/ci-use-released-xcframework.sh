@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
 # ci-use-released-xcframework.sh — Rewrite Package.swift's libvlc
-# binaryTarget to the url+checksum form from the latest release, so CI can
-# resolve the xcframework via SPM just like a downstream consumer pinning
-# that tag would.
+# binaryTarget to the url+checksum form from the exact release declared by the
+# checkout (or SWIFTVLC_RELEASE_TAG), so CI cannot silently test a different
+# engine because GitHub's "latest" pointer excludes pre-releases.
 #
 # Only the binaryTarget is rewritten; other Package.swift changes on the
 # branch (swiftSettings, new targets, platform bumps) are preserved.
@@ -19,26 +19,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT_DIR"
 
-tag=$(gh release view --json tagName -q .tagName)
-if [ -z "$tag" ]; then
-  echo "Error: could not resolve latest release tag via gh." >&2
-  exit 1
-fi
-
-# Make sure the tag blob is locally available (shallow CI checkouts don't
-# fetch tags by default).
-git fetch origin "refs/tags/$tag:refs/tags/$tag" >/dev/null 2>&1 || true
-
-tag_manifest=$(git show "$tag:Package.swift")
-
-url=$(printf '%s\n' "$tag_manifest" | grep -oE 'https://[^"]*libvlc\.xcframework\.zip' | head -1)
-checksum=$(printf '%s\n' "$tag_manifest" | grep -oE '[a-f0-9]{64}' | head -1)
-
-if [ -z "$url" ] || [ -z "$checksum" ]; then
-  echo "Error: could not extract url/checksum from $tag's Package.swift." >&2
-  echo "  Did release.sh successfully pin the manifest for $tag?" >&2
-  exit 1
-fi
+artifact_info=$("$SCRIPT_DIR/resolve-release-artifact.sh")
+tag=$(printf '%s' "$artifact_info" | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag"])')
+url=$(printf '%s' "$artifact_info" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')
+checksum=$(printf '%s' "$artifact_info" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checksum"])')
 
 # Atomic rewrite of only the binaryTarget line.
 URL="$url" CHECKSUM="$checksum" python3 - <<'PYEOF'

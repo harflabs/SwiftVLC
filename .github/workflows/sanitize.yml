@@ -64,7 +64,7 @@ jobs:
         timeout-minutes: 1
         run: xcrun --toolchain "$TOOLCHAINS" swift --version
 
-      - name: Point Package.swift at last released xcframework
+      - name: Select declared libvlc release
         id: xcf
         timeout-minutes: 1
         env:

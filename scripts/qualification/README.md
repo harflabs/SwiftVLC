@@ -18,15 +18,21 @@ Record the results as `scripts/qualification/<version>.json`:
 ```json
 {
   "version": "1.1.0",
+  "artifactDigestAlgorithm": "swiftvlc-tree-v1",
   "artifactDigest": "…",
   "rows": [
     {
       "scenario": "vod-controls",
       "hardware": "iphone-current",
       "device": "iPhone 15 Pro",
-      "os": "iOS 27.0",
+      "deviceFamily": "iPhone",
+      "productType": "iPhone16,1",
+      "osVersion": "26.6",
+      "osBuild": "23G80",
+      "osReleaseType": "stable",
       "fixture": "demo.mkv",
       "duration": "2m14s",
+      "evidence": "evidence/v1.1.0/iphone-current-vod-controls.json",
       "result": "pass",
       "notes": "optional; put log excerpts or anomalies here"
     }
@@ -34,16 +40,17 @@ Record the results as `scripts/qualification/<version>.json`:
 }
 ```
 
-`artifactDigest` is a SHA-256 over every slice's static library, in sorted
-order. Get it for the artifact you are about to qualify with:
+`artifactDigest` is a path-independent SHA-256 over the complete XCFramework
+tree: libraries, headers, `Info.plist`, relative paths, symlinks, and modes.
+Get it for the exact, already-stripped artifact you are about to qualify with:
 
 ```bash
-find Vendor/libvlc.xcframework -name '*.a' -type f -print0 \
-  | sort -z | xargs -0 shasum -a 256 | shasum -a 256 | cut -d' ' -f1
+./scripts/artifact-tree-digest.py Vendor/libvlc.xcframework
 ```
 
-Headers and `Info.plist` are excluded deliberately: they carry no executable
-behaviour, so a header-only change cannot invalidate a device run.
+Do not strip, rewrite headers, or otherwise mutate the XCFramework after this
+digest is recorded. A header-only ABI mismatch can be just as unsafe as a
+library change.
 
 ## Checking before release
 
@@ -53,7 +60,10 @@ behaviour, so a header-only change cannot invalidate a device run.
 
 It fails when the record is absent, describes a different artifact, is for
 another version, omits a required row, contains a row that did not pass, or has
-a row missing any of `device`, `os`, `fixture`, `duration` or `result`.
+a row missing device identity, stable OS build, fixture, duration, evidence, or
+result. Evidence paths are relative to the record and must exist. It also
+rejects an iPhone recorded for an iPad row, the wrong OS major, and beta OS
+software.
 
 The digest is recomputed from the artifact on disk rather than trusted from the
 record — a record can claim any digest, and only a recomputed one can contradict

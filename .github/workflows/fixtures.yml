@@ -50,7 +50,7 @@ jobs:
         timeout-minutes: 5
         with:
           path: Vendor
-          key: libvlc-xcf-vendor-${{ hashFiles('Package.swift') }}
+          key: libvlc-xcf-vendor-v2-${{ hashFiles('Package.swift') }}
           enableCrossOsArchive: false
 
       # Download the libvlc xcframework + flip Package.swift to the local

@@ -23,7 +23,7 @@ jobs:
   # warnings are treated as errors.
   lint:
     runs-on: macos-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
         timeout-minutes: 2
@@ -55,8 +55,14 @@ jobs:
         timeout-minutes: 1
         run: ./scripts/verify-patch-manifest.sh >/dev/null
 
-      # Reports engine patches that are in the tree but not in the binary the
-      # test jobs link, which is the latest release's xcframework. Warns rather
+      - name: Release integrity
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/tests/release-integrity.sh
+
+      # Reports engine patches that are in the tree but not in the exact binary
+      # release declared by the checkout. Warns rather
       # than fails: patches legitimately land before the release carrying them,
       # so failing would wedge every PR. See the script header for the
       # regression that made this worth surfacing.
@@ -116,7 +122,7 @@ jobs:
         timeout-minutes: 5
         with:
           path: Vendor
-          key: libvlc-xcf-vendor-${{ hashFiles('Package.swift') }}
+          key: libvlc-xcf-vendor-v2-${{ hashFiles('Package.swift') }}
           enableCrossOsArchive: false
 
       # Download the libvlc xcframework + flip the Showcase project to
@@ -169,7 +175,7 @@ jobs:
         timeout-minutes: 5
         with:
           path: Vendor
-          key: libvlc-xcf-vendor-${{ hashFiles('Package.swift') }}
+          key: libvlc-xcf-vendor-v2-${{ hashFiles('Package.swift') }}
           enableCrossOsArchive: false
 
       - name: Set up Vendor + local Swift package
@@ -219,7 +225,7 @@ jobs:
         timeout-minutes: 5
         with:
           path: Vendor
-          key: libvlc-xcf-vendor-${{ hashFiles('Package.swift') }}
+          key: libvlc-xcf-vendor-v2-${{ hashFiles('Package.swift') }}
           enableCrossOsArchive: false
 
       - name: Set up Vendor + local Swift package
@@ -308,12 +314,12 @@ jobs:
         timeout-minutes: 1
         run: xcrun --toolchain "$TOOLCHAINS" swift --version
 
-      # CI should always test against the last published xcframework (what
-      # SPM consumers get), regardless of whether the checkout currently
-      # points at Vendor/ for local dev or already carries a release URL.
+      # CI tests the exact published xcframework declared by this checkout (or
+      # SWIFTVLC_RELEASE_TAG), regardless of whether a developer had previously
+      # flipped Package.swift to Vendor/ locally.
       # Only the libvlc binaryTarget is rewritten; other Package.swift
       # edits are preserved.
-      - name: Point Package.swift at last released xcframework
+      - name: Select declared libvlc release
         id: xcf
         timeout-minutes: 1
         env:

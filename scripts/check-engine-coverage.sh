@@ -3,9 +3,8 @@
 # check-engine-coverage.sh — report which engine patches CI is not testing.
 #
 # CI does not build libVLC. `ci-use-released-xcframework.sh` rewrites
-# Package.swift to the latest release's url + checksum, so every test job links
-# the engine that was built when that release was cut. That is deliberate: it
-# is what downstream SPM consumers resolve.
+# Package.swift to the exact release declared by the checkout (or by
+# SWIFTVLC_RELEASE_TAG), so every test job links a known engine candidate.
 #
 # The consequence is easy to miss. A patch added to scripts/patches/ after that
 # release is present in the source tree and absent from the binary under test,
@@ -41,14 +40,13 @@ annotate() {
   fi
 }
 
-tag=$(gh release view --json tagName -q .tagName 2>/dev/null || true)
-if [ -z "$tag" ]; then
-  echo "Could not resolve the latest release tag via gh; skipping coverage check." >&2
+artifact_info=$("$SCRIPT_DIR/resolve-release-artifact.sh" 2>/dev/null || true)
+if [ -z "$artifact_info" ]; then
+  echo "Could not resolve the checkout's engine release; skipping coverage check." >&2
   exit 0
 fi
-
-# Shallow CI checkouts do not fetch tags.
-git fetch origin "refs/tags/$tag:refs/tags/$tag" >/dev/null 2>&1 || true
+tag=$(printf '%s' "$artifact_info" \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag"])')
 
 if ! git rev-parse -q --verify "$tag^{commit}" >/dev/null; then
   echo "Tag $tag is not available locally; skipping coverage check." >&2

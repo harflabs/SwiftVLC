@@ -12,9 +12,9 @@
     { "id": "long-stall",          "summary": "Sustained network stall and recovery while in PiP" }
   ],
   "hardware": [
-    { "id": "iphone-minimum", "summary": "iPhone on the minimum supported OS" },
-    { "id": "iphone-current", "summary": "iPhone on the current supported OS" },
-    { "id": "ipad-minimum",   "summary": "iPad on the minimum supported OS" },
-    { "id": "ipad-current",   "summary": "iPad on the current supported OS" }
+    { "id": "iphone-minimum", "deviceFamily": "iPhone", "osMajor": 18, "summary": "iPhone on the minimum supported OS" },
+    { "id": "iphone-current", "deviceFamily": "iPhone", "osMajor": 26, "summary": "iPhone on the current stable OS" },
+    { "id": "ipad-minimum",   "deviceFamily": "iPad",   "osMajor": 18, "summary": "iPad on the minimum supported OS" },
+    { "id": "ipad-current",   "deviceFamily": "iPad",   "osMajor": 26, "summary": "iPad on the current stable OS" }
   ]
 }

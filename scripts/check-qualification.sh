@@ -13,9 +13,9 @@
 # that the results exist, that every required row was executed and passed, and
 # that they describe *this* artifact rather than an earlier one.
 #
-# The artifact is identified by a digest over its static libraries, computed
-# here rather than trusted from the record. A record can claim any digest; only
-# a recomputed one can contradict it.
+# The artifact is identified by a digest over the complete XCFramework tree,
+# including libraries, headers, metadata, paths, and modes. Header/ABI drift is
+# release-significant even when the static archive bytes are unchanged.
 #
 # Usage:
 #   ./scripts/check-qualification.sh <version> [xcframework-path]
@@ -28,8 +28,8 @@ cd "$ROOT_DIR"
 
 VERSION="${1:-}"
 XCFW="${2:-Vendor/libvlc.xcframework}"
-MATRIX="$SCRIPT_DIR/qualification/matrix.json"
-RECORD="$SCRIPT_DIR/qualification/${VERSION}.json"
+MATRIX="${SWIFTVLC_QUALIFICATION_MATRIX:-$SCRIPT_DIR/qualification/matrix.json}"
+RECORD="${SWIFTVLC_QUALIFICATION_RECORD:-$SCRIPT_DIR/qualification/${VERSION}.json}"
 
 if [[ -z "$VERSION" ]]; then
   echo "Usage: $0 <version> [xcframework-path]" >&2
@@ -46,15 +46,8 @@ if [[ ! -f "$MATRIX" ]]; then
   exit 1
 fi
 
-# Digest over every slice's static library, in a stable order. Headers and
-# Info.plist are excluded: they carry no executable behaviour, and a header-only
-# change cannot invalidate a device run.
 artifact_digest() {
-  find "$XCFW" -name '*.a' -type f -print0 \
-    | sort -z \
-    | xargs -0 shasum -a 256 \
-    | shasum -a 256 \
-    | cut -d' ' -f1
+  python3 "$SCRIPT_DIR/artifact-tree-digest.py" "$XCFW"
 }
 
 # An xcframework with no static libraries would still produce a stable digest —
@@ -83,6 +76,7 @@ fi
 python3 - "$MATRIX" "$RECORD" "$DIGEST" "$VERSION" <<'PY'
 import json
 import sys
+from pathlib import Path
 
 matrix_path, record_path, digest, version = sys.argv[1:5]
 
@@ -107,6 +101,12 @@ if recorded != digest:
 if record.get("version") != version:
     problems.append(
         f"the record is for version {record.get('version')!r}, not {version!r}"
+    )
+
+if record.get("artifactDigestAlgorithm") != "swiftvlc-tree-v1":
+    problems.append(
+        "the record does not declare artifactDigestAlgorithm "
+        "'swiftvlc-tree-v1'"
     )
 
 required = {
@@ -156,13 +156,59 @@ if failed:
 
 # Fields the criteria call for on every row. A row missing them is not a record
 # of anything reproducible.
+hardware_by_id = {hardware["id"]: hardware for hardware in matrix["hardware"]}
 for key in sorted(executed):
     if key not in required:
         continue
     row = executed[key]
-    for field in ("device", "os", "fixture", "duration", "result"):
+    for field in (
+        "device",
+        "deviceFamily",
+        "productType",
+        "osVersion",
+        "osBuild",
+        "osReleaseType",
+        "fixture",
+        "duration",
+        "evidence",
+        "result",
+    ):
         if not row.get(field):
             problems.append(f"row {key[0]} on {key[1]} is missing {field!r}")
+
+    hardware = hardware_by_id[key[1]]
+    if row.get("deviceFamily") != hardware["deviceFamily"]:
+        problems.append(
+            f"row {key[0]} on {key[1]} records deviceFamily "
+            f"{row.get('deviceFamily')!r}, expected {hardware['deviceFamily']!r}"
+        )
+    try:
+        os_major = int(str(row.get("osVersion", "")).split(".", 1)[0])
+    except ValueError:
+        os_major = None
+    if os_major != hardware["osMajor"]:
+        problems.append(
+            f"row {key[0]} on {key[1]} records OS {row.get('osVersion')!r}, "
+            f"expected major version {hardware['osMajor']}"
+        )
+    if row.get("osReleaseType") != "stable":
+        problems.append(
+            f"row {key[0]} on {key[1]} uses {row.get('osReleaseType')!r} OS "
+            "software; release qualification requires a stable OS build"
+        )
+    evidence = row.get("evidence")
+    if evidence:
+        evidence_path = Path(evidence)
+        if evidence_path.is_absolute() or ".." in evidence_path.parts:
+            problems.append(
+                f"row {key[0]} on {key[1]} evidence must be a safe path "
+                "relative to the qualification record"
+            )
+        elif not (Path(record_path).parent / evidence_path).is_file():
+            problems.append(
+                f"row {key[0]} on {key[1]} evidence file does not exist: "
+                f"{evidence}"
+            )
 
 if problems:
     print(f"Error: {version} is not qualified for release.", file=sys.stderr)

@@ -196,11 +196,14 @@ cd SwiftVLC
 swift test
 ```
 
-`main` tracks the latest released `url + checksum` form of the libVLC binary target. `setup-dev.sh` downloads `libvlc.xcframework.zip` into `Vendor/` and idempotently flips `Package.swift` plus the Showcase package reference to repo-local sources so package development and Showcase builds use the checkout on disk.
+`main` records an exact libVLC release URL and checksum. `setup-dev.sh` verifies
+that tag against the GitHub asset digest, downloads that exact artifact into
+`Vendor/`, and flips `Package.swift` plus the Showcase package reference to
+repo-local sources. It never follows GitHub's mutable “latest” pointer.
 
 | `setup-dev.sh` flag | Effect |
 |---|---|
-| *(none)* | Download the latest release if `Vendor/` is empty; otherwise keep existing. |
+| *(none)* | Install the exact release declared by `Package.swift`; replace an unverified or stale `Vendor/` copy. |
 | `vX.Y.Z` *(positional)* | Pin to a specific release tag. |
 | `--force` | Re-download even if `Vendor/` already exists. |
 | `--skip-download` | Only flip local references (`Package.swift` and the Showcase app). Expects `Vendor/` to already exist, which is useful after running `build-libvlc.sh`. |
@@ -254,26 +257,36 @@ The script also applies these checked-in VLC source patches in order:
 
 ## Releasing
 
-Releases advance `main`: `release.sh` rewrites `Package.swift` to the new remote xcframework URL + checksum, pins the Showcase app to that exact SwiftVLC version, tags that commit, uploads the zip as a GitHub Release asset, and then pushes `main` to that same commit. `setup-dev.sh` is what flips a working checkout back to local sources for day-to-day development.
+Releases advance `main`, but stable releases can only consume an immutable,
+previously prepared and device-qualified candidate. `setup-dev.sh` flips a
+working checkout back to local sources for day-to-day development.
 
 ```bash
 ./scripts/build-libvlc.sh --all          # produces Vendor/libvlc.xcframework
 ./scripts/release.sh X.Y.Z --dry-run     # strip + zip + checksum, no push
-./scripts/release.sh X.Y.Z               # cut the release
+./scripts/release.sh X.Y.Z --prepare /absolute/path/to/candidate
+./scripts/check-qualification.sh X.Y.Z /absolute/path/to/candidate/libvlc.xcframework
+./scripts/release.sh X.Y.Z --candidate /absolute/path/to/candidate
 ```
 
 What `release.sh` does:
 
 1. Verifies all eight platform slices are present in the xcframework.
-2. Copies it to a temp dir, strips debug symbols, zips with `ditto`.
-3. Computes SHA-256 via `swift package compute-checksum`.
-4. Rewrites `Package.swift` to the remote URL and checksum, and pins the Showcase app to `SwiftVLC` exact version `X.Y.Z`.
-5. Commits that change and tags it as `vX.Y.Z`.
-6. Pushes the tag first so GitHub can attach the release asset to that exact commit.
-7. Uploads the zip to a new GitHub Release.
-8. Pushes `main` to the same commit, so `main` always references the latest published xcframework and Showcase package version.
+2. In `--prepare` mode, strips and zips once, then records complete-tree, zip,
+   and provenance digests in an immutable candidate directory.
+3. Requires physical-device qualification to name that complete post-strip
+   tree; a stable run refuses to rebuild or mutate it.
+4. Verifies the prepared zip expands to the qualified XCFramework and that all
+   candidate/provenance checksums still match.
+5. Rewrites `Package.swift` to the remote URL and checksum, pins the Showcase
+   app to exact version `X.Y.Z`, commits, and tags the result.
+6. Uploads the zip, provenance, and candidate manifest to a draft release.
+7. Advances `origin/main`; only after that succeeds does it publish the draft.
 
-Preflight refuses non-`main` branches, uncommitted changes in `Package.swift` or the Showcase project, pre-existing local or remote tags, and unauthenticated `gh`. If a pre-commit rewrite fails, the script restores `Package.swift` and the Showcase project before exiting. If the tag push succeeds but a later step fails, `origin/main` is still untouched; finish the GitHub Release (or delete the tag) before retrying.
+Candidate preparation and publishing refuse non-`main` branches, any dirty
+working tree, a local `main` that differs from `origin/main`, pre-existing tags,
+and unauthenticated `gh`. If publication fails after asset upload, the release
+remains a non-public draft until it is fixed or removed.
 
 After publication, verify that Swift Package Index has finished building the
 tagged API reference and that the unversioned documentation link above resolves
