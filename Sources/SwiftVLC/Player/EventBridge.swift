@@ -109,6 +109,10 @@ final class EventBridge: Sendable {
     nativeHandleGeneration.withLock { $0 }
   }
 
+  var currentNativePlayerGeneration: NativePlayerGeneration {
+    NativePlayerGeneration(currentNativeHandleGeneration)
+  }
+
   /// Creates a new independent `AsyncStream` for consuming player events.
   /// Each stream is offered events broadcast after creation that pass its
   /// filter. Delivery under consumer lag follows `policy`.
@@ -121,6 +125,13 @@ final class EventBridge: Sendable {
 
   func makeSourcedStream(policy: EventBufferingPolicy) -> AsyncStream<SourcedPlayerEvent> {
     context.makeSourcedStream(policy: policy)
+  }
+
+  func makeEnvelopeStream(
+    policy: EventBufferingPolicy?,
+    filter: (@Sendable (PlayerEventEnvelope) -> Bool)?
+  ) -> AsyncStream<PlayerEventEnvelope> {
+    context.makeEnvelopeStream(policy: policy, filter: filter)
   }
 
   /// Marks a new authoritative timeline. Clock samples emitted before this
@@ -245,6 +256,7 @@ private final class EventBridgeCallbackAttachment: Sendable {
 
 private final class EventBridgeCallbackContext: Sendable {
   private let events = Broadcaster<PlayerEvent>(defaultBufferSize: 64)
+  private let eventEnvelopes = Broadcaster<PlayerEventEnvelope>(defaultBufferSize: 64)
   private let sourcedEvents = Broadcaster<SourcedPlayerEvent>(defaultBufferSize: 64)
   /// Stamped onto every sourced event so the consumer can tell clock samples
   /// that predate an accepted seek from ones that follow it. Lives here
@@ -267,6 +279,13 @@ private final class EventBridgeCallbackContext: Sendable {
     sourcedEvents.subscribe(policy: policy)
   }
 
+  func makeEnvelopeStream(
+    policy: EventBufferingPolicy?,
+    filter: (@Sendable (PlayerEventEnvelope) -> Bool)?
+  ) -> AsyncStream<PlayerEventEnvelope> {
+    eventEnvelopes.subscribe(policy: policy, filter: filter)
+  }
+
   func broadcast(_ event: PlayerEvent, nativeHandleGeneration: UInt64) {
     // Each broadcaster is gated on its own emptiness so a libVLC event
     // with no consumers costs neither the lock-and-snapshot nor the
@@ -283,6 +302,14 @@ private final class EventBridgeCallbackContext: Sendable {
         )
       )
     }
+    if !eventEnvelopes.isEmpty {
+      eventEnvelopes.broadcast(
+        PlayerEventEnvelope(
+          event: event,
+          nativeGeneration: NativePlayerGeneration(nativeHandleGeneration)
+        )
+      )
+    }
     if !events.isEmpty {
       events.broadcast(event)
     }
@@ -295,16 +322,12 @@ private final class EventBridgeCallbackContext: Sendable {
     }
   }
 
-  func finishAll() {
-    events.finishAll()
-    sourcedEvents.finishAll()
-  }
-
   /// Permanently closes both broadcasters, so streams handed out after this
   /// point are already finished rather than waiting on a source that will
   /// never emit again.
   func terminate() {
     events.terminate()
+    eventEnvelopes.terminate()
     sourcedEvents.terminate()
   }
 }

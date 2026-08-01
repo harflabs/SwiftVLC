@@ -1,4 +1,5 @@
 @testable import SwiftVLC
+import Foundation
 import Testing
 
 @Suite(.tags(.logic))
@@ -25,6 +26,14 @@ struct PlayerEventLaneClassificationTests {
     #expect(PlayerEvent.pausableChanged(true).lane == .control)
     #expect(PlayerEvent.tracksChanged.lane == .control)
     #expect(PlayerEvent.programSelected(unselectedId: 1, selectedId: 2).lane == .control)
+  }
+
+  @Test
+  func `Native generations are ordered opaque diagnostic values`() {
+    let first = NativePlayerGeneration(1)
+    let second = NativePlayerGeneration(2)
+    #expect(first < second)
+    #expect(first.description == "native generation 1")
   }
 }
 
@@ -111,6 +120,157 @@ extension Integration {
         return
       }
       #expect(count == 7)
+    }
+
+    /// A public consumer can keep a lossless control subscription alive across
+    /// a native replacement and reject an event that was already queued from
+    /// the predecessor. Pointer equality cannot prove this because an
+    /// allocator may reuse the old address; the monotonic token can.
+    @Test(.timeLimit(.minutes(1)))
+    func `A queued predecessor event remains attributable after native replacement`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let bridge = player.eventBridge
+      let stream = player.controlEventEnvelopes
+      let predecessor = player.nativeEventGeneration
+
+      player.setDrawable(NSObject())
+      player.stop()
+      try player.prepareDrawableForPlayback()
+      let successor = player.nativeEventGeneration
+      #expect(successor > predecessor)
+
+      // Simulate a value already queued from A becoming visible only after B
+      // was installed. The following sentinel bounds the drain.
+      bridge._broadcastForTesting(
+        .stateChanged(.stopped),
+        nativeHandleGeneration: predecessor.value
+      )
+      bridge._broadcastForTesting(
+        .mediaChanged,
+        nativeHandleGeneration: successor.value
+      )
+
+      var predecessorEnvelope: PlayerEventEnvelope?
+      drain: for await envelope in stream {
+        switch envelope.event {
+        case .stateChanged(.stopped):
+          predecessorEnvelope = envelope
+        case .mediaChanged:
+          break drain
+        default:
+          break
+        }
+      }
+
+      let stale = try #require(predecessorEnvelope)
+      #expect(stale.nativeGeneration == predecessor)
+      #expect(stale.nativeGeneration != player.nativeEventGeneration)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func `Envelope control lane excludes the timing firehose`() async {
+      let player = Player(instance: TestInstance.shared)
+      let bridge = player.eventBridge
+      let generation = player.nativeEventGeneration
+      let stream = player.controlEventEnvelopes
+
+      bridge._broadcastForTesting(
+        .lengthChanged(.seconds(2)),
+        nativeHandleGeneration: generation.value
+      )
+      for index in 0..<500 {
+        bridge._broadcastForTesting(
+          .timeChanged(.milliseconds(index)),
+          nativeHandleGeneration: generation.value
+        )
+      }
+      bridge._broadcastForTesting(.mediaChanged, nativeHandleGeneration: generation.value)
+
+      var events: [PlayerEvent] = []
+      drain: for await envelope in stream {
+        events.append(envelope.event)
+        if case .mediaChanged = envelope.event {
+          break drain
+        }
+        #expect(envelope.nativeGeneration == generation)
+      }
+
+      #expect(events.contains { event in
+        if case .lengthChanged = event {
+          true
+        } else {
+          false
+        }
+      })
+      #expect(events.allSatisfy { $0.lane == .control })
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func `Default and filtered envelope streams preserve attribution`() async throws {
+      let player = Player(instance: TestInstance.shared)
+      let bridge = player.eventBridge
+      let generation = player.nativeEventGeneration
+      let defaultStream = player.eventEnvelopes
+      let filteredStream = player.eventEnvelopes(policy: .unbounded) { envelope in
+        envelope.event.lane == .control
+      }
+
+      bridge._broadcastForTesting(
+        .timeChanged(.seconds(1)),
+        nativeHandleGeneration: generation.value
+      )
+      bridge._broadcastForTesting(.mediaChanged, nativeHandleGeneration: generation.value)
+
+      var defaultSawTiming = false
+      defaultDrain: for await envelope in defaultStream {
+        #expect(envelope.nativeGeneration == generation)
+        switch envelope.event {
+        case .timeChanged:
+          defaultSawTiming = true
+        case .mediaChanged:
+          break defaultDrain
+        default:
+          break
+        }
+      }
+
+      var firstFiltered: PlayerEventEnvelope?
+      for await envelope in filteredStream {
+        firstFiltered = envelope
+        break
+      }
+      let filteredEnvelope = try #require(firstFiltered)
+      #expect(filteredEnvelope.nativeGeneration == generation)
+      #expect(filteredEnvelope.event.lane == .control)
+      #expect(defaultSawTiming)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func `Envelope timing lane remains bounded`() async {
+      let player = Player(instance: TestInstance.shared)
+      let bridge = player.eventBridge
+      let generation = player.nativeEventGeneration
+      let stream = player.timingEventEnvelopes
+
+      for index in 0..<500 {
+        bridge._broadcastForTesting(
+          .timeChanged(.milliseconds(index)),
+          nativeHandleGeneration: generation.value
+        )
+      }
+      bridge._broadcastForTesting(.voutChanged(7), nativeHandleGeneration: generation.value)
+
+      var delivered: [PlayerEventEnvelope] = []
+      drain: for await envelope in stream {
+        delivered.append(envelope)
+        if case .voutChanged = envelope.event {
+          break drain
+        }
+      }
+
+      #expect(delivered.count <= Player.timingLaneBufferSize)
+      #expect(delivered.allSatisfy { $0.event.lane == .timing })
+      #expect(delivered.allSatisfy { $0.nativeGeneration == generation })
     }
   }
 }
