@@ -425,6 +425,114 @@ extension Integration {
     }
 
     @Test
+    func `A stale generation-bound fresh pause restores the preceding intent`() {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      player._setStateForTesting(state: .playing, isPlaybackRequestedActive: true)
+      player.setPlaybackControlIntent(.resume)
+      _ = player.eventBridge.synchronizePlaybackGeneration(1, media: nil)
+
+      #expect(!player.issuePause(playbackGeneration: 0))
+      #expect(player.playbackControlIntent == .resume)
+      #expect(player.isPlaybackRequestedActive)
+      #expect(player.deferredPauseCommand == nil)
+    }
+
+    @Test
+    func `A bound pause that reaches a terminal state restores the preceding intent`() {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let generation: UInt64 = 1
+      _ = player.eventBridge.synchronizePlaybackGeneration(generation, media: nil)
+      player._setStateForTesting(state: .stopped, isPlaybackRequestedActive: false)
+      player.setPlaybackControlIntent(.resume)
+
+      #expect(!player.issuePause(playbackGeneration: generation))
+      #expect(player.playbackControlIntent == .resume)
+      #expect(player.isPlaybackRequestedActive)
+      #expect(player.deferredPauseCommand == nil)
+    }
+
+    @Test
+    func `A generation-bound fresh pause restores intent after a capability probe race`() {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let capturedGeneration: UInt64 = 1
+      _ = player.eventBridge.synchronizePlaybackGeneration(capturedGeneration, media: nil)
+      player._nativePlaybackStateOverrideForTesting = .playing
+      player._nativeCanPauseOverrideForTesting = true
+      player._nativePauseSafetyOverrideForTesting = true
+      player._setStateForTesting(state: .playing, isPlaybackRequestedActive: true)
+      player.setPlaybackControlIntent(.resume)
+      player._pauseProbeHookForTesting = { stage in
+        guard stage == .capability else { return }
+        player._pauseProbeHookForTesting = nil
+        _ = player.eventBridge.synchronizePlaybackGeneration(
+          capturedGeneration + 1,
+          media: nil
+        )
+      }
+
+      #expect(!player.issuePause(playbackGeneration: capturedGeneration))
+      #expect(player.playbackControlIntent == .resume)
+      #expect(player.isPlaybackRequestedActive)
+      #expect(player.deferredPauseCommand == nil)
+    }
+
+    @Test
+    func `A current-following pause carries its command across a native pause race`() {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let capturedGeneration: UInt64 = 1
+      _ = player.eventBridge.synchronizePlaybackGeneration(capturedGeneration, media: nil)
+      player._nativePlaybackStateOverrideForTesting = .playing
+      player._nativeCanPauseOverrideForTesting = true
+      player._nativePauseSafetyOverrideForTesting = true
+      player._setStateForTesting(state: .playing, isPlaybackRequestedActive: true)
+      player.setDeferredPauseCommand(.pause, playbackGeneration: capturedGeneration)
+      player._pauseProbeHookForTesting = { stage in
+        guard stage == .nativePause else { return }
+        player._pauseProbeHookForTesting = nil
+        _ = player.eventBridge.synchronizePlaybackGeneration(
+          capturedGeneration + 1,
+          media: nil
+        )
+      }
+
+      #expect(player.issuePause())
+      #expect(player.deferredPauseCommand == .pause)
+      #expect(player.deferredPauseCommandPlaybackGeneration == capturedGeneration + 1)
+      #expect(!player.isPlaybackRequestedActive)
+    }
+
+    @Test
+    func `A bound pause retry carries a persistent pause intent to the successor`() {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let capturedGeneration: UInt64 = 1
+      _ = player.eventBridge.synchronizePlaybackGeneration(capturedGeneration, media: nil)
+      player._nativePlaybackStateOverrideForTesting = .playing
+      player._nativeCanPauseOverrideForTesting = true
+      player._nativePauseSafetyOverrideForTesting = true
+      player._setStateForTesting(state: .playing, isPlaybackRequestedActive: false)
+      player.setPlaybackControlIntent(.pause)
+      player._pauseProbeHookForTesting = { stage in
+        guard stage == .nativePause else { return }
+        player._pauseProbeHookForTesting = nil
+        _ = player.eventBridge.synchronizePlaybackGeneration(
+          capturedGeneration + 1,
+          media: nil
+        )
+      }
+
+      #expect(
+        !player.issuePause(
+          playbackGeneration: capturedGeneration,
+          recordsPlaybackControlIntent: false
+        )
+      )
+      #expect(player.deferredPauseCommand == .pause)
+      #expect(player.deferredPauseCommandPlaybackGeneration == capturedGeneration + 1)
+      #expect(player.playbackControlIntent == .pause)
+      #expect(!player.isPlaybackRequestedActive)
+    }
+
+    @Test
     func `Fresh pause retains the newest generation after repeated state probe races`() {
       let player = Player(instance: TestInstance.shared)
       player._setStateForTesting(state: .playing)
