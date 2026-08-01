@@ -250,6 +250,39 @@ extension Integration {
     }
 
     @Test
+    func `An idle stop reason does not poison the next failed start retry`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      let controller = PiPController(player: player)
+      let avController = makeDummyAVController(for: controller)
+      let stream = controller.pipEventEnvelopes
+      let failure = NSError(domain: "swiftvlc.test.pip.idle-stop", code: 1)
+
+      controller.stop()
+      #expect(controller.pendingStopReason == .unknown)
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      controller.pictureInPictureController(
+        avController,
+        failedToStartPictureInPictureWithError: failure
+      )
+
+      try player.load(Media(url: TestMedia.silenceURL))
+      let retryMediaGeneration = player.generation
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      controller.pictureInPictureControllerWillStartPictureInPicture(avController)
+      controller.pictureInPictureControllerDidStartPictureInPicture(avController)
+
+      let envelopes = await collect(3, from: stream)
+      #expect(envelopes.dropFirst().allSatisfy {
+        $0.mediaGeneration == retryMediaGeneration
+      })
+      guard case .failedToStart = envelopes[0].event else {
+        Issue.record("Expected the first attempt to fail")
+        return
+      }
+    }
+
+    @Test
     func `A failed attempt's trailing stop does not consume its accepted retry`() async throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       try player.load(Media(url: TestMedia.twosecURL))

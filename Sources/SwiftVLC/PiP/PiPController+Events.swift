@@ -230,6 +230,17 @@ extension PiPController {
   /// issued the request. Refused starts cannot later own a lifecycle callback.
   func noteAcceptedPiPStartRequest(_ result: PiPStartResult) -> PiPStartResult {
     guard result == .accepted else { return result }
+    // `stop()` records a reason even while idle so it cannot miss a start
+    // animation that AVKit has not reported yet. If there is demonstrably no
+    // lifecycle (including no failed attribution awaiting its trailing stop),
+    // that reason belongs to nothing and must not make this new request look
+    // like an overlapping retry.
+    if
+      pipLifecycleAttributionPhase == .idle,
+      pipLifecycleAttribution == nil,
+      failedPiPLifecycleAttributions.isEmpty {
+      pendingStopReason = nil
+    }
     let currentLifecycleIsStopping = pipLifecycleAttributionPhase == .stopping
       || (pendingStopReason != nil && failedPiPLifecycleAttributions.isEmpty)
     if pipLifecycleAttribution != nil, currentLifecycleIsStopping {

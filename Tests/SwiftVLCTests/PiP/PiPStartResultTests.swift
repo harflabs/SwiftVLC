@@ -1,5 +1,6 @@
 #if os(iOS) || os(macOS)
 @_spi(PrivateMacOSPiP) @testable import SwiftVLC
+import AVKit
 import Testing
 
 /// `start()` used to return `Void` from four indistinguishable early exits, so
@@ -51,6 +52,25 @@ extension Integration {
       if !controller.isPossible {
         #expect(result != .accepted, "start claimed acceptance while PiP was impossible")
       }
+    }
+
+    @Test
+    func `A direct impossible start records no lifecycle attribution`() throws {
+      let player = Player(instance: TestInstance.shared)
+      try player.load(Media(url: TestMedia.twosecURL))
+      let controller = PiPController(player: player)
+      if controller.pipController == nil {
+        let contentSource = AVPictureInPictureController.ContentSource(
+          sampleBufferDisplayLayer: controller.layer,
+          playbackDelegate: controller._playbackDelegateForTesting
+        )
+        controller.pipController = AVPictureInPictureController(contentSource: contentSource)
+      }
+      controller._setStateForTesting(isPossible: false)
+
+      #expect(controller.start() == .notPossible)
+      #expect(controller.pipLifecycleAttribution == nil)
+      #expect(controller.pipLifecycleAttributionPhase == .idle)
     }
 
     /// `toggle()` has to propagate the start result when it takes the start

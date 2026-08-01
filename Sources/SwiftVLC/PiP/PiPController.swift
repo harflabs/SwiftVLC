@@ -614,6 +614,7 @@ public final class PiPController: NSObject {
     }
     #endif
     guard let pipController else { return .backendUnavailable }
+    guard isPossible else { return .notPossible }
     activateAudioSessionIfNeeded()
     pipController.startPictureInPicture()
     return noteAcceptedPiPStartRequest(.accepted)
@@ -629,8 +630,8 @@ public final class PiPController: NSObject {
     // Recorded unconditionally: between AVKit beginning the start
     // animation and the didStart callback, `isActive` is still false,
     // and a stop issued in that window would otherwise be reported as
-    // the user's close tap. A stale record is harmless — the next
-    // willStart/didStart clears it.
+    // the user's close tap. If no lifecycle was actually in flight, the next
+    // accepted start (or an automatic willStart/didStart) clears it.
     notePendingStopReason(.unknown)
     #if os(iOS)
     if let nativeBackend {
