@@ -183,12 +183,13 @@ extension PiPController {
         $0.attribution.sequence < attribution.sequence && !$0.willStopObserved
       }
     case .willStop:
-      if failedLifecycleOwnsNextStop, let failedPiPLifecycle = failedPiPLifecycles.first {
+      if let failedIndex = failedLifecycleIndexOwningNextWillStop {
+        let failedPiPLifecycle = failedPiPLifecycles[failedIndex]
         attribution = failedPiPLifecycle.attribution
         // Once AVKit has promised a terminal callback for this failed
         // lifecycle, a newer didStart must not retire it as an omitted stop.
         // Keep it until the matching didStop consumes the slot.
-        failedPiPLifecycles[0].willStopObserved = true
+        failedPiPLifecycles[failedIndex].willStopObserved = true
       } else {
         pipLifecycleAttributionPhase = .stopping
         attribution = currentPiPLifecycleAttribution(mediaGeneration: mediaGenerationOverride)
@@ -489,6 +490,42 @@ extension PiPController {
       return .mediaEnded
     }
     return .userClosed
+  }
+
+  /// Resolves a `willStop` against the oldest lifecycle that has not already
+  /// observed that callback. A failed lifecycle remains first for `didStop`
+  /// after its own `willStop`, but must not steal a distinct `willStop` from
+  /// an active retry during that delay.
+  func resolveWillStopReason() -> PiPStopReason {
+    if let failedIndex = failedLifecycleIndexOwningNextWillStop {
+      return failedPiPLifecycles[failedIndex].stopReason
+    }
+    if let pendingStopReason {
+      return pendingStopReason
+    }
+    if player.didReachEnd {
+      return .mediaEnded
+    }
+    return .userClosed
+  }
+
+  /// The failed lifecycle that owns the next `willStop`, if any. Unlike
+  /// `didStop`, this skips failed entries for which `willStop` was already
+  /// observed and compares the next unobserved entry with the current
+  /// lifecycle's accepted-start sequence.
+  private var failedLifecycleIndexOwningNextWillStop: Int? {
+    guard
+      let failedIndex = failedPiPLifecycles.firstIndex(where: {
+        !$0.willStopObserved
+      }) else { return nil }
+    guard let pipLifecycleAttribution else { return failedIndex }
+    if pipLifecycleAttributionPhase == .stopping {
+      return failedIndex
+    }
+    return failedPiPLifecycles[failedIndex].attribution.sequence
+      < pipLifecycleAttribution.sequence
+      ? failedIndex
+      : nil
   }
 
   /// Whether the oldest lifecycle still awaiting a terminal stop is the

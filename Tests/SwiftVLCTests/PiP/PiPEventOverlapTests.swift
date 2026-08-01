@@ -145,6 +145,53 @@ extension Integration {
     }
 
     @Test
+    func `An active retry owns its willStop while a failed stop is delayed`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      let controller = PiPController(player: player)
+      let avController = makeDummyAVController(for: controller)
+      let stream = controller.pipEventEnvelopes
+      let failedMediaGeneration = player.generation
+      let failure = NSError(domain: "swiftvlc.test.pip.delayed-failed-stop", code: 1)
+
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      controller.pictureInPictureController(
+        avController,
+        failedToStartPictureInPictureWithError: failure
+      )
+      controller.pictureInPictureControllerWillStopPictureInPicture(avController)
+
+      try player.load(Media(url: TestMedia.silenceURL))
+      let retryMediaGeneration = player.generation
+      #expect(controller.noteAcceptedPiPStartRequest(.accepted) == .accepted)
+      controller.pictureInPictureControllerWillStartPictureInPicture(avController)
+      controller.pictureInPictureControllerDidStartPictureInPicture(avController)
+      controller.stop()
+      controller.pictureInPictureControllerWillStopPictureInPicture(avController)
+
+      controller.pictureInPictureControllerDidStopPictureInPicture(avController)
+      controller.pictureInPictureControllerDidStopPictureInPicture(avController)
+
+      let envelopes = await collect(7, from: stream)
+      #expect(envelopes[1].mediaGeneration == failedMediaGeneration)
+      #expect(envelopes[4].mediaGeneration == retryMediaGeneration)
+      #expect(envelopes[5].mediaGeneration == failedMediaGeneration)
+      #expect(envelopes[6].mediaGeneration == retryMediaGeneration)
+      guard case .willStop(reason: .unknown) = envelopes[4].event else {
+        Issue.record("Expected the active retry's programmatic willStop")
+        return
+      }
+      guard case .didStop(reason: .failure) = envelopes[5].event else {
+        Issue.record("Expected the delayed failed stop first")
+        return
+      }
+      guard case .didStop(reason: .unknown) = envelopes[6].event else {
+        Issue.record("Expected the active retry's stop second")
+        return
+      }
+    }
+
+    @Test
     func `Promised failed stop remains ordered ahead of a failed retry`() async throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       try player.load(Media(url: TestMedia.twosecURL))
