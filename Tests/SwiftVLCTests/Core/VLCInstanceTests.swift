@@ -120,11 +120,15 @@ extension Integration {
     @Test
     func `Default arguments contains expected values`() {
       let args = VLCInstance.defaultArguments
-      #expect(args.count == 2)
+      #expect(args.count == 3)
       #expect(!args.contains("--force-darwin-legacy-display"))
       #expect(!args.contains("--vout=macosx"))
       #expect(args.contains("--no-video-title-show"))
       #expect(args.contains("--no-snapshot-preview"))
+      // Direct rendering hands FFmpeg unpadded picture buffers; edge
+      // motion vectors then over-read the plane (SIGSEGV in
+      // ff_put_pixels8_x2_neon via mpeg_motion).
+      #expect(args.contains("--no-avcodec-dr"))
       #expect(!args.contains("--text-renderer=freetype"))
       // --no-stats is intentionally absent: it would zero every stats
       // counter every app ever reads. Opt in by passing it explicitly.

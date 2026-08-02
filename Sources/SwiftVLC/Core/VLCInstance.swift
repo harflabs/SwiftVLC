@@ -53,9 +53,19 @@ public final class VLCInstance: Sendable {
   /// argument list to ``init(arguments:applicationName:httpUserAgent:)``
   /// if you need that mode
   /// (embedded contexts with tight memory budgets, CLI tools).
+  ///
+  /// Includes `--no-avcodec-dr`: with direct rendering, FFmpeg's software
+  /// decoders write straight into libVLC's tightly-sized picture buffers,
+  /// and half-pel motion compensation on frame-edge motion vectors reads
+  /// one byte past the end of the plane — a SIGSEGV in
+  /// `ff_put_pixels8_x2_neon` via `mpeg_motion` on MPEG-1/2/4 Part 2
+  /// streams. Without direct rendering FFmpeg allocates its own
+  /// edge-padded frames; the extra per-frame copy only affects
+  /// software-decoded codecs.
   public static let defaultArguments: [String] = [
     "--no-video-title-show",
-    "--no-snapshot-preview"
+    "--no-snapshot-preview",
+    "--no-avcodec-dr"
   ]
 
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_instance_t*
