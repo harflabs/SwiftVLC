@@ -307,6 +307,40 @@ extension Integration {
       )
     }
 
+    @Test
+    func `Observable stop wait drains an older stopping publication first`() async {
+      let statuses = Self.statusStream([
+        PlaybackStatus(state: .stopping, generation: PlaybackGeneration(4)),
+        PlaybackStatus(state: .stopped, generation: PlaybackGeneration(4))
+      ])
+
+      let mirrored = await Player.awaitPlaybackMirror(
+        .stopped,
+        generation: PlaybackGeneration(4),
+        on: statuses,
+        timeout: .seconds(1)
+      )
+
+      #expect(mirrored)
+    }
+
+    @Test
+    func `Observable stop wait rejects a successor generation`() async {
+      let statuses = Self.statusStream([
+        PlaybackStatus(state: .stopping, generation: PlaybackGeneration(4)),
+        PlaybackStatus(state: .playing, generation: PlaybackGeneration(5))
+      ])
+
+      let mirrored = await Player.awaitPlaybackMirror(
+        .stopped,
+        generation: PlaybackGeneration(4),
+        on: statuses,
+        timeout: .seconds(1)
+      )
+
+      #expect(!mirrored)
+    }
+
     /// Builds a finite stream of the given events. The stream finishes after
     /// the last one, which also exercises the "source ended without a stop"
     /// path.
@@ -317,6 +351,17 @@ extension Integration {
       AsyncStream { continuation in
         for event in events {
           continuation.yield(event)
+        }
+        continuation.finish()
+      }
+    }
+
+    private static func statusStream(
+      _ statuses: [PlaybackStatus]
+    ) -> AsyncStream<PlaybackStatus> {
+      AsyncStream { continuation in
+        for status in statuses {
+          continuation.yield(status)
         }
         continuation.finish()
       }

@@ -97,9 +97,8 @@ final class PixelBufferRenderer: Sendable {
     state.withLock { $0.displayLayer.layer = layer }
   }
 
-  /// Starts a new media generation and makes every frame captured before the
-  /// boundary stale. Counters stay cumulative so the low-rate health sampler
-  /// can derive a generation-local delta without resetting the frame hot path.
+  /// Starts a new media generation and makes every frame captured before the boundary stale.
+  /// Counters stay cumulative for generation-local health deltas without resetting the hot path.
   func beginPlaybackGeneration(_ generation: UInt64) {
     let changed = state.withLock { state -> Bool in
       guard state.playbackGeneration != generation else { return false }
@@ -113,6 +112,7 @@ final class PixelBufferRenderer: Sendable {
       $0.flushRecoveryRetryCount = 0
       $0.flushRecoveryGeneration = nil
       $0.latestPlaybackGeneration = generation
+      $0.latestVoutGeneration = nil
       $0.status = .idle
     }
     flushDisplayLayer()

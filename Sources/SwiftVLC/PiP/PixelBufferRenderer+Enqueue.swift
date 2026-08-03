@@ -131,9 +131,20 @@ struct PixelBufferDisplayLayerAPI: @unchecked Sendable {
 }
 
 extension PixelBufferRenderer {
-  func canEnqueueFrame(generation: UInt64, on layer: AVSampleBufferDisplayLayer) -> Bool {
-    state.withLock {
-      $0.renderGeneration == generation && $0.displayLayer.layer === layer
+  func canEnqueueFrame(
+    generation: UInt64,
+    on layer: AVSampleBufferDisplayLayer,
+    playbackGeneration: UInt64? = nil,
+    voutGeneration: UInt64? = nil
+  ) -> Bool {
+    let acceptsRendererIdentity = state.withLock { state in
+      state.renderGeneration == generation
+        && state.displayLayer.layer === layer
+        && playbackGeneration.map { $0 == (state.playbackGeneration ?? 0) } != false
+    }
+    guard acceptsRendererIdentity else { return false }
+    return enqueueState.withLock { state in
+      voutGeneration.map { $0 == state.latestVoutGeneration } != false
     }
   }
 
@@ -154,7 +165,23 @@ extension PixelBufferRenderer {
       playbackGeneration: playbackGeneration,
       voutGeneration: voutGeneration
     )
-    let shouldSchedule = enqueueState.withLock { state -> Bool in
+    // `beginPlaybackGeneration` publishes the new identity and clears the
+    // pending slot under this same mutex. A producer therefore either claims
+    // the slot first and is cleared by the boundary, or observes the new
+    // generation and is rejected. It never waits behind AVFoundation's
+    // potentially slow enqueue operation.
+    let shouldSchedule = enqueueState.withLock { state -> Bool? in
+      if
+        let latestPlaybackGeneration = state.latestPlaybackGeneration,
+        latestPlaybackGeneration != playbackGeneration {
+        return nil
+      }
+      // Vout generations are issued monotonically. Once a successor has
+      // appeared, a delayed callback from the retired vout is stale even if
+      // it has the same media and render generation.
+      if let latest = state.latestVoutGeneration, voutGeneration < latest {
+        return nil
+      }
       state.enqueuedFrameCount &+= 1
       state.lastEnqueuedAt = .now
       state.latestPlaybackGeneration = playbackGeneration
@@ -172,7 +199,7 @@ extension PixelBufferRenderer {
       return true
     }
 
-    guard shouldSchedule else { return }
+    guard shouldSchedule == true else { return }
     enqueueQueue.async { [self] in
       drainPendingSamples()
     }
@@ -261,14 +288,28 @@ extension PixelBufferRenderer {
     _ pending: EnqueuedSampleBuffer
   )
     -> PixelBufferSampleDisposition {
-    guard canEnqueueFrame(generation: pending.generation, on: pending.layer) else {
+    guard
+      canEnqueueFrame(
+        generation: pending.generation,
+        on: pending.layer,
+        playbackGeneration: pending.playbackGeneration,
+        voutGeneration: pending.voutGeneration
+      )
+    else {
       return endFlushRecovery()
     }
 
     let shouldFlush = displayLayerAPI.status(pending.layer) == .failed
       || displayLayerAPI.requiresFlush(pending.layer)
     if shouldFlush {
-      guard canEnqueueFrame(generation: pending.generation, on: pending.layer) else {
+      guard
+        canEnqueueFrame(
+          generation: pending.generation,
+          on: pending.layer,
+          playbackGeneration: pending.playbackGeneration,
+          voutGeneration: pending.voutGeneration
+        )
+      else {
         return endFlushRecovery()
       }
       displayLayerAPI.flush(pending.layer)
@@ -309,8 +350,13 @@ extension PixelBufferRenderer {
     let delivered = state.withLock { state -> Bool in
       guard
         state.renderGeneration == pending.generation,
-        state.displayLayer.layer === pending.layer
+        state.displayLayer.layer === pending.layer,
+        (state.playbackGeneration ?? 0) == pending.playbackGeneration
       else { return false }
+      let acceptsVoutGeneration = enqueueState.withLock {
+        $0.latestVoutGeneration == pending.voutGeneration
+      }
+      guard acceptsVoutGeneration else { return false }
       displayLayerAPI.enqueue(pending.layer, pending.sample)
       return true
     }
@@ -348,11 +394,23 @@ extension PixelBufferRenderer {
     -> PixelBufferSampleDisposition {
     // Re-checked because the flush above released the state lock: a
     // replacement or teardown in that window must not resurrect this frame.
-    guard canEnqueueFrame(generation: pending.generation, on: pending.layer) else {
+    guard
+      canEnqueueFrame(
+        generation: pending.generation,
+        on: pending.layer,
+        playbackGeneration: pending.playbackGeneration,
+        voutGeneration: pending.voutGeneration
+      )
+    else {
       return endFlushRecovery()
     }
 
     return enqueueState.withLock { state in
+      guard state.latestVoutGeneration == pending.voutGeneration else {
+        state.flushRecoveryRetryCount = 0
+        state.flushRecoveryGeneration = nil
+        return .handled
+      }
       // A newer frame already claimed the slot. It supersedes this one, and
       // the drain loop picks it up on the next iteration.
       guard state.pending == nil else {

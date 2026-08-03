@@ -26,8 +26,10 @@ struct PlaybackHealthMonitoringState {
   var previousCounters = PlaybackHealthCounters()
   var lastSourceProgressAt = ContinuousClock.now
   var lastDecodedProgressAt = ContinuousClock.now
+  var lastAudioDecodedProgressAt = ContinuousClock.now
   var lastPresentedProgressAt = ContinuousClock.now
   var lastAudioProgressAt = ContinuousClock.now
+  var activePlaybackBeganAt = ContinuousClock.now
   var firstDecodedEmitted = false
   var firstPresentedEmitted = false
   var pendingWaitingReason: PlaybackWaitingReason?
@@ -35,6 +37,7 @@ struct PlaybackHealthMonitoringState {
   var pendingPresentedBaseline: UInt64 = 0
   var pendingAudioBaseline: UInt64 = 0
   var lastStallReason: PlaybackStallReason?
+  var activeStallReason: PlaybackStallReason?
   var lastStalledAt: Duration?
   var lastRecoveredAt: Duration?
   var observedRendererFlushes: UInt64 = 0
@@ -50,8 +53,10 @@ struct PlaybackHealthMonitoringState {
     previousCounters = PlaybackHealthCounters()
     lastSourceProgressAt = now
     lastDecodedProgressAt = now
+    lastAudioDecodedProgressAt = now
     lastPresentedProgressAt = now
     lastAudioProgressAt = now
+    activePlaybackBeganAt = now
     firstDecodedEmitted = false
     firstPresentedEmitted = false
     pendingWaitingReason = nil
@@ -59,6 +64,7 @@ struct PlaybackHealthMonitoringState {
     pendingPresentedBaseline = 0
     pendingAudioBaseline = 0
     lastStallReason = nil
+    activeStallReason = nil
     lastStalledAt = nil
     lastRecoveredAt = nil
     observedRendererFlushes = 0
@@ -101,6 +107,9 @@ extension Player {
 
   func resetPlaybackHealth() {
     playbackHealthEventBridge.clearReplay()
+    #if os(iOS) || os(macOS)
+    directPiPVideoCallbackRegistration?.beginPlaybackGeneration(sessionGeneration)
+    #endif
     let renderer = capturePlaybackRendererHealth()
     playbackHealthMonitoringState.reset(
       generation: sessionGeneration,
@@ -127,12 +136,47 @@ extension Player {
 
   private func markPlaybackHealthWaiting(_ reason: PlaybackWaitingReason) {
     let now = ContinuousClock.now
+    let renderer = capturePlaybackRendererHealth()
+    let counters = makePlaybackHealthCounters(renderer: renderer)
+    updatePlaybackHealthProgress(counters: counters, renderer: renderer, now: now)
+    guard counters.rendererRecoveryFailures == 0 else {
+      clearPlaybackHealthWaiting()
+      publishPlaybackHealth(
+        state: .failed(.renderer),
+        counters: counters,
+        renderer: renderer,
+        now: now
+      )
+      reconcilePlaybackHealthSamplingTask()
+      return
+    }
     playbackHealthMonitoringState.pendingWaitingReason = reason
     playbackHealthMonitoringState.pendingWaitingBeganAt = now
-    playbackHealthMonitoringState.pendingPresentedBaseline = playbackHealth.counters.presentedVideoFrames
-    playbackHealthMonitoringState.pendingAudioBaseline = playbackHealth.counters.playedAudioBuffers
-    samplePlaybackHealth()
+    playbackHealthMonitoringState.pendingPresentedBaseline = counters.presentedVideoFrames
+    playbackHealthMonitoringState.pendingAudioBaseline = counters.playedAudioBuffers
+    // Publish from the exact counters used as the baseline. Sampling again
+    // here would let progress that predates the command clear the wait before
+    // any subscriber can observe it.
+    publishPlaybackHealth(
+      state: .waiting(reason),
+      counters: counters,
+      renderer: renderer,
+      now: now
+    )
     reconcilePlaybackHealthSamplingTask()
+  }
+
+  /// Grants a fresh progress window when intentional inactivity ends.
+  /// Generation clocks remain generation-relative for event timestamps; only
+  /// the stall clocks are rearmed.
+  func rearmPlaybackHealthAfterEnteringPlaying() {
+    let now = ContinuousClock.now
+    playbackHealthMonitoringState.lastSourceProgressAt = now
+    playbackHealthMonitoringState.lastDecodedProgressAt = now
+    playbackHealthMonitoringState.lastAudioDecodedProgressAt = now
+    playbackHealthMonitoringState.lastPresentedProgressAt = now
+    playbackHealthMonitoringState.lastAudioProgressAt = now
+    playbackHealthMonitoringState.activePlaybackBeganAt = now
   }
 
   func reconcilePlaybackHealthSamplingTask() {
@@ -165,10 +209,10 @@ extension Player {
 
   func samplePlaybackHealth() {
     if playbackHealthMonitoringState.generation != sessionGeneration {
-      playbackHealthMonitoringState.reset(
-        generation: sessionGeneration,
-        rendererBaseline: capturePlaybackRendererHealth()
-      )
+      // Recast and externally adopted generations can advance without a media
+      // reset. Use the full boundary operation so replay and direct-renderer
+      // telemetry cannot remain stamped with the predecessor generation.
+      resetPlaybackHealth()
     }
 
     let now = ContinuousClock.now
@@ -189,7 +233,7 @@ extension Player {
       clearPlaybackHealthWaiting()
       return .idle
     case .paused:
-      if renderer?.recoveryFailures ?? 0 > 0, renderer?.status == .failed {
+      if counters.rendererRecoveryFailures > 0 {
         clearPlaybackHealthWaiting()
         return .failed(.renderer)
       }
@@ -209,7 +253,7 @@ extension Player {
       break
     }
 
-    if renderer?.recoveryFailures ?? 0 > 0, renderer?.status == .failed {
+    if counters.rendererRecoveryFailures > 0 {
       return .failed(.renderer)
     }
     if renderer?.status == .recovering {
@@ -217,10 +261,10 @@ extension Player {
     }
 
     let hasVideo = activeVideoOutputs > 0
-      || !videoTracks.isEmpty
+      || videoTracks.contains(where: \.isSelected)
       || counters.decodedVideoFrames > 0
       || counters.presentedVideoFrames > 0
-    let hasAudio = !audioTracks.isEmpty
+    let hasAudio = audioTracks.contains(where: \.isSelected)
       || counters.decodedAudioFrames > 0
       || counters.playedAudioBuffers > 0
 
@@ -243,14 +287,33 @@ extension Player {
     if hasVideo {
       if
         counters.presentedVideoFrames == 0,
-        playbackHealthMonitoringState.startedAt.duration(to: now)
+        playbackHealthMonitoringState.activePlaybackBeganAt.duration(to: now)
         < Self.playbackHealthStallThreshold {
         return .waiting(.firstFrame)
       }
+      let videoIsProgressing = playbackHealthMonitoringState.lastPresentedProgressAt
+        .duration(to: now) < Self.playbackHealthStallThreshold
+      let audioIsProgressing = playbackHealthMonitoringState.lastAudioProgressAt
+        .duration(to: now) < Self.playbackHealthStallThreshold
       if
-        playbackHealthMonitoringState.lastPresentedProgressAt.duration(to: now)
+        hasAudio,
+        counters.playedAudioBuffers == 0,
+        playbackHealthMonitoringState.activePlaybackBeganAt.duration(to: now)
         < Self.playbackHealthStallThreshold {
+        return .waiting(.firstFrame)
+      }
+      if videoIsProgressing, !hasAudio || audioIsProgressing {
         return .healthy(contentKind(hasVideo: true, hasAudio: hasAudio))
+      }
+      if videoIsProgressing, hasAudio {
+        if
+          playbackHealthMonitoringState.lastAudioDecodedProgressAt.duration(to: now)
+          < Self.playbackHealthStallThreshold {
+          return .stalled(.audioOutput)
+        }
+        // Video presentation proves the shared source is still progressing;
+        // the missing audio progress is therefore downstream of the source.
+        return .stalled(.decoder)
       }
       if
         playbackHealthMonitoringState.lastDecodedProgressAt.duration(to: now)
@@ -267,12 +330,18 @@ extension Player {
 
     if hasAudio {
       if
+        counters.playedAudioBuffers == 0,
+        playbackHealthMonitoringState.activePlaybackBeganAt.duration(to: now)
+        < Self.playbackHealthStallThreshold {
+        return .waiting(.firstFrame)
+      }
+      if
         playbackHealthMonitoringState.lastAudioProgressAt.duration(to: now)
         < Self.playbackHealthStallThreshold {
         return .healthy(.audioOnly)
       }
       if
-        playbackHealthMonitoringState.lastDecodedProgressAt.duration(to: now)
+        playbackHealthMonitoringState.lastAudioDecodedProgressAt.duration(to: now)
         < Self.playbackHealthStallThreshold {
         return .stalled(.audioOutput)
       }
@@ -285,7 +354,7 @@ extension Player {
     }
 
     if
-      playbackHealthMonitoringState.startedAt.duration(to: now)
+      playbackHealthMonitoringState.activePlaybackBeganAt.duration(to: now)
       < Self.playbackHealthStallThreshold {
       return .waiting(.firstFrame)
     }
@@ -318,10 +387,11 @@ extension Player {
       || counters.demuxReadBytes > previous.demuxReadBytes {
       playbackHealthMonitoringState.lastSourceProgressAt = now
     }
-    if
-      counters.decodedVideoFrames > previous.decodedVideoFrames
-      || counters.decodedAudioFrames > previous.decodedAudioFrames {
+    if counters.decodedVideoFrames > previous.decodedVideoFrames {
       playbackHealthMonitoringState.lastDecodedProgressAt = renderer?.lastDecodedAt ?? now
+    }
+    if counters.decodedAudioFrames > previous.decodedAudioFrames {
+      playbackHealthMonitoringState.lastAudioDecodedProgressAt = now
     }
     if counters.presentedVideoFrames > previous.presentedVideoFrames {
       playbackHealthMonitoringState.lastPresentedProgressAt = renderer?.lastPresentedAt ?? now
@@ -426,6 +496,7 @@ extension Player {
       case .stalled(let reason) = newState,
       previousState != newState {
       playbackHealthMonitoringState.lastStallReason = reason
+      playbackHealthMonitoringState.activeStallReason = reason
       playbackHealthMonitoringState.lastStalledAt = elapsed(to: now)
       eventKinds.append(.stalled(reason))
     } else if
@@ -435,9 +506,10 @@ extension Player {
     }
 
     if
-      case .stalled(let reason) = previousState,
+      let reason = playbackHealthMonitoringState.activeStallReason,
       case .healthy = newState {
       playbackHealthMonitoringState.lastRecoveredAt = elapsed(to: now)
+      playbackHealthMonitoringState.activeStallReason = nil
       eventKinds.append(.recovered(from: reason))
     } else if
       !completedUnobservedRendererRecovery,
@@ -445,6 +517,7 @@ extension Player {
       renderer?.status == .rendering {
       playbackHealthMonitoringState.lastRecoveredAt = elapsed(to: renderer?.lastPresentedAt)
         ?? elapsed(to: now)
+      playbackHealthMonitoringState.activeStallReason = nil
       eventKinds.append(.recovered(from: .rendererRecovery))
     }
     if
@@ -488,6 +561,29 @@ extension Player {
 
   private func subtractingWithoutUnderflow(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {
     lhs >= rhs ? lhs - rhs : 0
+  }
+
+  /// `Track` identity intentionally compares only IDs. Health needs to notice
+  /// adaptive metadata changes that retain an ES ID, so compare the complete
+  /// video description in a stable ID order instead.
+  static func playbackHealthVideoTracksDiffer(_ lhs: [Track], _ rhs: [Track]) -> Bool {
+    guard lhs.count == rhs.count else { return true }
+    let left = lhs.sorted { $0.id < $1.id }
+    let right = rhs.sorted { $0.id < $1.id }
+    return zip(left, right).contains { left, right in
+      left.id != right.id
+        || left.type != right.type
+        || left.name != right.name
+        || left.codec != right.codec
+        || left.language != right.language
+        || left.trackDescription != right.trackDescription
+        || left.isSelected != right.isSelected
+        || left.bitrate != right.bitrate
+        || left.width != right.width
+        || left.height != right.height
+        || left.frameRate != right.frameRate
+        || left.frameRateRatio != right.frameRateRatio
+    }
   }
 
   private func capturePlaybackRendererHealth() -> PlaybackRendererHealthSample? {

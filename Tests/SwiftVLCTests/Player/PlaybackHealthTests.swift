@@ -230,10 +230,153 @@ extension Integration {
     }
 
     @Test
+    func `Renderer recovery failure remains terminal after renderer status changes`() throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      player.state = .playing
+      let now = ContinuousClock.now
+      let failed = PlaybackHealthCounters(rendererRecoveryFailures: 1)
+
+      player._applyPlaybackHealthSampleForTesting(
+        counters: failed,
+        renderer: PlaybackRendererHealthSample(
+          playbackGeneration: player.sessionGeneration,
+          recoveryFailures: 1,
+          status: .failed
+        ),
+        now: now
+      )
+      #expect(player.playbackHealth.state == .failed(.renderer))
+
+      player._applyPlaybackHealthSampleForTesting(
+        counters: failed,
+        renderer: PlaybackRendererHealthSample(
+          playbackGeneration: player.sessionGeneration,
+          recoveryFailures: 1,
+          status: .rendering
+        ),
+        now: now.advanced(by: .seconds(1))
+      )
+      #expect(player.playbackHealth.state == .failed(.renderer))
+    }
+
+    @Test
+    func `Recovery remains paired when an expected wait intervenes`() async throws {
+      let player = try makePlayerForStall()
+      let events = player.playbackHealthEvents
+      let now = ContinuousClock.now
+      let stalled = PlaybackHealthCounters(
+        sourceReadBytes: 100,
+        decodedVideoFrames: 10,
+        presentedVideoFrames: 1
+      )
+      player.playbackHealthMonitoringState.previousCounters = stalled
+      player.playbackHealthMonitoringState.lastSourceProgressAt = now
+      player.playbackHealthMonitoringState.lastDecodedProgressAt = now
+      player.playbackHealthMonitoringState.lastPresentedProgressAt = now.advanced(by: .seconds(-3))
+      player._applyPlaybackHealthSampleForTesting(counters: stalled, now: now)
+      #expect(player.playbackHealth.state == .stalled(.display))
+
+      player.markPlaybackHealthAdaptiveSwitch()
+      #expect(player.playbackHealth.state == .waiting(.adaptiveSwitch))
+      player._applyPlaybackHealthSampleForTesting(
+        counters: PlaybackHealthCounters(
+          sourceReadBytes: 100,
+          decodedVideoFrames: 11,
+          presentedVideoFrames: 2
+        ),
+        now: now.advanced(by: .milliseconds(20))
+      )
+      #expect(player.playbackHealth.state == .healthy(.videoOnly))
+
+      player.playbackHealthEventBridge.terminate()
+      var received: [PlaybackHealthEventKind] = []
+      for await event in events {
+        received.append(event.kind)
+      }
+      #expect(received.contains(.stalled(.display)))
+      #expect(received.contains(.recovered(from: .display)))
+    }
+
+    @Test
+    func `Entering playing rearms progress clocks after intentional inactivity`() throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.twosecURL))
+      player.state = .paused
+      let stale = ContinuousClock.now.advanced(by: .seconds(-30))
+      player.playbackHealthMonitoringState.lastSourceProgressAt = stale
+      player.playbackHealthMonitoringState.lastDecodedProgressAt = stale
+      player.playbackHealthMonitoringState.lastAudioDecodedProgressAt = stale
+      player.playbackHealthMonitoringState.lastPresentedProgressAt = stale
+      player.playbackHealthMonitoringState.lastAudioProgressAt = stale
+
+      player.publishPlaybackState(.playing)
+
+      let now = ContinuousClock.now
+      #expect(
+        player.playbackHealthMonitoringState.lastSourceProgressAt.duration(to: now)
+          < .seconds(1)
+      )
+      #expect(
+        player.playbackHealthMonitoringState.lastPresentedProgressAt.duration(to: now)
+          < .seconds(1)
+      )
+      #expect(player.playbackHealth.state != .stalled(.source))
+    }
+
+    @Test
+    func `Audiovisual health requires selected audio output progress`() throws {
+      let player = try makePlayerForStall()
+      player.audioTracks = [makeAudioTrack(isSelected: true)]
+      let now = ContinuousClock.now
+      let counters = PlaybackHealthCounters(
+        sourceReadBytes: 100,
+        decodedVideoFrames: 10,
+        decodedAudioFrames: 10,
+        presentedVideoFrames: 5,
+        playedAudioBuffers: 2
+      )
+      player.playbackHealthMonitoringState.previousCounters = counters
+      player.playbackHealthMonitoringState.lastSourceProgressAt = now
+      player.playbackHealthMonitoringState.lastDecodedProgressAt = now
+      player.playbackHealthMonitoringState.lastAudioDecodedProgressAt = now
+      player.playbackHealthMonitoringState.lastPresentedProgressAt = now
+      player.playbackHealthMonitoringState.lastAudioProgressAt = now.advanced(by: .seconds(-3))
+
+      player._applyPlaybackHealthSampleForTesting(counters: counters, now: now)
+
+      #expect(player.playbackHealth.state == .stalled(.audioOutput))
+    }
+
+    @Test
+    func `Unselected audio does not turn video-only playback audiovisual`() throws {
+      let player = try makePlayerForStall()
+      player.audioTracks = [makeAudioTrack(isSelected: false)]
+      player._applyPlaybackHealthSampleForTesting(
+        counters: PlaybackHealthCounters(
+          decodedVideoFrames: 2,
+          presentedVideoFrames: 1
+        )
+      )
+
+      #expect(player.playbackHealth.state == .healthy(.videoOnly))
+    }
+
+    @Test
+    func `Adaptive video comparison notices metadata changes with the same track ID`() {
+      let original = makeVideoTrack(width: 1280, frameRate: 24)
+      let identical = makeVideoTrack(width: 1280, frameRate: 24)
+      let adapted = makeVideoTrack(width: 1920, frameRate: 30)
+
+      #expect(!Player.playbackHealthVideoTracksDiffer([original], [identical]))
+      #expect(Player.playbackHealthVideoTracksDiffer([original], [adapted]))
+    }
+
+    @Test
     func `Pipeline counters identify source decoder display and audio-output stalls`() throws {
       let source = try makePlayerForStall()
       let now = ContinuousClock.now
-      source.playbackHealthMonitoringState.startedAt = now.advanced(by: .seconds(-3))
+      source.playbackHealthMonitoringState.activePlaybackBeganAt = now.advanced(by: .seconds(-3))
       source.playbackHealthMonitoringState.lastSourceProgressAt = now.advanced(by: .seconds(-3))
       source.playbackHealthMonitoringState.lastDecodedProgressAt = now.advanced(by: .seconds(-3))
       source.playbackHealthMonitoringState.lastPresentedProgressAt = now.advanced(by: .seconds(-3))
@@ -242,7 +385,7 @@ extension Integration {
 
       let decoder = try makePlayerForStall()
       let decoderCounters = PlaybackHealthCounters(sourceReadBytes: 100)
-      decoder.playbackHealthMonitoringState.startedAt = now.advanced(by: .seconds(-3))
+      decoder.playbackHealthMonitoringState.activePlaybackBeganAt = now.advanced(by: .seconds(-3))
       decoder.playbackHealthMonitoringState.previousCounters = decoderCounters
       decoder.playbackHealthMonitoringState.lastSourceProgressAt = now
       decoder.playbackHealthMonitoringState.lastDecodedProgressAt = now.advanced(by: .seconds(-3))
@@ -256,7 +399,7 @@ extension Integration {
         decodedVideoFrames: 10,
         presentedVideoFrames: 1
       )
-      display.playbackHealthMonitoringState.startedAt = now.advanced(by: .seconds(-3))
+      display.playbackHealthMonitoringState.activePlaybackBeganAt = now.advanced(by: .seconds(-3))
       display.playbackHealthMonitoringState.previousCounters = displayCounters
       display.playbackHealthMonitoringState.lastSourceProgressAt = now
       display.playbackHealthMonitoringState.lastDecodedProgressAt = now
@@ -271,10 +414,10 @@ extension Integration {
         sourceReadBytes: 100,
         decodedAudioFrames: 10
       )
-      audio.playbackHealthMonitoringState.startedAt = now.advanced(by: .seconds(-3))
+      audio.playbackHealthMonitoringState.activePlaybackBeganAt = now.advanced(by: .seconds(-3))
       audio.playbackHealthMonitoringState.previousCounters = audioCounters
       audio.playbackHealthMonitoringState.lastSourceProgressAt = now
-      audio.playbackHealthMonitoringState.lastDecodedProgressAt = now
+      audio.playbackHealthMonitoringState.lastAudioDecodedProgressAt = now
       audio.playbackHealthMonitoringState.lastAudioProgressAt = now.advanced(by: .seconds(-3))
       audio._applyPlaybackHealthSampleForTesting(counters: audioCounters, now: now)
       #expect(audio.playbackHealth.state == .stalled(.audioOutput))
@@ -301,6 +444,46 @@ extension Integration {
       player.state = .playing
       player.activeVideoOutputs = 1
       return player
+    }
+
+    private func makeAudioTrack(isSelected: Bool) -> Track {
+      Track(
+        id: "audio-0",
+        type: .audio,
+        name: "Audio",
+        codec: 0,
+        language: nil,
+        trackDescription: nil,
+        isSelected: isSelected,
+        bitrate: 0,
+        channels: 2,
+        sampleRate: 48000,
+        width: nil,
+        height: nil,
+        frameRate: nil,
+        frameRateRatio: nil,
+        encoding: nil
+      )
+    }
+
+    private func makeVideoTrack(width: Int, frameRate: Double) -> Track {
+      Track(
+        id: "video-0",
+        type: .video,
+        name: "Video",
+        codec: 0,
+        language: nil,
+        trackDescription: nil,
+        isSelected: true,
+        bitrate: 0,
+        channels: nil,
+        sampleRate: nil,
+        width: width,
+        height: 720,
+        frameRate: frameRate,
+        frameRateRatio: nil,
+        encoding: nil
+      )
     }
   }
 }

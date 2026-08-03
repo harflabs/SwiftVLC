@@ -152,6 +152,7 @@ extension Player {
       media: currentMedia?.pointer,
       outgoingNativeHandleGeneration: priorNativeHandleGeneration
     )
+    resetPlaybackHealth()
     publishPlaybackStatus()
     let generation = sessionGeneration
 

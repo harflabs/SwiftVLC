@@ -24,12 +24,15 @@ extension Integration {
       )
 
       let oldPointer = player.pointer
+      let oldGeneration = player.generation
       try await player.recast(to: nil)
 
       #expect(
         player.pointer != oldPointer,
         "recast did not replace the native handle of an active session"
       )
+      #expect(player.generation > oldGeneration)
+      #expect(player.playbackHealth.generation == player.generation)
       try #require(
         await poll(until: { player.state == .playing }),
         "playback did not resume on the new session after recast"

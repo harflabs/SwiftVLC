@@ -179,7 +179,7 @@ extension Player {
     case .tracksChanged:
       let previousVideoTracks = videoTracks
       refreshTracks()
-      if videoTracks != previousVideoTracks {
+      if Self.playbackHealthVideoTracksDiffer(previousVideoTracks, videoTracks) {
         markPlaybackHealthAdaptiveSwitch()
       }
       // Adaptive streams can switch resolution mid-stream without any
@@ -322,6 +322,9 @@ extension Player {
   // MARK: - Playback state + intent publication
 
   func publishPlaybackState(_ newState: PlayerState) {
+    if newState == .playing, state != .playing {
+      rearmPlaybackHealthAfterEnteringPlaying()
+    }
     state = newState
     withMutation(keyPath: \.isActive) {}
     // The single funnel for `state`, and therefore the only place that can
@@ -463,9 +466,6 @@ extension Player {
     // New media, new timeline: clock samples still queued from the previous
     // one describe a media that is no longer loaded and must not be applied.
     acceptedTimelineRevision = eventBridge.advanceTimelineRevision()
-    #if os(iOS) || os(macOS)
-    directPiPVideoCallbackRegistration?.beginPlaybackGeneration(sessionGeneration)
-    #endif
     // `duration` and `isSeekable` publish the capability snapshot from their
     // own `didSet`, so clearing them one at a time would briefly expose
     // "duration cleared, seekability still the previous media's". Suppress

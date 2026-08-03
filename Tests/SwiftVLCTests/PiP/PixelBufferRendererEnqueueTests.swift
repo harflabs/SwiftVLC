@@ -416,11 +416,109 @@ extension Integration {
       expectNoDifference(probe.snapshot.enqueuedPresentationValues, [])
     }
 
+    @Test
+    func `A stale playback generation cannot install or deliver a frame`() throws {
+      let queue = DispatchQueue(label: "org.swiftvlc.tests.enqueue-playback-generation")
+      let layer = AVSampleBufferDisplayLayer()
+      let probe = DisplayLayerProbe()
+      let renderer = PixelBufferRenderer(
+        displayLayer: layer,
+        enqueueQueue: queue,
+        displayLayerAPI: probe.api
+      )
+      renderer.beginPlaybackGeneration(2)
+      let generation = renderer.state.withLock { $0.renderGeneration }
+
+      _ = try submitFrame(
+        index: 1,
+        renderer: renderer,
+        generation: generation,
+        layer: layer,
+        playbackGeneration: 1
+      )
+      #expect(waitUntilIdle(queue) == .success)
+      expectNoDifference(probe.snapshot.enqueuedPresentationValues, [])
+      #expect(renderer.telemetrySnapshot.enqueuedFrameCount == 0)
+
+      _ = try submitFrame(
+        index: 2,
+        renderer: renderer,
+        generation: generation,
+        layer: layer,
+        playbackGeneration: 2
+      )
+      #expect(probe.waitForDelivery() == .success)
+      #expect(waitUntilIdle(queue) == .success)
+      expectNoDifference(probe.snapshot.enqueuedPresentationValues, [2])
+    }
+
+    @Test
+    func `Retired vout callbacks cannot regress identity or replace successor frames`() throws {
+      let queue = DispatchQueue(label: "org.swiftvlc.tests.enqueue-vout-generation")
+      let blocker = QueueBlocker(queue: queue)
+      defer { blocker.release() }
+      #expect(blocker.waitUntilStarted() == .success)
+
+      let layer = AVSampleBufferDisplayLayer()
+      let probe = DisplayLayerProbe()
+      let renderer = PixelBufferRenderer(
+        displayLayer: layer,
+        enqueueQueue: queue,
+        displayLayerAPI: probe.api
+      )
+      renderer.beginPlaybackGeneration(3)
+      let generation = renderer.state.withLock { $0.renderGeneration }
+
+      _ = try submitFrame(
+        index: 1,
+        renderer: renderer,
+        generation: generation,
+        layer: layer,
+        playbackGeneration: 3,
+        voutGeneration: 1
+      )
+      _ = try submitFrame(
+        index: 2,
+        renderer: renderer,
+        generation: generation,
+        layer: layer,
+        playbackGeneration: 3,
+        voutGeneration: 2
+      )
+      _ = try submitFrame(
+        index: 3,
+        renderer: renderer,
+        generation: generation,
+        layer: layer,
+        playbackGeneration: 3,
+        voutGeneration: 1
+      )
+      _ = try submitFrame(
+        index: 4,
+        renderer: renderer,
+        generation: generation,
+        layer: layer,
+        playbackGeneration: 3,
+        voutGeneration: 2
+      )
+
+      blocker.release()
+      #expect(probe.waitForDelivery() == .success)
+      #expect(waitUntilIdle(queue) == .success)
+      expectNoDifference(probe.snapshot.enqueuedPresentationValues, [4])
+      let telemetry = renderer.telemetrySnapshot
+      #expect(telemetry.voutGeneration == 2)
+      #expect(telemetry.voutTransitionCount == 2)
+      #expect(telemetry.enqueuedFrameCount == 3)
+    }
+
     private func submitFrame(
       index: Int,
       renderer: PixelBufferRenderer,
       generation: UInt64,
-      layer: AVSampleBufferDisplayLayer
+      layer: AVSampleBufferDisplayLayer,
+      playbackGeneration: UInt64 = 0,
+      voutGeneration: UInt64 = 0
     )
       throws -> WeakPixelBuffer {
       try autoreleasepool {
@@ -444,7 +542,9 @@ extension Integration {
         try renderer.enqueue(
           #require(sample),
           generation: generation,
-          on: layer
+          on: layer,
+          playbackGeneration: playbackGeneration,
+          voutGeneration: voutGeneration
         )
         return weakBuffer
       }

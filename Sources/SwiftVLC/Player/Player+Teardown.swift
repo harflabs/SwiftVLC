@@ -67,7 +67,9 @@ extension Player {
       break
     }
     let nativeHandleGeneration = eventBridge.currentNativeHandleGeneration
+    let playbackGeneration = PlaybackGeneration(sessionGeneration)
     let stream = eventBridge.makeSourcedStream(policy: .unbounded)
+    let statuses = playbackStatus
     // A terminal event that fired between the check above and the
     // subscription is invisible to the stream — re-check before waiting
     // so an in-flight stop completing right here costs nothing instead
@@ -86,15 +88,57 @@ extension Player {
     )
     // The internal consumer mirrors the same terminal event onto
     // `state` on its own main-actor schedule and may still be draining
-    // its backlog when the dedicated wait resumes. Reconcile here so
-    // the documented post-condition — the player is terminal on
-    // return — holds for the observable mirror, not just the native
-    // handle. Idempotent with the consumer's later delivery.
+    // its backlog when the dedicated wait resumes. Wait for that exact
+    // generation's terminal publication before falling back to a direct
+    // reconciliation. Publishing immediately lets an older queued
+    // `.stopping` overwrite `.stopped` before the consumer reaches its own
+    // terminal event.
     let terminal = nativePlaybackState
-    if terminal == .stopped || terminal == .error, state != terminal {
-      handleEvent(.stateChanged(terminal))
+    if
+      terminal == .stopped || terminal == .error,
+      state != terminal,
+      generation == playbackGeneration {
+      _ = await Self.awaitPlaybackMirror(
+        terminal,
+        generation: playbackGeneration,
+        on: statuses
+      )
+      if state != terminal, generation == playbackGeneration {
+        handleEvent(.stateChanged(terminal))
+      }
     }
     return Self.resolveStopOutcome(waitOutcome: outcome, nativeState: terminal)
+  }
+
+  /// Waits for the ordinary event consumer to publish the native terminal
+  /// state so `stopAndWait()` cannot return between queued lifecycle events.
+  nonisolated static func awaitPlaybackMirror(
+    _ expectedState: PlayerState,
+    generation: PlaybackGeneration,
+    on statuses: AsyncStream<PlaybackStatus>,
+    timeout: Duration = .seconds(1)
+  )
+    async -> Bool {
+    await withTaskGroup(of: Bool?.self) { group in
+      group.addTask {
+        for await status in statuses {
+          if status.generation > generation {
+            return false
+          }
+          if status.generation == generation, status.state == expectedState {
+            return true
+          }
+        }
+        return false
+      }
+      group.addTask {
+        try? await Task.sleep(for: timeout)
+        return false
+      }
+      let mirrored = await group.next() ?? false
+      group.cancelAll()
+      return mirrored ?? false
+    }
   }
 
   /// Folds the native handle's resting state into the wait's verdict.
