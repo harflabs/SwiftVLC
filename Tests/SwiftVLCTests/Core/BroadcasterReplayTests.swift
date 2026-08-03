@@ -105,6 +105,30 @@ extension Integration {
       #expect(received == [2])
     }
 
+    @Test
+    func `Clearing replay preserves live subscribers but not stale seeding`() async {
+      let broadcaster = Broadcaster<Int>()
+      broadcaster.broadcast(1)
+      let existing = broadcaster.subscribeReplayingLatest(policy: .unbounded)
+
+      broadcaster.clearReplay()
+      let afterBoundary = broadcaster.subscribeReplayingLatest(policy: .unbounded)
+      broadcaster.broadcast(2)
+      broadcaster.terminate()
+
+      var existingValues: [Int] = []
+      for await value in existing {
+        existingValues.append(value)
+      }
+      var boundaryValues: [Int] = []
+      for await value in afterBoundary {
+        boundaryValues.append(value)
+      }
+
+      #expect(existingValues == [1, 2])
+      #expect(boundaryValues == [2])
+    }
+
     /// Every subscriber converges on the same value without waiting for another
     /// transition, which is what makes this usable for shared state.
     @Test

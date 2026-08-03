@@ -197,8 +197,14 @@ extension Integration {
         switch envelope.event {
         case .stateChanged(.stopped):
           predecessorEnvelope = envelope
-        case .mediaChanged:
+        case .mediaChanged where predecessorEnvelope != nil:
           break drain
+        case .mediaChanged:
+          // `load` can deliver its native MediaChanged echo before the two
+          // deterministic testing envelopes below reach this consumer. That
+          // echo is unrelated to the ordering under test, so keep draining
+          // until the injected predecessor has been observed.
+          continue
         default:
           break
         }

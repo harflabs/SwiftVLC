@@ -34,6 +34,7 @@ binds to them directly, without a publisher or Combine adapter.
 | ``Player/isPlaying`` | `Bool` | User-facing playback signal for Play/Pause controls while libVLC state transitions settle |
 | ``Player/isPlaybackRequestedActive`` | `Bool` | Lower-level playback intent mirrored by PiP and external transport controls |
 | ``Player/bufferFill`` | `Float` | Continuously-updated cache level (`0.0…1.0`), independent of `state` |
+| ``Player/playbackHealth`` | ``PlaybackHealthSnapshot`` | Generation-scoped progress, renderer state, and typed wait/stall classification |
 | ``Player/currentTime`` | `Duration` | Wall-clock position, millisecond resolution |
 | ``Player/duration`` | `Duration?` | `nil` until the container reports length |
 | ``Player/isSeekable`` | `Bool` | Whether seek operations take effect |
@@ -167,6 +168,53 @@ for await event in player.events {
 Multiple consumers can subscribe at the same time. Each call to
 ``Player/events`` returns an independent ``PlayerEvent`` stream.
 
+## Playback health
+
+``PlayerState/playing`` means libVLC entered its playing lifecycle; it does
+not prove that a decoder or output is still advancing. Read
+``Player/playbackHealth`` when UI or diagnostics need that distinction. It
+separates expected waits such as opening, buffering, seeking, adaptive track
+switches, and the first frame from source, decoder, display, audio-output, and
+direct-renderer stalls.
+
+```swift
+for await event in player.playbackHealthEvents {
+    switch event.kind {
+    case .firstPresentedFrame:
+        hidePoster()
+    case .stalled(let reason):
+        showRecoveryUI(for: reason)
+    case .recovered:
+        hideRecoveryUI()
+    case .terminalFailure(let failure):
+        report(failure, snapshot: event.snapshot)
+    default:
+        break
+    }
+}
+```
+
+Snapshots are sampled every ``Player/playbackHealthSamplingInterval`` and a
+pipeline stage is not classified as stalled until
+``Player/playbackHealthStallThreshold`` elapses. This caps public observation
+writes at four per second regardless of source frame rate. The cumulative
+``PlaybackHealthCounters`` expose native progress and direct-renderer flush,
+rebuild, replacement, backpressure, retry, and failure counts without emitting
+one event per frame.
+
+Every snapshot and event carries the current ``PlaybackGeneration``. Direct
+frames captured before a media replacement are rejected at the renderer
+boundary, and first-decoded/first-presented events fire once for each
+generation. A late subscriber receives the latest value; snapshots retain the
+most recent stall reason and its stall/recovery timestamps so the pair remains
+reconstructible after recovery.
+
+Direct renderer recovery retries the triggering frame ten times at
+16-millisecond intervals. A terminal ``PlaybackHealthFailure/renderer`` is
+published on the next 250-millisecond health sample when that budget is
+exhausted—normally within about 410 milliseconds of recovery beginning,
+although system queue starvation can delay delivery.
+
 ## Main actor and `sending`
 
 ``Player`` is `@MainActor`; every method call must originate on the
@@ -187,6 +235,13 @@ See <doc:ConcurrencyModel> for the full isolation story.
 
 ### Reading state
 - ``Player/state``
+- ``Player/playbackHealth``
+- ``Player/playbackHealthSnapshots``
+- ``Player/playbackHealthEvents``
+- ``PlaybackHealthSnapshot``
+- ``PlaybackHealthState``
+- ``PlaybackHealthEvent``
+- ``PlaybackHealthCounters``
 - ``Player/currentTime``
 - ``Player/duration``
 - ``Player/isPlaying``

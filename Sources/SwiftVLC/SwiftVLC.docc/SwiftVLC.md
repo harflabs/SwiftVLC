@@ -83,6 +83,10 @@ audio and video overlay APIs.
 - ``Player``
 - ``PlayerState``
 - ``PlayerEvent``
+- ``PlaybackHealthSnapshot``
+- ``PlaybackHealthState``
+- ``PlaybackHealthEvent``
+- ``PlaybackHealthCounters``
 - ``PlayerRole``
 - ``SeekRequest``
 - ``SeekOutcome``

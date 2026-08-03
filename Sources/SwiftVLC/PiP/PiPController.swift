@@ -743,7 +743,11 @@ public final class PiPController: NSObject {
   }
 
   private func attachCallbacks() {
-    let registration = DirectPiPVideoCallbackRegistration(renderer: renderer)
+    let bridge = player.eventBridge
+    let registration = DirectPiPVideoCallbackRegistration(
+      renderer: renderer,
+      playbackGeneration: { bridge.currentPlaybackGeneration }
+    )
     callbackRegistration = registration
     player.claimDirectPiPVideoCallbacks(registration)
     // Publish the handle the AVKit callback threads will interrogate. Until

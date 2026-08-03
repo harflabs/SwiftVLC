@@ -207,6 +207,15 @@ final class Broadcaster<Element: Sendable>: Sendable {
     Signposts.signposter.endInterval("Broadcaster.broadcast", interval, "subs=\(delivered)")
   }
 
+  /// Removes the value retained for future replaying subscribers without
+  /// affecting existing subscriptions or terminating the broadcaster.
+  ///
+  /// Use at an identity boundary where the previous value is still valid for
+  /// consumers that already received it, but must not seed a new subscriber.
+  func clearReplay() {
+    state.withLock { $0.latest = nil }
+  }
+
   private enum Snapshot {
     case none
     case single(Subscriber)

@@ -237,6 +237,10 @@ extension Player {
     // than one that can never emit.
     stateTransitionBridge.terminate()
     playbackStatusBridge.terminate()
+    playbackHealthSamplingTask?.cancel()
+    playbackHealthSamplingTask = nil
+    playbackHealthSnapshotBridge.terminate()
+    playbackHealthEventBridge.terminate()
     libvlc_media_player_set_nsobject(pointer, nil)
 
     let bridge = eventBridge

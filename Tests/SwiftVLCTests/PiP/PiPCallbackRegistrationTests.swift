@@ -261,17 +261,41 @@ extension Integration {
     func `Native handle replacement installs successor generation before clearing old handle`() async throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       let recorder = DirectPiPCallbackRecorder()
+      let firstRegistration = DirectPiPVideoCallbackRegistration(
+        renderer: PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer()),
+        api: recorder.api
+      )
+      player.claimDirectPiPVideoCallbacks(firstRegistration)
+
+      let oldPointer = player.pointer
+      let oldLifetime = player.nativeHandleLifetime
+      let oldHandle = UInt(bitPattern: oldPointer)
+      weak let oldContext = firstRegistration.currentContextForTesting
+      let oldOpaque = try #require(firstRegistration.currentOpaqueForTesting)
+      let firstVoutGeneration = try {
+        let context = try #require(oldContext)
+        let vout = try #require(
+          context.makeVoutContext(
+            handleOpaque: oldOpaque,
+            decodeRenderer: PixelBufferRenderer(),
+            sourceGeometry: PixelBufferSourceGeometry(fullFrameWidth: 2, height: 2)
+          )
+        )
+        defer { context.noteVoutClosed() }
+        return vout.voutGeneration
+      }()
+
+      // A successor controller adopts the same handle-level context. Its
+      // later handle replacement must continue that context's vout sequence,
+      // not restart from a controller-local counter.
       let registration = DirectPiPVideoCallbackRegistration(
         renderer: PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer()),
         api: recorder.api
       )
       player.claimDirectPiPVideoCallbacks(registration)
-
-      let oldPointer = player.pointer
-      let oldLifetime = player.nativeHandleLifetime
-      let oldHandle = UInt(bitPattern: oldPointer)
       let oldGeneration = try #require(registration.currentGeneration)
-      weak let oldContext = registration.currentContextForTesting
+      #expect(registration.currentContextForTesting === oldContext)
+      #expect(registration.currentOpaqueForTesting == oldOpaque)
 
       player.setDrawable(NSObject())
       player.stop()
@@ -289,6 +313,20 @@ extension Integration {
         recorder.operations == [.install(oldHandle), .install(newHandle), .clear(oldHandle)]
       )
       #expect(registration.currentLifetime === player.nativeHandleLifetime)
+      let newContext = try #require(registration.currentContextForTesting)
+      let newOpaque = try #require(registration.currentOpaqueForTesting)
+      let secondVoutGeneration = try {
+        let vout = try #require(
+          newContext.makeVoutContext(
+            handleOpaque: newOpaque,
+            decodeRenderer: PixelBufferRenderer(),
+            sourceGeometry: PixelBufferSourceGeometry(fullFrameWidth: 2, height: 2)
+          )
+        )
+        defer { newContext.noteVoutClosed() }
+        return vout.voutGeneration
+      }()
+      #expect(secondVoutGeneration > firstVoutGeneration)
 
       player.relinquishDirectPiPVideoCallbacks(registration)
       #expect(recorder.clearedHandles == [oldHandle, newHandle])

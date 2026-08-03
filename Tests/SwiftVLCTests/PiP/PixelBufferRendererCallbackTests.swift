@@ -47,8 +47,14 @@ extension Integration {
       let handleOpaque: UnsafeMutableRawPointer
       private var openVoutOpaques: [UnsafeMutableRawPointer] = []
 
-      init(displayRenderer: PixelBufferRenderer) {
-        let handleContext = PixelBufferRendererCallbackContext(renderer: displayRenderer)
+      init(
+        displayRenderer: PixelBufferRenderer,
+        playbackGeneration: @escaping @Sendable () -> UInt64 = { 0 }
+      ) {
+        let handleContext = PixelBufferRendererCallbackContext(
+          renderer: displayRenderer,
+          playbackGeneration: playbackGeneration()
+        )
         self.handleContext = handleContext
         handleOpaque = Unmanaged.passRetained(handleContext).toOpaque()
       }
@@ -720,6 +726,50 @@ extension Integration {
 
       // Give the renderer's async enqueue queue a moment to settle.
       try? await Task.sleep(for: .milliseconds(20))
+    }
+
+    @MainActor
+    @Test
+    func `Display callback rejects a vout created before a media boundary`() throws {
+      let generation = Mutex<UInt64>(1)
+      let displayLayer = AVSampleBufferDisplayLayer()
+      let renderer = PixelBufferRenderer(displayLayer: displayLayer)
+      renderer.beginPlaybackGeneration(1)
+      let lease = CallbackLease(
+        displayRenderer: renderer,
+        playbackGeneration: { generation.withLock { $0 } }
+      )
+      let vout = try lease.negotiate(width: 2, height: 2)
+      defer { lease.close(vout) }
+
+      let staleBuffer = try makeBGRAImageBuffer(width: 2, height: 2)
+      let stalePicture = try installUnlockedPicture(staleBuffer, on: vout)
+
+      generation.withLock { $0 = 2 }
+      lease.handleContext.beginPlaybackGeneration(2)
+      renderer.beginPlaybackGeneration(2)
+      pixelBufferDisplayCallback(opaque: vout.opaque, picture: stalePicture)
+
+      let afterStaleFrame = renderer.telemetrySnapshot
+      #expect(afterStaleFrame.playbackGeneration == 2)
+      #expect(afterStaleFrame.decodedFrameCount == 0)
+      #expect(afterStaleFrame.enqueuedFrameCount == 0)
+
+      let stillStaleBuffer = try makeBGRAImageBuffer(width: 2, height: 2)
+      let stillStalePicture = try installUnlockedPicture(stillStaleBuffer, on: vout)
+      pixelBufferDisplayCallback(opaque: vout.opaque, picture: stillStalePicture)
+      #expect(renderer.telemetrySnapshot.decodedFrameCount == 0)
+
+      let currentVout = try lease.negotiate(width: 2, height: 2)
+      defer { lease.close(currentVout) }
+      let currentBuffer = try makeBGRAImageBuffer(width: 2, height: 2)
+      let currentPicture = try installUnlockedPicture(currentBuffer, on: currentVout)
+      pixelBufferDisplayCallback(opaque: currentVout.opaque, picture: currentPicture)
+
+      let afterCurrentFrame = renderer.telemetrySnapshot
+      #expect(afterCurrentFrame.playbackGeneration == 2)
+      #expect(afterCurrentFrame.decodedFrameCount == 1)
+      #expect(afterCurrentFrame.enqueuedFrameCount == 1)
     }
 
     @MainActor

@@ -164,6 +164,7 @@ extension Player {
     currentTime = .milliseconds(milliseconds)
     let position = publishPosition(forTargetMilliseconds: milliseconds)
     recordAuthoritativeTimeline(position: position)
+    markPlaybackHealthSeek()
   }
 
   // MARK: - Lenient Seeking
@@ -205,6 +206,7 @@ extension Player {
       currentTime = .milliseconds(checkedMilliseconds(for: position, durationMs: durationMs))
     }
     recordAuthoritativeTimeline(position: position.rawValue)
+    markPlaybackHealthSeek()
     return true
   }
 
@@ -314,6 +316,7 @@ extension Player {
         recordAuthoritativeTimeline(position: position)
       }
     }
+    markPlaybackHealthSeek()
     return revision
   }
 

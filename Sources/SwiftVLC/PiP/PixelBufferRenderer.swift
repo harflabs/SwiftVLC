@@ -55,6 +55,9 @@ final class PixelBufferRenderer: Sendable {
     /// the cadence is not known. Never a fabricated default: see
     /// ``PixelBufferRenderer/setFrameDuration(_:)``.
     var frameDuration: CMTime = .invalid
+    var decodedFrameCount: UInt64 = 0
+    var lastDecodedAt: ContinuousClock.Instant?
+    var playbackGeneration: UInt64?
 
     init(displayLayer: AVSampleBufferDisplayLayer?) {
       self.displayLayer = DisplayLayerBox(displayLayer)
@@ -92,6 +95,27 @@ final class PixelBufferRenderer: Sendable {
 
   func setDisplayLayer(_ layer: AVSampleBufferDisplayLayer?) {
     state.withLock { $0.displayLayer.layer = layer }
+  }
+
+  /// Starts a new media generation and makes every frame captured before the
+  /// boundary stale. Counters stay cumulative so the low-rate health sampler
+  /// can derive a generation-local delta without resetting the frame hot path.
+  func beginPlaybackGeneration(_ generation: UInt64) {
+    let changed = state.withLock { state -> Bool in
+      guard state.playbackGeneration != generation else { return false }
+      state.playbackGeneration = generation
+      state.advanceRenderGeneration()
+      return true
+    }
+    guard changed else { return }
+    enqueueState.withLock {
+      $0.pending = nil
+      $0.flushRecoveryRetryCount = 0
+      $0.flushRecoveryGeneration = nil
+      $0.latestPlaybackGeneration = generation
+      $0.status = .idle
+    }
+    flushDisplayLayer()
   }
 
   func setTimebase(_ tb: CMTimebase?) {
@@ -337,12 +361,18 @@ final class DirectPiPVideoCallbackSlot {
   init(
     lifetime: NativePlayerHandleLifetime,
     decodeRenderer: PixelBufferRenderer,
+    playbackGeneration: UInt64 = 0,
+    voutGenerationCounter: PixelBufferVoutGenerationCounter = PixelBufferVoutGenerationCounter(),
     api: DirectPiPVideoCallbackAPI
   ) {
     precondition(!lifetime.isReleased)
     self.lifetime = lifetime
     self.api = api
-    let context = PixelBufferRendererCallbackContext(renderer: decodeRenderer)
+    let context = PixelBufferRendererCallbackContext(
+      renderer: decodeRenderer,
+      playbackGeneration: playbackGeneration,
+      voutGenerationCounter: voutGenerationCounter
+    )
     self.context = context
     let retained = Unmanaged.passRetained(context)
     let opaque = retained.toOpaque()
@@ -407,13 +437,16 @@ final class DirectPiPVideoCallbackRegistration {
 
   private let renderer: PixelBufferRenderer
   private let api: DirectPiPVideoCallbackAPI
+  private let playbackGeneration: @Sendable () -> UInt64
   private var current: Binding?
 
   init(
     renderer: PixelBufferRenderer,
+    playbackGeneration: @escaping @Sendable () -> UInt64 = { 0 },
     api: DirectPiPVideoCallbackAPI = .live
   ) {
     self.renderer = renderer
+    self.playbackGeneration = playbackGeneration
     self.api = api
   }
 
@@ -421,11 +454,17 @@ final class DirectPiPVideoCallbackRegistration {
     DirectPiPVideoCallbackSlot(
       lifetime: lifetime,
       decodeRenderer: renderer,
+      playbackGeneration: playbackGeneration(),
+      voutGenerationCounter: current?.slot.context.voutGenerationSequence
+        ?? PixelBufferVoutGenerationCounter(),
       api: api
     )
   }
 
   func bind(to slot: DirectPiPVideoCallbackSlot, generation: UInt64) {
+    let playbackGeneration = playbackGeneration()
+    slot.context.beginPlaybackGeneration(playbackGeneration)
+    renderer.beginPlaybackGeneration(playbackGeneration)
     slot.activate(renderer: renderer)
     current = Binding(slot: slot, generation: generation)
   }
@@ -454,6 +493,15 @@ final class DirectPiPVideoCallbackRegistration {
   var currentOpaqueForTesting: UnsafeMutableRawPointer? {
     current?.slot.opaque
   }
+
+  var telemetrySnapshot: PixelBufferRendererTelemetrySnapshot {
+    renderer.telemetrySnapshot
+  }
+
+  func beginPlaybackGeneration(_ generation: UInt64) {
+    current?.slot.context.beginPlaybackGeneration(generation)
+    renderer.beginPlaybackGeneration(generation)
+  }
 }
 
 /// Stable object passed to libVLC's vmem callbacks.
@@ -479,13 +527,32 @@ final class PixelBufferRendererCallbackContext: Sendable {
   }
 
   private let state: Mutex<State>
+  private let playbackGeneration: Mutex<UInt64>
+  private let voutGenerationCounter: PixelBufferVoutGenerationCounter
 
-  init(renderer: PixelBufferRenderer) {
+  init(
+    renderer: PixelBufferRenderer,
+    playbackGeneration: UInt64 = 0,
+    voutGenerationCounter: PixelBufferVoutGenerationCounter = PixelBufferVoutGenerationCounter()
+  ) {
     state = Mutex(State(displayRenderer: renderer))
+    self.playbackGeneration = Mutex(playbackGeneration)
+    self.voutGenerationCounter = voutGenerationCounter
+  }
+
+  /// Advances the generation captured by subsequently negotiated vouts.
+  /// Already-open vouts retain their original value and are therefore rejected
+  /// by the display renderer after a media boundary.
+  func beginPlaybackGeneration(_ generation: UInt64) {
+    playbackGeneration.withLock { $0 = generation }
   }
 
   var hasOpenVoutForTesting: Bool {
     state.withLock { $0.openVoutCount > 0 }
+  }
+
+  var voutGenerationSequence: PixelBufferVoutGenerationCounter {
+    voutGenerationCounter
   }
 
   var retirementRequestedForTesting: Bool {
@@ -543,7 +610,9 @@ final class PixelBufferRendererCallbackContext: Sendable {
       handleContext: self,
       handleOpaque: handleOpaque,
       decodeRenderer: decodeRenderer,
-      sourceGeometry: sourceGeometry
+      sourceGeometry: sourceGeometry,
+      playbackGeneration: playbackGeneration.withLock { $0 },
+      voutGeneration: voutGenerationCounter.next()
     )
   }
 
@@ -621,6 +690,7 @@ final class PixelBufferRendererVoutCallbackContext: @unchecked Sendable {
     let buffer: CVPixelBuffer
     let opaque: UnsafeMutableRawPointer
     var isLocked: Bool
+    let playbackGeneration: UInt64
   }
 
   private struct LifecycleState: @unchecked Sendable {
@@ -630,20 +700,26 @@ final class PixelBufferRendererVoutCallbackContext: @unchecked Sendable {
 
   let decodeRenderer: PixelBufferRenderer
   let sourceGeometry: PixelBufferSourceGeometry
+  let voutGeneration: UInt64
   private let handleContext: PixelBufferRendererCallbackContext
   private let handleOpaque: UnsafeMutableRawPointer
   private let lifecycleState = Mutex(LifecycleState())
+  private let playbackGeneration: UInt64
 
   init(
     handleContext: PixelBufferRendererCallbackContext,
     handleOpaque: UnsafeMutableRawPointer,
     decodeRenderer: PixelBufferRenderer,
-    sourceGeometry: PixelBufferSourceGeometry
+    sourceGeometry: PixelBufferSourceGeometry,
+    playbackGeneration: UInt64,
+    voutGeneration: UInt64
   ) {
     self.handleContext = handleContext
     self.handleOpaque = handleOpaque
     self.decodeRenderer = decodeRenderer
     self.sourceGeometry = sourceGeometry
+    self.playbackGeneration = playbackGeneration
+    self.voutGeneration = voutGeneration
   }
 
   func withDisplayRenderer<T>(
@@ -669,7 +745,8 @@ final class PixelBufferRendererVoutCallbackContext: @unchecked Sendable {
       state.pendingPicture = PendingPicture(
         buffer: buffer,
         opaque: opaque,
-        isLocked: isLocked
+        isLocked: isLocked,
+        playbackGeneration: playbackGeneration
       )
       return true
     }
@@ -695,15 +772,15 @@ final class PixelBufferRendererVoutCallbackContext: @unchecked Sendable {
   /// dereference an already-drained picture.
   func consumePendingPicture(
     matching opaque: UnsafeMutableRawPointer
-  ) -> CVPixelBuffer? {
-    lifecycleState.withLock { state -> CVPixelBuffer? in
+  ) -> (buffer: CVPixelBuffer, playbackGeneration: UInt64)? {
+    lifecycleState.withLock { state -> (CVPixelBuffer, UInt64)? in
       guard state.pendingPicture?.opaque == opaque else { return nil }
       if state.pendingPicture?.isLocked == true {
         CVPixelBufferUnlockBaseAddress(state.pendingPicture!.buffer, [])
       }
-      let buffer = state.pendingPicture?.buffer
+      guard let pending = state.pendingPicture else { return nil }
       state.pendingPicture = nil
-      return buffer
+      return (pending.buffer, pending.playbackGeneration)
     }
   }
 
@@ -826,10 +903,21 @@ func pixelBufferDisplayCallback(
   guard
     let picture,
     let context = pixelBufferVoutCallbackContext(from: opaque),
-    let pb = context.consumePendingPicture(matching: picture)
+    let consumed = context.consumePendingPicture(matching: picture)
   else { return }
 
+  let pb = consumed.buffer
+  let playbackGeneration = consumed.playbackGeneration
+
   _ = context.withDisplayRenderer { renderer in
+    let acceptsPlaybackGeneration = renderer.state.withLock {
+      $0.playbackGeneration == playbackGeneration
+    }
+    guard acceptsPlaybackGeneration else { return }
+    renderer.state.withLock {
+      $0.decodedFrameCount &+= 1
+      $0.lastDecodedAt = .now
+    }
     guard let output = renderer.outputPixelBuffer(from: pb) else { return }
     let outputBuffer = output.buffer
     let renderGeneration = output.generation
@@ -887,7 +975,13 @@ func pixelBufferDisplayCallback(
     }
     // CMSampleBuffer is a CF type that lacks Sendable conformance but is thread-safe for read access
     nonisolated(unsafe) let sample = sb
-    renderer.enqueue(sample, generation: renderGeneration, on: layer)
+    renderer.enqueue(
+      sample,
+      generation: renderGeneration,
+      on: layer,
+      playbackGeneration: playbackGeneration,
+      voutGeneration: context.voutGeneration
+    )
   }
 }
 

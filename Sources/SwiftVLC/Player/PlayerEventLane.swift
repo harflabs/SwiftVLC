@@ -110,7 +110,7 @@ extension Player {
   /// Because control events are not in this buffer, dropping from it can never
   /// cost a one-shot transition.
   ///
-  /// The buffer keeps the newest ``Player/timingLaneBufferSize`` events across
+  /// The buffer keeps the newest `timingLaneBufferSize` events across
   /// the lane as a whole — it is **not** one slot per event kind. A consumer
   /// stalled across a long enough burst of the fastest kind (`timeChanged`, at
   /// roughly 30 Hz) can therefore still lose the newest sample of a slower one

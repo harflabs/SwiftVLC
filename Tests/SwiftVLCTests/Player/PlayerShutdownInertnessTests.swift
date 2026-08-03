@@ -14,9 +14,9 @@ import Testing
 ///    caller a player whose native handle is still being released.
 /// 2. Commands issued after shutdown — including from tasks that were
 ///    already suspended when it began — must not create media or outputs.
-/// 3. `events` and `playbackIntentEvents` are computed properties that
-///    subscribe per access, so a stream requested after shutdown must arrive
-///    already finished rather than waiting forever on a dead source.
+/// 3. Every computed event/snapshot stream subscribes per access, so a stream
+///    requested after shutdown must arrive already finished rather than
+///    waiting forever on a dead source.
 extension Integration {
   @Suite(.tags(.mainActor, .async), .timeLimit(.minutes(1)))
   @MainActor struct PlayerShutdownInertnessTests {
@@ -138,6 +138,26 @@ extension Integration {
         received += 1
       }
       #expect(received == 0)
+    }
+
+    /// Playback-health streams are also permanent per-player subscriptions;
+    /// shutdown must finish both the low-rate snapshots and semantic events.
+    @Test
+    func `Playback health streams requested after shutdown finish immediately`() async {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      await player.shutdown()
+
+      var snapshots = 0
+      for await _ in player.playbackHealthSnapshots {
+        snapshots += 1
+      }
+      var events = 0
+      for await _ in player.playbackHealthEvents {
+        events += 1
+      }
+
+      #expect(snapshots == 0)
+      #expect(events == 0)
     }
 
     /// A stream opened *before* shutdown must also finish, so consumers

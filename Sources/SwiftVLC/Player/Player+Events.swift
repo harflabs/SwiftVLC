@@ -177,7 +177,11 @@ extension Player {
       performDeferredPauseCommandIfNeeded()
 
     case .tracksChanged:
+      let previousVideoTracks = videoTracks
       refreshTracks()
+      if videoTracks != previousVideoTracks {
+        markPlaybackHealthAdaptiveSwitch()
+      }
       // Adaptive streams can switch resolution mid-stream without any
       // dedicated size event; libVLC reports the change through the
       // track list (ES selection/update), so re-signal the decoded
@@ -328,6 +332,8 @@ extension Player {
     // produced a `.stateChanged` to forward.
     stateTransitionBridge.broadcast(newState)
     publishPlaybackStatus()
+    samplePlaybackHealth()
+    reconcilePlaybackHealthSamplingTask()
   }
 
   /// Republishes the current state paired with the session it belongs to.
@@ -457,6 +463,9 @@ extension Player {
     // New media, new timeline: clock samples still queued from the previous
     // one describe a media that is no longer loaded and must not be applied.
     acceptedTimelineRevision = eventBridge.advanceTimelineRevision()
+    #if os(iOS) || os(macOS)
+    directPiPVideoCallbackRegistration?.beginPlaybackGeneration(sessionGeneration)
+    #endif
     // `duration` and `isSeekable` publish the capability snapshot from their
     // own `didSet`, so clearing them one at a time would briefly expose
     // "duration cleared, seekability still the previous media's". Suppress
@@ -510,6 +519,7 @@ extension Player {
     // generation carrying the outgoing media's capability — which would make
     // it distrust the poll for the rest of that media's lifetime.
     advanceCapabilityGeneration()
+    resetPlaybackHealth()
   }
 
   /// Re-applies the latest user intent to a media generation advanced by the
