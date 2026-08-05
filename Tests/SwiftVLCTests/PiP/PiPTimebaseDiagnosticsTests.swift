@@ -1,11 +1,55 @@
 #if os(iOS) || os(macOS)
+import CoreVideo
 import Foundation
+import Synchronization
 import Testing
 @_spi(Qualification) @testable import SwiftVLC
 
 @MainActor
 @Suite(.serialized)
 struct PiPTimebaseDiagnosticsTests {
+  #if os(iOS)
+  @Test
+  func `Performance snapshot combines active vout geometry and presentation telemetry`() throws {
+    let player = Player()
+    let controller = PiPController(player: player)
+    let registration = try #require(controller.callbackRegistration)
+    let context = try #require(registration.currentContextForTesting)
+    let opaque = try #require(registration.currentOpaqueForTesting)
+    let decodeRenderer = PixelBufferRenderer()
+    decodeRenderer.state.withLock {
+      $0.width = 1920
+      $0.height = 1080
+    }
+    let vout = try #require(
+      context.makeVoutContext(
+        handleOpaque: opaque,
+        decodeRenderer: decodeRenderer,
+        sourceGeometry: PixelBufferSourceGeometry(fullFrameWidth: 1920, height: 1080)
+      )
+    )
+    defer { vout.cleanupDecodeStorage() }
+    controller.renderer.state.withLock {
+      $0.renderPoolAllocationFailureCount = 2
+      $0.lastRenderPoolAllocationStatus = kCVReturnAllocationFailed
+    }
+    controller.renderer.enqueueState.withLock {
+      $0.presentedFrameCount = 120
+      $0.replacementCount = 3
+      $0.backpressureDropCount = 4
+    }
+
+    let snapshot = try #require(controller.renderPerformanceQualificationSnapshot)
+
+    #expect(snapshot.sourceWidth == 1920)
+    #expect(snapshot.sourceHeight == 1080)
+    #expect(snapshot.renderPoolAllocationFailureCount == 2)
+    #expect(snapshot.lastRenderPoolAllocationStatus == kCVReturnAllocationFailed)
+    #expect(snapshot.deliveredFrameCount == 120)
+    #expect(snapshot.droppedFrameCount == 7)
+  }
+  #endif
+
   @Test
   func `Snapshot reports the direct renderer and clock without mutating either`() throws {
     let player = Player()

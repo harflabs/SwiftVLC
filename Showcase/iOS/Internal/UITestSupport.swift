@@ -136,6 +136,7 @@ extension UITestRoute {
     case .pipNativeLifecycleValidation: PiPNativeLifecycleValidationCase()
     case .terminalOutcomesValidation: TerminalOutcomesValidationCase()
     case .adaptiveHLSSoakValidation: AdaptiveHLSSoakValidationCase()
+    case .pipRenderPerformanceValidation: PiPRenderPerformanceValidationCase()
     }
   }
 }

@@ -2,6 +2,7 @@
 
 import AVKit
 import CoreMedia
+import Synchronization
 
 /// A snapshot of libVLC's private native PiP machinery on iOS.
 ///
@@ -99,6 +100,37 @@ public struct DeferredPauseQualificationSnapshot: Sendable, Equatable {
   public let remainingTransientRejections: Int
 }
 
+/// Direct-renderer counters used by the physical performance lane.
+///
+/// This is qualification SPI: the values describe internal conversion work
+/// and are deliberately not a source-compatible public diagnostics API.
+@_spi(Qualification)
+public struct PiPRenderPerformanceSnapshot: Sendable, Equatable {
+  public let sourceWidth: Int
+  public let sourceHeight: Int
+  public let targetWidth: Int?
+  public let targetHeight: Int?
+  public let renderPoolWidth: Int
+  public let renderPoolHeight: Int
+  public let renderGeneration: UInt64
+  public let displayLayerFlushes: UInt64
+  public let presentationCopyFrames: UInt64
+  public let presentationCopyFailures: UInt64
+  public let measuredConversionCount: UInt64
+  public let measuredConversionNanoseconds: UInt64
+  public let maximumMeasuredConversionNanoseconds: UInt64
+  public let decodedFrames: UInt64
+  public let decodedContentChanges: UInt64
+  public let callbackAttempts: UInt64
+  public let callbackSuccesses: UInt64
+  public let displayCallbacks: UInt64
+  public let displayConsumeFailures: UInt64
+  public let renderPoolAllocationFailureCount: UInt64
+  public let lastRenderPoolAllocationStatus: Int32?
+  public let deliveredFrameCount: UInt64
+  public let droppedFrameCount: UInt64
+}
+
 extension PlaybackGeneration {
   /// Numeric form used only for machine-readable qualification evidence.
   @_spi(Qualification)
@@ -108,6 +140,56 @@ extension PlaybackGeneration {
 }
 
 extension PiPController {
+  /// Captures the direct renderer's actual source and conversion geometry plus
+  /// cumulative callback counters. A native controller returns `nil` because
+  /// libVLC owns that renderer and these counters would describe an unused
+  /// sample-buffer path.
+  @_spi(Qualification)
+  public var renderPerformanceQualificationSnapshot: PiPRenderPerformanceSnapshot? {
+    guard nativeBackend == nil else { return nil }
+    let source = callbackRegistration?.sourceDeliverySnapshot
+    let telemetry = callbackRegistration?.telemetrySnapshot ?? renderer.telemetrySnapshot
+    return renderer.state.withLock { state in
+      PiPRenderPerformanceSnapshot(
+        sourceWidth: source?.width ?? 0,
+        sourceHeight: source?.height ?? 0,
+        targetWidth: state.renderSize.map { Int($0.width) },
+        targetHeight: state.renderSize.map { Int($0.height) },
+        renderPoolWidth: state.renderPoolWidth,
+        renderPoolHeight: state.renderPoolHeight,
+        renderGeneration: state.renderGeneration,
+        displayLayerFlushes: state.displayLayerFlushRequestCount,
+        presentationCopyFrames: state.presentationCopyFrameCount,
+        presentationCopyFailures: state.presentationCopyFailureCount,
+        measuredConversionCount: state.measuredConversionCount,
+        measuredConversionNanoseconds: state.measuredConversionNanoseconds,
+        maximumMeasuredConversionNanoseconds: state.maximumMeasuredConversionNanoseconds,
+        decodedFrames: state.decodedFrameCount,
+        decodedContentChanges: state.decodedContentChangeCount,
+        callbackAttempts: state.vmemLockAttemptCount,
+        callbackSuccesses: state.vmemLockSuccessCount,
+        displayCallbacks: state.vmemDisplayCallbackCount,
+        displayConsumeFailures: telemetry.vmemDisplayConsumeFailureCount,
+        renderPoolAllocationFailureCount: telemetry.renderPoolAllocationFailureCount,
+        lastRenderPoolAllocationStatus: telemetry.lastRenderPoolAllocationStatus,
+        deliveredFrameCount: telemetry.presentedFrameCount,
+        droppedFrameCount: telemetry.droppedFrameCount
+      )
+    }
+  }
+
+  /// Starts a new direct-conversion measurement window without disturbing the
+  /// decoded-content counters used by the same physical qualification row.
+  @_spi(Qualification)
+  public func resetRenderPerformanceQualificationMeasurements() {
+    guard nativeBackend == nil else { return }
+    renderer.state.withLock { state in
+      state.measuredConversionCount = 0
+      state.measuredConversionNanoseconds = 0
+      state.maximumMeasuredConversionNanoseconds = 0
+    }
+  }
+
   /// The AVKit-controller identity that qualification lifecycle envelopes use.
   @_spi(Qualification)
   public var qualificationControllerGeneration: UInt64 {

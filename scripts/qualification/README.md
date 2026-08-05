@@ -63,7 +63,7 @@ The command identifies the physical device and OS release type, generates and
 serves deterministic local media, installs the exact signed candidate and UI
 test runner, executes the analyzer, general UI stress suite, native/direct live
 PiP, same-player continuity, capability convergence, terminal outcomes, the
-adaptive HLS soak, and HLS seek lanes, then
+adaptive HLS soak, both direct-PiP performance rows, and HLS seek lanes, then
 pulls app logs and writes a machine-readable `report.json`. It retains every
 attempt log and xcresult,
 records and verifies candidate metadata that binds the app tree digest to its
@@ -214,6 +214,29 @@ finding never pretends that a normal signed device build was ASan-instrumented.
 `SWIFTVLC_ADAPTIVE_SOAK_SECONDS` may shorten an exploratory harness run, but
 the matrix rejects any row shorter than 7,200 seconds.
 
+The `pip-render-performance-1080p60` and
+`pip-render-performance-4k60` lanes each run for 900 seconds on
+`iphone-current`. The fixture generator creates short, local 60 fps H.264
+sources at the real decoded dimensions; single-item `MediaListPlayer` loop mode drives
+the same underlying `Player` continuously for the run. XCTest
+starts direct sample-buffer PiP, backgrounds the app, locates the moving system
+window, and repeatedly double-taps its normalized center to exercise the real
+SpringBoard resize affordance. The candidate records Mach task CPU time, RSS,
+thermal state, source and target geometry, conversion counts, presentation
+rate, drops, bounded-pool failures, and the total, average, and maximum measured
+wall time of the real Core Image conversion calls while replacing media on the
+same player. Conversion timing is qualification-only and adds no clock reads to
+the normal client hot path.
+The runner sequentially attaches Instruments Game Performance, Power Profiler,
+and Time Profiler captures, exports each table of contents, and binds every raw
+trace tree digest into the evidence. The raw trace bundles and their exported
+tables of contents are retained with the final qualification record and their
+digests are revalidated during assembly. A missing trace, a target that never
+changes, altered source geometry, more than 5% drops, less than 54 presented
+frames per second, more than 160 MiB RSS growth, or any renderer failure rejects
+the row. The app-side GPU/energy placeholders cannot satisfy the gate: host
+augmentation removes them only after all three traces are verified.
+
 Use `--require-stable` for release evidence. It fails before testing if the
 device is a simulator, runs beta or unknown software, or does not match a
 hardware row in `matrix.json`. Without that option, the same command is useful
@@ -223,8 +246,8 @@ This lane is intentionally fail-closed: its current automated scenarios are a
 candidate qualification subset, not a claim that all 53 qualification rows
 passed. `report.json` therefore keeps `releaseGateSatisfied` false until a
 matrix runner has produced the complete candidate-bound records described
-below. Remaining performance captures, subtitle-format coverage, timebase and
-cadence soaks, and every required hardware/OS row must still be represented by
+below. Remaining subtitle-format coverage, timebase and cadence soaks, and
+every required hardware/OS row must still be represented by
 automated evidence before the stable gate can open.
 
 Qualification is bound to both halves of the shipped package. The

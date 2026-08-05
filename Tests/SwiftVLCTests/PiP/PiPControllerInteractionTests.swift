@@ -798,7 +798,7 @@ extension Integration {
     }
 
     @Test
-    func `didTransitionToRenderSize updates renderer target size only on sample resizing platforms`() {
+    func `didTransitionToRenderSize updates direct renderer target size`() {
       let player = Player(instance: TestInstance.shared)
       let controller = PiPController(player: player)
       guard let pip = makePictureInPictureController(for: controller) else { return }
@@ -809,12 +809,8 @@ extension Integration {
       )
 
       let renderSize = controller._renderSizeForTesting()
-      #if os(macOS)
       #expect(renderSize?.width == 512)
       #expect(renderSize?.height == 288)
-      #else
-      #expect(renderSize == nil)
-      #endif
     }
 
     // MARK: - AVPictureInPictureControllerDelegate

@@ -315,6 +315,18 @@ enum AccessibilityID {
     static let errorLabel = "adaptiveHLSSoak.error"
   }
 
+  enum PiPRenderPerformanceValidation {
+    static let videoView = "pipRenderPerformance.videoView"
+    static let stateLabel = "pipRenderPerformance.state"
+    static let possibleLabel = "pipRenderPerformance.possible"
+    static let activeLabel = "pipRenderPerformance.active"
+    static let progressLabel = "pipRenderPerformance.progress"
+    static let targetLabel = "pipRenderPerformance.target"
+    static let resultLabel = "pipRenderPerformance.result"
+    static let runButton = "pipRenderPerformance.run"
+    static let errorLabel = "pipRenderPerformance.error"
+  }
+
   enum MatrixHValidation {
     static let stateLabel = "validation.matrixH.state"
     static let currentTimeLabel = "validation.matrixH.currentTime"

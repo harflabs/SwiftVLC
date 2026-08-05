@@ -161,6 +161,57 @@ extension Integration {
       #expect(vout.sourceGeometry.sourceOrientationRawValue == 5)
       #expect(vout.decodeRenderer.state.withLock { $0.width } == 768)
       #expect(vout.decodeRenderer.state.withLock { $0.height } == 480)
+      #expect(
+        handleContext.latestSourceDeliverySnapshot
+          == PixelBufferVoutSourceSnapshot(
+            voutGeneration: vout.voutGeneration,
+            width: 768,
+            height: 480
+          )
+      )
+    }
+
+    @Test
+    func `source delivery telemetry follows the newest active vout`() throws {
+      let displayRenderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+      let handleContext = PixelBufferRendererCallbackContext(renderer: displayRenderer)
+      let handleOpaque = Unmanaged.passRetained(handleContext).toOpaque()
+      defer {
+        Unmanaged<PixelBufferRendererCallbackContext>.fromOpaque(handleOpaque).release()
+      }
+      let firstRenderer = PixelBufferRenderer()
+      firstRenderer.state.withLock {
+        $0.width = 1920
+        $0.height = 1080
+      }
+      let secondRenderer = PixelBufferRenderer()
+      secondRenderer.state.withLock {
+        $0.width = 3840
+        $0.height = 2160
+      }
+      let geometry = PixelBufferSourceGeometry(fullFrameWidth: 2, height: 2)
+      let first = try #require(
+        handleContext.makeVoutContext(
+          handleOpaque: handleOpaque,
+          decodeRenderer: firstRenderer,
+          sourceGeometry: geometry
+        )
+      )
+      let second = try #require(
+        handleContext.makeVoutContext(
+          handleOpaque: handleOpaque,
+          decodeRenderer: secondRenderer,
+          sourceGeometry: geometry
+        )
+      )
+
+      #expect(handleContext.latestSourceDeliverySnapshot?.width == 3840)
+      #expect(handleContext.latestSourceDeliverySnapshot?.height == 2160)
+      second.cleanupDecodeStorage()
+      #expect(handleContext.latestSourceDeliverySnapshot?.width == 1920)
+      #expect(handleContext.latestSourceDeliverySnapshot?.height == 1080)
+      first.cleanupDecodeStorage()
+      #expect(handleContext.latestSourceDeliverySnapshot == nil)
     }
 
     @Test

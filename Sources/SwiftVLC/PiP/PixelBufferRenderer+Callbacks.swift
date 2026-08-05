@@ -221,10 +221,20 @@ final class DirectPiPVideoCallbackRegistration {
     renderer.telemetrySnapshot
   }
 
+  var sourceDeliverySnapshot: PixelBufferVoutSourceSnapshot? {
+    current?.slot.context.latestSourceDeliverySnapshot
+  }
+
   func beginPlaybackGeneration(_ generation: UInt64) {
     current?.slot.context.beginPlaybackGeneration(generation)
     renderer.beginPlaybackGeneration(generation)
   }
+}
+
+struct PixelBufferVoutSourceSnapshot: Sendable, Equatable {
+  let voutGeneration: UInt64
+  let width: Int
+  let height: Int
 }
 
 /// Stable object passed to libVLC's vmem callbacks.
@@ -244,6 +254,7 @@ final class PixelBufferRendererCallbackContext: Sendable {
     var displayRenderer: PixelBufferRenderer?
     var activeCallbacks = 0
     var openVoutCount = 0
+    var sourceDeliveryByVoutGeneration: [UInt64: PixelBufferVoutSourceSnapshot] = [:]
     var retirementRequested = false
     var nativePlayerHandleReleased = false
     var opaqueRetainReleased = false
@@ -284,6 +295,14 @@ final class PixelBufferRendererCallbackContext: Sendable {
 
   var voutGenerationSequence: PixelBufferVoutGenerationCounter {
     voutGenerationCounter
+  }
+
+  var latestSourceDeliverySnapshot: PixelBufferVoutSourceSnapshot? {
+    state.withLock { state in
+      state.sourceDeliveryByVoutGeneration.max { lhs, rhs in
+        lhs.key < rhs.key
+      }?.value
+    }
   }
 
   var retirementRequestedForTesting: Bool {
@@ -354,11 +373,20 @@ final class PixelBufferRendererCallbackContext: Sendable {
     decodeRenderer: PixelBufferRenderer,
     sourceGeometry: PixelBufferSourceGeometry
   ) -> PixelBufferRendererVoutCallbackContext? {
+    let voutGeneration = voutGenerationCounter.next()
+    let sourceDelivery = decodeRenderer.state.withLock {
+      PixelBufferVoutSourceSnapshot(
+        voutGeneration: voutGeneration,
+        width: $0.width,
+        height: $0.height
+      )
+    }
     let accepted = state.withLock { state -> Bool in
       guard !state.nativePlayerHandleReleased, !state.opaqueRetainReleased else {
         return false
       }
       state.openVoutCount += 1
+      state.sourceDeliveryByVoutGeneration[voutGeneration] = sourceDelivery
       return true
     }
     guard accepted else { return nil }
@@ -368,13 +396,14 @@ final class PixelBufferRendererCallbackContext: Sendable {
       decodeRenderer: decodeRenderer,
       sourceGeometry: sourceGeometry,
       playbackGeneration: playbackGeneration.withLock { $0 },
-      voutGeneration: voutGenerationCounter.next()
+      voutGeneration: voutGeneration
     )
   }
 
-  func noteVoutClosed() {
+  func noteVoutClosed(voutGeneration: UInt64) {
     state.withLock {
       $0.openVoutCount = max(0, $0.openVoutCount - 1)
+      $0.sourceDeliveryByVoutGeneration.removeValue(forKey: voutGeneration)
     }
   }
 
@@ -580,7 +609,7 @@ final class PixelBufferRendererVoutCallbackContext: @unchecked Sendable {
       $0.renderPoolHeight = 0
       $0.advanceRenderGeneration()
     }
-    handleContext.noteVoutClosed()
+    handleContext.noteVoutClosed(voutGeneration: voutGeneration)
   }
 
   private func drainPendingPicture(_ state: inout LifecycleState) {

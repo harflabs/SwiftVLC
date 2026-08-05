@@ -56,6 +56,11 @@ enum LaunchArguments {
   static let adaptiveSoakDuration = "-UITestAdaptiveSoakDuration"
   static let adaptiveSoakToken = "-UITestAdaptiveSoakToken"
 
+  /// Profile, fixture URL, and duration for the direct-PiP performance rows.
+  static let pipPerformanceProfile = "-UITestPiPPerformanceProfile"
+  static let pipPerformanceURLBase64 = "-UITestPiPPerformanceURLBase64"
+  static let pipPerformanceDuration = "-UITestPiPPerformanceDuration"
+
   /// Name of a showcase to deep-link to on launch (e.g. `"SimplePlayback"`).
   /// When unset, the showcase opens its normal navigation tree.
   static let route = "-UITestRoute"
@@ -127,6 +132,18 @@ enum LaunchArguments {
 
   static var adaptiveSoakTokenValue: String? {
     UserDefaults.standard.string(forKey: key(adaptiveSoakToken))
+  }
+
+  static var pipPerformanceProfileValue: String? {
+    UserDefaults.standard.string(forKey: key(pipPerformanceProfile))
+  }
+
+  static var pipPerformanceURLValue: URL? {
+    encodedArgumentURL(named: pipPerformanceURLBase64)
+  }
+
+  static var pipPerformanceDurationValue: Int? {
+    UserDefaults.standard.string(forKey: key(pipPerformanceDuration)).flatMap(Int.init)
   }
 
   static var routeValue: String? {
@@ -215,6 +232,7 @@ enum UITestRoute: String, CaseIterable {
   case pipNativeLifecycleValidation = "PiPNativeLifecycleValidation"
   case terminalOutcomesValidation = "TerminalOutcomesValidation"
   case adaptiveHLSSoakValidation = "AdaptiveHLSSoakValidation"
+  case pipRenderPerformanceValidation = "PiPRenderPerformanceValidation"
 
   static var current: UITestRoute? {
     LaunchArguments.routeValue.flatMap(UITestRoute.init(rawValue:))

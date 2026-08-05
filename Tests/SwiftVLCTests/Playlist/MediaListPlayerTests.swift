@@ -185,6 +185,35 @@ extension Integration {
     }
 
     @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
+    func `Loop mode restarts one short item without stopping the attached player`() async throws {
+      let instance = TestInstance.makePlayback()
+      let listPlayer = MediaListPlayer(instance: instance)
+      let player = Player(instance: instance)
+      listPlayer.mediaPlayer = player
+      let list = MediaList()
+      try list.append(Media(url: TestMedia.twosecURL))
+      listPlayer.mediaList = list
+      listPlayer.playbackMode = .loop
+      listPlayer.play()
+      try #require(
+        await poll(timeout: .seconds(10)) { listPlayer.isPlaying },
+        "Waiting for loop playback to start"
+      )
+      try #require(
+        await poll(timeout: .seconds(10)) { player.currentTime > .milliseconds(1500) },
+        "Waiting for the first pass through the loop fixture"
+      )
+      try #require(
+        await poll(timeout: .seconds(10)) {
+          listPlayer.isPlaying && player.currentTime < .milliseconds(700)
+        },
+        "Waiting for loop mode to restart the attached player"
+      )
+      #expect(player.state == .playing)
+      listPlayer.stop()
+    }
+
+    @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
     func `Pause and resume lifecycle`() async throws {
       let instance = TestInstance.makePlayback()
       let listPlayer = MediaListPlayer(instance: instance)

@@ -10,6 +10,10 @@ if ! command -v ffmpeg >/dev/null 2>&1; then
   echo "Error: ffmpeg is required to generate qualification fixtures." >&2
   exit 1
 fi
+if ! command -v ffprobe >/dev/null 2>&1; then
+  echo "Error: ffprobe is required to verify qualification fixtures." >&2
+  exit 1
+fi
 
 case "$DURATION_SECONDS" in
   ''|*[!0-9]*)
@@ -29,7 +33,8 @@ mkdir -p \
   "$fixture_tmp/hls/soak/ts/low" \
   "$fixture_tmp/hls/soak/ts/high" \
   "$fixture_tmp/hls/soak/fmp4/low" \
-  "$fixture_tmp/hls/soak/fmp4/high"
+  "$fixture_tmp/hls/soak/fmp4/high" \
+  "$fixture_tmp/performance"
 LIVE_DURATION_SECONDS="$DURATION_SECONDS"
 if [[ "$LIVE_DURATION_SECONDS" -lt 120 ]]; then
   LIVE_DURATION_SECONDS=120
@@ -95,9 +100,38 @@ done
   -t "$DURATION_SECONDS" -c:a aac -b:a 128k \
   "$fixture_tmp/audio.m4a"
 
+# Short, highly compressible 60 fps sources are looped by libVLC during the
+# 15-minute physical rows. They exercise the real 1080p/4K decode and BGRA
+# conversion geometry without checking hundreds of megabytes into the repo or
+# requiring a public CDN during qualification.
+for performance_profile in 1080p60 4k60; do
+  performance_size="1920x1080"
+  if [[ "$performance_profile" == "4k60" ]]; then
+    performance_size="3840x2160"
+  fi
+  "${ffmpeg_quiet[@]}" \
+    -f lavfi -i "testsrc2=size=$performance_size:rate=60" \
+    -f lavfi -i "sine=frequency=660:sample_rate=48000" \
+    -t 6 -shortest \
+    -c:v libx264 -preset ultrafast -crf 30 -pix_fmt yuv420p \
+    -profile:v high -level:v 5.2 -g 60 -keyint_min 60 -sc_threshold 0 \
+    -c:a aac -b:a 96k -movflags +faststart \
+    "$fixture_tmp/performance/$performance_profile.mp4"
+  expected_probe="${performance_size/x/,},60/1"
+  actual_probe=$(ffprobe -v error -select_streams v:0 \
+    -show_entries stream=width,height,r_frame_rate \
+    -of csv=p=0 "$fixture_tmp/performance/$performance_profile.mp4")
+  if [[ "$actual_probe" != "$expected_probe" ]]; then
+    echo "Error: $performance_profile fixture probe was $actual_probe, expected $expected_probe." >&2
+    exit 1
+  fi
+done
+
 mv "$fixture_tmp/vod.mp4" "$OUTPUT_DIR/vod.mp4"
 mv "$fixture_tmp/live.ts" "$OUTPUT_DIR/live.ts"
 mv "$fixture_tmp/audio.m4a" "$OUTPUT_DIR/audio.m4a"
+rm -rf "$OUTPUT_DIR/performance"
+mv "$fixture_tmp/performance" "$OUTPUT_DIR/performance"
 mv "$fixture_tmp/vod.m3u8" "$OUTPUT_DIR/hls/vod.m3u8"
 for segment in "$fixture_tmp"/vod-*.ts; do
   mv "$segment" "$OUTPUT_DIR/hls/$(basename "$segment")"
@@ -144,6 +178,10 @@ manifest = {
     "durationSeconds": duration,
     "liveDurationSeconds": live_duration,
     "video": {"width": 640, "height": 360, "framesPerSecond": 30},
+    "performance": {
+        "1080p60": {"width": 1920, "height": 1080, "framesPerSecond": 60},
+        "4k60": {"width": 3840, "height": 2160, "framesPerSecond": 60},
+    },
     "files": files,
 }
 (root / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")

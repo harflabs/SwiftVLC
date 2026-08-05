@@ -46,6 +46,9 @@ final class PixelBufferRenderer: Sendable {
     var presentationCopyRequired = false
     var presentationCopyFrameCount: UInt64 = 0
     var presentationCopyFailureCount: UInt64 = 0
+    var measuredConversionCount: UInt64 = 0
+    var measuredConversionNanoseconds: UInt64 = 0
+    var maximumMeasuredConversionNanoseconds: UInt64 = 0
     var renderGeneration: UInt64 = 0
     var displayLayerFlushRequestCount: UInt64 = 0
     var decodePoolAllocationFailureCount: UInt64 = 0
@@ -157,6 +160,9 @@ final class PixelBufferRenderer: Sendable {
       state.contentFingerprintingEnabled = enabled
       state.lastDecodedContentFingerprint = nil
       state.decodedContentChangeCount = 0
+      state.measuredConversionCount = 0
+      state.measuredConversionNanoseconds = 0
+      state.maximumMeasuredConversionNanoseconds = 0
     }
     if enabled {
       contentDiagnosticsEnabled.store(true, ordering: .releasing)
@@ -322,6 +328,26 @@ final class PixelBufferRenderer: Sendable {
 
     if sourcePixelWidth == width, sourcePixelHeight == height, !copyRequired {
       return (source, generation)
+    }
+
+    // Qualification diagnostics opt into conversion timing. Normal clients
+    // avoid even the monotonic-clock reads on this per-frame hot path.
+    let conversionStarted = contentDiagnosticsEnabled.load(ordering: .acquiring)
+      ? DispatchTime.now().uptimeNanoseconds
+      : nil
+    defer {
+      if let conversionStarted {
+        let elapsed = DispatchTime.now().uptimeNanoseconds &- conversionStarted
+        state.withLock { state in
+          guard state.contentFingerprintingEnabled else { return }
+          state.measuredConversionCount &+= 1
+          state.measuredConversionNanoseconds &+= elapsed
+          state.maximumMeasuredConversionNanoseconds = max(
+            state.maximumMeasuredConversionNanoseconds,
+            elapsed
+          )
+        }
+      }
     }
 
     // libVLC invokes this on its decode thread, which has no run-loop-owned

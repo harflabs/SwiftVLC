@@ -33,6 +33,7 @@ verify_fixtures = load_script("verify-fixtures.py")
 candidate_metadata = load_script("candidate-metadata.py")
 materialize_evidence = load_script("materialize-evidence.py")
 augment_allocation_trace = load_script("augment-allocation-trace.py")
+augment_performance_traces = load_script("augment-performance-traces.py")
 assemble_record = load_script("assemble-record.py")
 
 
@@ -896,6 +897,59 @@ class QualificationEvidenceTests(unittest.TestCase):
             with self.assertRaises(augment_allocation_trace.TraceEvidenceError):
                 augment_allocation_trace.augment(evidence, trace, toc, digest_script)
 
+    def test_host_binds_all_performance_trace_digests(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            evidence = root / "evidence.json"
+            evidence.write_text(
+                json.dumps(
+                    {
+                        "scenario": "pip-render-performance-4k60",
+                        "metrics": {
+                            "gpu": {"status": "required-host-augmentation"},
+                            "energy": {"status": "required-host-augmentation"},
+                            "conversionCost": {
+                                "sourcePixels": 3840 * 2160,
+                                "hostTraceStatus": "required-host-augmentation",
+                            },
+                        },
+                        "hostTraceRequirements": {},
+                    }
+                )
+            )
+            traces = {}
+            for key in ("game", "power", "time"):
+                trace = root / f"{key}.trace"
+                trace.mkdir()
+                (trace / "data.bin").write_bytes(f"{key} instrument data".encode())
+                toc = root / f"{key}-toc.xml"
+                toc.write_text('<trace-toc><table schema="samples"/></trace-toc>')
+                traces[key] = (trace, toc)
+            digest_script = Path(__file__).resolve().parents[2] / "artifact-tree-digest.py"
+
+            augmented = augment_performance_traces.augment(
+                evidence, traces, digest_script
+            )
+            self.assertNotIn("hostTraceRequirements", augmented)
+            self.assertEqual(augmented["metrics"]["gpu"]["status"], "captured")
+            self.assertEqual(augmented["metrics"]["energy"]["template"], "Power Profiler")
+            conversion_trace = augmented["metrics"]["conversionCost"]["hostTrace"]
+            self.assertEqual(conversion_trace["template"], "Time Profiler")
+            self.assertRegex(conversion_trace["treeDigest"], r"^[0-9a-f]{64}$")
+            for record in (
+                augmented["metrics"]["gpu"],
+                augmented["metrics"]["energy"],
+                conversion_trace,
+            ):
+                self.assertTrue((evidence.parent / record["runArtifact"]).is_dir())
+                self.assertTrue(
+                    (evidence.parent / record["tableOfContents"]).is_file()
+                )
+
+            (traces["game"][0] / "data.bin").unlink()
+            with self.assertRaises(augment_performance_traces.PerformanceTraceError):
+                augment_performance_traces.augment(evidence, traces, digest_script)
+
     def test_materializes_accepted_start_delayed_failure_evidence(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -1165,6 +1219,64 @@ class QualificationRecordAssemblyTests(unittest.TestCase):
         retained = output.parent / "evidence" / "1.1.0" / "artifacts" / "seek"
         self.assertTrue((retained / "allocations.trace" / "data.bin").is_file())
         self.assertTrue((retained / "allocations-toc.xml").is_file())
+
+    def test_assembles_digest_verified_performance_trace_artifacts(self):
+        scenario = "pip-render-performance-4k60"
+        self.matrix.write_text(
+            json.dumps(
+                {
+                    "scenarios": [{"id": scenario, "hardware": ["iphone"]}],
+                    "hardware": [
+                        {"id": "iphone", "deviceFamily": "iPhone", "osMajor": 26},
+                        {"id": "ipad", "deviceFamily": "iPad", "osMajor": 26},
+                    ],
+                }
+            )
+        )
+        self.matrix_checksum = hashlib.sha256(self.matrix.read_bytes()).hexdigest()
+        report_path = self.make_report("iphone")
+        report = json.loads(report_path.read_text())
+        report["qualificationRows"][0]["scenario"] = scenario
+        report_path.write_text(json.dumps(report))
+
+        evidence_path = report_path.parent / "evidence" / "seek.json"
+        evidence = json.loads(evidence_path.read_text())
+        evidence["scenario"] = scenario
+        artifact_directory = evidence_path.parent / "artifacts" / "performance"
+        trace_records = {}
+        for name in ("game", "power", "time"):
+            trace = artifact_directory / f"{name}.trace"
+            trace.mkdir(parents=True)
+            (trace / "data.bin").write_bytes(f"{name} samples".encode())
+            toc = artifact_directory / f"{name}-toc.xml"
+            toc.write_text('<trace-toc><table schema="samples"/></trace-toc>')
+            trace_records[name] = {
+                "runArtifact": f"artifacts/performance/{name}.trace",
+                "tableOfContents": f"artifacts/performance/{name}-toc.xml",
+                "treeDigest": assemble_record.tree_digest(trace),
+            }
+        evidence["metrics"] = {
+            "gpu": trace_records["game"],
+            "energy": trace_records["power"],
+            "conversionCost": {"hostTrace": trace_records["time"]},
+        }
+        evidence_path.write_text(json.dumps(evidence))
+
+        output = self.root / "qualification" / "1.1.0.json"
+        assemble_record.assemble(
+            "1.1.0", self.candidate, self.matrix, [report_path], output
+        )
+
+        retained = output.parent / "evidence" / "1.1.0" / "artifacts" / "performance"
+        for name in ("game", "power", "time"):
+            self.assertTrue((retained / f"{name}.trace" / "data.bin").is_file())
+            self.assertTrue((retained / f"{name}-toc.xml").is_file())
+
+        (retained / "game.trace" / "data.bin").write_bytes(b"tampered")
+        with self.assertRaises(assemble_record.AssemblyError):
+            assemble_record.assemble(
+                "1.1.0", self.candidate, self.matrix, [report_path], output
+            )
 
     def test_rejects_exploratory_and_duplicate_rows(self):
         output = self.root / "qualification" / "1.1.0.json"

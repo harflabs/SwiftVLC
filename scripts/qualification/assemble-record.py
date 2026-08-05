@@ -122,7 +122,7 @@ def tree_digest(root: Path) -> str:
     digest = hashlib.sha256(b"SwiftVLC artifact tree digest v1\0")
     entries = sorted(root.rglob("*"), key=lambda path: path.relative_to(root).as_posix())
     if not entries:
-        raise AssemblyError(f"allocation trace is empty: {root}")
+        raise AssemblyError(f"trace is empty: {root}")
 
     def update(value: bytes) -> None:
         digest.update(len(value).to_bytes(8, "big"))
@@ -141,12 +141,39 @@ def tree_digest(root: Path) -> str:
         elif stat.S_ISLNK(metadata.st_mode):
             kind, payload = b"symlink", os.readlink(path).encode()
         else:
-            raise AssemblyError(f"unsupported allocation trace entry: {path}")
+            raise AssemblyError(f"unsupported trace entry: {path}")
         update(kind)
         update(path.relative_to(root).as_posix().encode())
         update(stat.S_IMODE(metadata.st_mode).to_bytes(4, "big"))
         update(payload)
     return digest.hexdigest()
+
+
+def retained_trace_artifacts(
+    evidence_path: Path, trace: object, description: str
+) -> list[tuple[Path, Path, bool]]:
+    if not isinstance(trace, dict):
+        raise AssemblyError(
+            f"evidence {evidence_path} has malformed {description} provenance"
+        )
+    trace_source, trace_relative = safe_evidence_artifact_path(
+        evidence_path,
+        trace.get("runArtifact"),
+        description,
+        directory=True,
+    )
+    toc_source, toc_relative = safe_evidence_artifact_path(
+        evidence_path,
+        trace.get("tableOfContents"),
+        f"{description} table of contents",
+        directory=False,
+    )
+    if tree_digest(trace_source) != trace.get("treeDigest"):
+        raise AssemblyError(f"evidence {evidence_path} {description} digest mismatch")
+    return [
+        (trace_source, trace_relative, True),
+        (toc_source, toc_relative, False),
+    ]
 
 
 def assemble(
@@ -249,30 +276,33 @@ def assemble(
             provenance = evidence.get("allocationProvenance")
             trace = provenance.get("instrumentsTrace") if isinstance(provenance, dict) else None
             if trace is not None:
-                if not isinstance(trace, dict):
-                    raise AssemblyError(f"evidence {evidence_path} has malformed trace provenance")
-                trace_source, trace_relative = safe_evidence_artifact_path(
-                    evidence_path,
-                    trace.get("runArtifact"),
-                    "allocation trace",
-                    directory=True,
-                )
-                toc_source, toc_relative = safe_evidence_artifact_path(
-                    evidence_path,
-                    trace.get("tableOfContents"),
-                    "allocation trace table of contents",
-                    directory=False,
-                )
-                if tree_digest(trace_source) != trace.get("treeDigest"):
-                    raise AssemblyError(
-                        f"evidence {evidence_path} allocation trace digest mismatch"
-                    )
                 artifacts.extend(
-                    [
-                        (trace_source, trace_relative, True),
-                        (toc_source, toc_relative, False),
-                    ]
+                    retained_trace_artifacts(evidence_path, trace, "allocation trace")
                 )
+            if key[0] in {
+                "pip-render-performance-1080p60",
+                "pip-render-performance-4k60",
+            }:
+                metrics = evidence.get("metrics")
+                if not isinstance(metrics, dict):
+                    raise AssemblyError(
+                        f"evidence {evidence_path} has no performance metrics"
+                    )
+                conversion = metrics.get("conversionCost")
+                if not isinstance(conversion, dict):
+                    raise AssemblyError(
+                        f"evidence {evidence_path} has no conversion-cost metric"
+                    )
+                for performance_trace, description in (
+                    (metrics.get("gpu"), "Game Performance trace"),
+                    (metrics.get("energy"), "Power Profiler trace"),
+                    (conversion.get("hostTrace"), "Time Profiler trace"),
+                ):
+                    artifacts.extend(
+                        retained_trace_artifacts(
+                            evidence_path, performance_trace, description
+                        )
+                    )
             rows[key] = (row, evidence_path, artifacts)
 
     evidence_directory = output_path.parent / "evidence" / version

@@ -281,7 +281,7 @@ extension Integration {
             sourceGeometry: PixelBufferSourceGeometry(fullFrameWidth: 2, height: 2)
           )
         )
-        defer { context.noteVoutClosed() }
+        defer { context.noteVoutClosed(voutGeneration: vout.voutGeneration) }
         return vout.voutGeneration
       }()
 
@@ -323,7 +323,7 @@ extension Integration {
             sourceGeometry: PixelBufferSourceGeometry(fullFrameWidth: 2, height: 2)
           )
         )
-        defer { newContext.noteVoutClosed() }
+        defer { newContext.noteVoutClosed(voutGeneration: vout.voutGeneration) }
         return vout.voutGeneration
       }()
       #expect(secondVoutGeneration > firstVoutGeneration)

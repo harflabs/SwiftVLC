@@ -196,6 +196,36 @@ extension Integration {
     }
 
     @Test
+    func `conversion timing is qualification opt in and resets with diagnostics`() throws {
+      let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
+      renderer.setRenderSize(CMVideoDimensions(width: 8, height: 8))
+      let sourceBuffer = try makeBGRAImageBuffer(width: 16, height: 16)
+
+      _ = try #require(renderer.outputPixelBuffer(from: sourceBuffer))
+      #expect(renderer.state.withLock { $0.measuredConversionCount } == 0)
+
+      renderer.setContentFingerprintingEnabled(true)
+      _ = try #require(renderer.outputPixelBuffer(from: sourceBuffer))
+      let measured = renderer.state.withLock {
+        (
+          count: $0.measuredConversionCount,
+          total: $0.measuredConversionNanoseconds,
+          maximum: $0.maximumMeasuredConversionNanoseconds
+        )
+      }
+      #expect(measured.count == 1)
+      #expect(measured.total > 0)
+      #expect(measured.maximum > 0)
+      #expect(measured.maximum <= measured.total)
+
+      renderer.setContentFingerprintingEnabled(false)
+      renderer.setContentFingerprintingEnabled(true)
+      #expect(renderer.state.withLock { $0.measuredConversionCount } == 0)
+      #expect(renderer.state.withLock { $0.measuredConversionNanoseconds } == 0)
+      #expect(renderer.state.withLock { $0.maximumMeasuredConversionNanoseconds } == 0)
+    }
+
+    @Test
     func `clearing render size returns original pixel buffer`() throws {
       let renderer = PixelBufferRenderer(displayLayer: AVSampleBufferDisplayLayer())
 

@@ -15,6 +15,7 @@ REQUIRE_STABLE=false
 SKIP_BUILD=false
 ONLY_SCENARIOS=()
 ADAPTIVE_SOAK_SECONDS="${SWIFTVLC_ADAPTIVE_SOAK_SECONDS:-7200}"
+PIP_PERFORMANCE_SECONDS="${SWIFTVLC_PIP_PERFORMANCE_SECONDS:-900}"
 
 usage() {
   cat <<'EOF'
@@ -39,6 +40,8 @@ Options:
                           interruptions,
                           native-lifecycle, terminal-outcomes,
                           adaptive-hls-soak,
+                          pip-render-performance-1080p60,
+                          pip-render-performance-4k60,
                           deferred-pause-rejection,
                           accepted-start-delayed-failure, hls-seek,
                           harness-regressions, ui-failures, thumbnail-preview
@@ -60,6 +63,16 @@ case "$ADAPTIVE_SOAK_SECONDS" in
 esac
 if [[ "$ADAPTIVE_SOAK_SECONDS" -le 0 ]]; then
   echo "Error: SWIFTVLC_ADAPTIVE_SOAK_SECONDS must be positive." >&2
+  exit 2
+fi
+case "$PIP_PERFORMANCE_SECONDS" in
+  ''|*[!0-9]*)
+    echo "Error: SWIFTVLC_PIP_PERFORMANCE_SECONDS must be a positive integer." >&2
+    exit 2
+    ;;
+esac
+if [[ "$PIP_PERFORMANCE_SECONDS" -le 0 ]]; then
+  echo "Error: SWIFTVLC_PIP_PERFORMANCE_SECONDS must be positive." >&2
   exit 2
 fi
 
@@ -149,7 +162,9 @@ echo "Selected $(jq -r '.selected.marketingName' "$OUTPUT_DIR/device.json") on $
 if [[ ! -f "$FIXTURES/manifest.json" \
   || ! -f "$FIXTURES/unsupported-codec.mp4" \
   || ! -f "$FIXTURES/hls/soak/ts/low/segment-000.ts" \
-  || ! -f "$FIXTURES/hls/soak/fmp4/high/init.mp4" ]]; then
+  || ! -f "$FIXTURES/hls/soak/fmp4/high/init.mp4" \
+  || ! -f "$FIXTURES/performance/1080p60.mp4" \
+  || ! -f "$FIXTURES/performance/4k60.mp4" ]]; then
   "$SCRIPT_DIR/generate-fixtures.sh" "$FIXTURES"
 fi
 python3 "$SCRIPT_DIR/verify-fixtures.py" "$FIXTURES" > /dev/null
@@ -330,6 +345,7 @@ xcrun devicectl device copy to \
   > "$OUTPUT_DIR/stage-streams.log"
 
 DEFAULT_SCENARIOS=(analyzer ui-suite harness-regressions live-media background-audio continuity capability-convergence vod-controls long-stall failed-start dismissal interruptions native-lifecycle terminal-outcomes adaptive-hls-soak deferred-pause-rejection accepted-start-delayed-failure hls-seek)
+DEFAULT_SCENARIOS+=(pip-render-performance-1080p60 pip-render-performance-4k60)
 SCENARIOS_WERE_EXPLICIT=false
 if [[ ${#ONLY_SCENARIOS[@]} -eq 0 ]]; then
   ONLY_SCENARIOS=("${DEFAULT_SCENARIOS[@]}")
@@ -338,7 +354,7 @@ else
 fi
 for scenario in "${ONLY_SCENARIOS[@]}"; do
   case "$scenario" in
-    analyzer|ui-suite|native-live|direct-live|live-media|background-audio|continuity|capability-convergence|vod-controls|long-stall|failed-start|dismissal|interruptions|native-lifecycle|terminal-outcomes|adaptive-hls-soak|deferred-pause-rejection|accepted-start-delayed-failure|hls-seek|harness-regressions|ui-failures|thumbnail-preview) ;;
+    analyzer|ui-suite|native-live|direct-live|live-media|background-audio|continuity|capability-convergence|vod-controls|long-stall|failed-start|dismissal|interruptions|native-lifecycle|terminal-outcomes|adaptive-hls-soak|pip-render-performance-1080p60|pip-render-performance-4k60|deferred-pause-rejection|accepted-start-delayed-failure|hls-seek|harness-regressions|ui-failures|thumbnail-preview) ;;
     *) echo "Error: unknown scenario: $scenario" >&2; exit 2 ;;
   esac
 done
@@ -353,7 +369,7 @@ device_matches_hardware_row() {
 if ! device_matches_hardware_row "iphone-current"; then
   if [[ "$SCENARIOS_WERE_EXPLICIT" == true ]]; then
     for scenario in "${ONLY_SCENARIOS[@]}"; do
-      if [[ "$scenario" == "capability-convergence" || "$scenario" == "native-lifecycle" || "$scenario" == "terminal-outcomes" || "$scenario" == "adaptive-hls-soak" || "$scenario" == "deferred-pause-rejection" || "$scenario" == "accepted-start-delayed-failure" ]]; then
+      if [[ "$scenario" == "capability-convergence" || "$scenario" == "native-lifecycle" || "$scenario" == "terminal-outcomes" || "$scenario" == "adaptive-hls-soak" || "$scenario" == pip-render-performance-* || "$scenario" == "deferred-pause-rejection" || "$scenario" == "accepted-start-delayed-failure" ]]; then
         echo "Error: $scenario requires the iphone-current hardware row." >&2
         exit 2
       fi
@@ -361,7 +377,7 @@ if ! device_matches_hardware_row "iphone-current"; then
   else
     FILTERED_SCENARIOS=()
     for scenario in "${ONLY_SCENARIOS[@]}"; do
-      if [[ "$scenario" != "capability-convergence" && "$scenario" != "native-lifecycle" && "$scenario" != "terminal-outcomes" && "$scenario" != "adaptive-hls-soak" && "$scenario" != "deferred-pause-rejection" && "$scenario" != "accepted-start-delayed-failure" ]]; then
+      if [[ "$scenario" != "capability-convergence" && "$scenario" != "native-lifecycle" && "$scenario" != "terminal-outcomes" && "$scenario" != "adaptive-hls-soak" && "$scenario" != pip-render-performance-* && "$scenario" != "deferred-pause-rejection" && "$scenario" != "accepted-start-delayed-failure" ]]; then
         FILTERED_SCENARIOS+=("$scenario")
       fi
     done
@@ -383,6 +399,63 @@ RESULTS_TSV="$WORK_DIR/results.tsv"
 QUALIFICATION_ROWS="$WORK_DIR/qualification-rows.jsonl"
 : > "$QUALIFICATION_ROWS"
 
+export_trace_toc() {
+  local trace="$1"
+  local toc="$2"
+  python3 - "$trace" "$toc" <<'PY'
+import subprocess
+import sys
+
+try:
+    result = subprocess.run(
+        [
+            "xcrun", "xctrace", "export", "--quiet",
+            "--input", sys.argv[1], "--toc", "--output", sys.argv[2],
+        ],
+        timeout=120,
+    )
+except subprocess.TimeoutExpired:
+    raise SystemExit(124)
+raise SystemExit(result.returncode)
+PY
+}
+
+record_performance_trace() {
+  local template="$1"
+  local trace="$2"
+  local toc="$3"
+  local duration="$4"
+  local xcodebuild_pid="$5"
+  local trace_log="$6"
+  xcrun xctrace record --quiet \
+    --template "$template" \
+    --device "$DEVICE_UDID" \
+    --attach iOS \
+    --time-limit "${duration}s" \
+    --output "$trace" \
+    --no-prompt \
+    > "$trace_log" 2>&1 &
+  local trace_pid=$!
+  ACTIVE_XCTRACE_PID="$trace_pid"
+  while kill -0 "$trace_pid" 2>/dev/null; do
+    if ! kill -0 "$xcodebuild_pid" 2>/dev/null; then
+      kill -INT "$trace_pid" 2>/dev/null || true
+      wait "$trace_pid" 2>/dev/null || true
+      ACTIVE_XCTRACE_PID=""
+      return 1
+    fi
+    sleep 1
+  done
+  wait "$trace_pid"
+  local trace_status=$?
+  ACTIVE_XCTRACE_PID=""
+  if [[ "$trace_status" -ne 0 || ! -d "$trace" ]]; then
+    return 1
+  fi
+  export_trace_toc "$trace" "$toc" >> "$trace_log" 2>&1
+  [[ -s "$toc" ]]
+}
+
 run_scenario() {
   local scenario="$1"
   local route log_name selected_xctestrun
@@ -390,6 +463,8 @@ run_scenario() {
   local skip_device_tests=false
   local pip_url=""
   local rendering_path=""
+  local performance_profile=""
+  local performance_url=""
   case "$scenario" in
     analyzer)
       test_identifiers=("iOSUITests/PiPMotionRegionAnalyzerTests")
@@ -501,6 +576,24 @@ run_scenario() {
       route="AdaptiveHLSSoakValidation"
       selected_xctestrun="$DESTINATION_XCTESTRUN"
       ;;
+    pip-render-performance-1080p60)
+      test_identifiers=(
+        "iOSUITests/PiPRenderPerformanceDeviceUITests/test_directPiPPerformanceRow"
+      )
+      route="PiPRenderPerformanceValidation"
+      performance_profile="1080p60"
+      performance_url="$BASE_URL/files/performance/1080p60.mp4"
+      selected_xctestrun="$DESTINATION_XCTESTRUN"
+      ;;
+    pip-render-performance-4k60)
+      test_identifiers=(
+        "iOSUITests/PiPRenderPerformanceDeviceUITests/test_directPiPPerformanceRow"
+      )
+      route="PiPRenderPerformanceValidation"
+      performance_profile="4k60"
+      performance_url="$BASE_URL/files/performance/4k60.mp4"
+      selected_xctestrun="$DESTINATION_XCTESTRUN"
+      ;;
     deferred-pause-rejection)
       test_identifiers=(
         "iOSUITests/PiPDeferredPauseDeviceUITests/test_deferredPauseRejectionAndCancellationStayTruthful"
@@ -564,6 +657,10 @@ run_scenario() {
       --environment SWIFTVLC_TERMINAL_OUTCOMES_DEVICE=YES \
       --environment SWIFTVLC_ADAPTIVE_HLS_SOAK_DEVICE=YES \
       --environment SWIFTVLC_ADAPTIVE_SOAK_SECONDS="$ADAPTIVE_SOAK_SECONDS" \
+      --environment SWIFTVLC_PIP_PERFORMANCE_DEVICE=YES \
+      --environment SWIFTVLC_PIP_PERFORMANCE_PROFILE="$performance_profile" \
+      --environment SWIFTVLC_PIP_PERFORMANCE_URL_BASE64="$(printf '%s' "$performance_url" | base64 | tr -d '\r\n')" \
+      --environment SWIFTVLC_PIP_PERFORMANCE_SECONDS="$PIP_PERFORMANCE_SECONDS" \
       --environment SWIFTVLC_PIP_DEFERRED_PAUSE_DEVICE=YES \
       --environment SWIFTVLC_PIP_DELAYED_START_FAILURE_DEVICE=YES \
       --environment SWIFTVLC_PIP_OVERLAY_DEVICE=YES \
@@ -582,6 +679,13 @@ run_scenario() {
   local allocation_trace_status="not-applicable"
   local allocation_trace=""
   local allocation_trace_toc=""
+  local performance_trace_status="not-applicable"
+  local perf_game_trace=""
+  local perf_game_toc=""
+  local perf_power_trace=""
+  local perf_power_toc=""
+  local perf_time_trace=""
+  local perf_time_toc=""
   local xcodebuild_log="$OUTPUT_DIR/$scenario-xcodebuild.log"
   local result_bundle="$OUTPUT_DIR/$scenario.xcresult"
   local test_selection_args=()
@@ -601,6 +705,7 @@ run_scenario() {
       -skip-testing:iOSUITests/PiPNativeLifecycleDeviceUITests
       -skip-testing:iOSUITests/TerminalOutcomesDeviceUITests
       -skip-testing:iOSUITests/AdaptiveHLSSoakDeviceUITests
+      -skip-testing:iOSUITests/PiPRenderPerformanceDeviceUITests
       -skip-testing:iOSUITests/PiPDeferredPauseDeviceUITests
       -skip-testing:iOSUITests/PiPDelayedStartFailureDeviceUITests
       -skip-testing:iOSUITests/PiPOverlayDeviceUITests
@@ -637,6 +742,24 @@ run_scenario() {
       allocation_trace_status="missing"
       allocation_trace="$OUTPUT_DIR/$scenario-allocations-attempt$attempt.trace"
       allocation_trace_toc="$OUTPUT_DIR/$scenario-allocations-attempt$attempt-toc.xml"
+    elif [[ "$scenario" == pip-render-performance-* ]]; then
+      attempt_token="$run_id-$performance_profile-$attempt"
+      attempt_xctestrun="$WORK_DIR/destination-$scenario-attempt$attempt.xctestrun"
+      local attempt_performance_url="$performance_url?swiftvlcQualification=$attempt_token"
+      local attempt_performance_url_base64
+      attempt_performance_url_base64=$(printf '%s' "$attempt_performance_url" | base64 | tr -d '\r\n')
+      python3 "$SCRIPT_DIR/prepare-xctestrun.py" \
+        "$selected_xctestrun" "$attempt_xctestrun" \
+        --environment SWIFTVLC_DEVICE_LOG_PREFIX="$final_log_prefix" \
+        --environment SWIFTVLC_PIP_PERFORMANCE_URL_BASE64="$attempt_performance_url_base64"
+      cp "$attempt_xctestrun" "$OUTPUT_DIR/destination-$scenario-attempt$attempt.xctestrun"
+      performance_trace_status="missing"
+      perf_game_trace="$OUTPUT_DIR/$scenario-game-attempt$attempt.trace"
+      perf_game_toc="$OUTPUT_DIR/$scenario-game-attempt$attempt-toc.xml"
+      perf_power_trace="$OUTPUT_DIR/$scenario-power-attempt$attempt.trace"
+      perf_power_toc="$OUTPUT_DIR/$scenario-power-attempt$attempt-toc.xml"
+      perf_time_trace="$OUTPUT_DIR/$scenario-time-attempt$attempt.trace"
+      perf_time_toc="$OUTPUT_DIR/$scenario-time-attempt$attempt-toc.xml"
     fi
     set +e
     if [[ "$scenario" == "adaptive-hls-soak" ]]; then
@@ -742,6 +865,67 @@ PY
           && grep -qiE 'allocation|vm-tracker' "$allocation_trace_toc"; then
           allocation_trace_status="captured"
         fi
+      fi
+    elif [[ "$scenario" == pip-render-performance-* ]]; then
+      xcodebuild test-without-building \
+        -xctestrun "$attempt_xctestrun" \
+        -destination "platform=iOS,id=$DEVICE_UDID" \
+        -collect-test-diagnostics never \
+        -test-timeouts-enabled YES \
+        -default-test-execution-time-allowance "$((PIP_PERFORMANCE_SECONDS + 300))" \
+        -maximum-test-execution-time-allowance "$((PIP_PERFORMANCE_SECONDS + 300))" \
+        "${test_selection_args[@]}" \
+        -resultBundlePath "$attempt_bundle" \
+        > "$attempt_log" 2>&1 &
+      local performance_xcodebuild_pid=$!
+      ACTIVE_XCODEBUILD_PID="$performance_xcodebuild_pid"
+      local performance_started=false
+      for _ in {1..600}; do
+        if ! kill -0 "$performance_xcodebuild_pid" 2>/dev/null; then
+          break
+        fi
+        if grep -q "$attempt_token" "$OUTPUT_DIR/fixture-requests.jsonl" 2>/dev/null; then
+          performance_started=true
+          break
+        fi
+        sleep 0.1
+      done
+      local performance_trace_failed=false
+      local performance_phase_seconds=$(((PIP_PERFORMANCE_SECONDS - 120) / 3))
+      if [[ "$performance_phase_seconds" -lt 60 ]]; then
+        performance_phase_seconds=60
+      fi
+      if [[ "$performance_started" == false ]]; then
+        performance_trace_failed=true
+        echo "Error: performance fixture did not start before trace capture." >> "$attempt_log"
+      else
+        local performance_spec performance_key performance_template performance_trace performance_toc
+        for performance_spec in \
+          "game|Game Performance|$perf_game_trace|$perf_game_toc" \
+          "power|Power Profiler|$perf_power_trace|$perf_power_toc" \
+          "time|Time Profiler|$perf_time_trace|$perf_time_toc"; do
+          IFS='|' read -r performance_key performance_template performance_trace performance_toc \
+            <<< "$performance_spec"
+          if ! record_performance_trace \
+              "$performance_template" "$performance_trace" "$performance_toc" \
+              "$performance_phase_seconds" "$performance_xcodebuild_pid" \
+              "$OUTPUT_DIR/$scenario-$performance_key-xctrace-attempt$attempt.log"; then
+            performance_trace_failed=true
+            echo "Error: $performance_template trace capture failed." >> "$attempt_log"
+            break
+          fi
+        done
+      fi
+      if [[ "$performance_trace_failed" == true ]]; then
+        kill -TERM "$performance_xcodebuild_pid" 2>/dev/null
+      fi
+      wait "$performance_xcodebuild_pid"
+      test_status=$?
+      ACTIVE_XCODEBUILD_PID=""
+      if [[ "$performance_trace_failed" == true ]]; then
+        test_status=1
+      elif [[ "$test_status" -eq 0 ]]; then
+        performance_trace_status="captured"
       fi
     else
       xcodebuild test-without-building \
@@ -943,6 +1127,10 @@ PY
       qualification_scenarios=("adaptive-hls-soak")
       qualification_attachments=("qualification-adaptive-hls-soak.json")
       ;;
+    pip-render-performance-1080p60|pip-render-performance-4k60)
+      qualification_scenarios=("$scenario")
+      qualification_attachments=("qualification-$scenario.json")
+      ;;
     deferred-pause-rejection)
       qualification_scenarios=("deferred-pause-rejection")
       qualification_attachments=("qualification-deferred-pause-rejection.json")
@@ -956,6 +1144,7 @@ PY
     evidence_status="missing"
     if [[ "$test_status" -eq 0 ]] && [[ "$log_errors_acceptable" == true ]] \
       && [[ "$allocation_trace_status" != "missing" ]] \
+      && [[ "$performance_trace_status" != "missing" ]] \
       && [[ "$log_status" == "captured" ]] && [[ -d "$result_bundle" ]]; then
       local attachments="$OUTPUT_DIR/$scenario-attachments"
       local hardware_id evidence_file evidence_relative export_status materialize_status
@@ -1011,6 +1200,22 @@ PY
               ' "$evidence_file" >/dev/null; then
               continue
             fi
+          elif [[ "$scenario" == pip-render-performance-* ]]; then
+            set +e
+            python3 "$SCRIPT_DIR/augment-performance-traces.py" \
+              --evidence "$evidence_file" \
+              --game-trace "$perf_game_trace" \
+              --game-toc "$perf_game_toc" \
+              --power-trace "$perf_power_trace" \
+              --power-toc "$perf_power_toc" \
+              --time-trace "$perf_time_trace" \
+              --time-toc "$perf_time_toc" \
+              --digest-script "$ROOT_DIR/scripts/artifact-tree-digest.py"
+            local augment_performance_status=$?
+            set -e
+            if [[ "$augment_performance_status" -ne 0 ]]; then
+              continue
+            fi
           fi
           materialized_count=$((materialized_count + 1))
           materialized_scenarios+=("$qualification_scenario")
@@ -1061,6 +1266,7 @@ PY
   result="pass"
   if [[ "$test_status" -ne 0 ]] || [[ "$log_errors_acceptable" != true ]] || [[ "$log_status" == "missing" ]] \
     || [[ "$allocation_trace_status" == "missing" ]] \
+    || [[ "$performance_trace_status" == "missing" ]] \
     || [[ "$evidence_status" == "missing" ]]; then
     result="fail"
   fi
