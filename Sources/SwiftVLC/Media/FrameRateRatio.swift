@@ -1,9 +1,11 @@
-/// An exact frame rate as libVLC reported it, numerator over denominator.
+/// A frame-rate ratio as libVLC reported it, numerator over denominator.
 ///
 /// A `Double` cannot represent the NTSC-derived rates: 24000/1001 becomes
-/// 23.976023976…, and a frame duration derived from that accumulates drift over
-/// a long playback. Consumers that need exact timing — sample-buffer durations,
-/// most of all — should use this rather than ``Track/frameRate``.
+/// 23.976023976…, so consumers that need the reported ratio without
+/// floating-point rounding should use this rather than ``Track/frameRate``.
+///
+/// This is not necessarily one frame's duration. Containers and demuxers can
+/// report a nominal or average ratio for variable-frame-rate media.
 public struct FrameRateRatio: Sendable, Hashable {
   /// Frames per `denominator` seconds. For 23.976 fps this is `24000`.
   public let numerator: UInt32

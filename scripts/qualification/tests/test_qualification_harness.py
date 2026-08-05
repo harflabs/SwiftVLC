@@ -897,6 +897,51 @@ class QualificationEvidenceTests(unittest.TestCase):
             with self.assertRaises(augment_allocation_trace.TraceEvidenceError):
                 augment_allocation_trace.augment(evidence, trace, toc, digest_script)
 
+    def test_materializes_cadence_matrix_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            rates = [23.976, 24, 25, 29.97, 30, 50, 59.94, 60]
+            payload = {
+                "formatVersion": 1,
+                "scenario": "cadence-matrix",
+                "durationSeconds": 600,
+                "rates": rates,
+                "vfr": True,
+                "presentationMetrics": [
+                    {"profile": str(rate), "deliveredFrames": 100, "dropRate": 0}
+                    for rate in rates
+                ]
+                + [{"profile": "vfr-24-60", "deliveredFrames": 100, "dropRate": 0}],
+                "transitionResults": {
+                    "rateChanges": 36,
+                    "pauseResumeCycles": 9,
+                    "replacements": 8,
+                    "resizeCycles": 4,
+                    "resizeTargets": ["640x360", "320x180"],
+                    "monotonicityViolations": 0,
+                },
+                "fabricatedDurationCount": 0,
+            }
+            self.make_export(
+                root,
+                payload,
+                attachment_name="qualification-cadence-matrix.json",
+                test_identifier="PiPCadenceDeviceUITests/test_directPiPCadenceMatrix",
+            )
+            evidence = materialize_evidence.materialize(
+                root,
+                "qualification-cadence-matrix.json",
+                "cadence-matrix",
+                "iphone-current",
+                "a" * 64,
+                "b" * 64,
+            )
+            self.assertEqual(evidence["hardware"], "iphone-current")
+            self.assertEqual(evidence["rates"], rates)
+            self.assertTrue(evidence["vfr"])
+            self.assertEqual(len(evidence["presentationMetrics"]), 9)
+            self.assertEqual(evidence["fabricatedDurationCount"], 0)
+
     def test_host_binds_all_performance_trace_digests(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

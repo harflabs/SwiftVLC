@@ -75,10 +75,6 @@ final class PixelBufferRenderer: Sendable {
     /// stable home the runtime can track across struct copies.
     let displayLayer: DisplayLayerBox
     var timebase: CMTimebase?
-    /// Duration of one frame at the source's own cadence, or `.invalid` when
-    /// the cadence is not known. Never a fabricated default: see
-    /// ``PixelBufferRenderer/setFrameDuration(_:)``.
-    var frameDuration: CMTime = .invalid
     var decodedFrameCount: UInt64 = 0
     var lastDecodedAt: ContinuousClock.Instant?
     /// Opt-in qualification probe. Disabled for normal clients so sampling
@@ -231,40 +227,12 @@ final class PixelBufferRenderer: Sendable {
     return fingerprint
   }
 
-  /// Publishes the source's frame cadence for the sample timing of subsequent
-  /// frames.
-  ///
-  /// Pass `nil` when the cadence is unknown; the duration then becomes
-  /// `.invalid` and AVFoundation is told "no duration" rather than being handed
-  /// a fabricated one. Every frame used to carry exactly `1/30s` regardless of
-  /// the source, which misdescribes 24, 25, 50 and 60 fps content and every
-  /// variable-frame-rate stream, and duration feeds AVFoundation's scheduling
-  /// and backpressure rather than being decorative.
-  func setFrameDuration(_ duration: CMTime?) {
-    // Validated on the rational fields rather than through `seconds`, which
-    // converts to `Double` — the very conversion this whole path exists to
-    // avoid. A positive value over a positive timescale is exactly the
-    // condition, with no rounding in the way.
-    let resolved = duration.flatMap {
-      $0.isNumeric && $0.value > 0 && $0.timescale > 0 ? $0 : nil
-    } ?? .invalid
-    state.withLock { $0.frameDuration = resolved }
-  }
-
-  /// Converts a rational frame rate into the duration of a single frame.
-  ///
-  /// Kept rational rather than going through a `Double`: 24000/1001 is exactly
-  /// representable this way, while `1.0 / 23.976...` is not, and NTSC-derived
-  /// rates are precisely where a rounded duration accumulates drift.
-  static func frameDuration(rateNumerator: UInt32, rateDenominator: UInt32) -> CMTime? {
-    guard rateNumerator > 0, rateDenominator > 0 else { return nil }
-    // `CMTimeScale` is `Int32`, so a numerator above its maximum would trap on
-    // conversion. libVLC reports this straight from container metadata, which
-    // is attacker-controllable in a malformed file, so an absurd rate has to
-    // read as "cadence unknown" rather than crash the decode thread.
-    guard let timescale = CMTimeScale(exactly: rateNumerator) else { return nil }
-    return CMTime(value: CMTimeValue(rateDenominator), timescale: timescale)
-  }
+  /// The vmem callback ABI exposes decoded pixels but not the duration of the
+  /// individual source frame. libVLC's track ratio is nominal/average for
+  /// variable-rate media (for example, a 24→60 fps fixture reports `42/1`), so
+  /// converting that ratio to one duration fabricates timing. An invalid
+  /// duration leaves scheduling to the presentation timestamp.
+  static let sampleDuration: CMTime = .invalid
 
   /// Returns whether the target actually moved, so callers can skip work that
   /// is only warranted by a real change — a display-layer flush, in

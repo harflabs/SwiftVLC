@@ -237,6 +237,22 @@ frames per second, more than 160 MiB RSS growth, or any renderer failure rejects
 the row. The app-side GPU/energy placeholders cannot satisfy the gate: host
 augmentation removes them only after all three traces are verified.
 
+The `cadence-matrix` lane runs for 600 seconds on `iphone-current`. Its local
+origin serves deterministic 23.976, 24, 25, 29.97, 30, 50, 59.94, and 60 fps
+H.264 sources plus a true 24/60 fps VFR source. Direct sample-buffer PiP stays
+active while the app replaces all nine sources and performs pause/resume and
+0.5x/1x/2x rate transitions. XCTest backgrounds the candidate and repeatedly
+uses the real SpringBoard resize affordance. Evidence includes exact renderer
+duration state (invalid rather than a nominal/average value), reported track
+ratios, delivered/dropped/backpressure counters, generation-scoped PTS
+monotonicity, replacement and resize targets, and compact raw samples. A
+missing reported CFR cadence, fabricated duration, backward PTS, renderer
+failure, more than 10% drops, incomplete transition, or unchanged render
+target rejects the row. Every cadence fixture has a real 120-second timeline,
+so phase completion does not depend on media options unsupported by the pinned
+media-player API. `SWIFTVLC_CADENCE_SECONDS` may shorten exploratory runs, but the matrix
+rejects release evidence shorter than 600 seconds.
+
 Use `--require-stable` for release evidence. It fails before testing if the
 device is a simulator, runs beta or unknown software, or does not match a
 hardware row in `matrix.json`. Without that option, the same command is useful
@@ -246,7 +262,7 @@ This lane is intentionally fail-closed: its current automated scenarios are a
 candidate qualification subset, not a claim that all 53 qualification rows
 passed. `report.json` therefore keeps `releaseGateSatisfied` false until a
 matrix runner has produced the complete candidate-bound records described
-below. Remaining subtitle-format coverage, timebase and cadence soaks, and
+below. Remaining subtitle-format coverage, timebase soaks, and
 every required hardware/OS row must still be represented by
 automated evidence before the stable gate can open.
 

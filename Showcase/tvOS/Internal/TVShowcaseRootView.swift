@@ -525,7 +525,8 @@ extension TVShowcase {
          .pipNativeLifecycleValidation,
          .terminalOutcomesValidation,
          .adaptiveHLSSoakValidation,
-         .pipRenderPerformanceValidation:
+         .pipRenderPerformanceValidation,
+         .pipCadenceValidation:
       return nil
     }
   }

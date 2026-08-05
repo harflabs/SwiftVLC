@@ -70,6 +70,8 @@ struct PiPTimebaseDiagnosticsTests {
     #expect(snapshot.decodedContentChangeCount == 0)
     #expect(snapshot.lastDecodedContentFingerprint == nil)
     #expect(snapshot.renderGeneration == rendererBefore.renderGeneration)
+    #expect(snapshot.frameDurationValue == nil)
+    #expect(snapshot.frameDurationTimescale == nil)
     #expect(snapshot.presentationCopyRequired == false)
     #expect(snapshot.presentationCopyFrameCount == 0)
     #expect(snapshot.presentationCopyFailureCount == 0)

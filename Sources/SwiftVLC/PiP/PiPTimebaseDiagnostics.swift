@@ -2,6 +2,7 @@
 import AVFoundation
 import CoreMedia
 import Foundation
+import Synchronization
 
 /// Why SwiftVLC wrote a new value into PiP's control timebase.
 ///
@@ -53,6 +54,8 @@ public struct PiPTimebaseDiagnosticSnapshot: Codable, Sendable, Equatable {
   public let decodedContentChangeCount: UInt64
   public let lastDecodedContentFingerprint: UInt64?
   public let renderGeneration: UInt64
+  public let frameDurationValue: Int64?
+  public let frameDurationTimescale: Int32?
   public let presentationCopyRequired: Bool
   public let presentationCopyFrameCount: UInt64
   public let presentationCopyFailureCount: UInt64
@@ -125,6 +128,8 @@ extension PiPController {
       decodedContentChangeCount: telemetry.decodedContentChangeCount,
       lastDecodedContentFingerprint: telemetry.lastDecodedContentFingerprint,
       renderGeneration: telemetry.renderGeneration,
+      frameDurationValue: nil,
+      frameDurationTimescale: nil,
       presentationCopyRequired: telemetry.presentationCopyRequired,
       presentationCopyFrameCount: telemetry.presentationCopyFrameCount,
       presentationCopyFailureCount: telemetry.presentationCopyFailureCount,

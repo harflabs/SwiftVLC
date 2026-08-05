@@ -180,8 +180,6 @@ public final class PiPController: NSObject {
   @ObservationIgnored
   private var playbackIntentObserverTask: Task<Void, Never>?
   @ObservationIgnored
-  private var cadenceObserverTask: Task<Void, Never>?
-  @ObservationIgnored
   private var possibleObservation: NSKeyValueObservation?
   @ObservationIgnored
   private var activeObservation: NSKeyValueObservation?
@@ -510,7 +508,6 @@ public final class PiPController: NSObject {
     startStateObserver()
     startPlaybackIntentObserver()
     player.registerNativeHandleSnapshotObserver(self)
-    startCadenceObserver()
   }
 
   #if os(iOS)
@@ -659,7 +656,6 @@ public final class PiPController: NSObject {
     stateObserverTask?.cancel()
     timingObserverTask?.cancel()
     playbackIntentObserverTask?.cancel()
-    cadenceObserverTask?.cancel()
     audioSessionBackgroundPauseTask?.cancel()
     possibleObservation = nil
     activeObservation = nil
@@ -942,43 +938,6 @@ public final class PiPController: NSObject {
   }
 
   // MARK: - State Observation
-
-  /// Keeps the renderer's frame cadence in step with the source.
-  ///
-  /// A *separate* subscription on the lossless control lane rather than a
-  /// branch in the state observer. It was split off when that observer still
-  /// read the mixed, newest-wins `events` stream, where a burst of clock
-  /// samples under a main-actor stall could evict the very `tracksChanged`
-  /// that reports a cadence change — leaving the renderer stamping the
-  /// previous source's rate for the rest of the session.
-  ///
-  /// ``startStateObserver()`` now takes the control lane too, so that
-  /// specific hazard is gone and this could fold into it. It stays separate
-  /// because the concerns are unrelated: cadence needs only `tracksChanged`
-  /// and `mediaChanged`, and keeping it out of the state observer's body
-  /// means a change to one cannot perturb the other.
-  ///
-  /// Safe to run concurrently with the state observer because it shares no
-  /// mutable state with it: it reads the track list and writes one
-  /// lock-protected duration, and doing that twice for the same media is
-  /// indistinguishable from doing it once.
-  private func startCadenceObserver() {
-    let events = player.controlEvents
-    cadenceObserverTask = Task { @MainActor [weak self] in
-      for await event in events {
-        guard let self else { return }
-        switch event {
-        case .tracksChanged, .mediaChanged:
-          // Cadence is only knowable once the video track has been parsed, and
-          // it changes on media replacement and on an adaptive representation
-          // switch — both of which re-report tracks.
-          renderer.setFrameDuration(Self.sourceFrameDuration(of: player))
-        default:
-          break
-        }
-      }
-    }
-  }
 
   private func startPlaybackIntentObserver() {
     // The transition stream intentionally has no current-value replay. Direct

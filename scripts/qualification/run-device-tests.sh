@@ -16,6 +16,7 @@ SKIP_BUILD=false
 ONLY_SCENARIOS=()
 ADAPTIVE_SOAK_SECONDS="${SWIFTVLC_ADAPTIVE_SOAK_SECONDS:-7200}"
 PIP_PERFORMANCE_SECONDS="${SWIFTVLC_PIP_PERFORMANCE_SECONDS:-900}"
+CADENCE_SECONDS="${SWIFTVLC_CADENCE_SECONDS:-600}"
 
 usage() {
   cat <<'EOF'
@@ -42,6 +43,7 @@ Options:
                           adaptive-hls-soak,
                           pip-render-performance-1080p60,
                           pip-render-performance-4k60,
+                          cadence-matrix,
                           deferred-pause-rejection,
                           accepted-start-delayed-failure, hls-seek,
                           harness-regressions, ui-failures, thumbnail-preview
@@ -73,6 +75,16 @@ case "$PIP_PERFORMANCE_SECONDS" in
 esac
 if [[ "$PIP_PERFORMANCE_SECONDS" -le 0 ]]; then
   echo "Error: SWIFTVLC_PIP_PERFORMANCE_SECONDS must be positive." >&2
+  exit 2
+fi
+case "$CADENCE_SECONDS" in
+  ''|*[!0-9]*)
+    echo "Error: SWIFTVLC_CADENCE_SECONDS must be a positive integer." >&2
+    exit 2
+    ;;
+esac
+if [[ "$CADENCE_SECONDS" -le 0 ]]; then
+  echo "Error: SWIFTVLC_CADENCE_SECONDS must be positive." >&2
   exit 2
 fi
 
@@ -164,7 +176,9 @@ if [[ ! -f "$FIXTURES/manifest.json" \
   || ! -f "$FIXTURES/hls/soak/ts/low/segment-000.ts" \
   || ! -f "$FIXTURES/hls/soak/fmp4/high/init.mp4" \
   || ! -f "$FIXTURES/performance/1080p60.mp4" \
-  || ! -f "$FIXTURES/performance/4k60.mp4" ]]; then
+  || ! -f "$FIXTURES/performance/4k60.mp4" \
+  || ! -f "$FIXTURES/cadence/23_976.mp4" \
+  || ! -f "$FIXTURES/cadence/vfr.mp4" ]]; then
   "$SCRIPT_DIR/generate-fixtures.sh" "$FIXTURES"
 fi
 python3 "$SCRIPT_DIR/verify-fixtures.py" "$FIXTURES" > /dev/null
@@ -346,6 +360,7 @@ xcrun devicectl device copy to \
 
 DEFAULT_SCENARIOS=(analyzer ui-suite harness-regressions live-media background-audio continuity capability-convergence vod-controls long-stall failed-start dismissal interruptions native-lifecycle terminal-outcomes adaptive-hls-soak deferred-pause-rejection accepted-start-delayed-failure hls-seek)
 DEFAULT_SCENARIOS+=(pip-render-performance-1080p60 pip-render-performance-4k60)
+DEFAULT_SCENARIOS+=(cadence-matrix)
 SCENARIOS_WERE_EXPLICIT=false
 if [[ ${#ONLY_SCENARIOS[@]} -eq 0 ]]; then
   ONLY_SCENARIOS=("${DEFAULT_SCENARIOS[@]}")
@@ -354,7 +369,7 @@ else
 fi
 for scenario in "${ONLY_SCENARIOS[@]}"; do
   case "$scenario" in
-    analyzer|ui-suite|native-live|direct-live|live-media|background-audio|continuity|capability-convergence|vod-controls|long-stall|failed-start|dismissal|interruptions|native-lifecycle|terminal-outcomes|adaptive-hls-soak|pip-render-performance-1080p60|pip-render-performance-4k60|deferred-pause-rejection|accepted-start-delayed-failure|hls-seek|harness-regressions|ui-failures|thumbnail-preview) ;;
+    analyzer|ui-suite|native-live|direct-live|live-media|background-audio|continuity|capability-convergence|vod-controls|long-stall|failed-start|dismissal|interruptions|native-lifecycle|terminal-outcomes|adaptive-hls-soak|pip-render-performance-1080p60|pip-render-performance-4k60|cadence-matrix|deferred-pause-rejection|accepted-start-delayed-failure|hls-seek|harness-regressions|ui-failures|thumbnail-preview) ;;
     *) echo "Error: unknown scenario: $scenario" >&2; exit 2 ;;
   esac
 done
@@ -369,7 +384,7 @@ device_matches_hardware_row() {
 if ! device_matches_hardware_row "iphone-current"; then
   if [[ "$SCENARIOS_WERE_EXPLICIT" == true ]]; then
     for scenario in "${ONLY_SCENARIOS[@]}"; do
-      if [[ "$scenario" == "capability-convergence" || "$scenario" == "native-lifecycle" || "$scenario" == "terminal-outcomes" || "$scenario" == "adaptive-hls-soak" || "$scenario" == pip-render-performance-* || "$scenario" == "deferred-pause-rejection" || "$scenario" == "accepted-start-delayed-failure" ]]; then
+      if [[ "$scenario" == "capability-convergence" || "$scenario" == "native-lifecycle" || "$scenario" == "terminal-outcomes" || "$scenario" == "adaptive-hls-soak" || "$scenario" == pip-render-performance-* || "$scenario" == "cadence-matrix" || "$scenario" == "deferred-pause-rejection" || "$scenario" == "accepted-start-delayed-failure" ]]; then
         echo "Error: $scenario requires the iphone-current hardware row." >&2
         exit 2
       fi
@@ -377,7 +392,7 @@ if ! device_matches_hardware_row "iphone-current"; then
   else
     FILTERED_SCENARIOS=()
     for scenario in "${ONLY_SCENARIOS[@]}"; do
-      if [[ "$scenario" != "capability-convergence" && "$scenario" != "native-lifecycle" && "$scenario" != "terminal-outcomes" && "$scenario" != "adaptive-hls-soak" && "$scenario" != pip-render-performance-* && "$scenario" != "deferred-pause-rejection" && "$scenario" != "accepted-start-delayed-failure" ]]; then
+      if [[ "$scenario" != "capability-convergence" && "$scenario" != "native-lifecycle" && "$scenario" != "terminal-outcomes" && "$scenario" != "adaptive-hls-soak" && "$scenario" != pip-render-performance-* && "$scenario" != "cadence-matrix" && "$scenario" != "deferred-pause-rejection" && "$scenario" != "accepted-start-delayed-failure" ]]; then
         FILTERED_SCENARIOS+=("$scenario")
       fi
     done
@@ -594,6 +609,13 @@ run_scenario() {
       performance_url="$BASE_URL/files/performance/4k60.mp4"
       selected_xctestrun="$DESTINATION_XCTESTRUN"
       ;;
+    cadence-matrix)
+      test_identifiers=(
+        "iOSUITests/PiPCadenceDeviceUITests/test_directPiPCadenceMatrix"
+      )
+      route="PiPCadenceValidation"
+      selected_xctestrun="$DESTINATION_XCTESTRUN"
+      ;;
     deferred-pause-rejection)
       test_identifiers=(
         "iOSUITests/PiPDeferredPauseDeviceUITests/test_deferredPauseRejectionAndCancellationStayTruthful"
@@ -661,6 +683,9 @@ run_scenario() {
       --environment SWIFTVLC_PIP_PERFORMANCE_PROFILE="$performance_profile" \
       --environment SWIFTVLC_PIP_PERFORMANCE_URL_BASE64="$(printf '%s' "$performance_url" | base64 | tr -d '\r\n')" \
       --environment SWIFTVLC_PIP_PERFORMANCE_SECONDS="$PIP_PERFORMANCE_SECONDS" \
+      --environment SWIFTVLC_PIP_CADENCE_DEVICE=YES \
+      --environment SWIFTVLC_PIP_CADENCE_BASE_URL_BASE64="$(printf '%s/' "$BASE_URL" | base64 | tr -d '\r\n')" \
+      --environment SWIFTVLC_CADENCE_SECONDS="$CADENCE_SECONDS" \
       --environment SWIFTVLC_PIP_DEFERRED_PAUSE_DEVICE=YES \
       --environment SWIFTVLC_PIP_DELAYED_START_FAILURE_DEVICE=YES \
       --environment SWIFTVLC_PIP_OVERLAY_DEVICE=YES \
@@ -706,6 +731,7 @@ run_scenario() {
       -skip-testing:iOSUITests/TerminalOutcomesDeviceUITests
       -skip-testing:iOSUITests/AdaptiveHLSSoakDeviceUITests
       -skip-testing:iOSUITests/PiPRenderPerformanceDeviceUITests
+      -skip-testing:iOSUITests/PiPCadenceDeviceUITests
       -skip-testing:iOSUITests/PiPDeferredPauseDeviceUITests
       -skip-testing:iOSUITests/PiPDelayedStartFailureDeviceUITests
       -skip-testing:iOSUITests/PiPOverlayDeviceUITests
@@ -927,6 +953,18 @@ PY
       elif [[ "$test_status" -eq 0 ]]; then
         performance_trace_status="captured"
       fi
+    elif [[ "$scenario" == "cadence-matrix" ]]; then
+      xcodebuild test-without-building \
+        -xctestrun "$attempt_xctestrun" \
+        -destination "platform=iOS,id=$DEVICE_UDID" \
+        -collect-test-diagnostics never \
+        -test-timeouts-enabled YES \
+        -default-test-execution-time-allowance "$((CADENCE_SECONDS + 300))" \
+        -maximum-test-execution-time-allowance "$((CADENCE_SECONDS + 300))" \
+        "${test_selection_args[@]}" \
+        -resultBundlePath "$attempt_bundle" \
+        > "$attempt_log" 2>&1
+      test_status=$?
     else
       xcodebuild test-without-building \
         -xctestrun "$attempt_xctestrun" \
@@ -1130,6 +1168,10 @@ PY
     pip-render-performance-1080p60|pip-render-performance-4k60)
       qualification_scenarios=("$scenario")
       qualification_attachments=("qualification-$scenario.json")
+      ;;
+    cadence-matrix)
+      qualification_scenarios=("cadence-matrix")
+      qualification_attachments=("qualification-cadence-matrix.json")
       ;;
     deferred-pause-rejection)
       qualification_scenarios=("deferred-pause-rejection")

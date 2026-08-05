@@ -34,7 +34,8 @@ mkdir -p \
   "$fixture_tmp/hls/soak/ts/high" \
   "$fixture_tmp/hls/soak/fmp4/low" \
   "$fixture_tmp/hls/soak/fmp4/high" \
-  "$fixture_tmp/performance"
+  "$fixture_tmp/performance" \
+  "$fixture_tmp/cadence"
 LIVE_DURATION_SECONDS="$DURATION_SECONDS"
 if [[ "$LIVE_DURATION_SECONDS" -lt 120 ]]; then
   LIVE_DURATION_SECONDS=120
@@ -95,6 +96,64 @@ for variant in low high; do
   )
 done
 
+# Exact rational-rate fixtures for the cadence row. Encode one short source,
+# then remux it into a real continuous timeline long enough for every physical
+# phase. Labels avoid punctuation so they are safe in URLs and evidence keys.
+cadence_specs=(
+  "23_976|24000/1001"
+  "24|24"
+  "25|25"
+  "29_97|30000/1001"
+  "30|30"
+  "50|50"
+  "59_94|60000/1001"
+  "60|60"
+)
+for cadence_spec in "${cadence_specs[@]}"; do
+  IFS='|' read -r cadence_name cadence_rate <<< "$cadence_spec"
+  cadence_short="$fixture_tmp/cadence/$cadence_name-short.mp4"
+  "${ffmpeg_quiet[@]}" \
+    -f lavfi -i "testsrc2=size=640x360:rate=$cadence_rate" \
+    -f lavfi -i "sine=frequency=550:sample_rate=48000" \
+    -t 4 -shortest \
+    -c:v libx264 -preset ultrafast -crf 30 -pix_fmt yuv420p \
+    -g 120 -keyint_min 1 -sc_threshold 0 \
+    -c:a aac -b:a 96k -movflags +faststart \
+    "$cadence_short"
+  "${ffmpeg_quiet[@]}" \
+    -stream_loop -1 -i "$cadence_short" -t "$LIVE_DURATION_SECONDS" \
+    -c copy -movflags +faststart "$fixture_tmp/cadence/$cadence_name.mp4"
+  rm "$cadence_short"
+done
+
+# A single track with 24 fps then 60 fps presentation deltas. ffprobe reports
+# two distinct timestamp steps; the generator rejects any toolchain behavior
+# that accidentally normalizes this back to constant rate.
+"${ffmpeg_quiet[@]}" \
+  -f lavfi -t 2 -i "testsrc2=size=640x360:rate=24" \
+  -f lavfi -t 2 -i "testsrc2=size=640x360:rate=60" \
+  -f lavfi -t 4 -i "sine=frequency=550:sample_rate=48000" \
+  -filter_complex '[0:v][1:v]concat=n=2:v=1:a=0[v]' \
+  -map '[v]' -map 2:a -fps_mode vfr \
+  -c:v libx264 -preset ultrafast -crf 30 -pix_fmt yuv420p \
+  -c:a aac -b:a 96k -shortest -movflags +faststart \
+  "$fixture_tmp/cadence/vfr-short.mp4"
+"${ffmpeg_quiet[@]}" \
+  -stream_loop -1 -i "$fixture_tmp/cadence/vfr-short.mp4" \
+  -t "$LIVE_DURATION_SECONDS" -c copy -movflags +faststart \
+  "$fixture_tmp/cadence/vfr.mp4"
+rm "$fixture_tmp/cadence/vfr-short.mp4"
+ffprobe -v error -select_streams v:0 \
+  -show_entries frame=best_effort_timestamp_time -of csv=p=0 \
+  "$fixture_tmp/cadence/vfr.mp4" \
+  | python3 -c '
+import sys
+values = [float(line.strip().strip(",")) for line in sys.stdin if line.strip().strip(",")]
+deltas = {round(second - first, 4) for first, second in zip(values, values[1:])}
+if len(deltas) < 2:
+    raise SystemExit("generated VFR fixture has only one presentation delta")
+'
+
 "${ffmpeg_quiet[@]}" \
   -f lavfi -i "sine=frequency=440:sample_rate=48000" \
   -t "$DURATION_SECONDS" -c:a aac -b:a 128k \
@@ -132,6 +191,8 @@ mv "$fixture_tmp/live.ts" "$OUTPUT_DIR/live.ts"
 mv "$fixture_tmp/audio.m4a" "$OUTPUT_DIR/audio.m4a"
 rm -rf "$OUTPUT_DIR/performance"
 mv "$fixture_tmp/performance" "$OUTPUT_DIR/performance"
+rm -rf "$OUTPUT_DIR/cadence"
+mv "$fixture_tmp/cadence" "$OUTPUT_DIR/cadence"
 mv "$fixture_tmp/vod.m3u8" "$OUTPUT_DIR/hls/vod.m3u8"
 for segment in "$fixture_tmp"/vod-*.ts; do
   mv "$segment" "$OUTPUT_DIR/hls/$(basename "$segment")"
@@ -181,6 +242,11 @@ manifest = {
     "performance": {
         "1080p60": {"width": 1920, "height": 1080, "framesPerSecond": 60},
         "4k60": {"width": 3840, "height": 2160, "framesPerSecond": 60},
+    },
+    "cadence": {
+        "rates": [23.976, 24, 25, 29.97, 30, 50, 59.94, 60],
+        "vfr": True,
+        "durationSeconds": live_duration,
     },
     "files": files,
 }

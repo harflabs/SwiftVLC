@@ -745,8 +745,8 @@ func pixelBufferDisplayCallback(
     let renderGeneration = output.generation
     renderer.recordContentFingerprintIfEnabled(of: outputBuffer)
 
-    let (timebase, layer, frameDuration) = renderer.state.withLock {
-      ($0.timebase, $0.displayLayer.layer, $0.frameDuration)
+    let (timebase, layer) = renderer.state.withLock {
+      ($0.timebase, $0.displayLayer.layer)
     }
 
     guard let layer else { return }
@@ -772,9 +772,10 @@ func pixelBufferDisplayCallback(
     let displayImmediately = timebase.map { CMTimebaseGetRate($0) == 0 } ?? false
 
     var timingInfo = CMSampleTimingInfo(
-      // `.invalid` when the source cadence is unknown. Inventing 30 fps here
-      // told AVFoundation something false about every non-30 fps source.
-      duration: frameDuration,
+      // vmem does not expose this source frame's duration. A track's reported
+      // ratio may be nominal/average for VFR, so any constant would fabricate
+      // timing; the presentation timestamp remains authoritative.
+      duration: PixelBufferRenderer.sampleDuration,
       presentationTimeStamp: pts,
       decodeTimeStamp: .invalid
     )

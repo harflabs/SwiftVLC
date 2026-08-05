@@ -59,15 +59,15 @@ public struct Track: Sendable, Identifiable, Hashable {
   /// Video frame rate in frames per second (`nil` for non-video tracks).
   public let frameRate: Double?
 
-  /// The frame rate as the exact rational libVLC reported, numerator over
+  /// The frame rate as the rational libVLC reported, numerator over
   /// denominator (`nil` for non-video tracks or when the source did not report
   /// one).
   ///
   /// ``frameRate`` divides these into a `Double`, which cannot represent the
   /// NTSC-derived rates exactly: 24000/1001 becomes 23.976023976..., and
-  /// deriving a frame duration from that accumulates drift. Consumers that
-  /// need exact timing -- sample-buffer durations, most of all -- should use
-  /// this instead.
+  /// deriving a reported ratio from that accumulates drift. This value can be
+  /// nominal or average for variable-frame-rate media, so it must not be
+  /// treated as the duration of every decoded frame.
   public let frameRateRatio: FrameRateRatio?
 
   // MARK: - Subtitle

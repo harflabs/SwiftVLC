@@ -327,6 +327,18 @@ enum AccessibilityID {
     static let errorLabel = "pipRenderPerformance.error"
   }
 
+  enum PiPCadenceValidation {
+    static let videoView = "pipCadence.videoView"
+    static let stateLabel = "pipCadence.state"
+    static let possibleLabel = "pipCadence.possible"
+    static let activeLabel = "pipCadence.active"
+    static let progressLabel = "pipCadence.progress"
+    static let profileLabel = "pipCadence.profile"
+    static let resultLabel = "pipCadence.result"
+    static let runButton = "pipCadence.run"
+    static let errorLabel = "pipCadence.error"
+  }
+
   enum MatrixHValidation {
     static let stateLabel = "validation.matrixH.state"
     static let currentTimeLabel = "validation.matrixH.currentTime"

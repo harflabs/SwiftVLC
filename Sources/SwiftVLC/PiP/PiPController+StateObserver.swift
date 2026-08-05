@@ -35,8 +35,7 @@ extension PiPController {
   /// One merged stream cannot express both: a merge has a single buffer, so it
   /// either grows without bound under a stalled main actor or evicts control
   /// events. Previously this observer read the mixed `events` stream and took
-  /// the second failure — the reason ``startCadenceObserver()`` was split onto
-  /// the control lane on its own.
+  /// the second failure.
   ///
   /// Both tasks are `@MainActor`, so they serialize on this actor: the shared
   /// observation state is mutated between events, never during one. Cross-lane

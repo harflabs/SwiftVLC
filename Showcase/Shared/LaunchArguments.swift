@@ -61,6 +61,10 @@ enum LaunchArguments {
   static let pipPerformanceURLBase64 = "-UITestPiPPerformanceURLBase64"
   static let pipPerformanceDuration = "-UITestPiPPerformanceDuration"
 
+  /// Deterministic local origin and duration for the physical cadence matrix.
+  static let pipCadenceBaseURLBase64 = "-UITestPiPCadenceBaseURLBase64"
+  static let pipCadenceDuration = "-UITestPiPCadenceDuration"
+
   /// Name of a showcase to deep-link to on launch (e.g. `"SimplePlayback"`).
   /// When unset, the showcase opens its normal navigation tree.
   static let route = "-UITestRoute"
@@ -144,6 +148,14 @@ enum LaunchArguments {
 
   static var pipPerformanceDurationValue: Int? {
     UserDefaults.standard.string(forKey: key(pipPerformanceDuration)).flatMap(Int.init)
+  }
+
+  static var pipCadenceBaseURLValue: URL? {
+    encodedArgumentURL(named: pipCadenceBaseURLBase64)
+  }
+
+  static var pipCadenceDurationValue: Int? {
+    UserDefaults.standard.string(forKey: key(pipCadenceDuration)).flatMap(Int.init)
   }
 
   static var routeValue: String? {
@@ -233,6 +245,7 @@ enum UITestRoute: String, CaseIterable {
   case terminalOutcomesValidation = "TerminalOutcomesValidation"
   case adaptiveHLSSoakValidation = "AdaptiveHLSSoakValidation"
   case pipRenderPerformanceValidation = "PiPRenderPerformanceValidation"
+  case pipCadenceValidation = "PiPCadenceValidation"
 
   static var current: UITestRoute? {
     LaunchArguments.routeValue.flatMap(UITestRoute.init(rawValue:))
