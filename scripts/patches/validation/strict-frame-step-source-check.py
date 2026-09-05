@@ -388,6 +388,25 @@ def validate_runtime_probe_fidelity(native_probe: str) -> None:
             "completion->count == exact_terminal_count")
     forbid(stop, "sleep_milliseconds")
 
+    opening = function_body(native_probe, "static bool play_through_opening(")
+    ordered(opening,
+            "libvlc_event_attach(events, libvlc_MediaPlayerOpening,",
+            "libvlc_media_player_play(player) == 0",
+            "while (started && !barrier.opened)",
+            "pthread_cond_timedwait(",
+            "bool opened = started && barrier.opened;",
+            "libvlc_event_detach(events, libvlc_MediaPlayerOpening,",
+            "return opened;")
+    forbid(opening, "sleep_milliseconds(")
+
+    rebind = function_body(native_probe, "static int run_vmem_atomic_rebind_case(")
+    disabled = rebind[rebind.index("/* Invalid partial publication above") :]
+    ordered(disabled,
+            "play_through_opening(player)",
+            "stop_player(player)",
+            "atomic_load_explicit(&a.setup_count, memory_order_relaxed) != 1",
+            "atomic_load_explicit(&b.setup_count, memory_order_relaxed) != 1")
+
     vmem_case = function_body(native_probe, "static int run_vmem_submission_case(")
     ordered(vmem_case,
             "wait_for_state(player, libvlc_Paused, 5000)",
@@ -482,6 +501,9 @@ def validate_runtime_probe_fidelity(native_probe: str) -> None:
 
 def mutation_rejects_weakened_runtime_probe(native_probe: str) -> None:
     mutations = (
+        ("removed-disabled-input-opening-boundary",
+         "if (!play_through_opening(player)",
+         "if (libvlc_media_player_play(player) != 0"),
         ("removed-vmem-baseline-acknowledgement",
          "check_terminal(&completion, 1, request_id + 2000, expected_status)",
          "false /* no output boundary before baseline */"),

@@ -928,6 +928,50 @@ static bool stop_player(libvlc_media_player_t *player)
     return wait_for_state(player, libvlc_Stopped, 5000);
 }
 
+struct opening_barrier
+{
+    pthread_mutex_t lock;
+    pthread_cond_t changed;
+    bool opened;
+};
+
+static void on_opening(const libvlc_event_t *event, void *opaque)
+{
+    (void)event;
+    struct opening_barrier *barrier = opaque;
+    pthread_mutex_lock(&barrier->lock);
+    barrier->opened = true;
+    pthread_cond_broadcast(&barrier->changed);
+    pthread_mutex_unlock(&barrier->lock);
+}
+
+static bool play_through_opening(libvlc_media_player_t *player)
+{
+    struct opening_barrier barrier = {
+        .lock = PTHREAD_MUTEX_INITIALIZER,
+        .changed = PTHREAD_COND_INITIALIZER,
+    };
+    libvlc_event_manager_t *events = libvlc_media_player_event_manager(player);
+    if (libvlc_event_attach(events, libvlc_MediaPlayerOpening,
+                            on_opening, &barrier) != 0)
+        return false;
+    bool started = libvlc_media_player_play(player) == 0;
+    struct timespec deadline;
+    deadline_after(&deadline, 5000);
+    pthread_mutex_lock(&barrier.lock);
+    while (started && !barrier.opened)
+        if (pthread_cond_timedwait(&barrier.changed, &barrier.lock,
+                                   &deadline) == ETIMEDOUT)
+            break;
+    bool opened = started && barrier.opened;
+    pthread_mutex_unlock(&barrier.lock);
+    libvlc_event_detach(events, libvlc_MediaPlayerOpening,
+                        on_opening, &barrier);
+    pthread_cond_destroy(&barrier.changed);
+    pthread_mutex_destroy(&barrier.lock);
+    return opened;
+}
+
 static int run_vmem_atomic_rebind_case(const char *path)
 {
     const char *arguments[] = {
@@ -1030,8 +1074,11 @@ static int run_vmem_atomic_rebind_case(const char *path)
     }
 
     /* Invalid partial publication above did not mutate B, and disabled Open
-     * must not invoke any old callback. */
-    if (libvlc_media_player_play(player) != 0
+     * must not invoke any old callback. Wait for this playback to start:
+     * otherwise stop_player can observe the previous Stopped state while the
+     * new input is still starting, then a later rebind leaks into that input.
+     * Opening is latched because disabled output may never reach Playing. */
+    if (!play_through_opening(player)
      || !stop_player(player)
      || atomic_load_explicit(&a.setup_count, memory_order_relaxed) != 1
      || atomic_load_explicit(&b.setup_count, memory_order_relaxed) != 1)
