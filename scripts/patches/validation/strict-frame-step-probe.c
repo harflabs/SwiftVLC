@@ -675,6 +675,65 @@ static bool await_count(struct completion *completion, unsigned target,
     return reached;
 }
 
+struct resume_pause_barrier
+{
+    pthread_mutex_t lock;
+    pthread_cond_t changed;
+    bool resumed;
+    bool paused_after_resume;
+    bool out_of_order;
+};
+
+static void on_resume_pause(const libvlc_event_t *event, void *opaque)
+{
+    struct resume_pause_barrier *barrier = opaque;
+    pthread_mutex_lock(&barrier->lock);
+    if (event->type == libvlc_MediaPlayerPlaying)
+        barrier->resumed = true;
+    else if (event->type == libvlc_MediaPlayerPaused)
+    {
+        barrier->out_of_order |= !barrier->resumed;
+        barrier->paused_after_resume = barrier->resumed;
+    }
+    pthread_cond_broadcast(&barrier->changed);
+    pthread_mutex_unlock(&barrier->lock);
+}
+
+static bool arm_resume_pause(libvlc_event_manager_t *events,
+                              struct resume_pause_barrier *barrier)
+{
+    if (libvlc_event_attach(events, libvlc_MediaPlayerPlaying,
+                            on_resume_pause, barrier) != 0)
+        return false;
+    if (libvlc_event_attach(events, libvlc_MediaPlayerPaused,
+                            on_resume_pause, barrier) == 0)
+        return true;
+    libvlc_event_detach(events, libvlc_MediaPlayerPlaying,
+                         on_resume_pause, barrier);
+    return false;
+}
+
+static bool await_resume_pause(libvlc_event_manager_t *events,
+                                struct resume_pause_barrier *barrier)
+{
+    struct timespec deadline;
+    deadline_after(&deadline, 5000);
+    pthread_mutex_lock(&barrier->lock);
+    while (!barrier->paused_after_resume && !barrier->out_of_order)
+        if (pthread_cond_timedwait(&barrier->changed, &barrier->lock,
+                                   &deadline) == ETIMEDOUT)
+            break;
+    bool ordered = barrier->paused_after_resume && !barrier->out_of_order;
+    pthread_mutex_unlock(&barrier->lock);
+    libvlc_event_detach(events, libvlc_MediaPlayerPlaying,
+                         on_resume_pause, barrier);
+    libvlc_event_detach(events, libvlc_MediaPlayerPaused,
+                         on_resume_pause, barrier);
+    if (!ordered)
+        fprintf(stderr, "nested pause did not follow a fresh resume event\n");
+    return ordered;
+}
+
 static void sleep_milliseconds(long milliseconds)
 {
     struct timespec delay = {
@@ -731,15 +790,18 @@ static int check_terminal(struct completion *completion, unsigned target,
               && (completion->history[index].position == -1.0
                || (completion->history[index].position >= 0.0
                 && completion->history[index].position <= 1.0));
-    pthread_mutex_unlock(&completion->lock);
-
     if (!valid)
-    {
-        fprintf(stderr, "invalid or duplicate terminal for request %llu\n",
-                (unsigned long long)request_id);
-        return 1;
-    }
-    return 0;
+        fprintf(stderr,
+                "invalid terminal target=%u count=%u expected=%llu/%d "
+                "actual=%llu/%d time=%lld position=%f\n",
+                target, completion->count,
+                (unsigned long long)request_id, expected_status,
+                (unsigned long long)completion->history[index].request_id,
+                completion->history[index].status,
+                (long long)completion->history[index].time_us,
+                completion->history[index].position);
+    pthread_mutex_unlock(&completion->lock);
+    return valid ? 0 : 1;
 }
 
 #ifdef SWIFTVLC_SOURCE_LINKED_PROBE
@@ -928,6 +990,50 @@ static bool stop_player(libvlc_media_player_t *player)
     return wait_for_state(player, libvlc_Stopped, 5000);
 }
 
+struct opening_barrier
+{
+    pthread_mutex_t lock;
+    pthread_cond_t changed;
+    bool opened;
+};
+
+static void on_opening(const libvlc_event_t *event, void *opaque)
+{
+    (void)event;
+    struct opening_barrier *barrier = opaque;
+    pthread_mutex_lock(&barrier->lock);
+    barrier->opened = true;
+    pthread_cond_broadcast(&barrier->changed);
+    pthread_mutex_unlock(&barrier->lock);
+}
+
+static bool play_through_opening(libvlc_media_player_t *player)
+{
+    struct opening_barrier barrier = {
+        .lock = PTHREAD_MUTEX_INITIALIZER,
+        .changed = PTHREAD_COND_INITIALIZER,
+    };
+    libvlc_event_manager_t *events = libvlc_media_player_event_manager(player);
+    if (libvlc_event_attach(events, libvlc_MediaPlayerOpening,
+                            on_opening, &barrier) != 0)
+        return false;
+    bool started = libvlc_media_player_play(player) == 0;
+    struct timespec deadline;
+    deadline_after(&deadline, 5000);
+    pthread_mutex_lock(&barrier.lock);
+    while (started && !barrier.opened)
+        if (pthread_cond_timedwait(&barrier.changed, &barrier.lock,
+                                   &deadline) == ETIMEDOUT)
+            break;
+    bool opened = started && barrier.opened;
+    pthread_mutex_unlock(&barrier.lock);
+    libvlc_event_detach(events, libvlc_MediaPlayerOpening,
+                        on_opening, &barrier);
+    pthread_cond_destroy(&barrier.changed);
+    pthread_mutex_destroy(&barrier.lock);
+    return opened;
+}
+
 static int run_vmem_atomic_rebind_case(const char *path)
 {
     const char *arguments[] = {
@@ -1030,8 +1136,11 @@ static int run_vmem_atomic_rebind_case(const char *path)
     }
 
     /* Invalid partial publication above did not mutate B, and disabled Open
-     * must not invoke any old callback. */
-    if (libvlc_media_player_play(player) != 0
+     * must not invoke any old callback. Wait for this playback to start:
+     * otherwise stop_player can observe the previous Stopped state while the
+     * new input is still starting, then a later rebind leaks into that input.
+     * Opening is latched because disabled output may never reach Playing. */
+    if (!play_through_opening(player)
      || !stop_player(player)
      || atomic_load_explicit(&a.setup_count, memory_order_relaxed) != 1
      || atomic_load_explicit(&b.setup_count, memory_order_relaxed) != 1)
@@ -1297,6 +1406,12 @@ static bool lifecycle_exact_after_stop(struct lifecycle_fixture *fixture,
     return exact;
 }
 
+static int lifecycle_failure(int line)
+{
+    fprintf(stderr, "committed lifecycle failure at line=%d\n", line);
+    return 1;
+}
+
 static int run_committed_terminal_lifecycle_case(const char *path)
 {
     /* Post-claim/pre-terminal stop. The result-bearing vmem callback is the
@@ -1306,10 +1421,10 @@ static int run_committed_terminal_lifecycle_case(const char *path)
      * before DEAD. Listener reentry sees the stopped player as unavailable. */
     struct lifecycle_fixture stopped;
     if (lifecycle_fixture_open(&stopped, path) != 0)
-        return 1;
+        return lifecycle_failure(__LINE__);
     arm_reentrant_request(&stopped.completion, stopped.player, 1200, 1201);
     if (!await_exact_committed_submission(&stopped, 1200))
-        return 1;
+        return lifecycle_failure(__LINE__);
     libvlc_media_player_stop_async(stopped.player);
     bool stop_cancel =
         swiftvlc_libvlc_media_player_cancel_next_frame_request(
@@ -1330,7 +1445,7 @@ static int run_committed_terminal_lifecycle_case(const char *path)
                 stopped.completion.status,
                 libvlc_media_player_get_state(stopped.player));
         pthread_mutex_unlock(&stopped.completion.lock);
-        return 1;
+        return lifecycle_failure(__LINE__);
     }
     lifecycle_fixture_close(&stopped);
 
@@ -1340,9 +1455,9 @@ static int run_committed_terminal_lifecycle_case(const char *path)
      * ECANCELED from the now-NULL current input. */
     struct lifecycle_fixture replace_claim;
     if (lifecycle_fixture_open(&replace_claim, path) != 0)
-        return 1;
+        return lifecycle_failure(__LINE__);
     if (!await_exact_committed_submission(&replace_claim, 1205))
-        return 1;
+        return lifecycle_failure(__LINE__);
     libvlc_media_t *claim_replacement = libvlc_media_new_path(path);
     libvlc_media_player_set_media(replace_claim.player, claim_replacement);
     bool claim_replacement_cancel =
@@ -1354,7 +1469,7 @@ static int run_committed_terminal_lifecycle_case(const char *path)
     {
         fprintf(stderr, "post-claim media replacement failed cancel=%d\n",
                 claim_replacement_cancel);
-        return 1;
+        return lifecycle_failure(__LINE__);
     }
     libvlc_media_release(claim_replacement);
     lifecycle_fixture_close(&replace_claim);
@@ -1365,16 +1480,16 @@ static int run_committed_terminal_lifecycle_case(const char *path)
      * barrier without clearing or relabeling its strict member. */
     struct lifecycle_fixture queued_stop;
     if (lifecycle_fixture_open(&queued_stop, path) != 0)
-        return 1;
+        return lifecycle_failure(__LINE__);
     struct source_request_handle queued_stop_handle =
         capture_source_request(queued_stop.player);
     if (!set_terminal_pop_barrier(queued_stop_handle, true)
      || swiftvlc_libvlc_media_player_request_next_frame(
             queued_stop.player, 1206) != swiftvlc_next_frame_request_accepted)
-        return 1;
+        return lifecycle_failure(__LINE__);
     queued_stop_handle = capture_source_request(queued_stop.player);
     if (!await_terminal_pop_barrier(queued_stop_handle, 5000))
-        return 1;
+        return lifecycle_failure(__LINE__);
     libvlc_media_player_stop_async(queued_stop.player);
     bool queued_stop_cancel =
         swiftvlc_libvlc_media_player_cancel_next_frame_request(
@@ -1385,7 +1500,7 @@ static int run_committed_terminal_lifecycle_case(const char *path)
     {
         fprintf(stderr, "queued-terminal stop failed cancel=%d\n",
                 queued_stop_cancel);
-        return 1;
+        return lifecycle_failure(__LINE__);
     }
     lifecycle_fixture_close(&queued_stop);
 
@@ -1394,16 +1509,16 @@ static int run_committed_terminal_lifecycle_case(const char *path)
      * The old exact result wins and no STOPPING cancellation is synthesized. */
     struct lifecycle_fixture replaced;
     if (lifecycle_fixture_open(&replaced, path) != 0)
-        return 1;
+        return lifecycle_failure(__LINE__);
     struct source_request_handle replacement_handle =
         capture_source_request(replaced.player);
     if (!set_terminal_pop_barrier(replacement_handle, true)
      || swiftvlc_libvlc_media_player_request_next_frame(replaced.player, 1210)
             != swiftvlc_next_frame_request_accepted)
-        return 1;
+        return lifecycle_failure(__LINE__);
     replacement_handle = capture_source_request(replaced.player);
     if (!await_terminal_pop_barrier(replacement_handle, 5000))
-        return 1;
+        return lifecycle_failure(__LINE__);
     libvlc_media_t *replacement = libvlc_media_new_path(path);
     arm_reentrant_request(&replaced.completion, replaced.player, 1210, 1211);
     libvlc_media_player_set_media(replaced.player, replacement);
@@ -1418,7 +1533,7 @@ static int run_committed_terminal_lifecycle_case(const char *path)
     {
         fprintf(stderr, "queued-terminal media replacement failed cancel=%d\n",
                 replacement_cancel);
-        return 1;
+        return lifecycle_failure(__LINE__);
     }
     libvlc_media_release(replacement);
     lifecycle_fixture_close(&replaced);
@@ -1429,17 +1544,26 @@ static int run_committed_terminal_lifecycle_case(const char *path)
      * remains the sole completion after the lock is released. */
     struct lifecycle_fixture transit;
     if (lifecycle_fixture_open(&transit, path) != 0)
-        return 1;
+        return lifecycle_failure(__LINE__);
     struct source_request_handle transit_handle =
         capture_source_request(transit.player);
-    libvlc_media_player_lock(transit.player);
-    if (swiftvlc_libvlc_media_player_request_next_frame(transit.player, 1220)
+    /* Let input initialization and output finish with the player lock free.
+     * Holding it before a terminal is queued can block an earlier input event
+     * and prevent the test from ever reaching its in-transit boundary. */
+    if (!set_terminal_pop_barrier(transit_handle, true)
+     || swiftvlc_libvlc_media_player_request_next_frame(transit.player, 1220)
             != swiftvlc_next_frame_request_accepted)
-        return 1;
-    transit_handle.generation =
-        transit.player->player->strict_frame_request_generation;
-    if (!await_terminal_in_transit(transit_handle, 1220, 5000))
-        return 1;
+        return lifecycle_failure(__LINE__);
+    transit_handle = capture_source_request(transit.player);
+    if (!await_terminal_pop_barrier(transit_handle, 5000))
+        return lifecycle_failure(__LINE__);
+    libvlc_media_player_lock(transit.player);
+    if (!set_terminal_pop_barrier(transit_handle, false)
+     || !await_terminal_in_transit(transit_handle, 1220, 5000))
+    {
+        libvlc_media_player_unlock(transit.player);
+        return lifecycle_failure(__LINE__);
+    }
     libvlc_media_player_stop_async(transit.player);
     bool transit_cancel =
         swiftvlc_libvlc_media_player_cancel_next_frame_request(
@@ -1448,7 +1572,7 @@ static int run_committed_terminal_lifecycle_case(const char *path)
     if (transit_cancel || !lifecycle_exact_after_stop(&transit, 1220))
     {
         fprintf(stderr, "in-transit stop failed cancel=%d\n", transit_cancel);
-        return 1;
+        return lifecycle_failure(__LINE__);
     }
     lifecycle_fixture_close(&transit);
 
@@ -1460,15 +1584,15 @@ static int run_committed_terminal_lifecycle_case(const char *path)
      * must preserve the exact result rather than synthesize ECANCELED. */
     struct lifecycle_fixture eof;
     if (lifecycle_fixture_open_raw(&eof) != 0)
-        return 1;
+        return lifecycle_failure(__LINE__);
     struct source_request_handle eof_handle = capture_source_request(eof.player);
     if (!set_terminal_pop_barrier(eof_handle, true)
      || swiftvlc_libvlc_media_player_request_next_frame(eof.player, 1230)
             != swiftvlc_next_frame_request_accepted)
-        return 1;
+        return lifecycle_failure(__LINE__);
     eof_handle = capture_source_request(eof.player);
     if (!await_terminal_pop_barrier(eof_handle, 5000))
-        return 1;
+        return lifecycle_failure(__LINE__);
     eof_handle = capture_source_request(eof.player);
     if (eof_handle.input != NULL)
         input_ControlSetFrameNextNeedData(eof_handle.input, true);
@@ -1489,18 +1613,18 @@ static int run_committed_terminal_lifecycle_case(const char *path)
                 eof_priv == NULL ? -1
                                  : es_out_IsEmpty(eof_priv->p_es_out));
         set_terminal_pop_barrier(eof_handle, false);
-        return 1;
+        return lifecycle_failure(__LINE__);
     }
     set_terminal_pop_barrier(eof_handle, false);
     if (!wait_for_state(eof.player, libvlc_Stopped, 5000))
     {
         fprintf(stderr, "natural EOF never reached stopped state\n");
-        return 1;
+        return lifecycle_failure(__LINE__);
     }
     if (check_committed_terminal(&eof.completion, 1, 1230))
     {
         fprintf(stderr, "natural EOF lost or relabelled its terminal\n");
-        return 1;
+        return lifecycle_failure(__LINE__);
     }
     pthread_mutex_lock(&eof.completion.lock);
     const bool eof_exact = eof.completion.count == 1;
@@ -1508,7 +1632,7 @@ static int run_committed_terminal_lifecycle_case(const char *path)
     if (!eof_exact)
     {
         fprintf(stderr, "natural EOF delivered duplicate terminal\n");
-        return 1;
+        return lifecycle_failure(__LINE__);
     }
     lifecycle_fixture_close(&eof);
     return 0;
@@ -1766,6 +1890,27 @@ static int run_deferred_error_reentry_case(const char *path)
     return 0;
 }
 
+static int vmem_submission_failure(libvlc_media_player_t *player,
+                                   struct vmem_context *vmem,
+                                   struct completion *completion,
+                                   uint64_t request_id, unsigned baseline,
+                                   int line)
+{
+    pthread_mutex_lock(&completion->lock);
+    unsigned terminals = completion->count;
+    pthread_mutex_unlock(&completion->lock);
+    fprintf(stderr,
+            "vmem request=%llu failed at line=%d state=%d baseline=%u "
+            "locks=%u displays=%u submissions=%u terminals=%u\n",
+            (unsigned long long)request_id, line,
+            libvlc_media_player_get_state(player), baseline,
+            atomic_load_explicit(&vmem->lock_count, memory_order_relaxed),
+            atomic_load_explicit(&vmem->display_count, memory_order_relaxed),
+            atomic_load_explicit(&vmem->status_count, memory_order_relaxed),
+            terminals);
+    return 1;
+}
+
 #ifdef SWIFTVLC_SOURCE_LINKED_PROBE
 static int run_terminal_overflow_case(const char *path)
 {
@@ -1785,6 +1930,7 @@ static int run_terminal_overflow_case(const char *path)
         .lock = PTHREAD_MUTEX_INITIALIZER,
         .changed = PTHREAD_COND_INITIALIZER,
     };
+    unsigned baseline = 0;
     libvlc_event_manager_t *events =
         libvlc_media_player_event_manager(player);
     if (swiftvlc_libvlc_video_set_callbacks_atomic(
@@ -1795,12 +1941,19 @@ static int run_terminal_overflow_case(const char *path)
      || libvlc_media_player_play(player) != 0
      || !wait_for_state(player, libvlc_Playing, 5000)
      || !await_atomic_at_least(&vmem.status_count, 1, 5000))
-        return 1;
+        return vmem_submission_failure(player, &vmem, &completion, 990, baseline, __LINE__);
 
     libvlc_media_player_set_pause(player, 1);
-    if (!wait_for_state(player, libvlc_Paused, 5000))
-        return 1;
-    const unsigned baseline = atomic_load_explicit(
+    /* Finish an ordinary in-flight output before arming allocation failure and
+     * counting the two fault/recovery submissions. Paused alone is not an
+     * acknowledged output boundary. */
+    if (!wait_for_state(player, libvlc_Paused, 5000)
+     || swiftvlc_libvlc_media_player_request_next_frame(player, 989)
+            != swiftvlc_next_frame_request_accepted
+     || check_terminal(&completion, 1, 989,
+                       swiftvlc_frame_step_status_success))
+        return vmem_submission_failure(player, &vmem, &completion, 990, baseline, __LINE__);
+    baseline = atomic_load_explicit(
         &vmem.status_count, memory_order_relaxed);
 
     /* This toggles the exact input queue's private allocator-failure branch;
@@ -1810,17 +1963,17 @@ static int run_terminal_overflow_case(const char *path)
     if (!force_terminal_allocation_failure(player, true)
      || swiftvlc_libvlc_media_player_request_next_frame(player, 990)
             != swiftvlc_next_frame_request_accepted
-     || check_terminal(&completion, 1, 990, -EOVERFLOW)
+     || check_terminal(&completion, 2, 990, -EOVERFLOW)
      || !force_terminal_allocation_failure(player, false)
      || swiftvlc_libvlc_media_player_request_next_frame(player, 991)
             != swiftvlc_next_frame_request_accepted
-     || check_terminal(&completion, 2, 991,
+     || check_terminal(&completion, 3, 991,
                        swiftvlc_frame_step_status_success)
      || !await_atomic_exact(&vmem.status_count, baseline + 2, 5000)
-     || !stop_at_quiescence(player, &completion, 2)
+     || !stop_at_quiescence(player, &completion, 3)
      || atomic_load_explicit(&vmem.status_count, memory_order_relaxed)
             != baseline + 2)
-        return 1;
+        return vmem_submission_failure(player, &vmem, &completion, 990, baseline, __LINE__);
 
     libvlc_event_detach(events, libvlc_MediaPlayerFrameStepCompleted,
                         on_completion, &completion);
@@ -1860,6 +2013,7 @@ static int run_vmem_submission_case(const char *path, uint64_t request_id,
         .lock = PTHREAD_MUTEX_INITIALIZER,
         .changed = PTHREAD_COND_INITIALIZER,
     };
+    unsigned before_strict = 0;
     if (install_status_callback)
     {
         if (swiftvlc_libvlc_video_set_callbacks_atomic(
@@ -1867,7 +2021,7 @@ static int run_vmem_submission_case(const char *path, uint64_t request_id,
                 install_legacy_display ? vmem_display : NULL,
                 vmem_display_submission, vmem_setup_ex, vmem_cleanup,
                 &vmem) != 0)
-            return 1;
+            return vmem_submission_failure(player, &vmem, &completion, request_id, before_strict, __LINE__);
     }
     else
     {
@@ -1888,14 +2042,24 @@ static int run_vmem_submission_case(const char *path, uint64_t request_id,
      || libvlc_media_player_play(player) != 0
      || !wait_for_state(player, libvlc_Playing, 5000)
      || !await_atomic_at_least(submission_counter, 1, 5000))
-        return 1;
+        return vmem_submission_failure(player, &vmem, &completion, request_id, before_strict, __LINE__);
 
     /* Legacy void/NULL-display modes remain active for ordinary playback.
      * Only strict completion fails closed when submission is unproven. */
     libvlc_media_player_set_pause(player, 1);
     if (!wait_for_state(player, libvlc_Paused, 5000))
-        return 1;
-    unsigned before_strict =
+        return vmem_submission_failure(player, &vmem, &completion, request_id, before_strict, __LINE__);
+    /* Paused is a player state, not a completed video-output submission.
+     * An ordinary picture already in flight can still enter the callback.
+     * A completed control request gives us an acknowledged output boundary
+     * before measuring the exact mixed burst below. Check its real result too;
+     * do not replace exact counts with a tolerance or a settling sleep. */
+    if (swiftvlc_libvlc_media_player_request_next_frame(player,
+                                                      request_id + 2000)
+            != swiftvlc_next_frame_request_accepted
+     || check_terminal(&completion, 1, request_id + 2000, expected_status))
+        return vmem_submission_failure(player, &vmem, &completion, request_id, before_strict, __LINE__);
+    before_strict =
         atomic_load_explicit(submission_counter, memory_order_relaxed);
 
     if (install_status_callback)
@@ -1911,31 +2075,31 @@ static int run_vmem_submission_case(const char *path, uint64_t request_id,
         libvlc_media_player_next_frame(player);
         libvlc_media_player_unlock(player);
         if (accepted != swiftvlc_next_frame_request_accepted
-         || check_terminal(&completion, 1, request_id, expected_status)
+         || check_terminal(&completion, 2, request_id, expected_status)
          || !await_atomic_exact(submission_counter, before_strict + 3, 5000)
          || swiftvlc_libvlc_media_player_request_next_frame(
                 player, request_id + 1000)
                 != swiftvlc_next_frame_request_accepted
-         || check_terminal(&completion, 2, request_id + 1000,
+         || check_terminal(&completion, 3, request_id + 1000,
                            expected_status)
          || !await_atomic_exact(submission_counter, before_strict + 4, 5000))
-            return 1;
+            return vmem_submission_failure(player, &vmem, &completion, request_id, before_strict, __LINE__);
     }
     else if (swiftvlc_libvlc_media_player_request_next_frame(player,
                                                               request_id)
                 != swiftvlc_next_frame_request_accepted
-          || check_terminal(&completion, 1, request_id, expected_status)
+          || check_terminal(&completion, 2, request_id, expected_status)
           || atomic_load_explicit(submission_counter, memory_order_relaxed)
                 != before_strict + 1)
-        return 1;
+        return vmem_submission_failure(player, &vmem, &completion, request_id, before_strict, __LINE__);
 
-    const unsigned exact_terminals = install_status_callback ? 2 : 1;
+    const unsigned exact_terminals = install_status_callback ? 3 : 2;
     const unsigned exact_submissions = before_strict
         + (install_status_callback ? 4 : 1);
     if (!stop_at_quiescence(player, &completion, exact_terminals)
      || atomic_load_explicit(submission_counter, memory_order_relaxed)
             != exact_submissions)
-        return 1;
+        return vmem_submission_failure(player, &vmem, &completion, request_id, before_strict, __LINE__);
     libvlc_event_detach(events, libvlc_MediaPlayerFrameStepCompleted,
                         on_completion, &completion);
     libvlc_media_player_release(player);
@@ -2132,10 +2296,10 @@ static int run_static_filter_case(uint64_t request_id,
         .bytes = malloc(frame_size * frame_count),
         .size = frame_size * frame_count,
         .limit = frame_size * frame_count,
-        /* A one-picture read plus a bounded delay keeps the synthetic stream
-         * from reaching EOF before --start-paused is observed. It also makes
-         * every decoded-input-to-final-output relationship visible to the
-         * source-linked NEXT submission oracle. */
+        /* One-picture reads make the decoded-input inventory explicit; the
+         * bounded delay gives the 25:1 cancellation row its intended window.
+         * start-paused protects the initial output inventory independently
+         * of how quickly this thread is scheduled. */
         .max_read = frame_size,
         .read_delay_ms = 30,
     };
@@ -2161,6 +2325,7 @@ static int run_static_filter_case(uint64_t request_id,
                                      &raw);
     if (media == NULL)
         return 2;
+    libvlc_media_add_option(media, ":start-paused");
     libvlc_media_add_option(media, ":demux=rawvideo");
     libvlc_media_add_option(media, ":rawvid-width=16");
     libvlc_media_add_option(media, ":rawvid-height=16");
@@ -2205,22 +2370,20 @@ static int run_static_filter_case(uint64_t request_id,
         on_completion, &completion);
     int play_result = attach_result == 0 ? libvlc_media_player_play(player)
                                          : -1;
-    bool playing = play_result == 0
-                && wait_for_state(player, libvlc_Playing, 5000);
-    bool initial_submission = playing
+    /* This fixture has an exact raw inventory. Pausing after observing
+     * Playing can consume another bob output before the pause takes effect. */
+    bool paused = play_result == 0
+               && wait_for_state(player, libvlc_Paused, 5000);
+    bool initial_submission = paused
                            && await_atomic_at_least(&vmem.status_count, 1,
                                                     5000);
-    if (initial_submission)
-        libvlc_media_player_set_pause(player, 1);
-    bool paused = initial_submission
-               && wait_for_state(player, libvlc_Paused, 5000);
     if (attach_result != 0 || play_result != 0 || !paused
      || !initial_submission)
     {
         fprintf(stderr,
-                "static setup attach=%d play=%d playing=%d paused=%d "
+                "static setup attach=%d play=%d paused=%d "
                 "status=%u state=%d\n",
-                attach_result, play_result, playing, paused,
+                attach_result, play_result, paused,
                 atomic_load_explicit(&vmem.status_count,
                                      memory_order_relaxed),
                 libvlc_media_player_get_state(player));
@@ -2815,6 +2978,12 @@ int main(int argc, char **argv)
 
     /* Resume has the same causal ordering guarantee. Its cancellation
      * callback cannot sneak B in ahead of PLAYING_S. */
+    struct resume_pause_barrier resume_pause = {
+        .lock = PTHREAD_MUTEX_INITIALIZER,
+        .changed = PTHREAD_COND_INITIALIZER,
+    };
+    if (!arm_resume_pause(events, &resume_pause))
+        return 2;
     arm_reentrant_request(&completion, player, 410, 411);
     arm_nested_pause(&completion, player, 410);
     libvlc_media_player_lock(player);
@@ -2827,6 +2996,9 @@ int main(int argc, char **argv)
     if (check_terminal(&completion, target, 410, -ECANCELED)
      || !await_reentrant_busy(&completion)
      || !await_nested_pause(&completion)
+     /* A pause submitted during buffering may be deferred. Require its fresh
+      * acknowledgement after the resume, not merely the setter returning. */
+     || !await_resume_pause(events, &resume_pause)
      || request_after_reset_barrier(player, 411)
             != swiftvlc_next_frame_request_accepted)
         return 1;

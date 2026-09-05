@@ -2,7 +2,9 @@
 """Structural proof for patch 0027's cross-thread strict-frame contract."""
 
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 
 from pip_extension_version import (
     read_source_root,
@@ -55,6 +57,103 @@ def forbid(body: str, *needles: str) -> None:
     for needle in needles:
         if needle in body:
             raise AssertionError(f"forbidden invariant: {needle}")
+
+
+def validate_deferred_pause_resume(source: str) -> None:
+    """Execute the actual input pause functions and SET_STATE branch in a C harness.
+
+    Demux/clock stubs record effects. They do not replace the branching that
+    regressed: the C bodies below are extracted from the patched VLC source.
+    """
+    pause = function_body(source, "static bool ControlPause(")
+    resume = function_body(source, "static void ControlUnpause(")
+    control = function_body(source, "static bool Control(")
+    start = control.index("case INPUT_CONTROL_SET_STATE:")
+    end = control.index("case INPUT_CONTROL_SET_RATE:", start)
+    state = control[start:end]
+    harness = r'''
+#include <stdbool.h>
+#include <stdio.h>
+enum { PLAYING_S, PAUSE_S, ERROR_S, INPUT_CONTROL_SET_STATE,
+       DEMUX_SET_PAUSE_STATE, VLC_INPUT_FAILURE_SOURCE, VLC_INPUT_FAILURE_DEMUX };
+typedef long vlc_tick_t;
+typedef struct { void *s; } demux_t;
+typedef struct { bool b_can_pause; demux_t *p_demux; } master_t;
+typedef struct { bool buffering; int pause_calls, resume_calls; } output_t;
+typedef struct {
+    master_t *master; output_t *p_es_out; int i_state;
+    bool b_pause_after_buffering, next_frame_need_data;
+} input_thread_t;
+static bool demux_paused, reject_resume;
+static int state_events;
+#define input_priv(p) (p)
+#define msg_Warn(...) ((void)0)
+#define msg_Err(...) ((void)0)
+static int demux_Control(demux_t *d, int command, bool pause) {
+    if (!pause && reject_resume) return -1;
+    demux_paused = pause; return 0;
+}
+static bool es_out_GetBuffering(output_t *o) { return o->buffering; }
+static int es_out_SetPauseState(output_t *o, bool source, bool paused, long date) {
+    if (paused) o->pause_calls++; else o->resume_calls++; return 0;
+}
+static void input_ChangeState(input_thread_t *p, int state, long date) {
+    p->i_state = state; state_events++;
+}
+static void input_SendEventFailure(input_thread_t *p, int kind) {}
+static void ResetFramePrevious(input_thread_t *p) {}
+static bool ControlPause(input_thread_t *p_input, long i_control_date, bool can_defer)
+''' + pause + '\nstatic void ControlUnpause(input_thread_t *p_input, long i_control_date)\n' + resume + r'''
+static void set_state(input_thread_t *p_input, int desired) {
+    input_thread_t *priv = p_input;
+    struct { struct { int i_int; } val; } param = { .val.i_int = desired };
+    long i_control_date = 1; bool b_force_update = false;
+    switch (INPUT_CONTROL_SET_STATE) {
+''' + state + r'''
+    }
+}
+#define CHECK(c) do { if (!(c)) { fprintf(stderr, "deferred pause regression line %d\n", __LINE__); return 1; } } while (0)
+int main(void) {
+    demux_t demux = {0}; master_t master = {true, &demux};
+    for (int buffering = 0; buffering < 2; buffering++) {
+        output_t output = { .buffering = buffering };
+        input_thread_t input = { &master, &output, PLAYING_S, false, false };
+        state_events = 0; demux_paused = false;
+        set_state(&input, PAUSE_S);
+        CHECK(demux_paused);
+        CHECK(input.b_pause_after_buffering == (bool)buffering);
+        CHECK(input.i_state == (buffering ? PLAYING_S : PAUSE_S));
+        set_state(&input, PLAYING_S);
+        CHECK(!demux_paused && !input.b_pause_after_buffering);
+        CHECK(input.i_state == PLAYING_S);
+        CHECK(output.pause_calls == !buffering && output.resume_calls == !buffering);
+        CHECK(state_events == (buffering ? 0 : 2));
+        set_state(&input, PLAYING_S);
+        CHECK(output.resume_calls == !buffering);
+        /* A later pause must still take effect; resume is not a permanent veto. */
+        set_state(&input, PAUSE_S);
+        CHECK(demux_paused && input.b_pause_after_buffering == (bool)buffering);
+        reject_resume = true;
+        set_state(&input, PLAYING_S);
+        CHECK(input.i_state == ERROR_S && demux_paused);
+        CHECK(!input.b_pause_after_buffering);
+        reject_resume = false;
+        /* A pending flag must not authorize a resume out of a failed input. */
+        input.i_state = ERROR_S;
+        input.b_pause_after_buffering = true;
+        demux_paused = true;
+        set_state(&input, PLAYING_S);
+        CHECK(input.i_state == ERROR_S && demux_paused);
+    }
+    return 0;
+}
+'''
+    with tempfile.TemporaryDirectory(prefix="swiftvlc-pause-contract-") as temporary:
+        path = Path(temporary)
+        (path / "probe.c").write_text(harness)
+        subprocess.run(["cc", "-std=c11", str(path / "probe.c"),
+                        "-o", str(path / "probe")], check=True, timeout=30)
+        subprocess.run([str(path / "probe")], check=True, timeout=5)
 
 
 def validate_apple_submission_contract(apple: str, vout: str) -> None:
@@ -381,6 +480,21 @@ def mutation_rejects_eof_observer_regressions(vout: str, decoder: str,
 
 def validate_runtime_probe_fidelity(native_probe: str) -> None:
     """Pin the source-linked rows to exact engine barriers and identities."""
+    resume_pause = function_body(native_probe, "static bool await_resume_pause(")
+    require(resume_pause,
+            "while (!barrier->paused_after_resume && !barrier->out_of_order)",
+            "barrier->paused_after_resume && !barrier->out_of_order")
+    resume_event = function_body(native_probe, "static void on_resume_pause(")
+    require(resume_event,
+            "barrier->out_of_order |= !barrier->resumed;",
+            "barrier->paused_after_resume = barrier->resumed;")
+    main = function_body(native_probe, "int main(")
+    ordered(main,
+            "arm_resume_pause(events, &resume_pause)",
+            "arm_nested_pause(&completion, player, 410);",
+            "!await_nested_pause(&completion)",
+            "!await_resume_pause(events, &resume_pause)",
+            "request_after_reset_barrier(player, 411)")
     stop = function_body(native_probe, "static bool stop_at_quiescence(")
     ordered(stop,
             "libvlc_media_player_stop_async(player);",
@@ -388,8 +502,72 @@ def validate_runtime_probe_fidelity(native_probe: str) -> None:
             "completion->count == exact_terminal_count")
     forbid(stop, "sleep_milliseconds")
 
+    opening = function_body(native_probe, "static bool play_through_opening(")
+    ordered(opening,
+            "libvlc_event_attach(events, libvlc_MediaPlayerOpening,",
+            "libvlc_media_player_play(player) == 0",
+            "while (started && !barrier.opened)",
+            "pthread_cond_timedwait(",
+            "bool opened = started && barrier.opened;",
+            "libvlc_event_detach(events, libvlc_MediaPlayerOpening,",
+            "return opened;")
+    forbid(opening, "sleep_milliseconds(")
+
+    rebind = function_body(native_probe, "static int run_vmem_atomic_rebind_case(")
+    disabled = rebind[rebind.index("/* Invalid partial publication above") :]
+    ordered(disabled,
+            "play_through_opening(player)",
+            "stop_player(player)",
+            "atomic_load_explicit(&a.setup_count, memory_order_relaxed) != 1",
+            "atomic_load_explicit(&b.setup_count, memory_order_relaxed) != 1")
+
+    vmem_case = function_body(native_probe, "static int run_vmem_submission_case(")
+    ordered(vmem_case,
+            "wait_for_state(player, libvlc_Paused, 5000)",
+            "check_terminal(&completion, 1, request_id + 2000, expected_status)",
+            "before_strict =",
+            "check_terminal(&completion, 2, request_id, expected_status)",
+            "await_atomic_exact(submission_counter, before_strict + 3, 5000)",
+            "check_terminal(&completion, 3, request_id + 1000,",
+            "await_atomic_exact(submission_counter, before_strict + 4, 5000)",
+            "const unsigned exact_terminals = install_status_callback ? 3 : 2;",
+            "stop_at_quiescence(player, &completion, exact_terminals)")
+    forbid(vmem_case, "sleep_milliseconds(")
+
+    overflow_case = function_body(native_probe, "static int run_terminal_overflow_case(")
+    ordered(overflow_case,
+            "wait_for_state(player, libvlc_Paused, 5000)",
+            "check_terminal(&completion, 1, 989,",
+            "baseline = atomic_load_explicit(",
+            "force_terminal_allocation_failure(player, true)",
+            "check_terminal(&completion, 2, 990, -EOVERFLOW)",
+            "force_terminal_allocation_failure(player, false)",
+            "check_terminal(&completion, 3, 991,",
+            "await_atomic_exact(&vmem.status_count, baseline + 2, 5000)",
+            "stop_at_quiescence(player, &completion, 3)",
+            "!= baseline + 2")
+    forbid(overflow_case, "sleep_milliseconds(")
+
+    lifecycle = function_body(native_probe, "static int run_committed_terminal_lifecycle_case(")
+    transit = lifecycle[lifecycle.index("struct lifecycle_fixture transit;"):]
+    ordered(transit,
+            "set_terminal_pop_barrier(transit_handle, true)",
+            "swiftvlc_libvlc_media_player_request_next_frame(transit.player, 1220)",
+            "await_terminal_pop_barrier(transit_handle, 5000)",
+            "libvlc_media_player_lock(transit.player);",
+            "set_terminal_pop_barrier(transit_handle, false)",
+            "await_terminal_in_transit(transit_handle, 1220, 5000)",
+            "libvlc_media_player_stop_async(transit.player);",
+            "!lifecycle_exact_after_stop(&transit, 1220)")
+
     static_case = function_body(native_probe,
                                 "static int run_static_filter_case(")
+    ordered(static_case,
+            'libvlc_media_add_option(media, ":start-paused");',
+            "libvlc_media_player_play(player)",
+            "wait_for_state(player, libvlc_Paused, 5000)",
+            "await_atomic_at_least(&vmem.status_count, 1,")
+    forbid(static_case, "wait_for_state(player, libvlc_Playing,", "libvlc_media_player_set_pause(")
     require(
         static_case,
         'expansion ? "--deinterlace=1" : "--video-filter=fps"',
@@ -469,6 +647,33 @@ def validate_runtime_probe_fidelity(native_probe: str) -> None:
 
 def mutation_rejects_weakened_runtime_probe(native_probe: str) -> None:
     mutations = (
+        ("removed-fresh-resume-pause-acknowledgement",
+         "!await_resume_pause(events, &resume_pause)",
+         "false /* no acknowledgement */"),
+        ("accepted-pause-before-resume",
+         "barrier->out_of_order |= !barrier->resumed;",
+         "barrier->out_of_order = false;"),
+        ("removed-static-start-paused-inventory",
+         'libvlc_media_add_option(media, ":start-paused");',
+         '/* removed startup pause */'),
+        ("removed-transit-queue-boundary",
+         "await_terminal_pop_barrier(transit_handle, 5000)",
+         "true /* no queue acknowledgement */"),
+        ("removed-overflow-baseline-acknowledgement",
+         "check_terminal(&completion, 1, 989,",
+         "check_terminal(&completion, 0, 989,"),
+        ("weakened-overflow-exact-output-count",
+         "await_atomic_exact(&vmem.status_count, baseline + 2, 5000)",
+         "await_atomic_at_least(&vmem.status_count, baseline + 2, 5000)"),
+        ("removed-disabled-input-opening-boundary",
+         "if (!play_through_opening(player)",
+         "if (libvlc_media_player_play(player) != 0"),
+        ("removed-vmem-baseline-acknowledgement",
+         "check_terminal(&completion, 1, request_id + 2000, expected_status)",
+         "false /* no output boundary before baseline */"),
+        ("weakened-vmem-exact-output-count",
+         "await_atomic_exact(submission_counter, before_strict + 4, 5000)",
+         "await_atomic_at_least(submission_counter, before_strict + 4, 5000)"),
         ("weakened-nine-picture-burst",
          "player, mixed_submission_baseline + 9, 5000)",
          "player, mixed_submission_baseline + 8, 5000)"),
@@ -511,6 +716,7 @@ def main() -> int:
     player = (root / "src/player/player.c").read_text()
     player_input = (root / "src/player/input.c").read_text()
     input_source = (root / "src/input/input.c").read_text()
+    validate_deferred_pause_resume(input_source)
     input_internal = (root / "src/input/input_internal.h").read_text()
     input_event = (root / "src/input/event.h").read_text()
     clock = (root / "src/clock/clock.c").read_text()

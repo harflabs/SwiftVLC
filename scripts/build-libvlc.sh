@@ -21,6 +21,10 @@
 
 set -e
 
+# Validator imports must not dirty a release-quality checkout. Apply this to
+# every Python descendant, including validators that do not pass -B themselves.
+export PYTHONDONTWRITEBYTECODE=1
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && /bin/pwd -P)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && /bin/pwd -P)"
 INVOCATION_DIRECTORY="$(/bin/pwd -P)"
@@ -882,6 +886,7 @@ verify_clean_swiftvlc_checkout() {
     fi
     checkout_status=$(git -C "${REPO_ROOT}" status --porcelain --untracked-files=all)
     if [ -n "${checkout_status}" ]; then
+        printf 'Changed SwiftVLC checkout paths:\n%s\n' "${checkout_status}" >&2
         error "A release-quality --clean-build requires a clean SwiftVLC checkout. Commit, ignore, or remove checkout changes first."
     fi
 }

@@ -281,6 +281,43 @@ def require_mutation_rejected(sources: dict[str, str], key: str,
     raise AssertionError(f"mutation escaped source gate: {description}")
 
 
+def validate_race_probe(probe: str) -> None:
+    publisher = function_body(probe, "static void *publisher(")
+    opener = function_body(probe, "static void *opener(")
+    ordered(publisher,
+            "publish_generation(stress, true)",
+            "rendezvous(stress, a_published);",
+            "rendezvous(stress, a_acquired);",
+            "publish_generation(stress, false)",
+            "rendezvous(stress, b_published);",
+            "rendezvous(stress, b_acquired);",
+            "swiftvlc_vmem_configuration_registry_PublishCompleteV2(",
+            "rendezvous(stress, disabled_published);",
+            "rendezvous(stress, snapshots_exercised);",
+            "iteration < publish_iterations")
+    ordered(opener,
+            "rendezvous(stress, a_published);",
+            "*a =",
+            "rendezvous(stress, a_acquired);",
+            "rendezvous(stress, b_published);",
+            "*b =",
+            "rendezvous(stress, b_acquired);",
+            "rendezvous(stress, disabled_published);",
+            "a->opaque != &generation_a",
+            "b->opaque != &generation_b",
+            "exercise_snapshot(a);",
+            "exercise_snapshot(b);",
+            "exercise_snapshot(disabled);",
+            "swiftvlc_vmem_configuration_Release(a);",
+            "swiftvlc_vmem_configuration_Release(b);",
+            "rendezvous(stress, snapshots_exercised);",
+            "iteration < acquire_iterations")
+    require(probe, "publish_iterations = 50000, acquire_iterations = 100000",
+            "a_setups != 0 && b_setups != 0",
+            "a_setups == atomic_load_explicit(&generation_a.cleanups,",
+            "b_setups == atomic_load_explicit(&generation_b.cleanups,")
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print(f"usage: {sys.argv[0]} <patched-vlc-source>", file=sys.stderr)
@@ -301,6 +338,18 @@ def main() -> int:
     sources = {name: path.read_text() for name, path in paths.items()}
     sources.update(read_source_root(root))
     integrated_extension_version = validate_all(sources)
+    probe = Path(__file__).with_name("vmem-configuration-race.c").read_text()
+    validate_race_probe(probe)
+    for original in ("rendezvous(stress, a_acquired);",
+                     "rendezvous(stress, b_acquired);",
+                     "exercise_snapshot(a);", "exercise_snapshot(b);"):
+        if original not in probe:
+            raise AssertionError(f"cannot construct race mutation: {original}")
+        try:
+            validate_race_probe(probe.replace(original, "/* removed */", 1))
+        except AssertionError:
+            continue
+        raise AssertionError(f"race lifetime mutation escaped: {original}")
 
     require_mutation_rejected(
         sources, "vmem",

@@ -428,6 +428,7 @@ be rebuilt from the current patch manifest.
   --build-root=/absolute/path/to/shared-native-root \
   --clean-build --all                    # run twice; retain proof above
 ./scripts/release.sh X.Y.Z --dry-run     # strip + zip + checksum, no push
+./scripts/release.sh X.Y.Z --status      # cheap read-only readiness report
 ./scripts/release.sh X.Y.Z --prepare /absolute/path/to/candidate
 ./scripts/check-qualification.sh X.Y.Z /absolute/path/to/candidate/libvlc.xcframework
 # Stage a non-SemVer candidate tag, authenticated draft, and exact CI branch.
@@ -472,14 +473,16 @@ What `release.sh` does:
    final URL/checksum, and asset digest agree, then uses the verified local
    `Vendor` tree. The bridge is unavailable to pull requests, `main`, forks, and
    local consumers. A prematurely created final SemVer tag makes CI fail.
-8. `--finalize` requires successful push runs for Tests, Fixtures, Vendor
-   manifest, Native source contracts, and Sanitizers on that exact commit. One
-   GitHub release update changes the draft to `vX.Y.Z`, targets the exact commit,
-   and publishes it; there is no earlier final-tag push. Before `main` moves, the
+8. `--finalize` requires successful pull-request runs for Tests (including all
+   Showcase platforms and tvOS behavior), Fixtures, Vendor manifest, Native
+   source contracts, and Sanitizers on that exact candidate commit. It reserves
+   the final tag with an absent-value lease, then publishes the draft as
+   `vX.Y.Z`. Before `main` moves, the
    script verifies GitHub immutability, the signed release attestation and every
    local asset subject, an anonymous public checksum download, and a clean
-   external SwiftPM consumer build. It rechecks all refs/assets, fast-forwards
-   `main`, verifies the final postcondition, and removes temporary candidate refs.
+   external SwiftPM consumer build. It rechecks all refs/assets and merges the
+   release PR through protected `main`. A subsequent `--finalize` requires fresh
+   workflows on the exact merge before removing temporary candidate refs.
 
 Candidate preparation and first-time staging refuse non-`main` branches, any
 dirty working tree, a local `main` that differs from `origin/main`, pre-existing
@@ -488,9 +491,54 @@ unauthenticated or under-scoped `gh`. Staging is safe to pause: upload failures
 and missing, pending, or failed CI leave only a non-SemVer tag plus non-public
 draft and do not change `main`. Finalize classifies an uncertain publication
 response before retrying anything. If publication succeeded but the subsequent
-main push failed, the public immutable tag remains usable and the same command
-re-verifies it before retrying only the fast-forward. Never delete, move, or
+PR merge failed, the public immutable tag remains usable and the same command
+re-verifies it before retrying the protected merge. Never delete, move, or
 reuse a final public release tag.
+
+Each release invocation retains `output.log` and `phases.json` in the temporary
+directory printed at startup. The default limits are one hour overall and ten
+minutes without output; `SWIFTVLC_RELEASE_WALL_SECONDS` and
+`SWIFTVLC_RELEASE_IDLE_SECONDS` can set explicit limits (at most 24 hours).
+Timeouts stop the process group and preserve the phase timings. After an
+interrupted upload or publication, run `--status --candidate /path/to/candidate`
+and rerun the same phase: the normal checks reconcile remote state and retain
+verified uploads. Status reports local prerequisites and visible PR checks;
+it does not verify artifact bytes or grant qualification or publication credit.
+
+A Swift, test, or release-tooling correction can reuse a previously prepared
+native artifact with:
+
+```bash
+./scripts/release.sh X.Y.Z --prepare /path/to/new-candidate \
+  --reuse-native /path/to/old-candidate
+```
+
+This requires unchanged native inputs between the original build commit and
+the current clean checkout. Unknown paths and changes to native code, patches,
+build configuration, or validators require a rebuild. Both original provenance
+records and the reproducibility proof remain unchanged. The new candidate binds
+the current Swift source and qualification policy, records the original
+`nativeSourceCommit`, and requires fresh CI and, for stable releases, physical
+qualification. An already staged candidate is never silently replaced.
+
+Ordinary PRs changing native inputs compile the patched macOS engine and run
+20 ordering-probe repetitions against its final archive, followed by Swift
+behavior tests, before the required `test` check can pass.
+The Tests workflow also has a manual `build-native` input for exercising this
+lane. This lane checks macOS integration; release preparation still requires
+the full eight-slice build and reproducibility proof. CI records the effective
+toolchain and SDK and includes that identity in compiled-cache keys.
+
+For a hosted runtime failure, manually dispatch **Native artifact diagnostics** to repeat
+the strict frame-step probe against the declared public engine without another
+native build. Its logs include submission baselines and terminal counts. Failed
+clean builds retain their unpublished XCFramework and host configuration for
+diagnosis; those artifacts do not carry release or qualification approval.
+For source-linked failures, dispatch the same workflow with `retained-run` set
+to the failed Tests run ID. It replays the exact compiler checkout recorded in that run’s log and exercises the current
+probe against the retained engine and generated headers without recompiling VLC.
+These diagnostic runs can expose defects in older engines; required CI uses the
+engine built from the current changes.
 
 After publication, verify that Swift Package Index has finished building the
 tagged API reference and that the unversioned documentation link above resolves
