@@ -100,6 +100,7 @@ jobs:
           path: |
             .build/ci-results
             Vendor/libvlc-provenance.json
+            Vendor/libvlc.xcframework
           retention-days: 14
 
   # Style and formatting gate. Cheap (<1 min) and runs in parallel with

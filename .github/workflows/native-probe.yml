@@ -1,0 +1,46 @@
+name: Released native probe
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/native-probe.yml
+      - scripts/ci/check-strict-frame-step.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  released-native-probe:
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
+        with:
+          xcode-version: "26.4"
+      - name: Resolve declared public engine
+        timeout-minutes: 10
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/ci-use-released-xcframework.sh
+      - name: Repeat the strict-frame runtime probe
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          mkdir -p .build/ci-results
+          python3 -B scripts/ci/environment.py
+          python3 -B scripts/ci/check-strict-frame-step.py 2>&1 | tee .build/ci-results/native-probe.log
+      - name: Retain probe diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: released-native-probe
+          path: .build/ci-results
+          retention-days: 14

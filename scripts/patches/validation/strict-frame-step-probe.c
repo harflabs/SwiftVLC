@@ -1833,6 +1833,27 @@ static int run_terminal_overflow_case(const char *path)
 }
 #endif
 
+static int vmem_submission_failure(libvlc_media_player_t *player,
+                                   struct vmem_context *vmem,
+                                   struct completion *completion,
+                                   uint64_t request_id, unsigned baseline,
+                                   int line)
+{
+    pthread_mutex_lock(&completion->lock);
+    unsigned terminals = completion->count;
+    pthread_mutex_unlock(&completion->lock);
+    fprintf(stderr,
+            "vmem request=%llu failed at line=%d state=%d baseline=%u "
+            "locks=%u displays=%u submissions=%u terminals=%u\n",
+            (unsigned long long)request_id, line,
+            libvlc_media_player_get_state(player), baseline,
+            atomic_load_explicit(&vmem->lock_count, memory_order_relaxed),
+            atomic_load_explicit(&vmem->display_count, memory_order_relaxed),
+            atomic_load_explicit(&vmem->status_count, memory_order_relaxed),
+            terminals);
+    return 1;
+}
+
 static int run_vmem_submission_case(const char *path, uint64_t request_id,
                                     bool install_status_callback,
                                     bool install_legacy_display,
@@ -1860,6 +1881,7 @@ static int run_vmem_submission_case(const char *path, uint64_t request_id,
         .lock = PTHREAD_MUTEX_INITIALIZER,
         .changed = PTHREAD_COND_INITIALIZER,
     };
+    unsigned before_strict = 0;
     if (install_status_callback)
     {
         if (swiftvlc_libvlc_video_set_callbacks_atomic(
@@ -1867,7 +1889,7 @@ static int run_vmem_submission_case(const char *path, uint64_t request_id,
                 install_legacy_display ? vmem_display : NULL,
                 vmem_display_submission, vmem_setup_ex, vmem_cleanup,
                 &vmem) != 0)
-            return 1;
+            return vmem_submission_failure(player, &vmem, &completion, request_id, before_strict, __LINE__);
     }
     else
     {
@@ -1888,14 +1910,14 @@ static int run_vmem_submission_case(const char *path, uint64_t request_id,
      || libvlc_media_player_play(player) != 0
      || !wait_for_state(player, libvlc_Playing, 5000)
      || !await_atomic_at_least(submission_counter, 1, 5000))
-        return 1;
+        return vmem_submission_failure(player, &vmem, &completion, request_id, before_strict, __LINE__);
 
     /* Legacy void/NULL-display modes remain active for ordinary playback.
      * Only strict completion fails closed when submission is unproven. */
     libvlc_media_player_set_pause(player, 1);
     if (!wait_for_state(player, libvlc_Paused, 5000))
-        return 1;
-    unsigned before_strict =
+        return vmem_submission_failure(player, &vmem, &completion, request_id, before_strict, __LINE__);
+    before_strict =
         atomic_load_explicit(submission_counter, memory_order_relaxed);
 
     if (install_status_callback)
@@ -1919,7 +1941,7 @@ static int run_vmem_submission_case(const char *path, uint64_t request_id,
          || check_terminal(&completion, 2, request_id + 1000,
                            expected_status)
          || !await_atomic_exact(submission_counter, before_strict + 4, 5000))
-            return 1;
+            return vmem_submission_failure(player, &vmem, &completion, request_id, before_strict, __LINE__);
     }
     else if (swiftvlc_libvlc_media_player_request_next_frame(player,
                                                               request_id)
@@ -1927,7 +1949,7 @@ static int run_vmem_submission_case(const char *path, uint64_t request_id,
           || check_terminal(&completion, 1, request_id, expected_status)
           || atomic_load_explicit(submission_counter, memory_order_relaxed)
                 != before_strict + 1)
-        return 1;
+        return vmem_submission_failure(player, &vmem, &completion, request_id, before_strict, __LINE__);
 
     const unsigned exact_terminals = install_status_callback ? 2 : 1;
     const unsigned exact_submissions = before_strict
@@ -1935,7 +1957,7 @@ static int run_vmem_submission_case(const char *path, uint64_t request_id,
     if (!stop_at_quiescence(player, &completion, exact_terminals)
      || atomic_load_explicit(submission_counter, memory_order_relaxed)
             != exact_submissions)
-        return 1;
+        return vmem_submission_failure(player, &vmem, &completion, request_id, before_strict, __LINE__);
     libvlc_event_detach(events, libvlc_MediaPlayerFrameStepCompleted,
                         on_completion, &completion);
     libvlc_media_player_release(player);
