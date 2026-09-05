@@ -533,6 +533,9 @@ the strict frame-step probe against the declared public engine without another
 native build. Its logs include submission baselines and terminal counts. Failed
 clean builds retain their unpublished XCFramework and host configuration for
 diagnosis; those artifacts do not carry release or qualification approval.
+For source-linked failures, dispatch the same workflow with `retained-run` set
+to the failed Tests run ID. It replays that run’s source and exercises the current
+probe against the retained engine and generated headers without recompiling VLC.
 
 After publication, verify that Swift Package Index has finished building the
 tagged API reference and that the unversioned documentation link above resolves

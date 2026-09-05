@@ -2,7 +2,8 @@
 """Exercise the released engine's frame-step probe without rebuilding VLC.
 
 This is diagnostic behavior evidence, not native provenance or release approval.
-The caller must first resolve and verify the declared artifact.
+The caller must resolve the declared artifact or explicitly supply a retained
+CI archive with its matching source and generated build headers.
 """
 
 import argparse
@@ -20,10 +21,15 @@ VideoToolbox""".split()
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--repetitions", type=int, default=20)
+    parser.add_argument("--archive", type=Path)
+    parser.add_argument("--source-root", type=Path)
+    parser.add_argument("--build-root", type=Path)
     args = parser.parse_args()
+    if bool(args.source_root) != bool(args.build_root):
+        parser.error("source and build roots must be supplied together")
     if not 1 <= args.repetitions <= 100:
         parser.error("repetitions must be between 1 and 100")
-    archive = ROOT / "Vendor/libvlc.xcframework/macos-arm64_x86_64/libvlc.a"
+    archive = args.archive or ROOT / "Vendor/libvlc.xcframework/macos-arm64_x86_64/libvlc.a"
     fixture = ROOT / "Tests/SwiftVLCTests/Fixtures/twosec.mp4"
     if not archive.is_file() or not fixture.is_file():
         parser.error("verified macOS artifact and seekable fixture are required")
@@ -48,11 +54,22 @@ def main():
         version = int(subprocess.check_output([str(work / "identity")], text=True, timeout=10))
         if not 4 <= version <= 127:
             parser.error(f"unsupported strict-frame ABI version: {version}")
+        flags = [f"-DSWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION={version}"]
+        if args.source_root:
+            if not (args.build_root / "config.h").is_file():
+                parser.error("retained generated config.h is required")
+            if version >= 9:
+                flags += ["-DSWIFTVLC_REQUIRE_APPLE_AUDIO_SESSION_LEASES=1"]
+            flags += ["-std=gnu17", "-DHAVE_CONFIG_H", "-DSWIFTVLC_SOURCE_LINKED_PROBE"]
+            # Use the retained build's private headers before current public ones.
+            for include in (args.build_root, args.source_root, args.source_root / "include",
+                            args.source_root / "lib", args.source_root / "src", args.build_root / "include"):
+                flags += ["-I", str(include)]
         probe = work / "probe"
         compile(ROOT / "scripts/patches/validation/strict-frame-step-probe.c", probe,
-                f"-DSWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION={version}")
+                *flags)
         for attempt in range(1, args.repetitions + 1):
-            print(f"Strict-frame released-engine probe {attempt}/{args.repetitions}, ABI {version}", flush=True)
+            print(f"Strict-frame diagnostic probe {attempt}/{args.repetitions}, ABI {version}", flush=True)
             subprocess.run([str(probe), str(fixture)], check=True, timeout=60)
 
 

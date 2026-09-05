@@ -1344,6 +1344,12 @@ static bool lifecycle_exact_after_stop(struct lifecycle_fixture *fixture,
     return exact;
 }
 
+static int lifecycle_failure(int line)
+{
+    fprintf(stderr, "committed lifecycle failure at line=%d\n", line);
+    return 1;
+}
+
 static int run_committed_terminal_lifecycle_case(const char *path)
 {
     /* Post-claim/pre-terminal stop. The result-bearing vmem callback is the
@@ -1353,10 +1359,10 @@ static int run_committed_terminal_lifecycle_case(const char *path)
      * before DEAD. Listener reentry sees the stopped player as unavailable. */
     struct lifecycle_fixture stopped;
     if (lifecycle_fixture_open(&stopped, path) != 0)
-        return 1;
+        return lifecycle_failure(__LINE__);
     arm_reentrant_request(&stopped.completion, stopped.player, 1200, 1201);
     if (!await_exact_committed_submission(&stopped, 1200))
-        return 1;
+        return lifecycle_failure(__LINE__);
     libvlc_media_player_stop_async(stopped.player);
     bool stop_cancel =
         swiftvlc_libvlc_media_player_cancel_next_frame_request(
@@ -1377,7 +1383,7 @@ static int run_committed_terminal_lifecycle_case(const char *path)
                 stopped.completion.status,
                 libvlc_media_player_get_state(stopped.player));
         pthread_mutex_unlock(&stopped.completion.lock);
-        return 1;
+        return lifecycle_failure(__LINE__);
     }
     lifecycle_fixture_close(&stopped);
 
@@ -1387,9 +1393,9 @@ static int run_committed_terminal_lifecycle_case(const char *path)
      * ECANCELED from the now-NULL current input. */
     struct lifecycle_fixture replace_claim;
     if (lifecycle_fixture_open(&replace_claim, path) != 0)
-        return 1;
+        return lifecycle_failure(__LINE__);
     if (!await_exact_committed_submission(&replace_claim, 1205))
-        return 1;
+        return lifecycle_failure(__LINE__);
     libvlc_media_t *claim_replacement = libvlc_media_new_path(path);
     libvlc_media_player_set_media(replace_claim.player, claim_replacement);
     bool claim_replacement_cancel =
@@ -1401,7 +1407,7 @@ static int run_committed_terminal_lifecycle_case(const char *path)
     {
         fprintf(stderr, "post-claim media replacement failed cancel=%d\n",
                 claim_replacement_cancel);
-        return 1;
+        return lifecycle_failure(__LINE__);
     }
     libvlc_media_release(claim_replacement);
     lifecycle_fixture_close(&replace_claim);
@@ -1412,16 +1418,16 @@ static int run_committed_terminal_lifecycle_case(const char *path)
      * barrier without clearing or relabeling its strict member. */
     struct lifecycle_fixture queued_stop;
     if (lifecycle_fixture_open(&queued_stop, path) != 0)
-        return 1;
+        return lifecycle_failure(__LINE__);
     struct source_request_handle queued_stop_handle =
         capture_source_request(queued_stop.player);
     if (!set_terminal_pop_barrier(queued_stop_handle, true)
      || swiftvlc_libvlc_media_player_request_next_frame(
             queued_stop.player, 1206) != swiftvlc_next_frame_request_accepted)
-        return 1;
+        return lifecycle_failure(__LINE__);
     queued_stop_handle = capture_source_request(queued_stop.player);
     if (!await_terminal_pop_barrier(queued_stop_handle, 5000))
-        return 1;
+        return lifecycle_failure(__LINE__);
     libvlc_media_player_stop_async(queued_stop.player);
     bool queued_stop_cancel =
         swiftvlc_libvlc_media_player_cancel_next_frame_request(
@@ -1432,7 +1438,7 @@ static int run_committed_terminal_lifecycle_case(const char *path)
     {
         fprintf(stderr, "queued-terminal stop failed cancel=%d\n",
                 queued_stop_cancel);
-        return 1;
+        return lifecycle_failure(__LINE__);
     }
     lifecycle_fixture_close(&queued_stop);
 
@@ -1441,16 +1447,16 @@ static int run_committed_terminal_lifecycle_case(const char *path)
      * The old exact result wins and no STOPPING cancellation is synthesized. */
     struct lifecycle_fixture replaced;
     if (lifecycle_fixture_open(&replaced, path) != 0)
-        return 1;
+        return lifecycle_failure(__LINE__);
     struct source_request_handle replacement_handle =
         capture_source_request(replaced.player);
     if (!set_terminal_pop_barrier(replacement_handle, true)
      || swiftvlc_libvlc_media_player_request_next_frame(replaced.player, 1210)
             != swiftvlc_next_frame_request_accepted)
-        return 1;
+        return lifecycle_failure(__LINE__);
     replacement_handle = capture_source_request(replaced.player);
     if (!await_terminal_pop_barrier(replacement_handle, 5000))
-        return 1;
+        return lifecycle_failure(__LINE__);
     libvlc_media_t *replacement = libvlc_media_new_path(path);
     arm_reentrant_request(&replaced.completion, replaced.player, 1210, 1211);
     libvlc_media_player_set_media(replaced.player, replacement);
@@ -1465,7 +1471,7 @@ static int run_committed_terminal_lifecycle_case(const char *path)
     {
         fprintf(stderr, "queued-terminal media replacement failed cancel=%d\n",
                 replacement_cancel);
-        return 1;
+        return lifecycle_failure(__LINE__);
     }
     libvlc_media_release(replacement);
     lifecycle_fixture_close(&replaced);
@@ -1476,17 +1482,17 @@ static int run_committed_terminal_lifecycle_case(const char *path)
      * remains the sole completion after the lock is released. */
     struct lifecycle_fixture transit;
     if (lifecycle_fixture_open(&transit, path) != 0)
-        return 1;
+        return lifecycle_failure(__LINE__);
     struct source_request_handle transit_handle =
         capture_source_request(transit.player);
     libvlc_media_player_lock(transit.player);
     if (swiftvlc_libvlc_media_player_request_next_frame(transit.player, 1220)
             != swiftvlc_next_frame_request_accepted)
-        return 1;
+        return lifecycle_failure(__LINE__);
     transit_handle.generation =
         transit.player->player->strict_frame_request_generation;
     if (!await_terminal_in_transit(transit_handle, 1220, 5000))
-        return 1;
+        return lifecycle_failure(__LINE__);
     libvlc_media_player_stop_async(transit.player);
     bool transit_cancel =
         swiftvlc_libvlc_media_player_cancel_next_frame_request(
@@ -1495,7 +1501,7 @@ static int run_committed_terminal_lifecycle_case(const char *path)
     if (transit_cancel || !lifecycle_exact_after_stop(&transit, 1220))
     {
         fprintf(stderr, "in-transit stop failed cancel=%d\n", transit_cancel);
-        return 1;
+        return lifecycle_failure(__LINE__);
     }
     lifecycle_fixture_close(&transit);
 
@@ -1507,15 +1513,15 @@ static int run_committed_terminal_lifecycle_case(const char *path)
      * must preserve the exact result rather than synthesize ECANCELED. */
     struct lifecycle_fixture eof;
     if (lifecycle_fixture_open_raw(&eof) != 0)
-        return 1;
+        return lifecycle_failure(__LINE__);
     struct source_request_handle eof_handle = capture_source_request(eof.player);
     if (!set_terminal_pop_barrier(eof_handle, true)
      || swiftvlc_libvlc_media_player_request_next_frame(eof.player, 1230)
             != swiftvlc_next_frame_request_accepted)
-        return 1;
+        return lifecycle_failure(__LINE__);
     eof_handle = capture_source_request(eof.player);
     if (!await_terminal_pop_barrier(eof_handle, 5000))
-        return 1;
+        return lifecycle_failure(__LINE__);
     eof_handle = capture_source_request(eof.player);
     if (eof_handle.input != NULL)
         input_ControlSetFrameNextNeedData(eof_handle.input, true);
@@ -1536,18 +1542,18 @@ static int run_committed_terminal_lifecycle_case(const char *path)
                 eof_priv == NULL ? -1
                                  : es_out_IsEmpty(eof_priv->p_es_out));
         set_terminal_pop_barrier(eof_handle, false);
-        return 1;
+        return lifecycle_failure(__LINE__);
     }
     set_terminal_pop_barrier(eof_handle, false);
     if (!wait_for_state(eof.player, libvlc_Stopped, 5000))
     {
         fprintf(stderr, "natural EOF never reached stopped state\n");
-        return 1;
+        return lifecycle_failure(__LINE__);
     }
     if (check_committed_terminal(&eof.completion, 1, 1230))
     {
         fprintf(stderr, "natural EOF lost or relabelled its terminal\n");
-        return 1;
+        return lifecycle_failure(__LINE__);
     }
     pthread_mutex_lock(&eof.completion.lock);
     const bool eof_exact = eof.completion.count == 1;
@@ -1555,7 +1561,7 @@ static int run_committed_terminal_lifecycle_case(const char *path)
     if (!eof_exact)
     {
         fprintf(stderr, "natural EOF delivered duplicate terminal\n");
-        return 1;
+        return lifecycle_failure(__LINE__);
     }
     lifecycle_fixture_close(&eof);
     return 0;
