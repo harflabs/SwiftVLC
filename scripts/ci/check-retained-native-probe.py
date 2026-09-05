@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 """Replay diagnostics against a failed CI build; never grant release evidence."""
 
-import json
 import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+
+def source_revision(log):
+    revisions = set(re.findall(r"SwiftVLC source provenance: ([0-9a-f]{40})\b", log))
+    if len(revisions) != 1:
+        raise ValueError("retained build log must contain one unambiguous compiled source revision")
+    return revisions.pop()
 
 
 def main():
@@ -18,12 +24,18 @@ def main():
     retained = temporary / "retained-native-build"
     checkout = temporary / "retained-source-checkout"
     replay = temporary / "retained-native-source"
-    metadata = json.loads(subprocess.check_output(
-        ["gh", "run", "view", run_id, "--repo", repo, "--json", "headSha"],
-        text=True, timeout=30))
-    revision = metadata["headSha"]
-    if not re.fullmatch(r"[0-9a-f]{40}", revision):
-        raise SystemExit("retained run has no exact source revision")
+    evidence = temporary / "retained-native-evidence"
+    subprocess.run(["gh", "run", "download", run_id, "--repo", repo,
+                    "--name", "compiled-native-evidence", "--dir", str(evidence)],
+                   check=True, timeout=120)
+    logs = list(evidence.rglob("native-build.log"))
+    if len(logs) != 1:
+        raise SystemExit("expected one retained native build log")
+    revision = source_revision(logs[0].read_text())
+    # PR jobs build a synthetic merge commit, which may contain native changes
+    # from main absent from the branch head reported by the workflow-run API.
+    subprocess.run(["git", "fetch", "--no-tags", "origin", revision],
+                   check=True, timeout=120)
     subprocess.run(["gh", "run", "download", run_id, "--repo", repo,
                     "--name", "unqualified-native-build", "--dir", str(retained)],
                    check=True, timeout=300)

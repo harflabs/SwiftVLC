@@ -534,7 +534,7 @@ native build. Its logs include submission baselines and terminal counts. Failed
 clean builds retain their unpublished XCFramework and host configuration for
 diagnosis; those artifacts do not carry release or qualification approval.
 For source-linked failures, dispatch the same workflow with `retained-run` set
-to the failed Tests run ID. It replays that run’s source and exercises the current
+to the failed Tests run ID. It replays the exact compiler checkout recorded in that run’s log and exercises the current
 probe against the retained engine and generated headers without recompiling VLC.
 
 After publication, verify that Swift Package Index has finished building the
