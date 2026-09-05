@@ -1,4 +1,8 @@
 /* Runtime and ABI proof for SwiftVLC's version-4 strict frame-step contract. */
+#ifdef HAVE_CONFIG_H
+# include "config.h"
+#endif
+
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
