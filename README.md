@@ -528,6 +528,12 @@ lane. This lane checks macOS integration; release preparation still requires
 the full eight-slice build and reproducibility proof. CI records the effective
 toolchain and SDK and includes that identity in compiled-cache keys.
 
+For a hosted runtime failure, the **Released native probe** workflow repeats
+the strict frame-step probe against the declared public engine without another
+native build. Its logs include submission baselines and terminal counts. Failed
+clean builds retain their unpublished XCFramework and host configuration for
+diagnosis; those artifacts do not carry release or qualification approval.
+
 After publication, verify that Swift Package Index has finished building the
 tagged API reference and that the unversioned documentation link above resolves
 to `1.0.0`. Its documentation build is asynchronous and may temporarily serve
