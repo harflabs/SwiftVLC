@@ -28,13 +28,14 @@ diff --git a/src/input/input.c b/src/input/input.c
  
      /* Switch to play */
      input_ChangeState( p_input, PLAYING_S, i_control_date );
-@@ -3245,7 +3252,8 @@
+@@ -3245,7 +3252,9 @@
              switch( param.val.i_int )
              {
                  case PLAYING_S:
 -                    if( priv->i_state == PAUSE_S )
 +                    if( priv->i_state == PAUSE_S
-+                     || priv->b_pause_after_buffering )
++                     || (priv->i_state == PLAYING_S
++                      && priv->b_pause_after_buffering) )
                      {
                          ResetFramePrevious( p_input );
                          priv->next_frame_need_data = false;

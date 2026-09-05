@@ -138,6 +138,12 @@ int main(void) {
         CHECK(input.i_state == ERROR_S && demux_paused);
         CHECK(!input.b_pause_after_buffering);
         reject_resume = false;
+        /* A pending flag must not authorize a resume out of a failed input. */
+        input.i_state = ERROR_S;
+        input.b_pause_after_buffering = true;
+        demux_paused = true;
+        set_state(&input, PLAYING_S);
+        CHECK(input.i_state == ERROR_S && demux_paused);
     }
     return 0;
 }
