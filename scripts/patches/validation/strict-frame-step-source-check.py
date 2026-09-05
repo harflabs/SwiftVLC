@@ -388,6 +388,19 @@ def validate_runtime_probe_fidelity(native_probe: str) -> None:
             "completion->count == exact_terminal_count")
     forbid(stop, "sleep_milliseconds")
 
+    vmem_case = function_body(native_probe, "static int run_vmem_submission_case(")
+    ordered(vmem_case,
+            "wait_for_state(player, libvlc_Paused, 5000)",
+            "check_terminal(&completion, 1, request_id + 2000, expected_status)",
+            "before_strict =",
+            "check_terminal(&completion, 2, request_id, expected_status)",
+            "await_atomic_exact(submission_counter, before_strict + 3, 5000)",
+            "check_terminal(&completion, 3, request_id + 1000,",
+            "await_atomic_exact(submission_counter, before_strict + 4, 5000)",
+            "const unsigned exact_terminals = install_status_callback ? 3 : 2;",
+            "stop_at_quiescence(player, &completion, exact_terminals)")
+    forbid(vmem_case, "sleep_milliseconds(")
+
     static_case = function_body(native_probe,
                                 "static int run_static_filter_case(")
     require(
@@ -469,6 +482,12 @@ def validate_runtime_probe_fidelity(native_probe: str) -> None:
 
 def mutation_rejects_weakened_runtime_probe(native_probe: str) -> None:
     mutations = (
+        ("removed-vmem-baseline-acknowledgement",
+         "check_terminal(&completion, 1, request_id + 2000, expected_status)",
+         "false /* no output boundary before baseline */"),
+        ("weakened-vmem-exact-output-count",
+         "await_atomic_exact(submission_counter, before_strict + 4, 5000)",
+         "await_atomic_at_least(submission_counter, before_strict + 4, 5000)"),
         ("weakened-nine-picture-burst",
          "player, mixed_submission_baseline + 9, 5000)",
          "player, mixed_submission_baseline + 8, 5000)"),

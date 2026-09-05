@@ -1917,6 +1917,16 @@ static int run_vmem_submission_case(const char *path, uint64_t request_id,
     libvlc_media_player_set_pause(player, 1);
     if (!wait_for_state(player, libvlc_Paused, 5000))
         return vmem_submission_failure(player, &vmem, &completion, request_id, before_strict, __LINE__);
+    /* Paused is a player state, not a completed video-output submission.
+     * An ordinary picture already in flight can still enter the callback.
+     * A completed control request gives us an acknowledged output boundary
+     * before measuring the exact mixed burst below. Check its real result too;
+     * do not replace exact counts with a tolerance or a settling sleep. */
+    if (swiftvlc_libvlc_media_player_request_next_frame(player,
+                                                      request_id + 2000)
+            != swiftvlc_next_frame_request_accepted
+     || check_terminal(&completion, 1, request_id + 2000, expected_status))
+        return vmem_submission_failure(player, &vmem, &completion, request_id, before_strict, __LINE__);
     before_strict =
         atomic_load_explicit(submission_counter, memory_order_relaxed);
 
@@ -1933,12 +1943,12 @@ static int run_vmem_submission_case(const char *path, uint64_t request_id,
         libvlc_media_player_next_frame(player);
         libvlc_media_player_unlock(player);
         if (accepted != swiftvlc_next_frame_request_accepted
-         || check_terminal(&completion, 1, request_id, expected_status)
+         || check_terminal(&completion, 2, request_id, expected_status)
          || !await_atomic_exact(submission_counter, before_strict + 3, 5000)
          || swiftvlc_libvlc_media_player_request_next_frame(
                 player, request_id + 1000)
                 != swiftvlc_next_frame_request_accepted
-         || check_terminal(&completion, 2, request_id + 1000,
+         || check_terminal(&completion, 3, request_id + 1000,
                            expected_status)
          || !await_atomic_exact(submission_counter, before_strict + 4, 5000))
             return vmem_submission_failure(player, &vmem, &completion, request_id, before_strict, __LINE__);
@@ -1946,12 +1956,12 @@ static int run_vmem_submission_case(const char *path, uint64_t request_id,
     else if (swiftvlc_libvlc_media_player_request_next_frame(player,
                                                               request_id)
                 != swiftvlc_next_frame_request_accepted
-          || check_terminal(&completion, 1, request_id, expected_status)
+          || check_terminal(&completion, 2, request_id, expected_status)
           || atomic_load_explicit(submission_counter, memory_order_relaxed)
                 != before_strict + 1)
         return vmem_submission_failure(player, &vmem, &completion, request_id, before_strict, __LINE__);
 
-    const unsigned exact_terminals = install_status_callback ? 2 : 1;
+    const unsigned exact_terminals = install_status_callback ? 3 : 2;
     const unsigned exact_submissions = before_strict
         + (install_status_callback ? 4 : 1);
     if (!stop_at_quiescence(player, &completion, exact_terminals)
