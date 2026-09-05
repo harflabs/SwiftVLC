@@ -731,15 +731,18 @@ static int check_terminal(struct completion *completion, unsigned target,
               && (completion->history[index].position == -1.0
                || (completion->history[index].position >= 0.0
                 && completion->history[index].position <= 1.0));
-    pthread_mutex_unlock(&completion->lock);
-
     if (!valid)
-    {
-        fprintf(stderr, "invalid or duplicate terminal for request %llu\n",
-                (unsigned long long)request_id);
-        return 1;
-    }
-    return 0;
+        fprintf(stderr,
+                "invalid terminal target=%u count=%u expected=%llu/%d "
+                "actual=%llu/%d time=%lld position=%f\n",
+                target, completion->count,
+                (unsigned long long)request_id, expected_status,
+                (unsigned long long)completion->history[index].request_id,
+                completion->history[index].status,
+                (long long)completion->history[index].time_us,
+                completion->history[index].position);
+    pthread_mutex_unlock(&completion->lock);
+    return valid ? 0 : 1;
 }
 
 #ifdef SWIFTVLC_SOURCE_LINKED_PROBE
