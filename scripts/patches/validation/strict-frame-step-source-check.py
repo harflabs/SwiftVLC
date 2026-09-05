@@ -434,6 +434,18 @@ def validate_runtime_probe_fidelity(native_probe: str) -> None:
             "!= baseline + 2")
     forbid(overflow_case, "sleep_milliseconds(")
 
+    lifecycle = function_body(native_probe, "static int run_committed_terminal_lifecycle_case(")
+    transit = lifecycle[lifecycle.index("struct lifecycle_fixture transit;"):]
+    ordered(transit,
+            "set_terminal_pop_barrier(transit_handle, true)",
+            "swiftvlc_libvlc_media_player_request_next_frame(transit.player, 1220)",
+            "await_terminal_pop_barrier(transit_handle, 5000)",
+            "libvlc_media_player_lock(transit.player);",
+            "set_terminal_pop_barrier(transit_handle, false)",
+            "await_terminal_in_transit(transit_handle, 1220, 5000)",
+            "libvlc_media_player_stop_async(transit.player);",
+            "!lifecycle_exact_after_stop(&transit, 1220)")
+
     static_case = function_body(native_probe,
                                 "static int run_static_filter_case(")
     require(
@@ -515,6 +527,9 @@ def validate_runtime_probe_fidelity(native_probe: str) -> None:
 
 def mutation_rejects_weakened_runtime_probe(native_probe: str) -> None:
     mutations = (
+        ("removed-transit-queue-boundary",
+         "await_terminal_pop_barrier(transit_handle, 5000)",
+         "true /* no queue acknowledgement */"),
         ("removed-overflow-baseline-acknowledgement",
          "check_terminal(&completion, 1, 989,",
          "check_terminal(&completion, 0, 989,"),

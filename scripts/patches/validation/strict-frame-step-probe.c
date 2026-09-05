@@ -1485,14 +1485,23 @@ static int run_committed_terminal_lifecycle_case(const char *path)
         return lifecycle_failure(__LINE__);
     struct source_request_handle transit_handle =
         capture_source_request(transit.player);
-    libvlc_media_player_lock(transit.player);
-    if (swiftvlc_libvlc_media_player_request_next_frame(transit.player, 1220)
+    /* Let input initialization and output finish with the player lock free.
+     * Holding it before a terminal is queued can block an earlier input event
+     * and prevent the test from ever reaching its in-transit boundary. */
+    if (!set_terminal_pop_barrier(transit_handle, true)
+     || swiftvlc_libvlc_media_player_request_next_frame(transit.player, 1220)
             != swiftvlc_next_frame_request_accepted)
         return lifecycle_failure(__LINE__);
-    transit_handle.generation =
-        transit.player->player->strict_frame_request_generation;
-    if (!await_terminal_in_transit(transit_handle, 1220, 5000))
+    transit_handle = capture_source_request(transit.player);
+    if (!await_terminal_pop_barrier(transit_handle, 5000))
         return lifecycle_failure(__LINE__);
+    libvlc_media_player_lock(transit.player);
+    if (!set_terminal_pop_barrier(transit_handle, false)
+     || !await_terminal_in_transit(transit_handle, 1220, 5000))
+    {
+        libvlc_media_player_unlock(transit.player);
+        return lifecycle_failure(__LINE__);
+    }
     libvlc_media_player_stop_async(transit.player);
     bool transit_cancel =
         swiftvlc_libvlc_media_player_cancel_next_frame_request(
