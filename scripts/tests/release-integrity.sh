@@ -158,6 +158,8 @@ grep -q 'duplicate native validator asset' \
 
 python3 -B -m unittest discover \
   -s "$SCRIPT_DIR/tests" -p 'test_release_version_policy.py'
+python3 -B -m unittest discover \
+  -s "$SCRIPT_DIR/tests" -p 'test_release_operations.py'
 python3 -B "$SCRIPT_DIR/tests/test_pip_extension_version.py"
 python3 -B "$SCRIPT_DIR/patches/validation/test_pip_extension_version.py"
 
@@ -184,8 +186,8 @@ draft_authorization = (
     "startsWith(github.head_ref, 'release-candidates/'))) && '1' || '' }}\n"
 )
 workflow_token = "          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n"
-expected_draft_counts = (2, 1, 1, 1, 0)
-expected_token_counts = (5, 1, 1, 1, 0)
+expected_draft_counts = (4, 1, 1, 1, 0)
+expected_token_counts = (6, 1, 1, 1, 0)
 if len(sys.argv[1:]) != len(expected_draft_counts):
     sys.exit("release workflow integrity invocation is incomplete")
 for path, expected_draft_count, expected_token_count in zip(
@@ -232,7 +234,7 @@ for path in Path(sys.argv[1]).parent.glob("*.yml"):
     source = path.read_text()
     for step in re.split(r"(?m)^      - ", source)[1:]:
         if re.search(
-            r"(?m)^\s+run: \./scripts/(?:setup-dev|ci-use-released-xcframework)\.sh\s*$",
+            r"(?m)^\s+run: \./scripts/(?:setup-dev|ci-use-released-xcframework|check-engine-coverage)\.sh\s*$",
             step,
         ) and workflow_token not in step:
             sys.exit(f"{path} has an unauthenticated release-artifact consumer")
@@ -243,7 +245,7 @@ candidate_lint_marker = (
     "github.event.pull_request.head.repo.full_name == github.repository && "
     "startsWith(github.head_ref, 'release-candidates/')) && '1' || '' }}\n"
 )
-if workflow.count(candidate_lint_marker) != 1:
+if workflow.count(candidate_lint_marker) != 2:
     sys.exit("release-integrity candidate lint marker is not exactly scoped")
 for path in sys.argv[2:]:
     if candidate_lint_marker in open(path).read():
@@ -308,7 +310,7 @@ def job(name):
 
 
 privileged_jobs = (
-    (workflow, sys.argv[1], ("ios-build", "test")),
+    (workflow, sys.argv[1], ("ios-build", "test", "showcase", "tvos-test")),
     (open(sys.argv[2]).read(), sys.argv[2], ("dynamic-host",)),
     (vendor_manifest, sys.argv[3], ("check",)),
     (open(sys.argv[4]).read(), sys.argv[4], ("sanitize",)),
@@ -460,8 +462,10 @@ for forbidden in (
 
 tvos_test = job("tvos-test")
 tvos_header = tvos_test.split("\n    steps:\n", 1)[0]
-if tvos_header.count("    if: github.event_name != 'pull_request'\n") != 1:
-    sys.exit("tvos-test runtime job must remain post-merge/manual, not pull-request CI")
+candidate_platform_condition = "    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release-candidates/')) }}\n"
+for platform_job in (tvos_header, job("showcase").split("\n    steps:\n", 1)[0]):
+    if platform_job.count(candidate_platform_condition) != 1:
+        sys.exit("release candidates must run the full platform evidence before publication")
 if "xcrun simctl boot \"$udid\"" not in tvos_test or "xcodebuild test \\" not in tvos_test:
     sys.exit("tvos-test no longer contains the post-merge tvOS runtime evidence")
 PY
@@ -3231,7 +3235,7 @@ for marker in (
         sys.exit(f"release candidate is not bound to qualification input: {marker}")
 
 for marker in (
-    'if [[ "$DRY_RUN" == false && -z "$CANDIDATE_DIR" ]]; then',
+    'if [[ "$STATUS" == false && "$DRY_RUN" == false && -z "$CANDIDATE_DIR" ]]; then',
     'verify_github_release() {',
     'verify_required_release_workflows() {',
     'native-source-contracts.yml',
@@ -4291,6 +4295,7 @@ mkdir -p \
   "$release_flow_tmp"
 
 cp "$SCRIPT_DIR/release.sh" "$release_flow_repo/scripts/release.sh"
+cp "$SCRIPT_DIR/release-runner.py" "$SCRIPT_DIR/release-status.py" "$SCRIPT_DIR/native-reuse.py" "$release_flow_repo/scripts/"
 cp "$SCRIPT_DIR/artifact-tree-digest.py" \
   "$release_flow_repo/scripts/artifact-tree-digest.py"
 cp "$SCRIPT_DIR/release-artifact-info.py" \
@@ -5210,6 +5215,59 @@ if candidate != expected:
         f"expected={expected}\nactual={candidate}"
     )
 PY
+
+# A late Swift-only fix must retain the original native build identity while
+# preparing and validating a fresh candidate from the new checkout.
+reuse_repo="$release_flow_root/reuse-repository"
+reuse_origin="$release_flow_root/reuse-origin.git"
+reuse_candidate="$release_flow_root/reused-candidate"
+git clone -q "$release_flow_repo" "$reuse_repo"
+git clone -q --bare "$release_flow_repo" "$reuse_origin"
+git -C "$reuse_repo" remote set-url origin "$reuse_origin"
+git -C "$reuse_repo" config user.name "SwiftVLC Release Test"
+git -C "$reuse_repo" config user.email "swiftvlc-release-test@example.invalid"
+mkdir -p "$reuse_repo/Sources/SwiftVLC"
+printf '// late Swift correction\n' > "$reuse_repo/Sources/SwiftVLC/Fixture.swift"
+git -C "$reuse_repo" add .
+git -C "$reuse_repo" commit -qm "late Swift correction"
+git -C "$reuse_repo" push -q origin main
+reuse_source_commit=$(git -C "$reuse_repo" rev-parse HEAD)
+(
+  cd "$reuse_repo"
+  export PATH="$release_flow_fake_bin:$PATH" TMPDIR="$release_flow_tmp"
+  export SWIFTVLC_RELEASE_TEST_EXPECTED_REVISION="$release_flow_source_commit"
+  export SWIFTVLC_RELEASE_TEST_GIT_LOG="$release_flow_git_log"
+  ./scripts/release.sh 1.1.0 --prepare "$reuse_candidate" \
+    --reuse-native "$release_flow_candidate" > "$release_flow_root/reuse-prepare.log"
+  ./scripts/release.sh 1.1.0 --candidate "$reuse_candidate" --dry-run \
+    > "$release_flow_root/reuse-validate.log"
+)
+python3 - "$reuse_candidate/release-candidate.json" \
+  "$reuse_source_commit" "$release_flow_source_commit" <<'PYREUSE'
+import json, sys
+record = json.load(open(sys.argv[1]))
+assert record["sourceCommit"] == sys.argv[2]
+assert record["nativeSourceCommit"] == sys.argv[3]
+PYREUSE
+for sidecar in libvlc-provenance-a.json libvlc-provenance.json libvlc-reproducibility.json; do
+  cmp -s "$release_flow_candidate/$sidecar" "$reuse_candidate/$sidecar" || \
+    fail "native reuse rewrote original build evidence: $sidecar"
+done
+mkdir -p "$reuse_repo/Sources/CLibVLC"
+printf '// native correction\n' > "$reuse_repo/Sources/CLibVLC/Fixture.h"
+git -C "$reuse_repo" add .
+git -C "$reuse_repo" commit -qm "native correction"
+git -C "$reuse_repo" push -q origin main
+if (
+  cd "$reuse_repo"
+  PATH="$release_flow_fake_bin:$PATH" TMPDIR="$release_flow_tmp" \
+    ./scripts/release.sh 1.1.0 --prepare "$release_flow_root/rejected-reuse" \
+    --reuse-native "$release_flow_candidate" > "$release_flow_root/reuse-rejected.log" 2>&1
+); then
+  fail "native input changes reused an old build"
+fi
+grep -q 'requires a rebuild' "$release_flow_root/reuse-rejected.log" || \
+  fail "native reuse rejection did not explain the rebuild requirement"
 
 for release_flow_asset in \
   libvlc.xcframework.zip \

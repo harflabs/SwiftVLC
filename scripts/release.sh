@@ -10,12 +10,20 @@
 #   - A completely clean, up-to-date main checkout
 #
 # Usage:
+#   ./scripts/release.sh 0.1.0 --status [--candidate /path/to/candidate]
 #   ./scripts/release.sh 0.1.0 --prepare /path/to/candidate
+#   ./scripts/release.sh 0.1.0 --prepare /path/to/new --reuse-native /path/to/old
 #   ./scripts/release.sh 0.1.0 --candidate /path/to/candidate
 #   ./scripts/release.sh 0.1.0 --candidate /path/to/candidate --finalize
 #   ./scripts/release.sh 0.1.0 --dry-run          # strip/zip/checksum only, no push
 #
 set -euo pipefail
+
+# Supervision records timing/output only; every release invariant remains in
+# the child. A timeout must be reconciled through the normal remote-state path.
+if [[ "${SWIFTVLC_RELEASE_SUPERVISED:-}" != "1" ]]; then
+  exec python3 -B "$(dirname "$0")/release-runner.py" "$0" "$@"
+fi
 
 REPO="harflabs/SwiftVLC"
 XCFW_PATH="Vendor/libvlc.xcframework"
@@ -57,9 +65,15 @@ CANDIDATE_SOURCE_DIGEST=""
 CANDIDATE_MATRIX_CHECKSUM=""
 CANDIDATE_FEATURE_MANIFEST_CHECKSUM=""
 FINALIZE=false
+STATUS=false
+REUSE_NATIVE_DIR=""
+NATIVE_SOURCE_COMMIT=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --status)
+      STATUS=true
+      shift ;;
     --dry-run)
       DRY_RUN=true
       shift ;;
@@ -70,6 +84,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "Error: --prepare requires a directory." >&2; exit 2; }
       PREPARE_DIR="$2"
       DRY_RUN=true
+      shift 2 ;;
+    --reuse-native)
+      [[ $# -ge 2 ]] || { echo "Error: --reuse-native requires a candidate directory." >&2; exit 2; }
+      REUSE_NATIVE_DIR="$2"
       shift 2 ;;
     --candidate)
       [[ $# -ge 2 ]] || { echo "Error: --candidate requires a directory." >&2; exit 2; }
@@ -138,11 +156,19 @@ if [[ "$FINALIZE" == true && ( "$DRY_RUN" == true || -n "$PREPARE_DIR" ) ]]; the
   echo "Error: --finalize requires --candidate and cannot be a dry run." >&2
   exit 2
 fi
-if [[ "$DRY_RUN" == false && -z "$CANDIDATE_DIR" ]]; then
+if [[ "$STATUS" == false && "$DRY_RUN" == false && -z "$CANDIDATE_DIR" ]]; then
   echo "Error: every published release must consume a prepared candidate directory." >&2
   echo "  First: $0 $VERSION --prepare /path/to/candidate" >&2
   echo "  Then stage with --candidate and publish with --candidate --finalize." >&2
   exit 1
+fi
+if [[ -n "$REUSE_NATIVE_DIR" ]]; then
+  if [[ -z "$PREPARE_DIR" || -n "$CANDIDATE_DIR" || "$STATUS" == true ]]; then
+    echo "Error: --reuse-native requires --prepare and cannot be combined with --candidate or --status." >&2
+    exit 2
+  fi
+  REUSE_NATIVE_DIR="$(cd "$REUSE_NATIVE_DIR" && pwd)"
+  XCFW_PATH="$REUSE_NATIVE_DIR/libvlc.xcframework"
 fi
 if [[ -n "$CANDIDATE_DIR" ]]; then
   CANDIDATE_DIR="$(cd "$CANDIDATE_DIR" 2>/dev/null && pwd)" || {
@@ -152,6 +178,15 @@ if [[ -n "$CANDIDATE_DIR" ]]; then
   XCFW_PATH="$CANDIDATE_DIR/libvlc.xcframework"
 fi
 
+if [[ "$STATUS" == true ]]; then
+  status_args=("$VERSION")
+  if [[ -n "$CANDIDATE_DIR" ]]; then
+    status_args+=(--candidate "$CANDIDATE_DIR")
+  fi
+  exec python3 -B "$SCRIPT_DIR/release-status.py" "${status_args[@]}"
+fi
+
+echo "Release phase: preflight"
 echo "Verifying native validator asset manifest..."
 if ! python3 "$SCRIPT_DIR/verify-native-validator-assets.py"; then
   echo "Error: native validator asset manifest verification failed." >&2
@@ -604,6 +639,16 @@ PY
 # prove the exact commit that created the candidate, not merely the current HEAD.
 SOURCE_COMMIT=$(git rev-parse HEAD)
 EXPECTED_ARTIFACT_SWIFTVLC_REVISION="$SOURCE_COMMIT"
+if [[ -n "$REUSE_NATIVE_DIR" ]]; then
+  NATIVE_SOURCE_COMMIT=$(python3 - "$REUSE_NATIVE_DIR/release-candidate.json" <<'PYREUSE'
+import json, sys
+value = json.load(open(sys.argv[1]))
+print(value.get("nativeSourceCommit", value["sourceCommit"]))
+PYREUSE
+  )
+  NATIVE_SOURCE_COMMIT=$(python3 -B "$SCRIPT_DIR/native-reuse.py" "$NATIVE_SOURCE_COMMIT")
+  EXPECTED_ARTIFACT_SWIFTVLC_REVISION="$NATIVE_SOURCE_COMMIT"
+fi
 if [[ -n "$CANDIDATE_DIR" ]]; then
   CANDIDATE_SOURCE_COMMIT=$(python3 - "$CANDIDATE_DIR/release-candidate.json" \
     "$VERSION" <<'PY'
@@ -645,94 +690,19 @@ if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is N
 print(revision)
 PY
   )
-  EXPECTED_ARTIFACT_SWIFTVLC_REVISION="$CANDIDATE_SOURCE_COMMIT"
+  NATIVE_SOURCE_COMMIT=$(python3 - "$CANDIDATE_DIR/release-candidate.json" <<'PYREUSE'
+import json, sys
+value = json.load(open(sys.argv[1]))
+print(value.get("nativeSourceCommit", value["sourceCommit"]))
+PYREUSE
+  )
+  if [[ "$NATIVE_SOURCE_COMMIT" != "$CANDIDATE_SOURCE_COMMIT" ]]; then
+    NATIVE_SOURCE_COMMIT=$(python3 -B "$SCRIPT_DIR/native-reuse.py" "$NATIVE_SOURCE_COMMIT")
+  fi
+  EXPECTED_ARTIFACT_SWIFTVLC_REVISION="$NATIVE_SOURCE_COMMIT"
 fi
 
 # ── Preflight ─────────────────────────────────────────────────────────────────
-
-if [[ ! -d "$XCFW_PATH" ]]; then
-  echo "Error: $XCFW_PATH not found. Build it first: ./scripts/build-libvlc.sh --all" >&2
-  exit 1
-fi
-
-# Verify every expected platform slice is present. Missing slices would produce
-# a release that breaks at SPM-resolution time for affected platforms.
-missing_slices=()
-for slice in "${EXPECTED_SLICES[@]}"; do
-  if [[ ! -d "$XCFW_PATH/$slice" ]]; then
-    missing_slices+=("$slice")
-  fi
-done
-if [[ ${#missing_slices[@]} -gt 0 ]]; then
-  echo "Error: xcframework is missing slices: ${missing_slices[*]}" >&2
-  echo "  Re-run ./scripts/build-libvlc.sh --all to build all platforms." >&2
-  exit 1
-fi
-
-# A byte-for-byte member manifest catches unreviewed plugin drift, while the
-# semantic contract prevents an intentionally regenerated manifest from
-# blessing missing renderer/Chromecast objects or Chromecast on tvOS. Run this
-# for betas, prepared candidates, and stable releases alike.
-if ! "$SCRIPT_DIR/check-libvlc-manifest.sh" --xcframework "$XCFW_PATH"; then
-  echo "Error: libVLC archive members do not satisfy the release contract." >&2
-  exit 1
-fi
-
-# Release 1.1.0's frozen patch manifest owns extension version 10 plus the 0033
-# Apple audio-session lease refinement inherited from version 8. Probe the
-# actual linked macOS archive in this checkout before accepting its recorded
-# provenance; current headers or provenance metadata alone cannot establish the
-# binary's runtime identity.
-echo "Verifying exact linked native extension contract..."
-if ! "$SCRIPT_DIR/validate-native-extension-contract.sh" \
-  --xcframework "$XCFW_PATH" \
-  --expected-version 10 \
-  --require-apple-audio-session-leases; then
-  echo "Error: release artifact does not implement native extension version 10 with Apple audio-session leases." >&2
-  echo "  Rebuild it from the current patch manifest before preparing a release." >&2
-  exit 1
-fi
-
-# Provenance proves which gate implementation was used by the build, but it is
-# not a substitute for evaluating the artifact in this release checkout.
-# Parse every archive member again and require exact platform/minimum metadata,
-# CPU attribution, and bounded section alignment before packaging any bytes.
-# Delete the build-time report first so a failed release audit cannot leave an
-# older PASS beside the rejected artifact. The parser then records this exact
-# release-checkout evaluation, including a structured FAIL report on violations.
-MACHO_METADATA_REPORT="$(dirname "$XCFW_PATH")/libvlc-macho-metadata.json"
-rm -f "$MACHO_METADATA_REPORT"
-echo "Verifying release artifact Mach-O platform metadata and section alignment..."
-PYTHONDONTWRITEBYTECODE=1 python3 \
-  "$SCRIPT_DIR/validate-libvlc-macho-metadata.py" \
-  --xcframework "$XCFW_PATH" \
-  --deployment-target "ios=${SWIFTVLC_MIN_IOS}" \
-  --deployment-target "tvos=${SWIFTVLC_MIN_TVOS}" \
-  --deployment-target "xros=${SWIFTVLC_MIN_VISIONOS}" \
-  --deployment-target "macos=${SWIFTVLC_MIN_MACOS}" \
-  --deployment-target "catalyst=${SWIFTVLC_MIN_CATALYST}" \
-  --json-output "$MACHO_METADATA_REPORT"
-
-# Refuse to publish a debug-configured libVLC. Run-time assertions turn
-# malformed-media edge cases into process-killing abort()s (issue #30);
-# build-libvlc.sh disables them by default. assert() embeds its stringified
-# condition only when NDEBUG is undefined, so finding this hxxx_helper assertion
-# text proves the slices were built with --with-asserts by mistake. grep -c
-# (not -q) consumes the whole stream, avoiding a pipefail/SIGPIPE false negative.
-#
-# We match a VLC-specific assert *condition*, not the __assert_rtn symbol:
-# contrib libraries (libaom, etc.) reference __assert_rtn even in a correct
-# --disable-debug build (~348 refs on macOS), so a symbol-presence check would
-# false-positive and block every release. Revalidate this signature whenever
-# VLC_HASH is bumped to a revision where hxxx_helper.c changes.
-assert_hits=$(strings -a "$XCFW_PATH"/*/libvlc.a 2>/dev/null \
-  | grep -c 'i_input_nal_length_size || !hh->i_output_nal_length_size' || true)
-if [[ "${assert_hits:-0}" -gt 0 ]]; then
-  echo "Error: libVLC slices were built with run-time assertions enabled." >&2
-  echo "  Shipping them would re-introduce the issue #30 abort() crash." >&2
-  echo "  Rebuild without --with-asserts: ./scripts/build-libvlc.sh --build-root=/absolute/path/to/shared-native-root --clean-build --all" >&2
-  exit 1
-fi
 
 if ! command -v gh &>/dev/null; then
   echo "Error: GitHub CLI (gh) is required. Install with: brew install gh" >&2
@@ -842,6 +812,92 @@ if [[ "$DRY_RUN" == false || -n "$PREPARE_DIR" ]]; then
   fi
 fi
 
+echo "Release phase: artifact-validation"
+if [[ ! -d "$XCFW_PATH" ]]; then
+  echo "Error: $XCFW_PATH not found. Build it first: ./scripts/build-libvlc.sh --all" >&2
+  exit 1
+fi
+
+# Verify every expected platform slice is present. Missing slices would produce
+# a release that breaks at SPM-resolution time for affected platforms.
+missing_slices=()
+for slice in "${EXPECTED_SLICES[@]}"; do
+  if [[ ! -d "$XCFW_PATH/$slice" ]]; then
+    missing_slices+=("$slice")
+  fi
+done
+if [[ ${#missing_slices[@]} -gt 0 ]]; then
+  echo "Error: xcframework is missing slices: ${missing_slices[*]}" >&2
+  echo "  Re-run ./scripts/build-libvlc.sh --all to build all platforms." >&2
+  exit 1
+fi
+
+# A byte-for-byte member manifest catches unreviewed plugin drift, while the
+# semantic contract prevents an intentionally regenerated manifest from
+# blessing missing renderer/Chromecast objects or Chromecast on tvOS. Run this
+# for betas, prepared candidates, and stable releases alike.
+if ! "$SCRIPT_DIR/check-libvlc-manifest.sh" --xcframework "$XCFW_PATH"; then
+  echo "Error: libVLC archive members do not satisfy the release contract." >&2
+  exit 1
+fi
+
+# Release 1.1.0's frozen patch manifest owns extension version 10 plus the 0033
+# Apple audio-session lease refinement inherited from version 8. Probe the
+# actual linked macOS archive in this checkout before accepting its recorded
+# provenance; current headers or provenance metadata alone cannot establish the
+# binary's runtime identity.
+echo "Verifying exact linked native extension contract..."
+if ! "$SCRIPT_DIR/validate-native-extension-contract.sh" \
+  --xcframework "$XCFW_PATH" \
+  --expected-version 10 \
+  --require-apple-audio-session-leases; then
+  echo "Error: release artifact does not implement native extension version 10 with Apple audio-session leases." >&2
+  echo "  Rebuild it from the current patch manifest before preparing a release." >&2
+  exit 1
+fi
+
+# Provenance proves which gate implementation was used by the build, but it is
+# not a substitute for evaluating the artifact in this release checkout.
+# Parse every archive member again and require exact platform/minimum metadata,
+# CPU attribution, and bounded section alignment before packaging any bytes.
+# Delete the build-time report first so a failed release audit cannot leave an
+# older PASS beside the rejected artifact. The parser then records this exact
+# release-checkout evaluation, including a structured FAIL report on violations.
+MACHO_METADATA_REPORT="$(dirname "$XCFW_PATH")/libvlc-macho-metadata.json"
+rm -f "$MACHO_METADATA_REPORT"
+echo "Verifying release artifact Mach-O platform metadata and section alignment..."
+PYTHONDONTWRITEBYTECODE=1 python3 \
+  "$SCRIPT_DIR/validate-libvlc-macho-metadata.py" \
+  --xcframework "$XCFW_PATH" \
+  --deployment-target "ios=${SWIFTVLC_MIN_IOS}" \
+  --deployment-target "tvos=${SWIFTVLC_MIN_TVOS}" \
+  --deployment-target "xros=${SWIFTVLC_MIN_VISIONOS}" \
+  --deployment-target "macos=${SWIFTVLC_MIN_MACOS}" \
+  --deployment-target "catalyst=${SWIFTVLC_MIN_CATALYST}" \
+  --json-output "$MACHO_METADATA_REPORT"
+
+# Refuse to publish a debug-configured libVLC. Run-time assertions turn
+# malformed-media edge cases into process-killing abort()s (issue #30);
+# build-libvlc.sh disables them by default. assert() embeds its stringified
+# condition only when NDEBUG is undefined, so finding this hxxx_helper assertion
+# text proves the slices were built with --with-asserts by mistake. grep -c
+# (not -q) consumes the whole stream, avoiding a pipefail/SIGPIPE false negative.
+#
+# We match a VLC-specific assert *condition*, not the __assert_rtn symbol:
+# contrib libraries (libaom, etc.) reference __assert_rtn even in a correct
+# --disable-debug build (~348 refs on macOS), so a symbol-presence check would
+# false-positive and block every release. Revalidate this signature whenever
+# VLC_HASH is bumped to a revision where hxxx_helper.c changes.
+assert_hits=$(strings -a "$XCFW_PATH"/*/libvlc.a 2>/dev/null \
+  | grep -c 'i_input_nal_length_size || !hh->i_output_nal_length_size' || true)
+if [[ "${assert_hits:-0}" -gt 0 ]]; then
+  echo "Error: libVLC slices were built with run-time assertions enabled." >&2
+  echo "  Shipping them would re-introduce the issue #30 abort() crash." >&2
+  echo "  Rebuild without --with-asserts: ./scripts/build-libvlc.sh --build-root=/absolute/path/to/shared-native-root --clean-build --all" >&2
+  exit 1
+fi
+
+echo "Release phase: source-validation"
 echo "Validating release manifest rewrites..."
 validate_release_rewrites
 echo "Release rewrite validation passed."
@@ -936,6 +992,7 @@ if ! verify_artifact_provenance "$EXPECTED_ARTIFACT_SWIFTVLC_REVISION"; then
   exit 1
 fi
 
+echo "Release phase: candidate-validation"
 # ── Prepare or load immutable candidate ───────────────────────────────────────
 
 if [[ -n "$CANDIDATE_DIR" ]]; then
@@ -1005,9 +1062,11 @@ required = {
 missing = sorted(required - candidate.keys())
 if missing:
     sys.exit(f"Error: candidate manifest is missing: {', '.join(missing)}")
-unexpected = sorted(candidate.keys() - required)
+unexpected = sorted(candidate.keys() - required - {"nativeSourceCommit"})
 if unexpected:
     sys.exit(f"Error: candidate manifest has unsupported fields: {', '.join(unexpected)}")
+if "nativeSourceCommit" in candidate and not re.fullmatch(r"[0-9a-f]{40}", str(candidate["nativeSourceCommit"])):
+    sys.exit("Error: candidate has an invalid nativeSourceCommit")
 if candidate["version"] != version:
     sys.exit(
         f"Error: candidate is for {candidate['version']!r}, not {version!r}"
@@ -1126,6 +1185,7 @@ else
     --current-provenance "$RELEASE_PROVENANCE" \
     --xcframework "$WORK_XCFW"
 
+echo "Release phase: packaging"
   echo "Creating zip..."
   ZIP_PATH="$RELEASE_SNAPSHOT_DIR/$ZIP_NAME"
   "$SCRIPT_DIR/canonical-libvlc-artifact.sh" archive \
@@ -1174,6 +1234,7 @@ if [[ -n "$PREPARE_DIR" ]]; then
     PROVENANCE_CHECKSUM="$PROVENANCE_CHECKSUM" \
     REPRODUCIBILITY_CHECKSUM="$REPRODUCIBILITY_CHECKSUM" \
     SOURCE_COMMIT="$SOURCE_COMMIT" \
+    NATIVE_SOURCE_COMMIT="${NATIVE_SOURCE_COMMIT:-$SOURCE_COMMIT}" \
     RELEASE_SOURCE_DIGEST="$RELEASE_SOURCE_DIGEST" \
     QUALIFICATION_MATRIX_CHECKSUM="$QUALIFICATION_MATRIX_CHECKSUM" \
     FEATURE_MANIFEST_CHECKSUM="$FEATURE_MANIFEST_CHECKSUM" \
@@ -1196,10 +1257,13 @@ candidate = {
     "qualificationMatrixChecksum": os.environ["QUALIFICATION_MATRIX_CHECKSUM"],
     "featureManifestChecksum": os.environ["FEATURE_MANIFEST_CHECKSUM"],
 }
+if os.environ["NATIVE_SOURCE_COMMIT"] != os.environ["SOURCE_COMMIT"]:
+    candidate["nativeSourceCommit"] = os.environ["NATIVE_SOURCE_COMMIT"]
 with open(sys.argv[1], "w") as output:
     json.dump(candidate, output, indent=2, sort_keys=True)
     output.write("\n")
 PY
+echo "Release phase: prepared"
   echo "Prepared immutable candidate at $PREPARE_DIR"
 fi
 
@@ -1868,12 +1932,13 @@ verify_release_attestation() {
 
 verify_anonymous_public_artifact() {
   local anonymous_zip="$WORK_DIR/anonymous-$ZIP_NAME"
+echo "Release phase: public-consumer"
   echo "Verifying anonymous public asset download..."
   (
     unset GH_TOKEN GITHUB_TOKEN
     # --disable must be the first curl option; it prevents an operator .curlrc
     # from silently adding credentials to this anonymous-consumption proof.
-    curl --disable --fail --location --retry 3 --retry-all-errors \
+    curl --disable --fail --location --connect-timeout 20 --max-time 600 --retry-max-time 900 --retry 3 --retry-all-errors \
       --output "$anonymous_zip" "$RELEASE_URL"
   )
   local anonymous_checksum
@@ -1910,6 +1975,7 @@ import SwiftVLC
 
 print("SwiftVLC external release smoke")
 EOF
+echo "Release phase: consumer-build"
   echo "Building a clean external SwiftPM consumer of $TAG..."
   (
     unset GH_TOKEN GITHUB_TOKEN GIT_ASKPASS SSH_ASKPASS SSH_AUTH_SOCK
@@ -2149,6 +2215,7 @@ EOF
 
   if [[ "$FINALIZE" != true ]]; then
     echo ""
+echo "Release phase: awaiting-candidate-ci"
     echo "Release $TAG is staged as non-SemVer candidate $CANDIDATE_TAG."
     echo "No final SemVer tag exists. CI and $RELEASE_PR_URL must become green."
     echo "Then rerun:"
@@ -2160,6 +2227,7 @@ elif [[ "$FINALIZE" != true ]]; then
   exit 1
 fi
 
+echo "Release phase: candidate-ci"
 echo "Verifying exact candidate workflows for $STAGED_COMMIT..."
 verify_required_release_workflows \
   "$STAGED_COMMIT" "$RELEASE_BRANCH" pull_request
@@ -2205,6 +2273,7 @@ if [[ "$FINAL_RELEASE_PRESENT" != true ]]; then
   fi
   verify_remote_ref "refs/tags/$TAG" "$STAGED_COMMIT"
 
+echo "Release phase: publication"
   echo "Publishing the verified draft as $TAG..."
   PUBLISH_COMMAND_OK=true
   PUBLISH_PRERELEASE_FLAG="--prerelease=false"
@@ -2323,11 +2392,13 @@ verify_github_release \
 
 if [[ "$MERGED_DURING_INVOCATION" == true ]]; then
   echo ""
+echo "Release phase: awaiting-main-ci"
   echo "Release PR merged at $RELEASE_PR_MERGE_COMMIT; exact-main CI is running."
   echo "Update the local main checkout, wait for CI, then rerun --finalize."
   exit 0
 fi
 
+echo "Release phase: main-ci"
 echo "Verifying fresh workflows for exact main merge $RELEASE_PR_MERGE_COMMIT..."
 verify_required_release_workflows "$RELEASE_PR_MERGE_COMMIT" main push
 
