@@ -177,6 +177,7 @@ extension Integration {
       async throws -> TextSubtitleSnapshot {
       let player = Player(instance: TestInstance.makeVideoDecoding())
       let harness = Harness(attachedTo: player)
+      defer { withExtendedLifetime(harness) {} }
       let stream = try player.textSubtitleStream()
       let snapshots = Mutex<[TextSubtitleSnapshot]>([])
       let collector = Task.detached { @Sendable in
@@ -213,8 +214,7 @@ extension Integration {
         player.selectedSubtitleTrack = subtitleTrack
 
         let capturedExpectedSnapshot = try await poll(timeout: .seconds(30), until: {
-          harness.drained > 0
-            && snapshots.withLock { $0.contains(where: match.matches) }
+          snapshots.withLock { $0.contains(where: match.matches) }
         })
         let observedRegionTexts = snapshots.withLock { values in
           values.map { $0.regions.map(\.text) }
