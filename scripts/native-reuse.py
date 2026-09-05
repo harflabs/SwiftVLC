@@ -34,7 +34,8 @@ def verify(root, revision):
         return subprocess.check_output(["git", *args], cwd=root, timeout=30)
     subprocess.run(["git", "merge-base", "--is-ancestor", revision, "HEAD"],
                    cwd=root, check=True, timeout=30)
-    paths = git("diff", "--name-only", "-z", revision, "HEAD", "--").decode().split("\0")
+    # Include deleted source paths when a native file is renamed into an exempt directory.
+    paths = git("diff", "--no-renames", "--name-only", "-z", revision, "HEAD", "--").decode().split("\0")
     blocked = [path for path in paths if path and path != "Package.swift" and not non_native_path(path)]
     if "Package.swift" in paths:
         # Only the existing canonical URL/local-artifact rewrite is exempt.

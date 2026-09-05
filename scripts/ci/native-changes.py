@@ -18,7 +18,8 @@ def main():
     build = os.environ.get("FORCE_NATIVE") == "true"
     if os.environ.get("CANDIDATE") != "true" and os.environ.get("EVENT") == "pull_request":
         base = os.environ["BASE_SHA"]
-        paths = subprocess.check_output(["git", "diff", "--name-only", "-z", base, "HEAD", "--"],
+        # A rename outside native directories still removes a native input.
+        paths = subprocess.check_output(["git", "diff", "--no-renames", "--name-only", "-z", base, "HEAD", "--"],
                                         text=True, timeout=30).split("\0")
         build = build or needs_build(paths)
     print(f"Compiled native integration required: {build}")

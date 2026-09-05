@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import subprocess
 import sys
 import tempfile
@@ -19,6 +20,32 @@ class NativeIntegrationTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(CHANGES.needs_build([path]))
         self.assertFalse(CHANGES.needs_build(["Sources/SwiftVLC/Player.swift", "README.md"]))
+
+    def test_renaming_native_input_to_docs_still_requires_compilation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.check_output(["git", "-C", directory, *args],
+                                               stderr=subprocess.DEVNULL, text=True).strip()
+            git("init", "-q")
+            git("config", "user.name", "Fixture")
+            git("config", "user.email", "fixture@example.invalid")
+            git("config", "diff.renames", "true")
+            native = root / "Sources/CLibVLC/shim.h"
+            native.parent.mkdir(parents=True)
+            native.write_text("native input\n")
+            git("add", ".")
+            git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD")
+            native.rename(root / "README.md")
+            git("add", ".")
+            git("commit", "-qm", "rename")
+            output = root / "output"
+            environment = dict(os.environ, FORCE_NATIVE="false", CANDIDATE="false",
+                               EVENT="pull_request", BASE_SHA=base, GITHUB_OUTPUT=str(output))
+            subprocess.run([sys.executable, str(SCRIPTS / "native-changes.py")],
+                           cwd=root, env=environment, check=True, capture_output=True)
+            self.assertEqual(output.read_text(), "build=true\n")
 
     def test_local_engine_binding_requires_artifact_and_single_target(self):
         with tempfile.TemporaryDirectory() as directory:

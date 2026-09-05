@@ -125,6 +125,28 @@ class ReleaseOperationsTests(unittest.TestCase):
                     reuse.verify(root, base)
                 git("reset", "--hard", "HEAD^")
 
+    def test_reuse_rejects_native_input_renamed_to_documentation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.check_output(["git", "-C", directory, *args],
+                                               stderr=subprocess.DEVNULL, text=True).strip()
+            git("init", "-q")
+            git("config", "user.name", "Fixture")
+            git("config", "user.email", "fixture@example.invalid")
+            git("config", "diff.renames", "true")
+            native = root / "Sources/CLibVLC/shim.h"
+            native.parent.mkdir(parents=True)
+            native.write_text("native input\n")
+            git("add", ".")
+            git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD")
+            native.rename(root / "README.md")
+            git("add", ".")
+            git("commit", "-qm", "rename")
+            with self.assertRaisesRegex(ValueError, "Sources/CLibVLC/shim.h"):
+                reuse.verify(root, base)
+
     def test_reuse_does_not_accept_short_revision(self):
         with self.assertRaises(ValueError):
             reuse.verify(ROOT.parent, "HEAD")
