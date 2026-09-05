@@ -675,6 +675,65 @@ static bool await_count(struct completion *completion, unsigned target,
     return reached;
 }
 
+struct resume_pause_barrier
+{
+    pthread_mutex_t lock;
+    pthread_cond_t changed;
+    bool resumed;
+    bool paused_after_resume;
+    bool out_of_order;
+};
+
+static void on_resume_pause(const libvlc_event_t *event, void *opaque)
+{
+    struct resume_pause_barrier *barrier = opaque;
+    pthread_mutex_lock(&barrier->lock);
+    if (event->type == libvlc_MediaPlayerPlaying)
+        barrier->resumed = true;
+    else if (event->type == libvlc_MediaPlayerPaused)
+    {
+        barrier->out_of_order |= !barrier->resumed;
+        barrier->paused_after_resume = barrier->resumed;
+    }
+    pthread_cond_broadcast(&barrier->changed);
+    pthread_mutex_unlock(&barrier->lock);
+}
+
+static bool arm_resume_pause(libvlc_event_manager_t *events,
+                              struct resume_pause_barrier *barrier)
+{
+    if (libvlc_event_attach(events, libvlc_MediaPlayerPlaying,
+                            on_resume_pause, barrier) != 0)
+        return false;
+    if (libvlc_event_attach(events, libvlc_MediaPlayerPaused,
+                            on_resume_pause, barrier) == 0)
+        return true;
+    libvlc_event_detach(events, libvlc_MediaPlayerPlaying,
+                         on_resume_pause, barrier);
+    return false;
+}
+
+static bool await_resume_pause(libvlc_event_manager_t *events,
+                                struct resume_pause_barrier *barrier)
+{
+    struct timespec deadline;
+    deadline_after(&deadline, 5000);
+    pthread_mutex_lock(&barrier->lock);
+    while (!barrier->paused_after_resume && !barrier->out_of_order)
+        if (pthread_cond_timedwait(&barrier->changed, &barrier->lock,
+                                   &deadline) == ETIMEDOUT)
+            break;
+    bool ordered = barrier->paused_after_resume && !barrier->out_of_order;
+    pthread_mutex_unlock(&barrier->lock);
+    libvlc_event_detach(events, libvlc_MediaPlayerPlaying,
+                         on_resume_pause, barrier);
+    libvlc_event_detach(events, libvlc_MediaPlayerPaused,
+                         on_resume_pause, barrier);
+    if (!ordered)
+        fprintf(stderr, "nested pause did not follow a fresh resume event\n");
+    return ordered;
+}
+
 static void sleep_milliseconds(long milliseconds)
 {
     struct timespec delay = {
@@ -2919,6 +2978,12 @@ int main(int argc, char **argv)
 
     /* Resume has the same causal ordering guarantee. Its cancellation
      * callback cannot sneak B in ahead of PLAYING_S. */
+    struct resume_pause_barrier resume_pause = {
+        .lock = PTHREAD_MUTEX_INITIALIZER,
+        .changed = PTHREAD_COND_INITIALIZER,
+    };
+    if (!arm_resume_pause(events, &resume_pause))
+        return 2;
     arm_reentrant_request(&completion, player, 410, 411);
     arm_nested_pause(&completion, player, 410);
     libvlc_media_player_lock(player);
@@ -2931,6 +2996,9 @@ int main(int argc, char **argv)
     if (check_terminal(&completion, target, 410, -ECANCELED)
      || !await_reentrant_busy(&completion)
      || !await_nested_pause(&completion)
+     /* A pause submitted during buffering may be deferred. Require its fresh
+      * acknowledgement after the resume, not merely the setter returning. */
+     || !await_resume_pause(events, &resume_pause)
      || request_after_reset_barrier(player, 411)
             != swiftvlc_next_frame_request_accepted)
         return 1;

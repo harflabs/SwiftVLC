@@ -1,4 +1,4 @@
-name: Released native probe
+name: Native artifact diagnostics
 
 on:
   workflow_dispatch:
@@ -7,11 +7,6 @@ on:
         description: Failed Tests run whose retained engine and source-linked probes should be exercised
         type: string
         default: ""
-  pull_request:
-    paths:
-      - .github/workflows/native-probe.yml
-      - scripts/ci/check-strict-frame-step.py
-      - scripts/ci/check-retained-native-probe.py
 
 permissions:
   contents: read

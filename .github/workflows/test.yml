@@ -77,6 +77,16 @@ jobs:
           ./scripts/ci-run-with-timeouts.py 9000 900 \
             ./scripts/build-libvlc.sh --build-root="$RUNNER_TEMP/native-root" --clean-build --macos-only \
             2>&1 | tee .build/ci-results/native-build.log
+      - name: Repeat ordering probes against the final native archive
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          native_source="$RUNNER_TEMP/native-root/swiftvlc-libvlc-build/vlc"
+          python3 -B scripts/ci/check-strict-frame-step.py \
+            --archive Vendor/libvlc.xcframework/macos-arm64_x86_64/libvlc.a \
+            --source-root "$native_source" \
+            --build-root "$native_source/build-macosx-arm64/build" \
+            --repetitions 20 2>&1 | tee .build/ci-results/native-ordering.log
       - name: Test Swift behavior against the new engine
         timeout-minutes: 12
         env:

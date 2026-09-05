@@ -522,13 +522,14 @@ the current Swift source and qualification policy, records the original
 qualification. An already staged candidate is never silently replaced.
 
 Ordinary PRs changing native inputs compile the patched macOS engine and run
-Swift behavior tests against it before the required `test` check can pass.
+20 ordering-probe repetitions against its final archive, followed by Swift
+behavior tests, before the required `test` check can pass.
 The Tests workflow also has a manual `build-native` input for exercising this
 lane. This lane checks macOS integration; release preparation still requires
 the full eight-slice build and reproducibility proof. CI records the effective
 toolchain and SDK and includes that identity in compiled-cache keys.
 
-For a hosted runtime failure, the **Released native probe** workflow repeats
+For a hosted runtime failure, manually dispatch **Native artifact diagnostics** to repeat
 the strict frame-step probe against the declared public engine without another
 native build. Its logs include submission baselines and terminal counts. Failed
 clean builds retain their unpublished XCFramework and host configuration for
@@ -536,6 +537,8 @@ diagnosis; those artifacts do not carry release or qualification approval.
 For source-linked failures, dispatch the same workflow with `retained-run` set
 to the failed Tests run ID. It replays the exact compiler checkout recorded in that run’s log and exercises the current
 probe against the retained engine and generated headers without recompiling VLC.
+These diagnostic runs can expose defects in older engines; required CI uses the
+engine built from the current changes.
 
 After publication, verify that Swift Package Index has finished building the
 tagged API reference and that the unversioned documentation link above resolves

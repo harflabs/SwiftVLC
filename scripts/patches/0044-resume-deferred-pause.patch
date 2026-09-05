@@ -1,0 +1,40 @@
+# Cancel a pause deferred during buffering when a newer resume arrives.
+# Patch 0013 leaves the input in PLAYING_S until buffering completes, so the
+# old state-only resume guard could ignore the command and pause afterward.
+# Resume the demux without unpausing clocks that never paused.
+diff --git a/src/input/input.c b/src/input/input.c
+--- a/src/input/input.c
++++ b/src/input/input.c
+@@ -2876,6 +2876,9 @@
+ 
+ static void ControlUnpause( input_thread_t *p_input, vlc_tick_t i_control_date )
+ {
++    /* A failed resume must not leave a deferred pause able to replace ERROR. */
++    input_priv(p_input)->b_pause_after_buffering = false;
++
+     if( input_priv(p_input)->master->b_can_pause )
+     {
+         demux_t *p_demux = input_priv(p_input)->master->p_demux;
+@@ -2891,7 +2894,11 @@
+         }
+     }
+ 
+-    input_priv(p_input)->b_pause_after_buffering = false;
++    /* A deferred pause only stopped the demux; clocks and decoders never
++     * paused, and the input still reports PLAYING_S. Resume the demux above
++     * without sending a duplicate state or unpausing running clocks. */
++    if (input_priv(p_input)->i_state == PLAYING_S)
++        return;
+ 
+     /* Switch to play */
+     input_ChangeState( p_input, PLAYING_S, i_control_date );
+@@ -3245,7 +3252,8 @@
+             switch( param.val.i_int )
+             {
+                 case PLAYING_S:
+-                    if( priv->i_state == PAUSE_S )
++                    if( priv->i_state == PAUSE_S
++                     || priv->b_pause_after_buffering )
+                     {
+                         ResetFramePrevious( p_input );
+                         priv->next_frame_need_data = false;

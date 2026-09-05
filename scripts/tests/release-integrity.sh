@@ -2055,13 +2055,14 @@ expected_manifest_tail = [
     "3587daa9ccd017cf109e3c809315b09e8f378d63b8d17600bd6c0366dbd750c8  0041-native-pip-output-identity.patch",
     "6675edb052faa037c763451b6c9aae9b43dc42769d9311332371eda8bd788611  0042-adaptive-es-recycling-extradata-identity.patch",
     "8bf97e191e0f5765a8daa1d8d7848e7453f0c6f4dda57eff6bfff82744e64ab2  0043-text-subtitle-callback.patch",
+    "7e28b36ee36c8ae03b2fa3086c2468d557a4380d0b3eb274deaf7b76335eedd8  0044-resume-deferred-pause.patch",
 ]
-if manifest_lines[-7:] != expected_manifest_tail:
+if manifest_lines[-8:] != expected_manifest_tail:
     sys.exit(
         "patch manifest must end with frozen 0037 through 0040, native PiP "
         "output identity 0041, adaptive ES recycling 0042, then text-subtitle "
-        "callback 0043: "
-        f"got {manifest_lines[-7:]}"
+        "callback 0043, then deferred-resume correction 0044: "
+        f"got {manifest_lines[-8:]}"
     )
 
 required_validator_assets = (
