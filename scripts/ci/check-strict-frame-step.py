@@ -68,9 +68,15 @@ def main():
         probe = work / "probe"
         compile(ROOT / "scripts/patches/validation/strict-frame-step-probe.c", probe,
                 *flags)
+        registry_probe = work / "registry-probe" if args.source_root else None
+        if registry_probe:
+            compile(ROOT / "scripts/patches/validation/vmem-configuration-race.c",
+                    registry_probe, *flags)
         for attempt in range(1, args.repetitions + 1):
             print(f"Strict-frame diagnostic probe {attempt}/{args.repetitions}, ABI {version}", flush=True)
             subprocess.run([str(probe), str(fixture)], check=True, timeout=60)
+            if registry_probe:
+                subprocess.run([str(registry_probe)], check=True, timeout=30)
 
 
 if __name__ == "__main__":
