@@ -92,6 +92,19 @@ jobs:
             --test-source-root Tests/SwiftVLCTests \
             --json-output .build/ci-results/native-accounting.json \
             --github-summary "$GITHUB_STEP_SUMMARY"
+      - name: Retain unqualified native output after a failed build
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: unqualified-native-build
+          path: |
+            ${{ runner.temp }}/native-root/swiftvlc-libvlc-build/vlc/.swiftvlc-native-output/libvlc.xcframework
+            ${{ runner.temp }}/native-root/swiftvlc-libvlc-build/vlc/build-macosx-arm64/**/config.h
+            ${{ runner.temp }}/native-root/swiftvlc-libvlc-build/vlc/build-macosx-arm64/include
+            ${{ runner.temp }}/native-root/swiftvlc-libvlc-build/vlc/build-macosx-arm64/build/include
+          include-hidden-files: true
+          retention-days: 7
+
       - name: Retain native validation evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
