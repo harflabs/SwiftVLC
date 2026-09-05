@@ -420,6 +420,20 @@ def validate_runtime_probe_fidelity(native_probe: str) -> None:
             "stop_at_quiescence(player, &completion, exact_terminals)")
     forbid(vmem_case, "sleep_milliseconds(")
 
+    overflow_case = function_body(native_probe, "static int run_terminal_overflow_case(")
+    ordered(overflow_case,
+            "wait_for_state(player, libvlc_Paused, 5000)",
+            "check_terminal(&completion, 1, 989,",
+            "baseline = atomic_load_explicit(",
+            "force_terminal_allocation_failure(player, true)",
+            "check_terminal(&completion, 2, 990, -EOVERFLOW)",
+            "force_terminal_allocation_failure(player, false)",
+            "check_terminal(&completion, 3, 991,",
+            "await_atomic_exact(&vmem.status_count, baseline + 2, 5000)",
+            "stop_at_quiescence(player, &completion, 3)",
+            "!= baseline + 2")
+    forbid(overflow_case, "sleep_milliseconds(")
+
     static_case = function_body(native_probe,
                                 "static int run_static_filter_case(")
     require(
@@ -501,6 +515,12 @@ def validate_runtime_probe_fidelity(native_probe: str) -> None:
 
 def mutation_rejects_weakened_runtime_probe(native_probe: str) -> None:
     mutations = (
+        ("removed-overflow-baseline-acknowledgement",
+         "check_terminal(&completion, 1, 989,",
+         "check_terminal(&completion, 0, 989,"),
+        ("weakened-overflow-exact-output-count",
+         "await_atomic_exact(&vmem.status_count, baseline + 2, 5000)",
+         "await_atomic_at_least(&vmem.status_count, baseline + 2, 5000)"),
         ("removed-disabled-input-opening-boundary",
          "if (!play_through_opening(player)",
          "if (libvlc_media_player_play(player) != 0"),

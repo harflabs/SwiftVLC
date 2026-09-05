@@ -1813,73 +1813,6 @@ static int run_deferred_error_reentry_case(const char *path)
     return 0;
 }
 
-#ifdef SWIFTVLC_SOURCE_LINKED_PROBE
-static int run_terminal_overflow_case(const char *path)
-{
-    const char *arguments[] = {
-        "--no-audio", "--aout=dummy", "--no-video-title-show"
-    };
-    libvlc_instance_t *vlc = libvlc_new(3, arguments);
-    libvlc_media_t *media = vlc == NULL ? NULL
-        : libvlc_media_new_path(path);
-    libvlc_media_player_t *player = media == NULL ? NULL
-        : libvlc_media_player_new_from_media(vlc, media);
-    if (player == NULL)
-        return 2;
-
-    struct vmem_context vmem = { .submission_status = 0 };
-    struct completion completion = {
-        .lock = PTHREAD_MUTEX_INITIALIZER,
-        .changed = PTHREAD_COND_INITIALIZER,
-    };
-    libvlc_event_manager_t *events =
-        libvlc_media_player_event_manager(player);
-    if (swiftvlc_libvlc_video_set_callbacks_atomic(
-            player, vmem_lock, NULL, vmem_display,
-            vmem_display_submission, vmem_setup_ex, vmem_cleanup, &vmem) != 0
-     || libvlc_event_attach(events, libvlc_MediaPlayerFrameStepCompleted,
-                            on_completion, &completion) != 0
-     || libvlc_media_player_play(player) != 0
-     || !wait_for_state(player, libvlc_Playing, 5000)
-     || !await_atomic_at_least(&vmem.status_count, 1, 5000))
-        return 1;
-
-    libvlc_media_player_set_pause(player, 1);
-    if (!wait_for_state(player, libvlc_Paused, 5000))
-        return 1;
-    const unsigned baseline = atomic_load_explicit(
-        &vmem.status_count, memory_order_relaxed);
-
-    /* This toggles the exact input queue's private allocator-failure branch;
-     * no stand-alone ring model is involved. The already accepted request must
-     * receive one allocation-free EOVERFLOW terminal, the input must remain
-     * alive, and the slot must be immediately reusable after delivery. */
-    if (!force_terminal_allocation_failure(player, true)
-     || swiftvlc_libvlc_media_player_request_next_frame(player, 990)
-            != swiftvlc_next_frame_request_accepted
-     || check_terminal(&completion, 1, 990, -EOVERFLOW)
-     || !force_terminal_allocation_failure(player, false)
-     || swiftvlc_libvlc_media_player_request_next_frame(player, 991)
-            != swiftvlc_next_frame_request_accepted
-     || check_terminal(&completion, 2, 991,
-                       swiftvlc_frame_step_status_success)
-     || !await_atomic_exact(&vmem.status_count, baseline + 2, 5000)
-     || !stop_at_quiescence(player, &completion, 2)
-     || atomic_load_explicit(&vmem.status_count, memory_order_relaxed)
-            != baseline + 2)
-        return 1;
-
-    libvlc_event_detach(events, libvlc_MediaPlayerFrameStepCompleted,
-                        on_completion, &completion);
-    libvlc_media_player_release(player);
-    libvlc_media_release(media);
-    libvlc_release(vlc);
-    pthread_cond_destroy(&completion.changed);
-    pthread_mutex_destroy(&completion.lock);
-    return 0;
-}
-#endif
-
 static int vmem_submission_failure(libvlc_media_player_t *player,
                                    struct vmem_context *vmem,
                                    struct completion *completion,
@@ -1900,6 +1833,81 @@ static int vmem_submission_failure(libvlc_media_player_t *player,
             terminals);
     return 1;
 }
+
+#ifdef SWIFTVLC_SOURCE_LINKED_PROBE
+static int run_terminal_overflow_case(const char *path)
+{
+    const char *arguments[] = {
+        "--no-audio", "--aout=dummy", "--no-video-title-show"
+    };
+    libvlc_instance_t *vlc = libvlc_new(3, arguments);
+    libvlc_media_t *media = vlc == NULL ? NULL
+        : libvlc_media_new_path(path);
+    libvlc_media_player_t *player = media == NULL ? NULL
+        : libvlc_media_player_new_from_media(vlc, media);
+    if (player == NULL)
+        return 2;
+
+    struct vmem_context vmem = { .submission_status = 0 };
+    struct completion completion = {
+        .lock = PTHREAD_MUTEX_INITIALIZER,
+        .changed = PTHREAD_COND_INITIALIZER,
+    };
+    unsigned baseline = 0;
+    libvlc_event_manager_t *events =
+        libvlc_media_player_event_manager(player);
+    if (swiftvlc_libvlc_video_set_callbacks_atomic(
+            player, vmem_lock, NULL, vmem_display,
+            vmem_display_submission, vmem_setup_ex, vmem_cleanup, &vmem) != 0
+     || libvlc_event_attach(events, libvlc_MediaPlayerFrameStepCompleted,
+                            on_completion, &completion) != 0
+     || libvlc_media_player_play(player) != 0
+     || !wait_for_state(player, libvlc_Playing, 5000)
+     || !await_atomic_at_least(&vmem.status_count, 1, 5000))
+        return vmem_submission_failure(player, &vmem, &completion, 990, baseline, __LINE__);
+
+    libvlc_media_player_set_pause(player, 1);
+    /* Finish an ordinary in-flight output before arming allocation failure and
+     * counting the two fault/recovery submissions. Paused alone is not an
+     * acknowledged output boundary. */
+    if (!wait_for_state(player, libvlc_Paused, 5000)
+     || swiftvlc_libvlc_media_player_request_next_frame(player, 989)
+            != swiftvlc_next_frame_request_accepted
+     || check_terminal(&completion, 1, 989,
+                       swiftvlc_frame_step_status_success))
+        return vmem_submission_failure(player, &vmem, &completion, 990, baseline, __LINE__);
+    baseline = atomic_load_explicit(
+        &vmem.status_count, memory_order_relaxed);
+
+    /* This toggles the exact input queue's private allocator-failure branch;
+     * no stand-alone ring model is involved. The already accepted request must
+     * receive one allocation-free EOVERFLOW terminal, the input must remain
+     * alive, and the slot must be immediately reusable after delivery. */
+    if (!force_terminal_allocation_failure(player, true)
+     || swiftvlc_libvlc_media_player_request_next_frame(player, 990)
+            != swiftvlc_next_frame_request_accepted
+     || check_terminal(&completion, 2, 990, -EOVERFLOW)
+     || !force_terminal_allocation_failure(player, false)
+     || swiftvlc_libvlc_media_player_request_next_frame(player, 991)
+            != swiftvlc_next_frame_request_accepted
+     || check_terminal(&completion, 3, 991,
+                       swiftvlc_frame_step_status_success)
+     || !await_atomic_exact(&vmem.status_count, baseline + 2, 5000)
+     || !stop_at_quiescence(player, &completion, 3)
+     || atomic_load_explicit(&vmem.status_count, memory_order_relaxed)
+            != baseline + 2)
+        return vmem_submission_failure(player, &vmem, &completion, 990, baseline, __LINE__);
+
+    libvlc_event_detach(events, libvlc_MediaPlayerFrameStepCompleted,
+                        on_completion, &completion);
+    libvlc_media_player_release(player);
+    libvlc_media_release(media);
+    libvlc_release(vlc);
+    pthread_cond_destroy(&completion.changed);
+    pthread_mutex_destroy(&completion.lock);
+    return 0;
+}
+#endif
 
 static int run_vmem_submission_case(const char *path, uint64_t request_id,
                                     bool install_status_callback,
