@@ -4,8 +4,7 @@ import Synchronization
 /// The native operations behind text-subtitle capture.
 ///
 /// Keeping these calls injectable lets the callback bridge and the `Player`
-/// lifecycle be tested with the released libVLC artifact, which deliberately
-/// does not export SwiftVLC's subtitle callback extension.
+/// lifecycle be tested independently from the released libVLC artifact.
 struct SubtitleTextNativeOperations {
   typealias Registration = @MainActor @Sendable (
     OpaquePointer,

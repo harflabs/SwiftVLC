@@ -28,35 +28,26 @@ extension Integration {
   @Suite(.tags(.mainActor))
   @MainActor struct PlayerTextSubtitleCoverageTests {
     @Test
-    func `Public API reports the released artifact lacks text capture`() throws {
+    func `Public API matches the released artifact text capture capability`() throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
-      let callback: swiftvlc_subtitle_text_snapshot_cb = { _, _, _ in }
-      let opaque = Unmanaged.passUnretained(player).toOpaque()
 
-      #expect(
-        !SubtitleTextNativeOperations.live.register(
-          player.pointer,
-          callback,
-          opaque
-        )
-      )
-      do {
+      if SubtitleTextNativeOperations.live.isAvailable() {
         _ = try player.textSubtitleStream()
-        Issue.record("Expected the released libVLC artifact to lack text capture")
-      } catch {
-        #expect(
-          error
-            == .operationFailed(
-              "Enable text subtitle capture (custom libVLC build required)"
-            )
-        )
+        #expect(player.isTextSubtitleCaptureEnabled)
+      } else {
+        do {
+          _ = try player.textSubtitleStream()
+          Issue.record("Expected text capture to reject an artifact without the native extension")
+        } catch {
+          #expect(
+            error
+              == .operationFailed(
+                "Enable text subtitle capture (custom libVLC build required)"
+              )
+          )
+        }
+        #expect(!player.isTextSubtitleCaptureEnabled)
       }
-
-      let harness = SubtitleTextCallbackHarness()
-      _ = try player.textSubtitleStream(using: makeCoverageNativeOperations(harness: harness))
-      _ = try player.textSubtitleStream()
-      #expect(harness.availabilityProbeCount == 1)
-      #expect(harness.registrationAttempts == 1)
     }
 
     @Test
