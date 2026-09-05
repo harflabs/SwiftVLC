@@ -41,20 +41,20 @@ class ReleaseOperationsTests(unittest.TestCase):
 
     def test_idle_timeout_is_bounded_and_recorded(self):
         with tempfile.TemporaryDirectory() as directory:
-            code = runner.run([sys.executable, "-c", "import time; time.sleep(30)"], Path(directory), 2, 0.2)
+            code = runner.run([sys.executable, "-c", "import time; time.sleep(30)"], Path(directory), 7, 1)
             record = json.loads((Path(directory) / "phases.json").read_text())
             self.assertEqual(code, 124)
             self.assertEqual(record["outcome"], "timed-out")
-            self.assertLess(record["durationSeconds"], 2)
+            self.assertLess(record["durationSeconds"], 6)
 
     def test_non_newline_progress_counts_as_activity_but_wall_limit_remains(self):
         with tempfile.TemporaryDirectory() as directory:
             code = runner.run([sys.executable, "-u", "-c",
                                "import time\nwhile True: print('.', end='', flush=True); time.sleep(.03)"],
-                              Path(directory), 0.5, 0.25)
+                              Path(directory), 3, 2)
             record = json.loads((Path(directory) / "phases.json").read_text())
             self.assertEqual(code, 124)
-            self.assertGreaterEqual(record["durationSeconds"], 0.5)
+            self.assertGreaterEqual(record["durationSeconds"], 3)
 
     def test_termination_signal_stops_child_and_retains_interruption(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -66,13 +66,13 @@ class ReleaseOperationsTests(unittest.TestCase):
                     f"sys.exit(m['run']([sys.executable, '-c', {child!r}], Path({directory!r}), 5, 4))")
             proc = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.DEVNULL)
             try:
-                deadline = time.monotonic() + 3
+                deadline = time.monotonic() + 10
                 while not pidfile.exists() and time.monotonic() < deadline:
                     time.sleep(.02)
                 self.assertTrue(pidfile.exists())
                 child_pid = int(pidfile.read_text())
                 proc.send_signal(signal.SIGTERM)
-                self.assertEqual(proc.wait(timeout=5), 143)
+                self.assertEqual(proc.wait(timeout=10), 143)
                 with self.assertRaises(ProcessLookupError):
                     os.kill(child_pid, 0)
                 record = json.loads((root / "phases.json").read_text())

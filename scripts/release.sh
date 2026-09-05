@@ -1185,7 +1185,7 @@ else
     --current-provenance "$RELEASE_PROVENANCE" \
     --xcframework "$WORK_XCFW"
 
-echo "Release phase: packaging"
+  echo "Release phase: packaging"
   echo "Creating zip..."
   ZIP_PATH="$RELEASE_SNAPSHOT_DIR/$ZIP_NAME"
   "$SCRIPT_DIR/canonical-libvlc-artifact.sh" archive \
@@ -1263,7 +1263,7 @@ with open(sys.argv[1], "w") as output:
     json.dump(candidate, output, indent=2, sort_keys=True)
     output.write("\n")
 PY
-echo "Release phase: prepared"
+  echo "Release phase: prepared"
   echo "Prepared immutable candidate at $PREPARE_DIR"
 fi
 
@@ -1932,7 +1932,7 @@ verify_release_attestation() {
 
 verify_anonymous_public_artifact() {
   local anonymous_zip="$WORK_DIR/anonymous-$ZIP_NAME"
-echo "Release phase: public-consumer"
+  echo "Release phase: public-consumer"
   echo "Verifying anonymous public asset download..."
   (
     unset GH_TOKEN GITHUB_TOKEN
@@ -1975,7 +1975,7 @@ import SwiftVLC
 
 print("SwiftVLC external release smoke")
 EOF
-echo "Release phase: consumer-build"
+  echo "Release phase: consumer-build"
   echo "Building a clean external SwiftPM consumer of $TAG..."
   (
     unset GH_TOKEN GITHUB_TOKEN GIT_ASKPASS SSH_ASKPASS SSH_AUTH_SOCK
@@ -2215,7 +2215,7 @@ EOF
 
   if [[ "$FINALIZE" != true ]]; then
     echo ""
-echo "Release phase: awaiting-candidate-ci"
+    echo "Release phase: awaiting-candidate-ci"
     echo "Release $TAG is staged as non-SemVer candidate $CANDIDATE_TAG."
     echo "No final SemVer tag exists. CI and $RELEASE_PR_URL must become green."
     echo "Then rerun:"
@@ -2273,7 +2273,7 @@ if [[ "$FINAL_RELEASE_PRESENT" != true ]]; then
   fi
   verify_remote_ref "refs/tags/$TAG" "$STAGED_COMMIT"
 
-echo "Release phase: publication"
+  echo "Release phase: publication"
   echo "Publishing the verified draft as $TAG..."
   PUBLISH_COMMAND_OK=true
   PUBLISH_PRERELEASE_FLAG="--prerelease=false"
@@ -2392,7 +2392,7 @@ verify_github_release \
 
 if [[ "$MERGED_DURING_INVOCATION" == true ]]; then
   echo ""
-echo "Release phase: awaiting-main-ci"
+  echo "Release phase: awaiting-main-ci"
   echo "Release PR merged at $RELEASE_PR_MERGE_COMMIT; exact-main CI is running."
   echo "Update the local main checkout, wait for CI, then rerun --finalize."
   exit 0
