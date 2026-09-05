@@ -448,6 +448,12 @@ def validate_runtime_probe_fidelity(native_probe: str) -> None:
 
     static_case = function_body(native_probe,
                                 "static int run_static_filter_case(")
+    ordered(static_case,
+            'libvlc_media_add_option(media, ":start-paused");',
+            "libvlc_media_player_play(player)",
+            "wait_for_state(player, libvlc_Paused, 5000)",
+            "await_atomic_at_least(&vmem.status_count, 1,")
+    forbid(static_case, "wait_for_state(player, libvlc_Playing,", "libvlc_media_player_set_pause(")
     require(
         static_case,
         'expansion ? "--deinterlace=1" : "--video-filter=fps"',
@@ -527,6 +533,9 @@ def validate_runtime_probe_fidelity(native_probe: str) -> None:
 
 def mutation_rejects_weakened_runtime_probe(native_probe: str) -> None:
     mutations = (
+        ("removed-static-start-paused-inventory",
+         'libvlc_media_add_option(media, ":start-paused");',
+         '/* removed startup pause */'),
         ("removed-transit-queue-boundary",
          "await_terminal_pop_barrier(transit_handle, 5000)",
          "true /* no queue acknowledgement */"),

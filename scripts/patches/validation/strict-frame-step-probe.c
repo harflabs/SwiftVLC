@@ -2234,10 +2234,10 @@ static int run_static_filter_case(uint64_t request_id,
         .bytes = malloc(frame_size * frame_count),
         .size = frame_size * frame_count,
         .limit = frame_size * frame_count,
-        /* A one-picture read plus a bounded delay keeps the synthetic stream
-         * from reaching EOF before --start-paused is observed. It also makes
-         * every decoded-input-to-final-output relationship visible to the
-         * source-linked NEXT submission oracle. */
+        /* One-picture reads make the decoded-input inventory explicit; the
+         * bounded delay gives the 25:1 cancellation row its intended window.
+         * start-paused protects the initial output inventory independently
+         * of how quickly this thread is scheduled. */
         .max_read = frame_size,
         .read_delay_ms = 30,
     };
@@ -2263,6 +2263,7 @@ static int run_static_filter_case(uint64_t request_id,
                                      &raw);
     if (media == NULL)
         return 2;
+    libvlc_media_add_option(media, ":start-paused");
     libvlc_media_add_option(media, ":demux=rawvideo");
     libvlc_media_add_option(media, ":rawvid-width=16");
     libvlc_media_add_option(media, ":rawvid-height=16");
@@ -2307,22 +2308,20 @@ static int run_static_filter_case(uint64_t request_id,
         on_completion, &completion);
     int play_result = attach_result == 0 ? libvlc_media_player_play(player)
                                          : -1;
-    bool playing = play_result == 0
-                && wait_for_state(player, libvlc_Playing, 5000);
-    bool initial_submission = playing
+    /* This fixture has an exact raw inventory. Pausing after observing
+     * Playing can consume another bob output before the pause takes effect. */
+    bool paused = play_result == 0
+               && wait_for_state(player, libvlc_Paused, 5000);
+    bool initial_submission = paused
                            && await_atomic_at_least(&vmem.status_count, 1,
                                                     5000);
-    if (initial_submission)
-        libvlc_media_player_set_pause(player, 1);
-    bool paused = initial_submission
-               && wait_for_state(player, libvlc_Paused, 5000);
     if (attach_result != 0 || play_result != 0 || !paused
      || !initial_submission)
     {
         fprintf(stderr,
-                "static setup attach=%d play=%d playing=%d paused=%d "
+                "static setup attach=%d play=%d paused=%d "
                 "status=%u state=%d\n",
-                attach_result, play_result, playing, paused,
+                attach_result, play_result, paused,
                 atomic_load_explicit(&vmem.status_count,
                                      memory_order_relaxed),
                 libvlc_media_player_get_state(player));
