@@ -7,6 +7,11 @@ name: Tests
 # gets CI on direct pushes / merges.
 on:
   workflow_dispatch:
+    inputs:
+      build-native:
+        description: Build the patched macOS engine and run Swift behavior tests against it
+        type: boolean
+        default: false
   pull_request:
     branches: [main]
   push:
@@ -24,13 +29,86 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  native-changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      build: ${{ steps.changes.outputs.build }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: changes
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          FORCE_NATIVE: ${{ inputs.build-native && 'true' || 'false' }}
+          CANDIDATE: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release-candidates/') && 'true' || 'false' }}
+        run: python3 -B scripts/ci/native-changes.py
+
+  native-build:
+    needs: native-changes
+    if: needs.native-changes.outputs.build == 'true'
+    runs-on: macos-26
+    timeout-minutes: 200
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
+        with:
+          xcode-version: "26.4"
+      - uses: SwiftyLab/setup-swift@38f54a76b70d989321de9dc7c840618c08cf56e9 # v1.14.0
+        with:
+          swift-version: "6.3.1"
+      - name: Install native build prerequisites
+        timeout-minutes: 10
+        run: |
+          brew install autoconf automake libtool gettext pkg-config cmake meson ninja nasm
+          echo "$(brew --prefix gettext)/bin" >> "$GITHUB_PATH"
+      - name: Record native build environment
+        run: python3 -B scripts/ci/environment.py
+      - name: Build patched macOS engine and source-linked probes
+        timeout-minutes: 155
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/native-root" .build/ci-results
+          ./scripts/ci-run-with-timeouts.py 9000 900 \
+            ./scripts/build-libvlc.sh --build-root="$RUNNER_TEMP/native-root" --clean-build --macos-only \
+            2>&1 | tee .build/ci-results/native-build.log
+      - name: Test Swift behavior against the new engine
+        timeout-minutes: 12
+        env:
+          CI: "true"
+        run: |
+          python3 -B scripts/ci/use-local-native.py
+          ./scripts/ci-run-with-timeouts.py 600 180 \
+            xcrun --toolchain "$TOOLCHAINS" swift test --no-parallel \
+            --xunit-output .build/ci-results/native.xml
+          python3 -B scripts/ci/audit-test-results.py \
+            --xunit .build/ci-results/native-swift-testing.xml \
+            --contract scripts/ci/headless-test-contracts.json \
+            --test-source-root Tests/SwiftVLCTests \
+            --json-output .build/ci-results/native-accounting.json \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+      - name: Retain native validation evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: compiled-native-evidence
+          path: |
+            .build/ci-results
+            Vendor/libvlc-provenance.json
+          retention-days: 14
+
   # Style and formatting gate. Cheap (<1 min) and runs in parallel with
   # the test job so a style violation surfaces immediately without
   # waiting for the test suite. swiftlint+swiftformat configs live in
   # `.swiftlint.yml` and `.swiftformat`; both run with --strict so
   # warnings are treated as errors.
   lint:
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -117,6 +195,9 @@ jobs:
       # regression that made this worth surfacing.
       - name: Engine patch coverage
         timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SWIFTVLC_RELEASE_CANDIDATE_LINT: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release-candidates/')) && '1' || '' }}
         run: ./scripts/check-engine-coverage.sh
 
       # The accounting parser is part of the PR gate, so test it independently
@@ -147,13 +228,14 @@ jobs:
   # than the last release.
   showcase:
     # Pull requests compile the iOS Showcase in `ios-build` below. The full
-    # four-platform matrix remains post-merge/manual evidence without charging
-    # for it both immediately before and immediately after every merge.
-    if: github.event_name != 'pull_request'
+    # four-platform matrix also runs on release candidates, before publication.
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release-candidates/')) }}
     # Xcode's package graph resolver checks Package.swift's tools-version
     # with Xcode's built-in SwiftPM, not the open-source toolchain passed
     # through `-toolchain`. SwiftVLC's manifest requires Swift 6.3, so the
     # Showcase matrix must run on an image with Xcode 26.4+.
+    permissions:
+      contents: write
     runs-on: macos-26
     timeout-minutes: 40
     strategy:
@@ -172,6 +254,8 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         timeout-minutes: 2
+        with:
+          persist-credentials: false
 
       - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
         timeout-minutes: 5
@@ -179,10 +263,9 @@ jobs:
           xcode-version: "26.4"
 
       - name: Print toolchain
+        id: environment
         timeout-minutes: 1
-        run: |
-          xcodebuild -version
-          xcrun swift --version
+        run: python3 -B scripts/ci/environment.py
 
       # The libvlc xcframework dominates the artifact cache.
       - name: Cache libvlc xcframework
@@ -199,6 +282,7 @@ jobs:
         timeout-minutes: 12
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SWIFTVLC_ALLOW_DRAFT_RELEASE: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release-candidates/')) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release-candidates/'))) && '1' || '' }}
         run: ./scripts/setup-dev.sh
 
       - name: Build Showcase (${{ matrix.scheme }})
@@ -361,17 +445,20 @@ jobs:
   # This job runs the SwiftVLCTests suite on a tvOS simulator against real
   # libVLC, so tvOS-only runtime breakage can't reach `main` unseen.
   tvos-test:
-    # The iOS compile gate catches pull-request source/test breakage. Keep the
-    # slower tvOS simulator execution as post-merge/manual platform evidence.
-    if: github.event_name != 'pull_request'
+    # Run tvOS behavior tests on release candidates before publication.
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release-candidates/')) }}
     # Same rationale as ios-build: xcodebuild resolves the package with
     # Xcode's built-in SwiftPM, which must understand the manifest's Swift
     # 6.3 tools-version — needs Xcode 26.4+, hence macos-26.
+    permissions:
+      contents: write
     runs-on: macos-26
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         timeout-minutes: 2
+        with:
+          persist-credentials: false
 
       - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
         timeout-minutes: 5
@@ -390,6 +477,7 @@ jobs:
         timeout-minutes: 12
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SWIFTVLC_ALLOW_DRAFT_RELEASE: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release-candidates/')) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release-candidates/'))) && '1' || '' }}
         run: ./scripts/setup-dev.sh
 
       # TEST_RUNNER_CI=true is load-bearing: xcodebuild strips the
@@ -430,12 +518,14 @@ jobs:
             CODE_SIGNING_ALLOWED=NO
 
   test:
-    # `macos-latest` tracks the newest GitHub-provided runner. SwiftVLC
-    # requires Swift 6.3 (Package.swift tools-version), and the current
+    # This existing required check cannot pass if new native integration fails.
+    needs: [native-changes, native-build]
+    if: ${{ always() }}
+    # Pin the runner family and SDK. SwiftVLC requires Swift 6.3 (Package.swift tools-version), and the current
     # 6.3 patch is Swift 6.3.1 in Xcode 26.4.1. GHA runner toolchains
     # can lag, so we install the Swift 6.3.1 open-source toolchain from
     # swift.org and activate it via the TOOLCHAINS env var.
-    runs-on: macos-latest
+    runs-on: macos-26
     # See ios-build: write-level contents permission makes the draft visible;
     # it does not replace the resolver's exact candidate identity checks.
     permissions:
@@ -451,6 +541,14 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Require native validation outcome
+        env:
+          SELECTION: ${{ needs.native-changes.result }}
+          NATIVE: ${{ needs.native-build.result }}
+        run: |
+          test "$SELECTION" = success
+          test "$NATIVE" = success || test "$NATIVE" = skipped
+
       # Pin Xcode for SDKs / linker / simulators. Current GHA runners
       # can lag behind the package's tools-version 6.3 manifest, so we
       # install the Swift 6.3.1 open-source toolchain separately below
@@ -459,7 +557,7 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
         timeout-minutes: 5
         with:
-          xcode-version: latest-stable
+          xcode-version: "26.4"
 
       # Install Swift 6.3.1 open-source toolchain from swift.org.
       # Exports $TOOLCHAINS — later steps use `xcrun --toolchain` to run
@@ -475,8 +573,9 @@ jobs:
           swift-version: "6.3.1"
 
       - name: Print toolchain
+        id: environment
         timeout-minutes: 1
-        run: xcrun --toolchain "$TOOLCHAINS" swift --version
+        run: python3 -B scripts/ci/environment.py
 
       # Restore before candidate verification so setup-dev validates any cached
       # Vendor tree and replaces it on checksum/tree-digest mismatch. Restoring
@@ -515,7 +614,7 @@ jobs:
             .build/debug
             .build/arm64-apple-macosx
             .build/x86_64-apple-macosx
-          key: spm-build-${{ runner.os }}-${{ steps.xcf.outputs.sha }}-${{ hashFiles('Package.swift', 'Sources/**/*.swift', 'Sources/**/*.c', 'Sources/**/*.h', 'Tests/**/*.swift') }}
+          key: spm-build-v3-${{ runner.os }}-${{ runner.arch }}-${{ steps.environment.outputs.fingerprint }}-${{ steps.xcf.outputs.sha }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Sources/**/*.swift', 'Sources/**/*.c', 'Sources/**/*.h', 'Tests/**/*.swift') }}
 
       - name: Cache SPM dependencies
         if: ${{ !((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release-candidates/')) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release-candidates/'))) }}
@@ -553,6 +652,7 @@ jobs:
       # suite with zero flakes — fractions of a cent in GHA billing and
       # vastly more predictable than paying for periodic retries.
       - name: Run tests (wall-clock + idle timeouts)
+        id: swift-tests
         timeout-minutes: 12
         env:
           # TestCondition.canPlayMedia reads CI to skip playback tests that
@@ -581,6 +681,7 @@ jobs:
           # SwiftPM appends the runner kind to the requested xUnit basename.
           python3 -B scripts/ci/audit-test-results.py \
             --xunit .build/ci-results/swiftpm-swift-testing.xml \
+            --test-step-outcome "${{ steps.swift-tests.outcome }}" \
             --contract scripts/ci/headless-test-contracts.json \
             --test-source-root Tests/SwiftVLCTests \
             --json-output .build/ci-results/test-accounting.json \
@@ -617,3 +718,22 @@ jobs:
         env:
           DOC_COVERAGE_BUILD_FLAGS: --enable-code-coverage
         run: ./scripts/doc-coverage.sh
+
+  summary:
+    if: ${{ always() }}
+    needs: [lint, ios-build, test, showcase, tvos-test, native-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Summarize CI subsystems
+        env:
+          JOBS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          labels = {"lint": "Style and release/qualification tooling", "test": "Swift behavior and documentation", "ios-build": "Apple platform compilation", "showcase": "Showcase platform matrix", "tvos-test": "tvOS runtime", "native-build": "Compiled native integration"}
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as report:
+              report.write("## CI results\n\n| Subsystem | Result |\n|---|---|\n")
+              for job, value in json.loads(os.environ["JOBS"]).items():
+                  report.write(f"| {labels[job]} | {value['result']} |\n")
+          PY

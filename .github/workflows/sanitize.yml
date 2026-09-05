@@ -52,7 +52,7 @@ jobs:
       fail-fast: false
       matrix:
         sanitizer: [thread, address]
-    runs-on: macos-latest
+    runs-on: macos-26
     # GitHub hides draft releases from read-only installation tokens. The
     # resolver below separately authenticates and binds the exact candidate.
     permissions:
@@ -68,7 +68,7 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
         timeout-minutes: 5
         with:
-          xcode-version: latest-stable
+          xcode-version: "26.4"
 
       - uses: SwiftyLab/setup-swift@38f54a76b70d989321de9dc7c840618c08cf56e9 # v1.14.0
         timeout-minutes: 8
@@ -76,8 +76,9 @@ jobs:
           swift-version: "6.3.1"
 
       - name: Print toolchain
+        id: environment
         timeout-minutes: 1
-        run: xcrun --toolchain "$TOOLCHAINS" swift --version
+        run: python3 -B scripts/ci/environment.py
 
       # Restore before candidate verification so setup-dev validates/replaces
       # cached Vendor bytes instead of a cache overwriting verified bytes.
@@ -110,7 +111,7 @@ jobs:
           path: |
             .build/debug
             .build/arm64-apple-macosx
-          key: spm-build-sanitizer-${{ matrix.sanitizer }}-${{ steps.xcf.outputs.sha }}-${{ hashFiles('Package.swift', 'Sources/**/*.swift', 'Sources/**/*.c', 'Sources/**/*.h', 'Tests/**/*.swift') }}
+          key: spm-build-sanitizer-v3-${{ runner.arch }}-${{ steps.environment.outputs.fingerprint }}-${{ matrix.sanitizer }}-${{ steps.xcf.outputs.sha }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Sources/**/*.swift', 'Sources/**/*.c', 'Sources/**/*.h', 'Tests/**/*.swift') }}
 
       - name: Cache SPM dependencies
         if: ${{ !((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release-candidates/')) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release-candidates/'))) }}
