@@ -17,7 +17,7 @@ RUN_MUTATIONS=no
 
 usage() {
     cat >&2 <<EOF
-Usage: $0 --expected-version <1..9> [--source-root <patched-vlc>] \\
+Usage: $0 --expected-version <1..10> [--source-root <patched-vlc>] \\
   [--xcframework <candidate>] [--require-apple-audio-session-leases] \\
   [--run-mutations]
 EOF
@@ -60,8 +60,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ ! "$EXPECTED_VERSION" =~ ^[1-9]$ ]]; then
-    echo "An exact expected extension version from 1 through 9 is required." >&2
+if [[ ! "$EXPECTED_VERSION" =~ ^([1-9]|10)$ ]]; then
+    echo "An exact expected extension version from 1 through 10 is required." >&2
     exit 2
 fi
 if [[ "$REQUIRE_LEASES" = yes ]] && (( EXPECTED_VERSION < 8 )); then
@@ -80,7 +80,7 @@ fi
 
 # SwiftVLC deliberately keeps weak definitions so an older released static
 # archive remains linkable. Prove those compatibility paths cannot advertise
-# v9 or mutate identity before evaluating either a source tree or an archive.
+# v9/v10 or mutate native state before evaluating a source tree or an archive.
 python3 -B - "$RESOLVER" "$REPO_ROOT/Sources/CLibVLC/shim.c" <<'PY'
 import importlib.util
 from pathlib import Path
@@ -105,7 +105,7 @@ PY
 
 if [[ -n "$SOURCE_ROOT" ]]; then
     if (( EXPECTED_VERSION < 4 )); then
-        echo "Source composition proof is defined for extension versions 4 through 9." >&2
+        echo "Source composition proof is defined for extension versions 4 through 10." >&2
         exit 2
     fi
     if [[ ! -d "$SOURCE_ROOT" ]]; then
@@ -308,6 +308,9 @@ PY
     VERSION_9_SYMBOLS=(
         swiftvlc_libvlc_media_player_set_pip_playback_identity
     )
+    VERSION_10_SYMBOLS=(
+        swiftvlc_libvlc_media_player_set_subtitle_text_snapshot_callback
+    )
     LEASE_SYMBOLS=(
         swiftvlc_libvlc_media_player_acquire_apple_audio_session_lease
         swiftvlc_libvlc_media_player_release_apple_audio_session_lease
@@ -344,6 +347,11 @@ PY
         REQUIRED_SYMBOLS+=("${VERSION_9_SYMBOLS[@]}")
     else
         FUTURE_SYMBOLS+=("${VERSION_9_SYMBOLS[@]}")
+    fi
+    if (( EXPECTED_VERSION >= 10 )); then
+        REQUIRED_SYMBOLS+=("${VERSION_10_SYMBOLS[@]}")
+    else
+        FUTURE_SYMBOLS+=("${VERSION_10_SYMBOLS[@]}")
     fi
 
     symbol_definition_counts() {
@@ -415,9 +423,9 @@ PY
                 fi
             done
             # Bash 3.2 treats expansion of an explicitly empty array as an
-            # unbound variable under `set -u`. Version 9 has no future group,
+            # unbound variable under `set -u`. Version 10 has no future group,
             # so guard the only empty-array boundary before expanding it.
-            if (( EXPECTED_VERSION < 9 )); then
+            if (( EXPECTED_VERSION < 10 )); then
                 for symbol in "${FUTURE_SYMBOLS[@]}"; do
                     counts=$(symbol_definition_counts "$nm_output" "$symbol")
                     definition_count=${counts#*:}

@@ -1,0 +1,1471 @@
+diff --git a/include/meson.build b/include/meson.build
+index 72230dd35bf43798e74630e9b06984b87de88020..69feee156d9bb8453d7bab52d0859d96f7ce135a 100644
+--- a/include/meson.build
++++ b/include/meson.build
+@@ -10,6 +10,7 @@ install_headers(
+     'vlc/libvlc_media_list_player.h',
+     'vlc/libvlc_media_player.h',
+     'vlc/swiftvlc_vmem.h',
++    'vlc/swiftvlc_subtitle.h',
+     'vlc/libvlc_media_track.h',
+     'vlc/libvlc_picture.h',
+     'vlc/libvlc_renderer_discoverer.h',
+diff --git a/include/vlc/libvlc_media_player.h b/include/vlc/libvlc_media_player.h
+index 7844dce6de9d5ae02f58008efe1abeb6320631f7..e5aa90e8fb681ad95b15a86f6a6dbfd39de466e6 100644
+--- a/include/vlc/libvlc_media_player.h
++++ b/include/vlc/libvlc_media_player.h
+@@ -29,6 +29,7 @@
+ 
+ /* Definitions of enum properties for video */
+ #include "libvlc_video.h"
++#include "swiftvlc_subtitle.h"
+ #include "swiftvlc_vmem.h"
+ 
+ # ifdef __cplusplus
+@@ -456,7 +457,8 @@ typedef struct swiftvlc_pip_playback_identity_t
+  * resolution notifications. Version 8 adds Apple audio-session ownership,
+  * causal reset recovery, and read-only qualification telemetry. Version 9
+  * adds immutable native-handle/playback/output identity for race-free Apple
+- * PiP controller handoff.
++ * PiP controller handoff. Version 10 adds ordered semantic text-region
++ * interception with explicit WebVTT placement provenance.
+  */
+ LIBVLC_API unsigned swiftvlc_libvlc_pip_extensions_version( void );
+ 
+@@ -499,6 +501,34 @@ LIBVLC_API bool
+ swiftvlc_libvlc_media_player_release_apple_audio_session_lease(
+     libvlc_media_player_t *, swiftvlc_apple_audio_session_lease_t);
+ 
++/**
++ * Intercept semantic text subtitle regions instead of rendering them in
++ * libVLC.
++ *
++ * Registration is accepted only before this media player's first successful
++ * playback start, and is then latched for the native player's lifetime.
++ * Passing NULL clears a registration that has not yet been latched. Bitmap
++ * subtitle regions and on-screen display regions continue to render normally.
++ *
++ * The callback runs synchronously on an internal video/subtitle-output
++ * pipeline thread. Calls are serialized, but are not guaranteed to use one
++ * fixed thread. The regions array and every text pointer it contains remain
++ * valid only until the callback returns. A zero region count represents
++ * subtitle clearing; regions may be NULL in that case.
++ *
++ * The callback must return quickly and must not call back into libVLC.
++ *
++ * @param p_mi the media player
++ * @param callback callback to install, or NULL to clear a pre-play callback
++ * @param opaque opaque pointer passed to @a callback
++ * @retval true the pre-play callback state was updated
++ * @retval false playback has already started
++ */
++LIBVLC_API bool swiftvlc_libvlc_media_player_set_subtitle_text_snapshot_callback(
++    libvlc_media_player_t *p_mi,
++    swiftvlc_subtitle_text_snapshot_cb callback,
++    void *opaque );
++
+ LIBVLC_API bool swiftvlc_libvlc_media_player_get_media_length_snapshot(
+     libvlc_media_player_t *p_mi,
+     swiftvlc_media_player_media_length_snapshot_t *snapshot );
+diff --git a/include/vlc/swiftvlc_subtitle.h b/include/vlc/swiftvlc_subtitle.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..3405659e29c17890fecdb0e107267a9897854046
+--- /dev/null
++++ b/include/vlc/swiftvlc_subtitle.h
+@@ -0,0 +1,130 @@
++/*****************************************************************************
++ * swiftvlc_subtitle.h: SwiftVLC semantic text-subtitle snapshot ABI
++ *****************************************************************************
++ * This header intentionally depends only on fixed-width C types so both
++ * libVLC's public API and the libvlccore subtitle pipeline share one layout.
++ *****************************************************************************/
++
++#ifndef VLC_SWIFTVLC_SUBTITLE_H
++#define VLC_SWIFTVLC_SUBTITLE_H 1
++
++#include <stddef.h>
++#include <stdint.h>
++
++typedef uint32_t swiftvlc_subtitle_text_placement_kind_t;
++enum
++{
++    swiftvlc_subtitle_text_placement_automatic = 0,
++    swiftvlc_subtitle_text_placement_webvtt = 1,
++};
++
++typedef uint32_t swiftvlc_webvtt_horizontal_anchor_t;
++enum
++{
++    swiftvlc_webvtt_horizontal_anchor_center = 0,
++    swiftvlc_webvtt_horizontal_anchor_left = 1,
++    swiftvlc_webvtt_horizontal_anchor_right = 2,
++};
++
++typedef uint32_t swiftvlc_webvtt_vertical_anchor_t;
++enum
++{
++    swiftvlc_webvtt_vertical_anchor_center = 0,
++    swiftvlc_webvtt_vertical_anchor_top = 1,
++    swiftvlc_webvtt_vertical_anchor_bottom = 2,
++};
++
++typedef uint32_t swiftvlc_webvtt_text_alignment_t;
++enum
++{
++    swiftvlc_webvtt_text_alignment_center = 0,
++    swiftvlc_webvtt_text_alignment_left = 1,
++    swiftvlc_webvtt_text_alignment_right = 2,
++};
++
++typedef uint32_t swiftvlc_webvtt_writing_direction_t;
++enum
++{
++    swiftvlc_webvtt_writing_direction_horizontal = 0,
++    swiftvlc_webvtt_writing_direction_vertical_growing_left = 1,
++    swiftvlc_webvtt_writing_direction_vertical_growing_right = 2,
++};
++
++enum
++{
++    SWIFTVLC_WEBVTT_PLACEMENT_HAS_MAXIMUM_WIDTH = 1u << 0,
++    SWIFTVLC_WEBVTT_PLACEMENT_HAS_MAXIMUM_HEIGHT = 1u << 1,
++};
++
++/**
++ * Parsed WebVTT placement in normalized video coordinates.
++ *
++ * Horizontal and vertical positions identify a point in the video viewport;
++ * the corresponding anchor identifies which point of the rendered cue box is
++ * placed there. Maximum extents are meaningful only when the corresponding
++ * SWIFTVLC_WEBVTT_PLACEMENT_HAS_MAXIMUM_* flag is set. Renderer safety
++ * margins and collision avoidance are intentionally not folded into these
++ * semantic cue values.
++ */
++typedef struct swiftvlc_webvtt_placement_t
++{
++    float horizontal_position;
++    float vertical_position;
++    float maximum_width;
++    float maximum_height;
++    uint32_t flags;
++    swiftvlc_webvtt_horizontal_anchor_t horizontal_anchor;
++    swiftvlc_webvtt_vertical_anchor_t vertical_anchor;
++    swiftvlc_webvtt_text_alignment_t text_alignment;
++    swiftvlc_webvtt_writing_direction_t writing_direction;
++} swiftvlc_webvtt_placement_t;
++
++/** One ordered semantic text region in a version-10 snapshot. */
++typedef struct swiftvlc_subtitle_text_region_t
++{
++    const char *text;
++    swiftvlc_subtitle_text_placement_kind_t placement;
++    swiftvlc_webvtt_placement_t webvtt;
++} swiftvlc_subtitle_text_region_t;
++
++/** Ordered semantic text-region snapshot callback. */
++typedef void (*swiftvlc_subtitle_text_snapshot_cb)(
++    void *opaque,
++    const swiftvlc_subtitle_text_region_t *regions,
++    size_t region_count );
++
++#if defined(__cplusplus)
++# define SWIFTVLC_SUBTITLE_STATIC_ASSERT(condition, message) \
++    static_assert(condition, message)
++#else
++# define SWIFTVLC_SUBTITLE_STATIC_ASSERT(condition, message) \
++    _Static_assert(condition, message)
++#endif
++
++SWIFTVLC_SUBTITLE_STATIC_ASSERT(
++    offsetof(swiftvlc_webvtt_placement_t, horizontal_position) == 0,
++    "SwiftVLC WebVTT placement position offset changed");
++SWIFTVLC_SUBTITLE_STATIC_ASSERT(
++    offsetof(swiftvlc_webvtt_placement_t, flags) == 16,
++    "SwiftVLC WebVTT placement flags offset changed");
++SWIFTVLC_SUBTITLE_STATIC_ASSERT(
++    offsetof(swiftvlc_webvtt_placement_t, writing_direction) == 32,
++    "SwiftVLC WebVTT placement direction offset changed");
++SWIFTVLC_SUBTITLE_STATIC_ASSERT(sizeof(swiftvlc_webvtt_placement_t) == 36,
++    "SwiftVLC WebVTT placement ABI size changed");
++SWIFTVLC_SUBTITLE_STATIC_ASSERT(
++    offsetof(swiftvlc_subtitle_text_region_t, placement) == sizeof(const char *),
++    "SwiftVLC subtitle region placement offset changed");
++SWIFTVLC_SUBTITLE_STATIC_ASSERT(
++    offsetof(swiftvlc_subtitle_text_region_t, webvtt)
++        == sizeof(const char *) + sizeof(uint32_t),
++    "SwiftVLC subtitle region WebVTT offset changed");
++SWIFTVLC_SUBTITLE_STATIC_ASSERT(
++    sizeof(swiftvlc_subtitle_text_region_t)
++        == sizeof(const char *) + sizeof(uint32_t)
++         + sizeof(swiftvlc_webvtt_placement_t),
++    "SwiftVLC subtitle region ABI size changed");
++
++#undef SWIFTVLC_SUBTITLE_STATIC_ASSERT
++
++#endif /* VLC_SWIFTVLC_SUBTITLE_H */
+diff --git a/include/vlc_spu.h b/include/vlc_spu.h
+index 4a945457a3e24531b434e32cb5bf4643befd04b5..a32b79460582047a33b39c4100b8f8b7bbb512ef 100644
+--- a/include/vlc_spu.h
++++ b/include/vlc_spu.h
+@@ -26,6 +26,7 @@
+ #define VLC_SPU_H 1
+ 
+ #include <vlc_common.h>
++#include <vlc/swiftvlc_subtitle.h>
+ #include <vlc_tick.h>
+ 
+ #ifdef __cplusplus
+@@ -34,6 +35,22 @@ extern "C" {
+ 
+ struct vout_display_place_t;
+ 
++#ifdef LIBVLC_INTERNAL_
++/* One stable object published through VLC's inheritance tree. callback and
++ * opaque are mutable only while the media-player lock proves playback has
++ * never started; the remaining publication state is callback-lock protected. */
++struct swiftvlc_subtitle_text_registration
++{
++    swiftvlc_subtitle_text_snapshot_cb callback;
++    void *opaque;
++    bool latched;
++    uint64_t next_attachment_generation;
++    uint64_t current_attachment_generation;
++    uint64_t next_update_generation;
++    uint64_t published_update_generation;
++};
++#endif
++
+ /**
+  * \defgroup spu Sub-picture channels
+  * \ingroup video_output
+diff --git a/include/vlc_subpicture.h b/include/vlc_subpicture.h
+index 033381587608ac61465da9108acc48b06d4e91af..830115c5b71d3fdd9e37492c143036f8c670d047 100644
+--- a/include/vlc_subpicture.h
++++ b/include/vlc_subpicture.h
+@@ -31,6 +31,7 @@
+ #include <vlc_picture.h>
+ #include <vlc_text_style.h>
+ #include <vlc_list.h>
++#include <vlc/swiftvlc_subtitle.h>
+ #include <vlc_vector.h>
+ #include <vlc_vout_display.h>
+ 
+@@ -83,6 +84,8 @@ struct subpicture_region_t
+     int             text_flags;      /**< VLC_SUBPIC_TEXT_FLAG_xxx and SUBPICTURE_ALIGN_xxx */
+     int             i_max_width;     /** horizontal rendering/cropping target/limit */
+     int             i_max_height;    /** vertical rendering/cropping target/limit */
++    bool b_swiftvlc_webvtt_placement; /**< placement came from WebVTT */
++    swiftvlc_webvtt_placement_t swiftvlc_webvtt_placement;
+ 
+     struct vlc_list node;             /**< for inclusion in a vlc_spu_regions */
+ };
+diff --git a/lib/Makefile.am b/lib/Makefile.am
+index ed985db86b01dc53f45c2aeeb6cfc9716aa1a567..5a04572e85e817aa812936217892fcb87988f5f2 100644
+--- a/lib/Makefile.am
++++ b/lib/Makefile.am
+@@ -21,6 +21,7 @@ pkginclude_HEADERS = \
+ 	../include/vlc/libvlc_picture.h \
+ 	../include/vlc/libvlc_version.h \
+ 	../include/vlc/libvlc_video.h \
++	../include/vlc/swiftvlc_subtitle.h \
+ 	../include/vlc/swiftvlc_vmem.h \
+ 	../include/vlc/vlc.h
+ 
+diff --git a/lib/libvlc.sym b/lib/libvlc.sym
+index 88cdb53c8ca6e2c1a49728573e1eda112301a9bd..5a0725a03d7185170f5dbf7920eb6b7e51097ded 100644
+--- a/lib/libvlc.sym
++++ b/lib/libvlc.sym
+@@ -145,6 +145,7 @@ swiftvlc_libvlc_media_player_cancel_next_frame_request
+ swiftvlc_libvlc_media_player_get_apple_audio_recovery_snapshot
+ swiftvlc_libvlc_media_player_acquire_apple_audio_session_lease
+ swiftvlc_libvlc_media_player_release_apple_audio_session_lease
++swiftvlc_libvlc_media_player_set_subtitle_text_snapshot_callback
+ swiftvlc_libvlc_pip_extensions_version
+ libvlc_media_player_get_nsobject
+ libvlc_media_player_get_position
+diff --git a/lib/media_player.c b/lib/media_player.c
+index c24c25379342402967aacc8170278acc9aec1488..23542ee9ccf6161ea442d0d3fc5b036090297087 100644
+--- a/lib/media_player.c
++++ b/lib/media_player.c
+@@ -826,6 +826,11 @@ libvlc_media_player_new( libvlc_instance_t *instance )
+     var_Create( mp, "vout-cb-make-current", VLC_VAR_ADDRESS );
+     var_Create( mp, "vout-cb-metadata", VLC_VAR_ADDRESS );
+     var_Create( mp, "vout-cb-select-plane", VLC_VAR_ADDRESS );
++    mp->subtitle_text_registration =
++        (struct swiftvlc_subtitle_text_registration) { 0 };
++    var_Create( mp, "swiftvlc-subtitle-text-registration", VLC_VAR_ADDRESS );
++    var_SetAddress( mp, "swiftvlc-subtitle-text-registration",
++                    &mp->subtitle_text_registration );
+ 
+     var_Create (mp, "dec-dev", VLC_VAR_STRING);
+     var_Create (mp, "drawable-xid", VLC_VAR_INTEGER);
+@@ -1137,7 +1142,7 @@ libvlc_media_player_get_media( libvlc_media_player_t *p_mi )
+ 
+ unsigned swiftvlc_libvlc_pip_extensions_version( void )
+ {
+-    return 9;
++    return 10;
+ }
+ 
+ bool
+@@ -1320,6 +1325,33 @@ swiftvlc_libvlc_media_player_release_apple_audio_session_lease(
+ #endif
+ }
+ 
++bool
++swiftvlc_libvlc_media_player_set_subtitle_text_snapshot_callback(
++    libvlc_media_player_t *p_mi,
++    swiftvlc_subtitle_text_snapshot_cb callback,
++    void *opaque )
++{
++    if (p_mi == NULL)
++        return false;
++
++    vlc_player_t *player = p_mi->player;
++    vlc_player_Lock(player);
++
++    struct swiftvlc_subtitle_text_registration *registration =
++        &p_mi->subtitle_text_registration;
++    if (registration->latched)
++    {
++        vlc_player_Unlock(player);
++        return false;
++    }
++
++    registration->callback = callback;
++    registration->opaque = callback != NULL ? opaque : NULL;
++
++    vlc_player_Unlock(player);
++    return true;
++}
++
+ bool
+ swiftvlc_libvlc_media_player_get_media_length_snapshot(
+     libvlc_media_player_t *p_mi,
+@@ -1544,6 +1576,10 @@ int libvlc_media_player_play_internal(libvlc_media_player_t *p_mi,
+         : vlc_player_Start(player);
+     if (ret == VLC_SUCCESS)
+     {
++        /* The setter takes this same player lock. Latching before unlock makes
++         * the registration immutable before any concurrent caller can race
++         * the input thread's first vout/SPU creation. */
++        p_mi->subtitle_text_registration.latched = true;
+         if (vlc_player_IsPaused(player))
+         {
+             if (authorize)
+diff --git a/lib/media_player_internal.h b/lib/media_player_internal.h
+index 2fc62c28fb5244476eb2b8e87d90e8fdc8729398..93ef158de248cc1c85af3f81c730c295e1c38790 100644
+--- a/lib/media_player_internal.h
++++ b/lib/media_player_internal.h
+@@ -28,6 +28,7 @@
+ #include <vlc/libvlc_media.h>
+ #include <vlc_input.h>
+ #include <vlc_player.h>
++#include <vlc_spu.h>
+ #include <vlc_viewpoint.h>
+ #include <vlc_vmem_configuration.h>
+ #include "media_internal.h"
+@@ -50,6 +51,8 @@ struct libvlc_media_player_t
+     struct libvlc_instance_t * p_libvlc_instance; /* Parent instance */
+     libvlc_event_manager_t event_manager;
+ 
++    struct swiftvlc_subtitle_text_registration subtitle_text_registration;
++
+     struct {
+         vlc_player_timer_id *id;
+         libvlc_media_player_watch_time_on_update on_update;
+diff --git a/modules/codec/substext.h b/modules/codec/substext.h
+index 1ff5741c8130799b5c291f84d6456748a1fb4c23..120b45829d4536b4c42fd1970ec1b0d56ce96880 100644
+--- a/modules/codec/substext.h
++++ b/modules/codec/substext.h
+@@ -51,6 +51,8 @@ struct substext_updater_region_t
+     bool b_absolute;  /**< position is absolute in the movie */
+     bool b_in_window; /**< position the region in whole window */
+     int inner_align; /* alignment of content inside the region */
++    bool b_swiftvlc_webvtt_placement;
++    swiftvlc_webvtt_placement_t swiftvlc_webvtt_placement;
+     text_style_t *p_region_style;
+     text_segment_t *p_segments;
+     substext_updater_region_t *p_next;
+@@ -193,6 +195,10 @@ static void SubpictureTextUpdate(subpicture_t *subpic,
+         r->b_in_window = update_region->b_in_window;
+         r->i_align = update_region->align;
+         r->text_flags |= update_region->inner_align & SUBPICTURE_ALIGN_MASK;
++        r->b_swiftvlc_webvtt_placement =
++            update_region->b_swiftvlc_webvtt_placement;
++        r->swiftvlc_webvtt_placement =
++            update_region->swiftvlc_webvtt_placement;
+         if (update_region->flags & UPDT_REGION_IGNORE_BACKGROUND)
+             r->text_flags |= VLC_SUBPIC_TEXT_FLAG_NO_REGION_BG;
+         bool b_gridmode = (update_region->flags & UPDT_REGION_USES_GRID_COORDINATES) != 0;
+diff --git a/modules/codec/webvtt/subsvtt.c b/modules/codec/webvtt/subsvtt.c
+index 5fac171f8a52f3f5fbed1ec099204da25ed8f958..e8481d6edc1160821e0a1ef55a82f69af54d019e 100644
+--- a/modules/codec/webvtt/subsvtt.c
++++ b/modules/codec/webvtt/subsvtt.c
+@@ -34,6 +34,7 @@
+ #include <vlc_stream.h>
+ #include <vlc_memstream.h>
+ #include <assert.h>
++#include <math.h>
+ 
+ #include "../substext.h"
+ #include "../../demux/mp4/minibox.h"
+@@ -174,9 +175,32 @@ static bool parse_percent( const char *psz, float *value )
+ {
+     char *psz_end;
+     float d = vlc_strtof_c( psz, &psz_end );
+-    if( d >= 0.0 && d <= 100.0 && *psz_end == '%' )
+-        *value = d / 100.0;
+-    return psz_end != psz;
++    if( psz_end == psz || !isfinite( d ) || d < 0.f || d > 100.f
++     || *psz_end != '%'
++     || ( psz_end[1] != '\0' && psz_end[1] != ',' ) )
++        return false;
++    *value = d / 100.f;
++    return true;
++}
++
++static bool parse_line_number( const char *psz, float *value )
++{
++    const char *p = psz;
++    if( *p == '-' )
++        ++p;
++
++    const char *const psz_digits = p;
++    while( *p >= '0' && *p <= '9' )
++        ++p;
++    if( p == psz_digits || ( *p != '\0' && *p != ',' ) )
++        return false;
++
++    char *psz_end;
++    const float line = vlc_strtof_c( psz, &psz_end );
++    if( psz_end != p || !isfinite( line ) )
++        return false;
++    *value = line;
++    return true;
+ }
+ 
+ static bool parse_percent_tuple( const char *psz, float *x, float *y )
+@@ -306,51 +330,73 @@ static void webvtt_cue_settings_ParseTuple( webvtt_cue_settings_t *p_settings,
+             p_settings->vertical = WEBVTT_ALIGN_RIGHT;
+         else if( !strcmp( psz_value, "lr" ) )
+             p_settings->vertical = WEBVTT_ALIGN_LEFT;
+-        else
+-            p_settings->vertical = WEBVTT_ALIGN_AUTO;
+     }
+     else if( !strcmp( psz_key, "line" ) )
+     {
+-        p_settings->line.b_auto = false;
++        float line;
++        bool parsed;
++        bool snap_to_lines = true;
+         if( strchr( psz_value, '%' ) )
+         {
+-            parse_percent( psz_value, &p_settings->line.value );
+-            p_settings->b_snap_to_lines = false;
++            parsed = parse_percent( psz_value, &line );
++            if( parsed )
++                snap_to_lines = false;
+         }
+         else
+-            p_settings->line.value = vlc_strtof_c( psz_value, NULL );
+-        /* else auto */
++        {
++            parsed = parse_line_number( psz_value, &line );
++        }
++        if( !parsed )
++            return;
+ 
++        enum webvtt_align_e linealign = WEBVTT_ALIGN_START;
+         const char *psz_align = strchr( psz_value, ',' );
+-        if( psz_align++ )
++        if( psz_align != NULL )
+         {
++            ++psz_align;
+             if( !strcmp( psz_align, "center" ) )
+-                p_settings->linealign = WEBVTT_ALIGN_CENTER;
++                linealign = WEBVTT_ALIGN_CENTER;
+             else if( !strcmp( psz_align, "end" ) )
+-                p_settings->linealign = WEBVTT_ALIGN_END;
+-            else
+-                p_settings->linealign = WEBVTT_ALIGN_START;
++                linealign = WEBVTT_ALIGN_END;
++            else if( strcmp( psz_align, "start" ) )
++                return;
+         }
++
++        p_settings->b_snap_to_lines = snap_to_lines;
++        p_settings->line.b_auto = false;
++        p_settings->line.value = line;
++        p_settings->linealign = linealign;
+     }
+     else if( !strcmp( psz_key, "position" ) )
+     {
+-        parse_percent( psz_value, &p_settings->position );
++        float position;
++        if( !parse_percent( psz_value, &position ) )
++            return;
++
++        enum webvtt_align_e positionalign = WEBVTT_ALIGN_AUTO;
+         const char *psz_align = strchr( psz_value, ',' );
+-        if( psz_align++ )
++        if( psz_align != NULL )
+         {
++            ++psz_align;
+             if( !strcmp( psz_align, "line-left" ) )
+-                p_settings->positionalign = WEBVTT_ALIGN_LEFT;
++                positionalign = WEBVTT_ALIGN_LEFT;
+             else if( !strcmp( psz_align, "line-right" ) )
+-                p_settings->positionalign = WEBVTT_ALIGN_RIGHT;
++                positionalign = WEBVTT_ALIGN_RIGHT;
+             else if( !strcmp( psz_align, "center" ) )
+-                p_settings->positionalign = WEBVTT_ALIGN_CENTER;
++                positionalign = WEBVTT_ALIGN_CENTER;
+             else
+-                p_settings->positionalign = WEBVTT_ALIGN_AUTO;
++                return;
+         }
++
++        p_settings->position = position;
++        p_settings->positionalign = positionalign;
+     }
+     else if( !strcmp( psz_key, "size" ) )
+     {
+-        parse_percent( psz_value, &p_settings->size.value );
++        float size;
++        if( strchr( psz_value, ',' ) || !parse_percent( psz_value, &size ) )
++            return;
++        p_settings->size.value = size;
+         p_settings->size.b_auto = false;
+     }
+     else if( !strcmp( psz_key, "region" ) )
+@@ -368,7 +414,7 @@ static void webvtt_cue_settings_ParseTuple( webvtt_cue_settings_t *p_settings,
+             p_settings->align = WEBVTT_ALIGN_LEFT;
+         else  if( !strcmp( psz_value, "right" ) )
+             p_settings->align = WEBVTT_ALIGN_RIGHT;
+-        else
++        else if( !strcmp( psz_value, "center" ) )
+             p_settings->align = WEBVTT_ALIGN_CENTER;
+     }
+ }
+@@ -1557,6 +1603,220 @@ static int GetCueTextAlignment( const webvtt_dom_cue_t *p_cue )
+     }
+ }
+ 
++static swiftvlc_webvtt_text_alignment_t
++GetCueSwiftVLCTextAlignment( const webvtt_dom_cue_t *p_cue )
++{
++    const int alignment = GetCueTextAlignment( p_cue );
++    if( alignment & SUBPICTURE_ALIGN_LEFT )
++        return swiftvlc_webvtt_text_alignment_left;
++    if( alignment & SUBPICTURE_ALIGN_RIGHT )
++        return swiftvlc_webvtt_text_alignment_right;
++    return swiftvlc_webvtt_text_alignment_center;
++}
++
++static swiftvlc_webvtt_writing_direction_t
++GetCueWritingDirection( const webvtt_dom_cue_t *p_cue )
++{
++    if( p_cue->settings.vertical == WEBVTT_ALIGN_RIGHT )
++        return swiftvlc_webvtt_writing_direction_vertical_growing_left;
++    if( p_cue->settings.vertical == WEBVTT_ALIGN_LEFT )
++        return swiftvlc_webvtt_writing_direction_vertical_growing_right;
++    return swiftvlc_webvtt_writing_direction_horizontal;
++}
++
++static enum webvtt_align_e
++GetCuePositionAlignment( const webvtt_dom_cue_t *p_cue )
++{
++    if( p_cue->settings.positionalign != WEBVTT_ALIGN_AUTO )
++        return p_cue->settings.positionalign;
++
++    /* The decoder DOM does not retain the Unicode base direction needed to
++     * distinguish start/end for RTL cue text. Use the decoder's existing LTR
++     * assumption for logical anchors without treating vertical rl/lr as base
++     * direction. Explicit position anchors are preserved exactly. */
++    switch( p_cue->settings.align )
++    {
++        case WEBVTT_ALIGN_LEFT:
++        case WEBVTT_ALIGN_START:
++            return WEBVTT_ALIGN_LEFT;
++        case WEBVTT_ALIGN_RIGHT:
++        case WEBVTT_ALIGN_END:
++            return WEBVTT_ALIGN_RIGHT;
++        default:
++            return WEBVTT_ALIGN_CENTER;
++    }
++}
++
++static float GetCuePosition( const webvtt_dom_cue_t *p_cue )
++{
++    if( p_cue->settings.position >= 0 )
++        return p_cue->settings.position;
++
++    /* The WebVTT computed position depends only on physical left/right.
++     * start/end/default all use the midpoint; their computed position
++     * alignment is handled separately above. */
++    if( p_cue->settings.align == WEBVTT_ALIGN_LEFT )
++        return 0.f;
++    if( p_cue->settings.align == WEBVTT_ALIGN_RIGHT )
++        return 1.f;
++    return .5f;
++}
++
++static swiftvlc_webvtt_horizontal_anchor_t
++GetCueHorizontalPositionAnchor( enum webvtt_align_e alignment )
++{
++    if( alignment == WEBVTT_ALIGN_LEFT )
++        return swiftvlc_webvtt_horizontal_anchor_left;
++    if( alignment == WEBVTT_ALIGN_RIGHT )
++        return swiftvlc_webvtt_horizontal_anchor_right;
++    return swiftvlc_webvtt_horizontal_anchor_center;
++}
++
++static swiftvlc_webvtt_vertical_anchor_t
++GetCueVerticalPositionAnchor( enum webvtt_align_e alignment )
++{
++    if( alignment == WEBVTT_ALIGN_LEFT )
++        return swiftvlc_webvtt_vertical_anchor_top;
++    if( alignment == WEBVTT_ALIGN_RIGHT )
++        return swiftvlc_webvtt_vertical_anchor_bottom;
++    return swiftvlc_webvtt_vertical_anchor_center;
++}
++
++static float GetCueMaximumSize( const webvtt_dom_cue_t *p_cue,
++                                float position,
++                                enum webvtt_align_e alignment )
++{
++    float available;
++    if( alignment == WEBVTT_ALIGN_LEFT )
++        available = 1.f - position;
++    else if( alignment == WEBVTT_ALIGN_RIGHT )
++        available = position;
++    else
++    {
++        const float nearest_edge = position < .5f ? position : 1.f - position;
++        available = 2.f * nearest_edge;
++    }
++
++    if( available < 0.f )
++        available = 0.f;
++    return p_cue->settings.size.value < available
++         ? p_cue->settings.size.value : available;
++}
++
++static void SetCueLinePlacement( const webvtt_dom_cue_t *p_cue,
++                                 swiftvlc_webvtt_placement_t *placement )
++{
++    const bool horizontal =
++        p_cue->settings.vertical == WEBVTT_ALIGN_AUTO;
++    if( p_cue->settings.line.b_auto )
++    {
++        if( horizontal )
++        {
++            placement->vertical_position = 1.f;
++            placement->vertical_anchor =
++                swiftvlc_webvtt_vertical_anchor_bottom;
++        }
++        else if( p_cue->settings.vertical == WEBVTT_ALIGN_RIGHT )
++        {
++            placement->horizontal_position = 1.f;
++            placement->horizontal_anchor =
++                swiftvlc_webvtt_horizontal_anchor_right;
++        }
++        else
++        {
++            placement->horizontal_position = 0.f;
++            placement->horizontal_anchor =
++                swiftvlc_webvtt_horizontal_anchor_left;
++        }
++        return;
++    }
++
++    float line = p_cue->settings.line.value;
++    if( p_cue->settings.b_snap_to_lines )
++        line /= WEBVTT_REGION_LINES_COUNT * WEBVTT_LINE_TO_HEIGHT_RATIO;
++
++    if( horizontal )
++    {
++        placement->vertical_position = line >= 0.f ? line : 1.f + line;
++        if( p_cue->settings.linealign == WEBVTT_ALIGN_CENTER )
++            placement->vertical_anchor =
++                swiftvlc_webvtt_vertical_anchor_center;
++        else if( p_cue->settings.linealign == WEBVTT_ALIGN_END )
++            placement->vertical_anchor =
++                swiftvlc_webvtt_vertical_anchor_bottom;
++        else
++            placement->vertical_anchor =
++                swiftvlc_webvtt_vertical_anchor_top;
++    }
++    else
++    {
++        placement->horizontal_position =
++            p_cue->settings.vertical == WEBVTT_ALIGN_RIGHT
++                ? ( line >= 0.f ? 1.f - line : -line )
++                : ( line >= 0.f ? line : 1.f + line );
++        if( p_cue->settings.linealign == WEBVTT_ALIGN_CENTER )
++            placement->horizontal_anchor =
++                swiftvlc_webvtt_horizontal_anchor_center;
++        else
++        {
++            const bool start =
++                p_cue->settings.linealign != WEBVTT_ALIGN_END;
++            const bool right =
++                ( p_cue->settings.vertical == WEBVTT_ALIGN_RIGHT ) == start;
++            placement->horizontal_anchor = right
++                ? swiftvlc_webvtt_horizontal_anchor_right
++                : swiftvlc_webvtt_horizontal_anchor_left;
++        }
++    }
++}
++
++static swiftvlc_webvtt_placement_t
++GetCueSwiftVLCPlacement( const webvtt_dom_cue_t *p_cue )
++{
++    swiftvlc_webvtt_placement_t placement = { 0 };
++    const float position = GetCuePosition( p_cue );
++    const enum webvtt_align_e position_alignment =
++        GetCuePositionAlignment( p_cue );
++    const bool horizontal =
++        p_cue->settings.vertical == WEBVTT_ALIGN_AUTO;
++
++    if( horizontal )
++    {
++        placement.horizontal_position = position;
++        placement.horizontal_anchor =
++            GetCueHorizontalPositionAnchor( position_alignment );
++    }
++    else
++    {
++        placement.vertical_position = position;
++        placement.vertical_anchor =
++            GetCueVerticalPositionAnchor( position_alignment );
++    }
++    SetCueLinePlacement( p_cue, &placement );
++
++    if( !p_cue->settings.size.b_auto )
++    {
++        const float maximum =
++            GetCueMaximumSize( p_cue, position, position_alignment );
++        if( horizontal )
++        {
++            placement.flags |=
++                SWIFTVLC_WEBVTT_PLACEMENT_HAS_MAXIMUM_WIDTH;
++            placement.maximum_width = maximum;
++        }
++        else
++        {
++            placement.flags |=
++                SWIFTVLC_WEBVTT_PLACEMENT_HAS_MAXIMUM_HEIGHT;
++            placement.maximum_height = maximum;
++        }
++    }
++
++    placement.text_alignment = GetCueSwiftVLCTextAlignment( p_cue );
++    placement.writing_direction = GetCueWritingDirection( p_cue );
++    return placement;
++}
++
+ struct render_variables_s
+ {
+     const webvtt_region_t *p_region;
+@@ -1849,6 +2109,45 @@ static void ApplyCSSRules( decoder_t *p_dec, const vlc_css_rule_t *p_rule,
+ }
+ #endif
+ 
++static const webvtt_dom_cue_t *
++GetFirstActiveCue( const webvtt_dom_node_t *p_node,
++                   vlc_tick_t i_nzstart )
++{
++    for( ; p_node; p_node = p_node->p_next )
++    {
++        if( p_node->type != NODE_CUE )
++            continue;
++        const webvtt_dom_cue_t *p_cue =
++            (const webvtt_dom_cue_t *) p_node;
++        if( p_cue->i_nzstart <= i_nzstart && p_cue->i_nzstop > i_nzstart )
++            return p_cue;
++    }
++    return NULL;
++}
++
++static swiftvlc_webvtt_placement_t
++GetRegionSwiftVLCPlacement( const webvtt_region_t *p_region,
++                            const webvtt_dom_cue_t *p_cue )
++{
++    const float height = p_region->i_lines_max_scroll
++                       * WEBVTT_DEFAULT_LINE_HEIGHT_VH / 100.f;
++    swiftvlc_webvtt_placement_t placement = {
++        .horizontal_position = p_region->viewport_anchor_x
++                             - p_region->anchor_x * p_region->f_width,
++        .vertical_position = p_region->viewport_anchor_y
++                           - p_region->anchor_y * height,
++        .maximum_width = p_region->f_width,
++        .maximum_height = height,
++        .flags = SWIFTVLC_WEBVTT_PLACEMENT_HAS_MAXIMUM_WIDTH
++               | SWIFTVLC_WEBVTT_PLACEMENT_HAS_MAXIMUM_HEIGHT,
++        .horizontal_anchor = swiftvlc_webvtt_horizontal_anchor_left,
++        .vertical_anchor = swiftvlc_webvtt_vertical_anchor_top,
++        .text_alignment = GetCueSwiftVLCTextAlignment( p_cue ),
++        .writing_direction = swiftvlc_webvtt_writing_direction_horizontal,
++    };
++    return placement;
++}
++
+ static void RenderRegions( decoder_t *p_dec, vlc_tick_t i_nzstart, vlc_tick_t i_nzstop )
+ {
+     subpicture_t *p_spu = NULL;
+@@ -1866,6 +2165,10 @@ static void RenderRegions( decoder_t *p_dec, vlc_tick_t i_nzstart, vlc_tick_t i_
+         if( p_node->type == NODE_REGION )
+         {
+             const webvtt_region_t *p_vttregion = (const webvtt_region_t *) p_node;
++            const webvtt_dom_cue_t *p_activecue =
++                GetFirstActiveCue( p_vttregion->p_child, i_nzstart );
++            if( !p_activecue )
++                continue;
+             /* Variables */
+             struct render_variables_s v;
+             v.p_region = p_vttregion;
+@@ -1892,7 +2195,10 @@ static void RenderRegions( decoder_t *p_dec, vlc_tick_t i_nzstart, vlc_tick_t i_
+             p_updtregion->b_absolute = false; /* can't be absolute as snap to lines can overlap ! */
+             p_updtregion->b_in_window = false;
+             p_updtregion->align = SUBPICTURE_ALIGN_TOP|SUBPICTURE_ALIGN_LEFT;
+-            p_updtregion->inner_align = GetCueTextAlignment( (const webvtt_dom_cue_t *)p_vttregion->p_child );
++            p_updtregion->inner_align = GetCueTextAlignment( p_activecue );
++            p_updtregion->b_swiftvlc_webvtt_placement = true;
++            p_updtregion->swiftvlc_webvtt_placement =
++                GetRegionSwiftVLCPlacement( p_vttregion, p_activecue );
+             p_updtregion->origin.x = v.i_left;
+             p_updtregion->origin.y = v.i_top;
+             p_updtregion->extent.x = p_vttregion->f_width;
+@@ -1960,6 +2266,9 @@ static void RenderRegions( decoder_t *p_dec, vlc_tick_t i_nzstart, vlc_tick_t i_
+             }
+ 
+             p_updtregion->inner_align = GetCueTextAlignment( p_cue );
++            p_updtregion->b_swiftvlc_webvtt_placement = true;
++            p_updtregion->swiftvlc_webvtt_placement =
++                GetCueSwiftVLCPlacement( p_cue );
+             p_updtregion->p_segments = p_segments;
+         }
+     }
+@@ -2061,8 +2370,13 @@ static int ProcessISOBMFF( decoder_t *p_dec,
+                 free( psz );
+             }
+ 
+-            webvtt_region_t *p_region = webvtt_region_GetByID( p_sys,
+-                                                               p_cue->settings.psz_region );
++            webvtt_region_t *p_region = NULL;
++            if( p_cue->settings.vertical == WEBVTT_ALIGN_AUTO
++             && p_cue->settings.line.b_auto
++             && ( p_cue->settings.size.b_auto
++               || p_cue->settings.size.value == 1.f ) )
++                p_region = webvtt_region_GetByID(
++                    p_sys, p_cue->settings.psz_region );
+             webvtt_dom_cue_t *p_existingcue = webvtt_domnode_getCue( p_region ? p_region->p_child
+                                                                               : p_sys->p_root->p_child,
+                                                                      p_cue->i_nzstart,
+diff --git a/src/video_output/vout_subpictures.c b/src/video_output/vout_subpictures.c
+index 42212310288a7e85813e33b3b7ff26e9bc21498b..1536903985842ea65b010645ae0fb308bae6833c 100644
+--- a/src/video_output/vout_subpictures.c
++++ b/src/video_output/vout_subpictures.c
+@@ -34,6 +34,7 @@
+ 
+ #include <vlc_common.h>
+ #include <vlc_filter.h>
++#include <vlc_memstream.h>
+ #include <vlc_spu.h>
+ #include <vlc_vector.h>
+ #include <vlc_vout_display.h>
+@@ -86,6 +87,27 @@ typedef struct VLC_VECTOR(struct subtitle_position_cache) subtitles_positions_ve
+ 
+ typedef struct spu_private_t spu_private_t;
+ 
++struct spu_subtitle_text_snapshot_entry
++{
++    size_t channel_id;
++    swiftvlc_subtitle_text_region_t region;
++};
++
++typedef struct VLC_VECTOR(struct spu_subtitle_text_snapshot_entry)
++    spu_subtitle_text_snapshot;
++
++struct spu_subtitle_text_update
++{
++    struct swiftvlc_subtitle_text_registration *registration;
++    swiftvlc_subtitle_text_region_t *regions;
++    size_t region_count;
++    uint64_t attachment_generation;
++    uint64_t update_generation;
++    bool force_empty;
++};
++
++static vlc_mutex_t subtitle_text_callback_lock = VLC_STATIC_MUTEX;
++
+ struct spu_private_t {
+     spu_t spu;
+ 
+@@ -147,8 +169,386 @@ struct spu_private_t {
+     /* */
+     vlc_tick_t          last_sort_date;
+     vout_thread_t       *vout;
++
++    struct swiftvlc_subtitle_text_registration *subtitle_text_registration;
++    uint64_t subtitle_text_attachment_generation;
++    spu_subtitle_text_snapshot subtitle_text_snapshot;
+ };
+ 
++static bool
++spu_IsSubtitleTextCaptureEnabled(const spu_private_t *sys)
++{
++    return sys->subtitle_text_registration != NULL
++        && sys->subtitle_text_registration->callback != NULL;
++}
++
++static bool
++spu_IsCapturedTextRegion(const spu_private_t *sys,
++                         const subpicture_t *subpic,
++                         const subpicture_region_t *region)
++{
++    return spu_IsSubtitleTextCaptureEnabled(sys) && subpic->b_subtitle
++        && subpicture_region_IsText(region);
++}
++
++static void
++spu_ClearSubtitleTextRegions(swiftvlc_subtitle_text_region_t *regions,
++                             size_t region_count)
++{
++    for (size_t i = 0; i < region_count; ++i)
++        free((void *) regions[i].text);
++    free(regions);
++}
++
++static void
++spu_ClearSubtitleTextSnapshot(spu_subtitle_text_snapshot *snapshot)
++{
++    for (size_t i = 0; i < snapshot->size; ++i)
++        free((void *) snapshot->data[i].region.text);
++    vlc_vector_clear(snapshot);
++}
++
++static bool
++spu_CopySubtitleTextSnapshot(const spu_subtitle_text_snapshot *snapshot,
++                             swiftvlc_subtitle_text_region_t **regions,
++                             size_t *region_count)
++{
++    *regions = NULL;
++    *region_count = 0;
++    if (snapshot->size == 0)
++        return true;
++
++    swiftvlc_subtitle_text_region_t *copy =
++        vlc_alloc(snapshot->size, sizeof(*copy));
++    if (copy == NULL)
++        return false;
++
++    for (size_t i = 0; i < snapshot->size; ++i)
++    {
++        copy[i] = snapshot->data[i].region;
++        copy[i].text = strdup(snapshot->data[i].region.text);
++        if (copy[i].text == NULL)
++        {
++            spu_ClearSubtitleTextRegions(copy, i);
++            return false;
++        }
++    }
++
++    *regions = copy;
++    *region_count = snapshot->size;
++    return true;
++}
++
++static bool
++spu_RemoveSubtitleTextSnapshotChannel(spu_subtitle_text_snapshot *snapshot,
++                                      size_t channel_id)
++{
++    bool removed = false;
++    for (size_t i = 0; i < snapshot->size;)
++    {
++        if (snapshot->data[i].channel_id != channel_id)
++        {
++            ++i;
++            continue;
++        }
++        free((void *) snapshot->data[i].region.text);
++        vlc_vector_remove(snapshot, i);
++        removed = true;
++    }
++    return removed;
++}
++
++static bool
++spu_CollectSubtitleTextRegion(const subpicture_region_t *region, char **text)
++{
++    *text = NULL;
++    bool has_segment = false;
++    for (const text_segment_t *segment = region->p_text;
++         segment != NULL; segment = segment->p_next)
++    {
++        if (segment->psz_text != NULL && segment->psz_text[0] != '\0')
++        {
++            has_segment = true;
++            break;
++        }
++    }
++    if (!has_segment)
++        return true;
++
++    struct vlc_memstream stream;
++    if (vlc_memstream_open(&stream) != 0)
++        return false;
++
++    for (const text_segment_t *segment = region->p_text;
++         segment != NULL; segment = segment->p_next)
++    {
++        if (segment->psz_text != NULL && segment->psz_text[0] != '\0')
++            vlc_memstream_puts(&stream, segment->psz_text);
++    }
++
++    if (vlc_memstream_close(&stream) != 0)
++        return false;
++    *text = stream.ptr;
++    return true;
++}
++
++static bool
++spu_WebVTTPlacementsAreEqual(const swiftvlc_webvtt_placement_t *left,
++                             const swiftvlc_webvtt_placement_t *right)
++{
++    return left->horizontal_position == right->horizontal_position
++        && left->vertical_position == right->vertical_position
++        && left->maximum_width == right->maximum_width
++        && left->maximum_height == right->maximum_height
++        && left->flags == right->flags
++        && left->horizontal_anchor == right->horizontal_anchor
++        && left->vertical_anchor == right->vertical_anchor
++        && left->text_alignment == right->text_alignment
++        && left->writing_direction == right->writing_direction;
++}
++
++static bool
++spu_SubtitleTextRegionsAreEqual(const swiftvlc_subtitle_text_region_t *left,
++                                const swiftvlc_subtitle_text_region_t *right)
++{
++    if (left->placement != right->placement
++     || strcmp(left->text, right->text) != 0)
++        return false;
++
++    return left->placement != swiftvlc_subtitle_text_placement_webvtt
++        || spu_WebVTTPlacementsAreEqual(&left->webvtt, &right->webvtt);
++}
++
++static bool
++spu_SubtitleTextSnapshotsHaveEqualRegions(
++    const spu_subtitle_text_snapshot *left,
++    const spu_subtitle_text_snapshot *right)
++{
++    if (left->size != right->size)
++        return false;
++
++    for (size_t i = 0; i < left->size; ++i)
++    {
++        if (!spu_SubtitleTextRegionsAreEqual(&left->data[i].region,
++                                             &right->data[i].region))
++            return false;
++    }
++    return true;
++}
++
++static bool
++spu_SubtitleTextSnapshotsAreEqual(const spu_subtitle_text_snapshot *left,
++                                  const spu_subtitle_text_snapshot *right)
++{
++    if (!spu_SubtitleTextSnapshotsHaveEqualRegions(left, right))
++        return false;
++
++    for (size_t i = 0; i < left->size; ++i)
++        if (left->data[i].channel_id != right->data[i].channel_id)
++            return false;
++    return true;
++}
++
++static bool
++spu_CollectSubtitleText(spu_private_t *sys,
++                        size_t entry_count,
++                        const spu_render_entry_t *entries,
++                        swiftvlc_subtitle_text_region_t **regions,
++                        size_t *region_count,
++                        bool *changed)
++{
++    *regions = NULL;
++    *region_count = 0;
++    *changed = false;
++    if (!spu_IsSubtitleTextCaptureEnabled(sys))
++        return false;
++
++    spu_subtitle_text_snapshot snapshot;
++    vlc_vector_init(&snapshot);
++
++    for (size_t i = 0; i < entry_count; ++i)
++    {
++        const subpicture_t *subpic = entries[i].subpic;
++        if (!subpic->b_subtitle)
++            continue;
++
++        const subpicture_region_t *region;
++        vlc_spu_regions_foreach_const(region, &subpic->regions)
++        {
++            if (!spu_IsCapturedTextRegion(sys, subpic, region))
++                continue;
++
++            char *text;
++            if (!spu_CollectSubtitleTextRegion(region, &text))
++                goto error;
++            if (text == NULL)
++                continue;
++
++            struct spu_subtitle_text_snapshot_entry snapshot_entry = {
++                .channel_id = (size_t) subpic->i_channel,
++                .region = {
++                    .text = text,
++                    .placement = swiftvlc_subtitle_text_placement_automatic,
++                },
++            };
++            if (region->b_swiftvlc_webvtt_placement)
++            {
++                snapshot_entry.region.placement =
++                    swiftvlc_subtitle_text_placement_webvtt;
++                snapshot_entry.region.webvtt =
++                    region->swiftvlc_webvtt_placement;
++            }
++            if (!vlc_vector_push(&snapshot, snapshot_entry))
++            {
++                free(text);
++                goto error;
++            }
++        }
++    }
++
++    if (spu_SubtitleTextSnapshotsHaveEqualRegions(
++            &snapshot, &sys->subtitle_text_snapshot))
++    {
++        if (spu_SubtitleTextSnapshotsAreEqual(
++                &snapshot, &sys->subtitle_text_snapshot))
++            spu_ClearSubtitleTextSnapshot(&snapshot);
++        else
++        {
++            spu_ClearSubtitleTextSnapshot(&sys->subtitle_text_snapshot);
++            sys->subtitle_text_snapshot = snapshot;
++        }
++        return true;
++    }
++
++    if (!spu_CopySubtitleTextSnapshot(&snapshot, regions, region_count))
++    {
++        spu_ClearSubtitleTextSnapshot(&snapshot);
++        return false;
++    }
++
++    spu_ClearSubtitleTextSnapshot(&sys->subtitle_text_snapshot);
++    sys->subtitle_text_snapshot = snapshot;
++    *changed = true;
++    return true;
++
++error:
++    for (size_t i = 0; i < snapshot.size; ++i)
++        free((void *) snapshot.data[i].region.text);
++    vlc_vector_destroy(&snapshot);
++    return false;
++}
++
++static struct spu_subtitle_text_update
++spu_PrepareSubtitleTextUpdate(spu_private_t *sys,
++                              swiftvlc_subtitle_text_region_t *regions,
++                              size_t region_count)
++{
++    struct swiftvlc_subtitle_text_registration *registration =
++        sys->subtitle_text_registration;
++    struct spu_subtitle_text_update update = {
++        .regions = regions,
++        .region_count = region_count,
++    };
++
++    if (registration == NULL
++     || registration->callback == NULL
++     || sys->subtitle_text_attachment_generation == 0)
++        return update;
++
++    vlc_mutex_lock(&subtitle_text_callback_lock);
++    update.registration = registration;
++    update.attachment_generation = sys->subtitle_text_attachment_generation;
++    update.update_generation = ++registration->next_update_generation;
++    vlc_mutex_unlock(&subtitle_text_callback_lock);
++    return update;
++}
++
++static struct spu_subtitle_text_update
++spu_CollectSubtitleTextUpdate(spu_private_t *sys, size_t entry_count,
++                              const spu_render_entry_t *entries)
++{
++    swiftvlc_subtitle_text_region_t *regions = NULL;
++    size_t region_count = 0;
++    bool changed;
++    if (!spu_CollectSubtitleText(sys, entry_count, entries,
++                                &regions, &region_count, &changed)
++     || !changed)
++        return (struct spu_subtitle_text_update) { 0 };
++    return spu_PrepareSubtitleTextUpdate(sys, regions, region_count);
++}
++
++static struct spu_subtitle_text_update
++spu_PrepareCurrentSubtitleTextSnapshotUpdate(spu_private_t *sys)
++{
++    swiftvlc_subtitle_text_region_t *regions;
++    size_t region_count;
++    if (!spu_CopySubtitleTextSnapshot(&sys->subtitle_text_snapshot,
++                                      &regions, &region_count))
++        return (struct spu_subtitle_text_update) { 0 };
++    return spu_PrepareSubtitleTextUpdate(sys, regions, region_count);
++}
++
++/* Starts a new authoritative SPU/input attachment and prepares the mandatory
++ * empty snapshot that precedes every cue from it. The shared attachment epoch
++ * makes all updates from retiring SPUs stale immediately. */
++static struct spu_subtitle_text_update
++spu_PrepareSubtitleTextAttachment(spu_private_t *sys)
++{
++    struct swiftvlc_subtitle_text_registration *registration =
++        sys->subtitle_text_registration;
++    struct spu_subtitle_text_update update = { .force_empty = true };
++
++    if (registration == NULL || registration->callback == NULL)
++        return update;
++
++    vlc_mutex_lock(&subtitle_text_callback_lock);
++    sys->subtitle_text_attachment_generation =
++        ++registration->next_attachment_generation;
++    registration->current_attachment_generation =
++        sys->subtitle_text_attachment_generation;
++    update.registration = registration;
++    update.attachment_generation = sys->subtitle_text_attachment_generation;
++    update.update_generation = ++registration->next_update_generation;
++    vlc_mutex_unlock(&subtitle_text_callback_lock);
++    return update;
++}
++
++static void
++spu_PublishSubtitleText(struct spu_subtitle_text_update update)
++{
++    struct swiftvlc_subtitle_text_registration *registration =
++        update.registration;
++    if (registration == NULL)
++    {
++        spu_ClearSubtitleTextRegions(update.regions, update.region_count);
++        return;
++    }
++
++    vlc_mutex_lock(&subtitle_text_callback_lock);
++    if (update.attachment_generation
++            != registration->current_attachment_generation
++     || update.update_generation <= registration->published_update_generation)
++    {
++        spu_ClearSubtitleTextRegions(update.regions, update.region_count);
++        vlc_mutex_unlock(&subtitle_text_callback_lock);
++        return;
++    }
++    registration->published_update_generation = update.update_generation;
++
++    if (update.force_empty)
++    {
++        spu_ClearSubtitleTextRegions(update.regions, update.region_count);
++        registration->callback(registration->opaque, NULL, 0);
++        vlc_mutex_unlock(&subtitle_text_callback_lock);
++        return;
++    }
++    registration->callback(registration->opaque,
++                           update.regions,
++                           update.region_count);
++    spu_ClearSubtitleTextRegions(update.regions, update.region_count);
++    vlc_mutex_unlock(&subtitle_text_callback_lock);
++}
++
+ static void spu_PrerenderCancel(spu_private_t *, const subpicture_t *);
+ 
+ static void spu_channel_Init(struct spu_channel *channel, size_t id,
+@@ -1344,7 +1744,10 @@ static vlc_render_subpicture *SpuRenderSubpictures(spu_t *spu,
+         size_t count = 0;
+         const subpicture_region_t *p_head;
+         vlc_spu_regions_foreach_const(p_head, &subpic->regions)
+-            count++;
++        {
++            if (!spu_IsCapturedTextRegion(sys, subpic, p_head))
++                count++;
++        }
+ 
+         if (subpic->b_subtitle)
+             subtitle_region_count += count;
+@@ -1393,6 +1796,9 @@ static vlc_render_subpicture *SpuRenderSubpictures(spu_t *spu,
+         vlc_spu_regions_foreach(region, &subpic->regions) {
+             spu_area_t area;
+ 
++            if (spu_IsCapturedTextRegion(sys, subpic, region))
++                continue;
++
+             /* last minute text rendering */
+             if (unlikely(subpicture_region_IsText( region )))
+             {
+@@ -1730,6 +2136,10 @@ static void spu_PrerenderSync(spu_private_t *sys, const subpicture_t *p_subpic)
+ static void spu_PrerenderText(spu_t *spu, subpicture_t *p_subpic,
+                               const vlc_fourcc_t *chroma_list)
+ {
++    spu_private_t *sys = container_of(spu, spu_private_t, spu);
++    if (spu_IsSubtitleTextCaptureEnabled(sys) && p_subpic->b_subtitle)
++        return;
++
+     const unsigned i_original_picture_width = p_subpic->i_original_picture_width;
+     const unsigned i_original_picture_height = p_subpic->i_original_picture_height;
+ 
+@@ -1862,6 +2272,8 @@ static void spu_Cleanup(spu_t *spu)
+ 
+     vlc_vector_destroy(&sys->subs_pos);
+ 
++    spu_ClearSubtitleTextSnapshot(&sys->subtitle_text_snapshot);
++
+     vlc_vector_destroy(&sys->channels);
+ 
+     vlc_vector_clear(&sys->prerender.vector);
+@@ -1883,6 +2295,15 @@ void spu_Destroy(spu_t *spu)
+     vlc_cond_signal(&sys->prerender.cond);
+     vlc_mutex_unlock(&sys->prerender.lock);
+     vlc_join(sys->prerender.thread, NULL);
++    if (spu_IsSubtitleTextCaptureEnabled(sys))
++    {
++        vlc_mutex_lock(&sys->lock);
++        spu_ClearSubtitleTextSnapshot(&sys->subtitle_text_snapshot);
++        struct spu_subtitle_text_update update =
++            spu_PrepareSubtitleTextUpdate(sys, NULL, 0);
++        vlc_mutex_unlock(&sys->lock);
++        spu_PublishSubtitleText(update);
++    }
+     /* delete filters and free resources */
+     spu_Cleanup(spu);
+     vlc_object_delete(spu);
+@@ -1929,6 +2350,12 @@ spu_t *spu_Create(vlc_object_t *object, vout_thread_t *vout)
+                                                   "secondary-sub-alignment");
+     vlc_vector_init(&sys->subs_pos);
+ 
++    struct swiftvlc_subtitle_text_registration *registration =
++        var_InheritAddress(spu, "swiftvlc-subtitle-text-registration");
++    sys->subtitle_text_registration = registration;
++    sys->subtitle_text_attachment_generation = 0;
++    vlc_vector_init(&sys->subtitle_text_snapshot);
++
+     sys->source_chain_update = NULL;
+     sys->filter_chain_update = NULL;
+     vlc_mutex_init(&sys->filter_chain_lock);
+@@ -2000,6 +2427,18 @@ void spu_Attach(spu_t *spu, input_thread_t *input)
+             vlc_filter_Delete(sys->text);
+         sys->text = SpuRenderCreateAndLoadText(spu);
+         vlc_mutex_unlock(&sys->textlock);
++
++        if (spu_IsSubtitleTextCaptureEnabled(sys))
++        {
++            spu_ClearSubtitleTextSnapshot(&sys->subtitle_text_snapshot);
++            struct spu_subtitle_text_update subtitle_text =
++                spu_PrepareSubtitleTextAttachment(sys);
++            /* vout_Request() attaches before returning the vout to its decoder.
++             * Publish while holding the SPU lock so no cue from this input can
++             * be prepared ahead of its mandatory empty boundary. The callback
++             * contract forbids re-entering libVLC. */
++            spu_PublishSubtitleText(subtitle_text);
++        }
+     }
+     vlc_mutex_unlock(&sys->lock);
+ }
+@@ -2010,10 +2449,18 @@ void spu_Attach(spu_t *spu, input_thread_t *input)
+ void spu_Detach(spu_t *spu)
+ {
+     spu_private_t *sys = container_of(spu, spu_private_t, spu);
++    struct spu_subtitle_text_update subtitle_text = { 0 };
+     vlc_mutex_lock(&sys->lock);
+     spu_PrerenderPause(sys);
+     sys->input = NULL;
++    if (spu_IsSubtitleTextCaptureEnabled(sys))
++    {
++        spu_ClearSubtitleTextSnapshot(&sys->subtitle_text_snapshot);
++        subtitle_text = spu_PrepareSubtitleTextUpdate(sys, NULL, 0);
++    }
++    sys->subtitle_text_attachment_generation = 0;
+     vlc_mutex_unlock(&sys->lock);
++    spu_PublishSubtitleText(subtitle_text);
+ }
+ 
+ void spu_SetClockDelay(spu_t *spu, size_t channel_id, vlc_tick_t delay)
+@@ -2292,7 +2739,10 @@ vlc_render_subpicture *spu_Render(spu_t *spu,
+                              ignore_osd, &subpicture_count);
+     if (!subpicture_array)
+     {
++        struct spu_subtitle_text_update subtitle_text =
++            spu_CollectSubtitleTextUpdate(sys, 0, NULL);
+         vlc_mutex_unlock(&sys->lock);
++        spu_PublishSubtitleText(subtitle_text);
+         return NULL;
+     }
+ 
+@@ -2332,6 +2782,9 @@ vlc_render_subpicture *spu_Render(spu_t *spu,
+      * XXX The order is *really* important for overlap subtitles positioning */
+     qsort(subpicture_array, subpicture_count, sizeof(*subpicture_array), SpuRenderCmp);
+ 
++    struct spu_subtitle_text_update subtitle_text =
++        spu_CollectSubtitleTextUpdate(sys, subpicture_count, subpicture_array);
++
+     /* Render the subpictures */
+     vlc_render_subpicture *render = SpuRenderSubpictures(spu,
+                                                 subpicture_count, subpicture_array,
+@@ -2346,6 +2799,8 @@ vlc_render_subpicture *spu_Render(spu_t *spu,
+     free(subpicture_array);
+     vlc_mutex_unlock(&sys->lock);
+ 
++    spu_PublishSubtitleText(subtitle_text);
++
+     return render;
+ }
+ 
+@@ -2384,6 +2839,7 @@ ssize_t spu_RegisterChannel(spu_t *spu)
+ void spu_ClearChannel(spu_t *spu, size_t channel_id)
+ {
+     spu_private_t *sys = container_of(spu, spu_private_t, spu);
++    struct spu_subtitle_text_update subtitle_text = { 0 };
+     vlc_mutex_lock(&sys->lock);
+     struct spu_channel *channel = spu_GetChannel(spu, channel_id, NULL);
+     spu_channel_Clean(sys, channel);
+@@ -2394,19 +2850,30 @@ void spu_ClearChannel(spu_t *spu, size_t channel_id)
+         vlc_clock_SetDelay(channel->clock, channel->delay);
+         vlc_clock_Unlock(channel->clock);
+     }
++    if (spu_IsSubtitleTextCaptureEnabled(sys)
++     && spu_RemoveSubtitleTextSnapshotChannel(&sys->subtitle_text_snapshot,
++                                              channel_id))
++        subtitle_text = spu_PrepareCurrentSubtitleTextSnapshotUpdate(sys);
+     vlc_mutex_unlock(&sys->lock);
++    spu_PublishSubtitleText(subtitle_text);
+ }
+ 
+ void spu_UnregisterChannel(spu_t *spu, size_t channel_id)
+ {
+     spu_private_t *sys = container_of(spu, spu_private_t, spu);
++    struct spu_subtitle_text_update subtitle_text = { 0 };
+ 
+     vlc_mutex_lock(&sys->lock);
+     size_t channel_index = 0;
+     struct spu_channel *channel = spu_GetChannel(spu, channel_id, &channel_index);
+     spu_channel_Clean(sys, channel);
+     vlc_vector_remove(&sys->channels, channel_index);
++    if (spu_IsSubtitleTextCaptureEnabled(sys)
++     && spu_RemoveSubtitleTextSnapshotChannel(&sys->subtitle_text_snapshot,
++                                              channel_id))
++        subtitle_text = spu_PrepareCurrentSubtitleTextSnapshotUpdate(sys);
+     vlc_mutex_unlock(&sys->lock);
++    spu_PublishSubtitleText(subtitle_text);
+ }
+ 
+ void spu_ChangeSources(spu_t *spu, const char *filters)

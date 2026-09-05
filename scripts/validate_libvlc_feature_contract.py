@@ -113,7 +113,7 @@ def validate_contract(slice_name: str, path: Path) -> list[str]:
     # inventories may omit it. Once any architecture contains the broker,
     # require one copy in every architecture: a partial universal archive is
     # never a valid transition state. The release gate separately requires the
-    # complete native-v9 lease contract for 1.1.0 candidates.
+    # complete native-v10 lease contract for 1.1.0 candidates.
     audio_counts = {
         arch: members[APPLE_AUDIO_SESSION_OBJECT]
         for arch, members in members_by_arch.items()

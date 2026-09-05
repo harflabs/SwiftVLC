@@ -373,6 +373,7 @@ extension Player {
     playbackHealthSamplingTask = nil
     playbackHealthSnapshotBridge.terminate()
     playbackHealthEventBridge.terminate()
+    subtitleTextBridge.terminate()
     libvlc_media_player_set_nsobject(pointer, nil)
 
     let bridge = eventBridge

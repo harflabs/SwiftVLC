@@ -63,6 +63,7 @@ audio and video overlay APIs.
 
 ### Feature guides
 
+- <doc:TextSubtitles>
 - <doc:PictureInPicture>
 - <doc:MediaPlaylists>
 - <doc:AudioFeatures>

@@ -17,6 +17,11 @@ enum TestMedia {
     url(for: "twosec", ext: "mp4")
   }
 
+  /// 2s 64x64 black + audio with an embedded English `mov_text` subtitle track.
+  static var internalSubtitlesURL: URL {
+    url(for: "internal-subtitles", ext: "mp4")
+  }
+
   /// 20s 64x64 black, video-only, keyframes only at ~0s and ~10s —
   /// the sparse-GOP fixture that makes fast (keyframe) and precise
   /// seeks land visibly apart.
@@ -27,6 +32,26 @@ enum TestMedia {
   /// Minimal SRT subtitle file.
   static var subtitleURL: URL {
     url(for: "test", ext: "srt")
+  }
+
+  /// Overlapping WebVTT cues covering placement defaults, anchors, and invalid settings.
+  static var webVTTPlacementURL: URL {
+    url(for: "webvtt-placement", ext: "vtt")
+  }
+
+  /// Simultaneous WebVTT cues covering region retention and explicit size dropout.
+  static var webVTTRegionURL: URL {
+    url(for: "webvtt-region", ext: "vtt")
+  }
+
+  /// Long SRT cue used to prove non-WebVTT decoder provenance.
+  static var automaticSRTURL: URL {
+    url(for: "automatic", ext: "srt")
+  }
+
+  /// Explicitly positioned TTML cue used to reject geometry-based WebVTT inference.
+  static var positionedTTMLURL: URL {
+    url(for: "positioned", ext: "ttml")
   }
 
   private static func url(for name: String, ext: String) -> URL {

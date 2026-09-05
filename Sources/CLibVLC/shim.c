@@ -268,6 +268,17 @@ bool swiftvlc_libvlc_media_player_get_playback_snapshot(
 }
 
 __attribute__((weak))
+bool swiftvlc_libvlc_media_player_set_subtitle_text_snapshot_callback(
+    libvlc_media_player_t *player,
+    swiftvlc_subtitle_text_snapshot_cb callback,
+    void *opaque) {
+    (void)player;
+    (void)callback;
+    (void)opaque;
+    return false;
+}
+
+__attribute__((weak))
 bool swiftvlc_libvlc_media_player_get_sample_buffer_renderer_snapshot(
     libvlc_media_player_t *player,
     swiftvlc_sample_buffer_renderer_snapshot_t *snapshot) {
@@ -559,6 +570,32 @@ bool swiftvlc_sample_buffer_renderer_snapshot_available(void) {
 bool swiftvlc_native_pip_overlay_composition_available(void) {
 #if defined(__APPLE__)
     return swiftvlc_libvlc_pip_extensions_version() >= 3;
+#else
+    return false;
+#endif
+}
+
+bool swiftvlc_media_player_set_subtitle_text_snapshot_callback_if_available(
+    libvlc_media_player_t *player,
+    swiftvlc_subtitle_text_snapshot_cb callback,
+    void *opaque) {
+#if defined(__APPLE__)
+    if (swiftvlc_libvlc_pip_extensions_version() < 10) {
+        return false;
+    }
+    return swiftvlc_libvlc_media_player_set_subtitle_text_snapshot_callback(
+        player, callback, opaque);
+#else
+    (void)player;
+    (void)callback;
+    (void)opaque;
+    return false;
+#endif
+}
+
+bool swiftvlc_subtitle_text_snapshot_callback_available(void) {
+#if defined(__APPLE__)
+    return swiftvlc_libvlc_pip_extensions_version() >= 10;
 #else
     return false;
 #endif

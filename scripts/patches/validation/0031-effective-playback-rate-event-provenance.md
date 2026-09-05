@@ -75,7 +75,7 @@ existing weak version shim and reports the stream unavailable.
 - `effective-playback-rate-event-source-check.py`:
   `335a0999ce19577819df1382e8c5260876eab514a8fc460646fb4925e3de2700`
 - `pip_extension_version.py`:
-  `71ec748da3b77066514ad6134e980903b925c680b2788a16aef60e5d3fecedd6`
+  `1582e0915d13a177fbe545099a1ed52696d1b60cfa5dbfd6a35a60943ccfcd36`
 - `effective-playback-rate-event-abi.c`:
   `cc824316f4cd8044e5976ed36dba61a9dbaff8f2125b5ba1674f342efc5cb94b`
 - `effective-playback-rate-event-abi.cpp`:
@@ -83,7 +83,7 @@ existing weak version shim and reports the stream unavailable.
 - `effective-playback-rate-event-probe.c`:
   `e48829e8ac1402d62c12bd96d1d1953523f5c8f3978a92e716fba2d12f3d2d86`
 - `validate-effective-playback-rate-event.sh`:
-  `ba1a517a365c3d88e45a2dbd943e865e8672fd850df53c9899578a57d73d3650`
+  `0e43c0b519f8e4c41e2be36c42c76196e9ccb7487ef6710eaf139af64968be68`
 
 The source checker proves append-only enum placement, the frozen event
 envelope, the callback's locked-player contract, authoritative getter payload,

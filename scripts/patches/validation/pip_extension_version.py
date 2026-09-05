@@ -2,7 +2,7 @@
 """Fail-closed resolver for SwiftVLC's additive libVLC extension ABI.
 
 The extension function is shared by several otherwise independent patches.
-This module is the single composition proof for versions 4 through 9: every
+This module is the single composition proof for versions 4 through 10: every
 stage must be complete, unique, and contiguous, and the implementation must be
 exactly one literal return of the resolved version.  Release callers should
 also provide ``expected_version`` from the ordered patch manifest so removing
@@ -321,6 +321,26 @@ VERSION_GROUPS = (
             ),
         ),
     ),
+    MarkerGroup(
+        "subtitle-text-snapshot",
+        10,
+        (
+            marker(
+                "public_header",
+                "subtitle text snapshot declaration",
+                "swiftvlc_libvlc_media_player_set_subtitle_text_snapshot_callback",
+            ),
+            implementation_marker(
+                "subtitle text snapshot implementation",
+                "swiftvlc_libvlc_media_player_set_subtitle_text_snapshot_callback",
+            ),
+            Marker(
+                "exports",
+                "subtitle text snapshot export",
+                r"(?m)^swiftvlc_libvlc_media_player_set_subtitle_text_snapshot_callback$",
+            ),
+        ),
+    ),
 )
 
 
@@ -534,8 +554,9 @@ def classify_group(group: MarkerGroup,
 def validate_v9_native_pip_claim_semantics(sources: Mapping[str, str]) -> None:
     """Require exact preserved/fresh claims before native controller exposure."""
     source = sources["pip_controller"]
+    v9_group = next(group for group in VERSION_GROUPS if group.version == 9)
     lifecycle_marker = next(
-        current for current in VERSION_GROUPS[-1].markers
+        current for current in v9_group.markers
         if current.label == V9_LIFECYCLE_MARKER_LABEL
     )
     lifecycle_markers = marker_matches(source, lifecycle_marker)
@@ -1463,12 +1484,12 @@ def validate_v9_native_pip_identity_semantics(
 
 
 def validate_weak_compatibility_shim(shim_source: str) -> None:
-    """Prove an older archive cannot accidentally advertise or mutate v9 state."""
+    """Prove an older archive cannot advertise or mutate v9/v10 state."""
     cleaned = strip_c_comments_and_literals(shim_source)
-    setter = "swiftvlc_libvlc_media_player_set_pip_playback_identity"
+    pip_setter = "swiftvlc_libvlc_media_player_set_pip_playback_identity"
     weak_signature = re.compile(
         r"__attribute__\s*\(\(\s*weak\s*\)\)\s*bool\s+"
-        + setter
+        + pip_setter
         + r"\s*\(\s*libvlc_media_player_t\s*\*\s*player\s*,\s*"
           r"uint64_t\s+native_handle_identity\s*,\s*"
           r"uint64_t\s+playback_generation\s*\)\s*\{")
@@ -1495,7 +1516,7 @@ def validate_weak_compatibility_shim(shim_source: str) -> None:
         r"\{\s*#if\s+defined\s*\(\s*__APPLE__\s*\)\s*"
         r"if\s*\(\s*swiftvlc_libvlc_pip_extensions_version\s*\(\s*\)"
         r"\s*<\s*9\s*\)\s*\{\s*return\s+false\s*;\s*\}\s*"
-        r"return\s+" + setter + r"\s*\(\s*player\s*,\s*"
+        r"return\s+" + pip_setter + r"\s*\(\s*player\s*,\s*"
         r"native_handle_identity\s*,\s*playback_generation\s*\)\s*;\s*"
         r"#else\s*\(\s*void\s*\)\s*player\s*;\s*"
         r"\(\s*void\s*\)\s*native_handle_identity\s*;\s*"
@@ -1521,6 +1542,77 @@ def validate_weak_compatibility_shim(shim_source: str) -> None:
         raise ExtensionVersionError(
             "native PiP availability must be exactly the fail-closed v9 check")
 
+    subtitle_setter = (
+        "swiftvlc_libvlc_media_player_set_subtitle_text_snapshot_callback"
+    )
+    subtitle_weak_signature = re.compile(
+        r"__attribute__\s*\(\(\s*weak\s*\)\)\s*bool\s+"
+        + subtitle_setter
+        + r"\s*\(\s*libvlc_media_player_t\s*\*\s*player\s*,\s*"
+          r"swiftvlc_subtitle_text_snapshot_cb\s+callback\s*,\s*"
+          r"void\s*\*\s*opaque\s*\)\s*\{")
+    subtitle_weak_body = function_body_for_signature(
+        cleaned,
+        subtitle_weak_signature,
+        "weak subtitle text snapshot fallback",
+    )
+    if re.fullmatch(
+            r"\{\s*\(\s*void\s*\)\s*player\s*;\s*"
+            r"\(\s*void\s*\)\s*callback\s*;\s*"
+            r"\(\s*void\s*\)\s*opaque\s*;\s*"
+            r"return\s+false\s*;\s*\}", subtitle_weak_body) is None:
+        raise ExtensionVersionError(
+            "weak subtitle text snapshot fallback must be a side-effect-free "
+            "false result")
+
+    subtitle_wrapper_signature = re.compile(
+        r"\bbool\s+"
+        r"swiftvlc_media_player_set_subtitle_text_snapshot_callback_if_available"
+        r"\s*\(\s*libvlc_media_player_t\s*\*\s*player\s*,\s*"
+        r"swiftvlc_subtitle_text_snapshot_cb\s+callback\s*,\s*"
+        r"void\s*\*\s*opaque\s*\)\s*\{")
+    subtitle_wrapper_body = function_body_for_signature(
+        cleaned,
+        subtitle_wrapper_signature,
+        "version-gated subtitle text snapshot wrapper",
+    )
+    subtitle_wrapper_contract = (
+        r"\{\s*#if\s+defined\s*\(\s*__APPLE__\s*\)\s*"
+        r"if\s*\(\s*swiftvlc_libvlc_pip_extensions_version\s*\(\s*\)"
+        r"\s*<\s*10\s*\)\s*\{\s*return\s+false\s*;\s*\}\s*"
+        r"return\s+" + subtitle_setter + r"\s*\(\s*player\s*,\s*"
+        r"callback\s*,\s*opaque\s*\)\s*;\s*"
+        r"#else\s*\(\s*void\s*\)\s*player\s*;\s*"
+        r"\(\s*void\s*\)\s*callback\s*;\s*"
+        r"\(\s*void\s*\)\s*opaque\s*;\s*"
+        r"return\s+false\s*;\s*#endif\s*\}"
+    )
+    if re.fullmatch(
+            subtitle_wrapper_contract, subtitle_wrapper_body) is None:
+        raise ExtensionVersionError(
+            "subtitle text snapshot compatibility wrapper must gate its only "
+            "native setter call on exact extension version 10 before any "
+            "side effect")
+
+    subtitle_availability_signature = re.compile(
+        r"\bbool\s+swiftvlc_subtitle_text_snapshot_callback_available\s*"
+        r"\(\s*void\s*\)\s*\{")
+    subtitle_availability_body = function_body_for_signature(
+        cleaned,
+        subtitle_availability_signature,
+        "subtitle text snapshot availability helper",
+    )
+    subtitle_availability_contract = (
+        r"\{\s*#if\s+defined\s*\(\s*__APPLE__\s*\)\s*"
+        r"return\s+swiftvlc_libvlc_pip_extensions_version\s*\(\s*\)"
+        r"\s*>=\s*10\s*;\s*#else\s*return\s+false\s*;\s*#endif\s*\}"
+    )
+    if re.fullmatch(
+            subtitle_availability_contract, subtitle_availability_body) is None:
+        raise ExtensionVersionError(
+            "subtitle text snapshot availability must be exactly the "
+            "fail-closed v10 check")
+
 
 def resolve_extension_version(
         sources: Mapping[str, str],
@@ -1528,9 +1620,9 @@ def resolve_extension_version(
         required_same_version_groups: Sequence[str] = ()) -> Resolution:
     if (expected_version is not None
             and (isinstance(expected_version, bool)
-                 or expected_version not in range(4, 10))):
+                 or expected_version not in range(4, 11))):
         raise ExtensionVersionError(
-            f"expected version must be an integer from 4 through 9: "
+            f"expected version must be an integer from 4 through 10: "
             f"{expected_version!r}")
     if isinstance(required_same_version_groups, (str, bytes)):
         raise ExtensionVersionError(

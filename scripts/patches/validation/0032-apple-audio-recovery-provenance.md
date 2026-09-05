@@ -109,15 +109,15 @@
 Validation asset pins for the composed version/archive proof are:
 
 - `audio-media-services-reset-source-check.py`:
-  `38af8e8fcf847996cf04e5b55d1e170122fcf6cd03f86f095db6045fbbd8a5d0`
+  `ed0d4eaec115e0d93f98e69ba02ce2f3c6b6a88e1651f8b2d38bd1fa3ade756c`
 - `validate-audio-media-services-reset.sh`:
-  `f218ad480f7b5e5c5144faa3ad118e7cdf11d2f360f7616dba087300e71e9c1b`
+  `6d1712cfdcc60a7cda6f9333958880592d8a1201e6eaf847755ac7e7f16591b6`
 - `pip_extension_version.py`:
-  `71ec748da3b77066514ad6134e980903b925c680b2788a16aef60e5d3fecedd6`
+  `1582e0915d13a177fbe545099a1ed52696d1b60cfa5dbfd6a35a60943ccfcd36`
 - `native-extension-version-probe.c`:
-  `883483c72b8958f841d697d69d33b240515bbdc39d10b747e6f6383ecb3210cc`
+  `b044fa0f493bedd01bc14489b432a326438df74826887ef2d227fa9bc812df39`
 - `validate-native-extension-contract.sh`:
-  `0467c4190dfe2b4eac14813be2bfa93c5c0d0f2ac884642cbe7594ab094bc538`
+  `4d89c85709f710b6df19e76cb1727e451fbffee1909145e2f3686f1cf379b545`
 
 The source validator performs exactly 130 structural checks with one deliberate
 negative mutation per gate, ABI parity checks, bounded-exhaustive
@@ -131,13 +131,13 @@ configured slice. `build-libvlc.sh` runs the portable proof before architecture
 compilation and repeats it with configured Apple syntax as a postflight; it
 does not replace the physical oracle.
 
-The ordered patch manifest owns extension version 9 and separately requires
+The ordered patch manifest owns extension version 10 and separately requires
 the patch 0033 audio-session lease refinement introduced at version 8. Version
-8 retains both historical base and explicit refined profiles, but every v9
-source and archive inherits the complete refined profile even when a caller
+8 retains both historical base and explicit refined profiles, but every v9 or
+v10 source and archive inherits the complete refined profile even when a caller
 omits the old opt-in flag. A shared
 source-composition resolver proves every additive group from version 4 through
-version 9, exact
+version 10, exact
 vendored-header parity, the literal version implementation, and the complete
 lease declaration/implementation/export group. Its adversarial suite rejects
 partial groups, duplicates, gaps, comment/string decoys, computed or
@@ -155,11 +155,13 @@ matching unclaimed reservation on failure.
 
 After the final archive mutation, the artifact gate inventories every library
 and architecture declared by the XCFramework `Info.plist`. Each must contain
-exactly one strong text definition of every symbol owned through version 9,
-the complete required lease group, and no partial or future group. The host
+exactly one strong text definition of every symbol owned through version 10,
+the complete required lease group, and no partial or future group. Version 10's
+subtitle-text callback is signature-checked and strong-linked by the host
+probe. The host
 macOS slice additionally executes a signature-checked version probe that
 strong-links every entry point. Release preparation requires that exact
-version-9-plus-leases contract again. The source replay, clean build and
+version-10-plus-leases contract again. The source replay, clean build and
 release paths also verify the exact hash and executable-mode inventory of
 every validator asset before using it as evidence.
 

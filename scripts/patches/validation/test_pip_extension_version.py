@@ -21,8 +21,8 @@ SPEC.loader.exec_module(VERSION)
 
 
 def make_sources(version: int, leases: bool = False) -> Dict[str, str]:
-    """Build one minimal but realistic contiguous v4-v9 source surface."""
-    if version not in range(4, 10):
+    """Build one minimal but realistic contiguous v4-v10 source surface."""
+    if version not in range(4, 11):
         raise ValueError(f"unsupported fixture version: {version}")
     if leases and version < 8:
         raise ValueError("the lease refinement requires version 8 or newer")
@@ -227,6 +227,23 @@ def make_sources(version: int, leases: bool = False) -> Dict[str, str]:
         ])
         exports.append(
             "swiftvlc_libvlc_media_player_set_pip_playback_identity"
+        )
+
+    if version >= 10:
+        public_header.append(
+            "bool swiftvlc_libvlc_media_player_"
+            "set_subtitle_text_snapshot_callback(void);"
+        )
+        media_player.extend([
+            "bool swiftvlc_libvlc_media_player_"
+            "set_subtitle_text_snapshot_callback(void)",
+            "{",
+            "    return true;",
+            "}",
+        ])
+        exports.append(
+            "swiftvlc_libvlc_media_player_"
+            "set_subtitle_text_snapshot_callback"
         )
 
     drawable_header = ""
@@ -593,6 +610,43 @@ bool swiftvlc_native_pip_handoff_v9_available(void) {
     return false;
 #endif
 }
+
+__attribute__((weak))
+bool swiftvlc_libvlc_media_player_set_subtitle_text_snapshot_callback(
+    libvlc_media_player_t *player,
+    swiftvlc_subtitle_text_snapshot_cb callback,
+    void *opaque) {
+    (void)player;
+    (void)callback;
+    (void)opaque;
+    return false;
+}
+
+bool swiftvlc_media_player_set_subtitle_text_snapshot_callback_if_available(
+    libvlc_media_player_t *player,
+    swiftvlc_subtitle_text_snapshot_cb callback,
+    void *opaque) {
+#if defined(__APPLE__)
+    if (swiftvlc_libvlc_pip_extensions_version() < 10) {
+        return false;
+    }
+    return swiftvlc_libvlc_media_player_set_subtitle_text_snapshot_callback(
+        player, callback, opaque);
+#else
+    (void)player;
+    (void)callback;
+    (void)opaque;
+    return false;
+#endif
+}
+
+bool swiftvlc_subtitle_text_snapshot_callback_available(void) {
+#if defined(__APPLE__)
+    return swiftvlc_libvlc_pip_extensions_version() >= 10;
+#else
+    return false;
+#endif
+}
 """
 
 
@@ -602,7 +656,7 @@ class PiPExtensionVersionTests(unittest.TestCase):
             VERSION.resolve_extension_version(sources, **kwargs)
 
     def test_every_historical_version_boundary_resolves_exactly(self) -> None:
-        for expected in range(4, 10):
+        for expected in range(4, 11):
             with self.subTest(version=expected):
                 resolution = VERSION.resolve_extension_version(
                     make_sources(expected, leases=expected >= 9),
@@ -637,7 +691,7 @@ class PiPExtensionVersionTests(unittest.TestCase):
             final.same_version_groups, ("apple-audio-session-leases",)
         )
 
-    def test_v9_weak_compatibility_is_side_effect_free_and_fail_closed(self) -> None:
+    def test_v9_v10_weak_compatibility_is_fail_closed(self) -> None:
         baseline = compatibility_shim()
         VERSION.validate_weak_compatibility_shim(baseline)
         mutations = {
@@ -671,6 +725,54 @@ class PiPExtensionVersionTests(unittest.TestCase):
                 "    return swiftvlc_libvlc_pip_extensions_version() >= 9;",
                 1,
             ),
+            "strong-v10-fallback": baseline.replace(
+                "__attribute__((weak))\n"
+                "bool swiftvlc_libvlc_media_player_"
+                "set_subtitle_text_snapshot_callback",
+                "bool swiftvlc_libvlc_media_player_"
+                "set_subtitle_text_snapshot_callback",
+                1,
+            ),
+            "successful-v10-fallback": baseline.replace(
+                "(void)opaque;\n"
+                "    return false;\n"
+                "}\n\n"
+                "bool swiftvlc_media_player_"
+                "set_subtitle_text_snapshot_callback_if_available",
+                "(void)opaque;\n"
+                "    return true;\n"
+                "}\n\n"
+                "bool swiftvlc_media_player_"
+                "set_subtitle_text_snapshot_callback_if_available",
+                1,
+            ),
+            "version-nine-subtitle-wrapper": baseline.replace(
+                "< 10", "< 9", 1
+            ),
+            "version-nine-subtitle-availability": baseline.replace(
+                ">= 10", ">= 9", 1
+            ),
+            "unguarded-subtitle-native-call": baseline.replace(
+                "    if (swiftvlc_libvlc_pip_extensions_version() < 10) {\n"
+                "        return false;\n"
+                "    }\n",
+                "",
+                1,
+            ),
+            "subtitle-native-call-before-gate": baseline.replace(
+                "    if (swiftvlc_libvlc_pip_extensions_version() < 10) {",
+                "    swiftvlc_libvlc_media_player_"
+                "set_subtitle_text_snapshot_callback("
+                "player, callback, opaque);\n"
+                "    if (swiftvlc_libvlc_pip_extensions_version() < 10) {",
+                1,
+            ),
+            "early-true-subtitle-availability": baseline.replace(
+                "    return swiftvlc_libvlc_pip_extensions_version() >= 10;",
+                "    return true;\n"
+                "    return swiftvlc_libvlc_pip_extensions_version() >= 10;",
+                1,
+            ),
         }
         for name, candidate in mutations.items():
             with self.subTest(mutation=name):
@@ -695,7 +797,7 @@ class PiPExtensionVersionTests(unittest.TestCase):
 
     def test_comment_and_string_markers_do_not_advance_version(self) -> None:
         baseline = make_sources(4)
-        complete = make_sources(9, leases=True)
+        complete = make_sources(10, leases=True)
         marker_index = 0
         for group in VERSION.VERSION_GROUPS[1:] + VERSION.SAME_VERSION_GROUPS:
             for current in group.markers:

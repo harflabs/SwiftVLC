@@ -112,6 +112,18 @@ bool swiftvlc_sample_buffer_renderer_snapshot_available(void);
 /// Returns whether native sample-buffer PiP composites VLC subpictures.
 bool swiftvlc_native_pip_overlay_composition_available(void);
 
+/// Installs ordered semantic text-region snapshots when the linked pinned
+/// libVLC exports extension version 10. Registration is allowed only before
+/// the first successful playback start. Passing NULL clears a pre-play
+/// registration.
+bool swiftvlc_media_player_set_subtitle_text_snapshot_callback_if_available(
+    libvlc_media_player_t *player,
+    swiftvlc_subtitle_text_snapshot_cb callback,
+    void *opaque);
+
+/// Returns whether ordered semantic text-region snapshots are available.
+bool swiftvlc_subtitle_text_snapshot_callback_available(void);
+
 /// Submits one request-correlated frame step when the linked pinned libVLC
 /// exports version 4 of the additive extension.
 swiftvlc_next_frame_request_result_t

@@ -1,0 +1,31 @@
+WEBVTT
+
+REGION
+id:implicit
+width:40%
+lines:3
+regionanchor:0%,0%
+viewportanchor:10%,20%
+
+REGION
+id:explicit
+width:40%
+lines:3
+regionanchor:0%,0%
+viewportanchor:10%,20%
+
+REGION
+id:smaller
+width:40%
+lines:3
+regionanchor:0%,0%
+viewportanchor:10%,20%
+
+00:00:00.000 --> 00:00:15.000 region:implicit
+region cue
+
+00:00:00.000 --> 00:00:15.000 region:explicit size:100%
+explicit size cue
+
+00:00:00.000 --> 00:00:15.000 region:smaller size:40%
+smaller size cue

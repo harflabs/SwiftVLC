@@ -403,14 +403,11 @@ toolchains. The script applies them in-tree on every invocation, idempotently:
 5. **Rust contribs disabled.** VLC's contribs pin `cargo-c 0.9.29`, which pulls `time 0.3.31` and fails type inference under the supported Rust toolchain. The only Rust contrib on Apple is `rav1e` (AV1 *encoder*); `dav1d` handles decoding.
 6. **`dup3` / `pipe2`.** Forced unavailable via autoconf cache vars. iOS Simulator SDK 26 exports these Linux-only syscalls from libSystem, fooling configure into using them.
 
-The script also applies these checked-in VLC source patches in order:
-
-1. **[Chromecast hardening](scripts/patches/0001-chromecast-hardening.patch).** Enables the supported subtitle burn-in path and rejects unreachable receivers cleanly instead of routing playback into a dead cast session.
-2. **[Sample-buffer aspect handling](scripts/patches/0002-samplebufferdisplay-aspect.patch).** Maps VLC fitting modes to the correct layer gravity and avoids OpenGLES-only configuration on Mac Catalyst.
-3. **[Sample-buffer lifetime and placement](scripts/patches/0003-samplebufferdisplay-lifetime-placement.patch).** Backports upstream fixes that detach the display view from the vout lifetime and keep native placement updates consistent.
-4. **[PiP safety and geometry](scripts/patches/0004-samplebuffer-pip-safety-geometry.patch).** Adds the retained media snapshots and pixel-buffer bridge used to keep asynchronous PiP frame delivery and geometry safe.
-5. **[UPnP initialization teardown](scripts/patches/0005-upnp-init-failure-teardown.patch).** Balances cleanup only for initialization stages that completed, preventing a failed UPnP startup from hanging during teardown.
-6. **[MP4 roll seek point](scripts/patches/0006-mp4-roll-seek-point.patch).** Keeps AAC decoder preroll metadata from resetting an MP4 seek to the start of the stream.
+The ordered, hashed source-patch series is declared in
+[`scripts/patches/manifest.sha256`](scripts/patches/manifest.sha256). Each
+patch documents its purpose at the top of the file. Verify the series with
+`./scripts/verify-patch-manifest.sh`; the build refuses missing, unlisted, or
+modified patches.
 
 `git reset --hard` only runs when HEAD is not at `VLC_HASH`, so the patches and per-platform build dirs survive repeated runs.
 
@@ -420,10 +417,11 @@ Releases advance `main`, but stable releases can only consume an immutable,
 previously prepared and device-qualified candidate. `setup-dev.sh` flips a
 working checkout back to local sources for day-to-day development.
 
-The 1.1.0 release line now requires native extension v9 together with the v8
-Apple audio-session lease refinement. `1.1.0-beta.9` is therefore the first
-eligible candidate; the published beta.8 archive remains usable through the
-fail-closed weak compatibility path but cannot pass the current release gate.
+The 1.1.0 release line now requires native extension v10 together with the v8
+Apple audio-session lease refinement. The published `1.1.0-beta.9` archive
+carries v9 and remains usable through the fail-closed weak compatibility path,
+but it cannot pass the current release gate. The first eligible candidate must
+be rebuilt from the current patch manifest.
 
 ```bash
 ./scripts/build-libvlc.sh \

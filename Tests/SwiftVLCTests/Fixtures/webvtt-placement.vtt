@@ -1,0 +1,29 @@
+WEBVTT
+
+default-cue
+00:00:00.000 --> 00:00:15.000
+default cue
+
+positioned-cue
+00:00:00.000 --> 00:00:15.000 line:20%,start position:15%,line-left size:45% align:left
+positioned cue
+
+vertical-cue
+00:00:00.000 --> 00:00:15.000 vertical:rl line:30%,start position:80%,line-right size:30% align:right
+vertical cue
+
+start-auto-position-cue
+00:00:00.000 --> 00:00:15.000 size:25% align:start
+start auto-position cue
+
+end-auto-position-cue
+00:00:00.000 --> 00:00:15.000 size:25% align:end
+end auto-position cue
+
+non-finite-cue
+00:00:00.000 --> 00:00:15.000 line:nan% position:nan%
+non-finite cue
+
+invalid-syntax-cue
+00:00:00.000 --> 00:00:15.000 line:1.5,center position:25%,bogus
+invalid syntax cue

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tt xmlns="http://www.w3.org/ns/ttml"
+    xmlns:tts="http://www.w3.org/ns/ttml#styling">
+  <head>
+    <layout>
+      <region xml:id="placed" tts:origin="10% 65%" tts:extent="80% 25%"/>
+    </layout>
+  </head>
+  <body>
+    <div>
+      <p region="placed" begin="00:00:00.000" end="00:00:15.000">TTML automatic</p>
+    </div>
+  </body>
+</tt>

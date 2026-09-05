@@ -308,6 +308,13 @@ extension Player {
       guard sourceIsCurrent() else { return }
       switch newState {
       case .stopped, .error:
+        // A bare `play()` can publish a new active intent before this
+        // same-generation terminal event drains from the main-actor queue.
+        // The native subtitle output emits its ordered clear on teardown; only
+        // mirror a clear here when no successor playback has already begun.
+        if !isPlaybackRequestedActive {
+          subtitleTextBridge.reset()
+        }
         supersedeSeekWorkForTerminalBoundary()
         cancelPendingFrameSteps()
       case .idle, .stopping:
@@ -558,6 +565,13 @@ extension Player {
         || changedMediaIdentity
         || sourcePlaybackGeneration == nil
       if replacedTimeline {
+        // `load(_:)` clears synchronously. Native-driven list advancement
+        // tears down the outgoing subtitle output, which emits an ordered
+        // empty callback. Avoid a late main-actor reset after a successor cue
+        // has already arrived.
+        if !isPlaybackRequestedActive {
+          subtitleTextBridge.reset()
+        }
         guard
           resetMediaDerivedState(
             preservingPlaybackIntent: carriesPlaybackControl,
@@ -595,6 +609,11 @@ extension Player {
           nativeHandleGeneration: sourceNativeHandleGeneration,
           lifecycleControlEpoch: sourceLifecycleControlEpoch
         ) else { return }
+      if !isPlaybackRequestedActive {
+        subtitleTextBridge.reset(
+          awaitingNativeClear: hasLiveNativeOutputForTextSubtitleReset
+        )
+      }
       supersedeSeekWorkForTerminalBoundary()
       cancelPendingFrameSteps()
       clearPauseControlState(for: sessionGeneration)
@@ -671,6 +690,9 @@ extension Player {
             storeActiveVideoOutputsWithoutNestedObservation(count)
           }
         ) else { return }
+      if count > 0 {
+        nativePlayerHasStartedPlayback = true
+      }
       guard
         refreshTracks(
           ifPlaybackGeneration: sourcePlaybackGeneration,
@@ -695,6 +717,9 @@ extension Player {
       withMutation(keyPath: \.isProgramScrambled) {}
 
     case .endReached:
+      if !isPlaybackRequestedActive {
+        subtitleTextBridge.reset()
+      }
       // A consumer of the public stream can observe `.endReached` and
       // call `play()` before this internal mirror drains its copy of
       // the same event; the intent flag (set synchronously by `play()`)

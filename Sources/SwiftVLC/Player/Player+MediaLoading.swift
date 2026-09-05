@@ -14,6 +14,9 @@ extension Player {
     // retiring handle's inert replacement and publish a `currentMedia` the
     // player can never play.
     guard !isShutdown else { return }
+    subtitleTextBridge.reset(
+      awaitingNativeClear: hasLiveNativeOutputForTextSubtitleReset
+    )
 
     // A native PiP output copies the handle/playback identity before Swift is
     // told that the vout exists. Once a drawable-hosted handle may have opened

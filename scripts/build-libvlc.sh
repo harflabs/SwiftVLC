@@ -1398,6 +1398,8 @@ if [ -n "${PATCHES_DIR}" ] && [ -d "${PATCHES_DIR}" ]; then
                 swiftvlc_apple_audio_session_leases_listed=yes ;;
             0041-native-pip-output-identity.patch)
                 manifest_extension_candidate=9 ;;
+            0043-text-subtitle-callback.patch)
+                manifest_extension_candidate=10 ;;
         esac
         if [ -n "$manifest_extension_candidate" ] &&
            { [ -z "$swiftvlc_manifest_extension_version" ] ||

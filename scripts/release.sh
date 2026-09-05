@@ -678,7 +678,7 @@ if ! "$SCRIPT_DIR/check-libvlc-manifest.sh" --xcframework "$XCFW_PATH"; then
   exit 1
 fi
 
-# Release 1.1.0's frozen patch manifest owns extension version 9 plus the 0033
+# Release 1.1.0's frozen patch manifest owns extension version 10 plus the 0033
 # Apple audio-session lease refinement inherited from version 8. Probe the
 # actual linked macOS archive in this checkout before accepting its recorded
 # provenance; current headers or provenance metadata alone cannot establish the
@@ -686,9 +686,9 @@ fi
 echo "Verifying exact linked native extension contract..."
 if ! "$SCRIPT_DIR/validate-native-extension-contract.sh" \
   --xcframework "$XCFW_PATH" \
-  --expected-version 9 \
+  --expected-version 10 \
   --require-apple-audio-session-leases; then
-  echo "Error: release artifact does not implement native extension version 9 with Apple audio-session leases." >&2
+  echo "Error: release artifact does not implement native extension version 10 with Apple audio-session leases." >&2
   echo "  Rebuild it from the current patch manifest before preparing a release." >&2
   exit 1
 fi

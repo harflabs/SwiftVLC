@@ -10,7 +10,7 @@
 #endif
 
 #if SWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION < 1 \
- || SWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION > 9
+ || SWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION > 10
 # error "unsupported SwiftVLC native extension version"
 #endif
 
@@ -30,7 +30,7 @@
 
 #if SWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION >= 9 \
  && !SWIFTVLC_REQUIRE_APPLE_AUDIO_SESSION_LEASES
-# error "extension version 9 inherits the Apple audio-session lease contract"
+# error "extension versions 9 and newer inherit the Apple audio-session lease contract"
 #endif
 
 #define SWIFTVLC_ASSERT_FUNCTION_TYPE(function_name, pointer_type) \
@@ -156,6 +156,14 @@ SWIFTVLC_ASSERT_FUNCTION_TYPE(
     swiftvlc_set_pip_playback_identity_function_t);
 #endif
 
+#if SWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION >= 10
+typedef bool (*swiftvlc_set_subtitle_text_snapshot_callback_function_t)(
+    libvlc_media_player_t *, swiftvlc_subtitle_text_snapshot_cb, void *);
+SWIFTVLC_ASSERT_FUNCTION_TYPE(
+    swiftvlc_libvlc_media_player_set_subtitle_text_snapshot_callback,
+    swiftvlc_set_subtitle_text_snapshot_callback_function_t);
+#endif
+
 #if SWIFTVLC_REQUIRE_APPLE_AUDIO_SESSION_LEASES
 _Static_assert(sizeof(swiftvlc_apple_audio_session_lease_t) == sizeof(uint64_t),
                "unexpected Apple audio-session lease width");
@@ -193,6 +201,14 @@ int main(void)
             NULL, UINT64_C(1), UINT64_C(1)))
     {
         fputs("native PiP identity setter accepted a null player\n", stderr);
+        return 1;
+    }
+#endif
+#if SWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION >= 10
+    if (swiftvlc_libvlc_media_player_set_subtitle_text_snapshot_callback(
+            NULL, NULL, NULL))
+    {
+        fputs("subtitle text callback setter accepted a null player\n", stderr);
         return 1;
     }
 #endif

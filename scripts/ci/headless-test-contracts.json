@@ -5,7 +5,7 @@
   "counting_assumptions": [
     "Reported and passed floors are calibrated to the macOS SwiftPM lane with Swift 6.3.1, CI=true, and Swift Testing xUnit output; review them when that toolchain or lane changes.",
     "The source floor is a lexical inventory of @Test declarations in every Swift file under Tests/SwiftVLCTests, including declarations behind platform conditionals; it is not an executed-test count.",
-    "The uncontracted skip ceiling excludes only the exact, mutually exclusive native-version identities below while CI transitions from the released extension-version-7 artifact to the rebuilt extension-version-8 artifact. The four version-8 scenarios receive allowances only before the upgrade; the reciprocal pre-version-8 rejection scenario receives its allowance only after the upgrade, preserving the same general skip-debt ceiling on either artifact."
+    "The uncontracted skip ceiling excludes only the exact native-version identities below. CI is transitioning from the released extension-version-9 artifact to the rebuilt extension-version-10 artifact, so the five version-10 text-subtitle scenarios receive allowances only before that upgrade. The retained version-8 boundary contracts remain mutually exclusive: four audio-session scenarios apply before version 8, while the reciprocal pre-version-8 rejection applies on version 8 or newer, preserving the same general skip-debt ceiling across that historical artifact boundary."
   ],
   "maximum_uncontracted_reported_skips": 175,
   "maximum_declared_playback_gates": 119,
@@ -39,6 +39,36 @@
       "name": "`Current pre-version-8 archive rejects before libVLC sees an unknown option`()",
       "skip_reason": "Current archive is already extension version 8 or newer",
       "reason": "applies only once CI links an extension-version-8-or-newer release artifact"
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.DecodedFrameHarnessTests",
+      "name": "`Text subtitle stream captures mov_text as automatic regions without blending`()",
+      "skip_reason": "Requires the patched libVLC text-subtitle snapshot ABI",
+      "reason": "requires the rebuilt libVLC extension-version-10 text-subtitle snapshot ABI"
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.DecodedFrameHarnessTests",
+      "name": "`WebVTT decoder preserves ordered placement provenance`()",
+      "skip_reason": "Requires the patched libVLC text-subtitle snapshot ABI",
+      "reason": "requires the rebuilt libVLC extension-version-10 text-subtitle snapshot ABI"
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.DecodedFrameHarnessTests",
+      "name": "`WebVTT size one hundred remains in region while smaller size leaves`()",
+      "skip_reason": "Requires the patched libVLC text-subtitle snapshot ABI",
+      "reason": "requires the rebuilt libVLC extension-version-10 text-subtitle snapshot ABI"
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.DecodedFrameHarnessTests",
+      "name": "`SRT decoder always reports automatic placement`()",
+      "skip_reason": "Requires the patched libVLC text-subtitle snapshot ABI",
+      "reason": "requires the rebuilt libVLC extension-version-10 text-subtitle snapshot ABI"
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.DecodedFrameHarnessTests",
+      "name": "`Positioned TTML decoder still reports automatic placement`()",
+      "skip_reason": "Requires the patched libVLC text-subtitle snapshot ABI",
+      "reason": "requires the rebuilt libVLC extension-version-10 text-subtitle snapshot ABI"
     }
   ],
   "required_suites": [

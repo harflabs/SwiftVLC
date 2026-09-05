@@ -39,7 +39,7 @@ verify_source() {
 verify_source "$SOURCE_CHECKER" \
     c3d38d12de458739e95bdacdedfcd5c233b9e41ce4bab922b5142c7cc9a3e8ad
 verify_source "$VERSION_RESOLVER" \
-    71ec748da3b77066514ad6134e980903b925c680b2788a16aef60e5d3fecedd6
+    1582e0915d13a177fbe545099a1ed52696d1b60cfa5dbfd6a35a60943ccfcd36
 verify_source "$PROBE" \
     65347de5f707e49e0d2208e4c8310f84026a518ff87730c0d17eabe5757d3bb7
 verify_source "$ABI_CXX" \

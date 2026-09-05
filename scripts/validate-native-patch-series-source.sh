@@ -210,12 +210,21 @@ python3 -B \
     "$VLC_SOURCE_ROOT" \
     "$SCRIPT_DIR/patches/0042-adaptive-es-recycling-extradata-identity.patch"
 
-section "Validating exact integrated extension version 9"
+section "Validating exact integrated extension version 10"
 "$SCRIPT_DIR/validate-native-extension-contract.sh" \
     --source-root "$VLC_SOURCE_ROOT" \
-    --expected-version 9 \
+    --expected-version 10 \
     --require-apple-audio-session-leases \
     --run-mutations
+
+section "Validating ordered semantic subtitle-text snapshots"
+subtitle_snapshot_compiler="${CC:-cc}"
+command -v "$subtitle_snapshot_compiler" >/dev/null 2>&1 \
+    || fail "C compiler not found for subtitle-text snapshot proof: $subtitle_snapshot_compiler"
+"$subtitle_snapshot_compiler" -std=c11 -O2 -Wall -Wextra -Werror \
+    "$SCRIPT_DIR/patches/validation/subtitle-text-snapshot.c" \
+    -o "$REPLAY_DIR/subtitle-text-snapshot"
+"$REPLAY_DIR/subtitle-text-snapshot"
 
 section "Validating native PiP output identity and race semantics"
 python3 -B \
@@ -253,4 +262,4 @@ python3 -B \
 section "Native patch-series source contracts passed"
 echo "Pinned VLC commit: $actual_commit"
 echo "Applied patches:   ${#patch_names[@]}"
-echo "Extension version: 9 (apple-audio-session-leases required)"
+echo "Extension version: 10 (apple-audio-session-leases required)"

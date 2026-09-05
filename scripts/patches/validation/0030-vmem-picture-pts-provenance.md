@@ -66,7 +66,7 @@ callback.
 - `vmem-picture-pts-source-check.py`:
   `c3d38d12de458739e95bdacdedfcd5c233b9e41ce4bab922b5142c7cc9a3e8ad`
 - `pip_extension_version.py`:
-  `71ec748da3b77066514ad6134e980903b925c680b2788a16aef60e5d3fecedd6`
+  `1582e0915d13a177fbe545099a1ed52696d1b60cfa5dbfd6a35a60943ccfcd36`
 - `vmem-picture-pts-probe.c`:
   `65347de5f707e49e0d2208e4c8310f84026a518ff87730c0d17eabe5757d3bb7`
 - `vmem-picture-pts-abi.cpp`:
@@ -78,9 +78,9 @@ callback.
 - `strict-frame-step-probe.c`:
   `bc9c69c9e86bb90cff568f0b32a0aef75b51330634bf5efeddd00b82a723aaa9`
 - `validate-strict-frame-step.sh`:
-  `de0e39fbf0696f3c981b40a61e0bfe95bc4209c801048a1e20a4fda1c1ddea27`
+  `eb37d715467ca7910674e2be33defca412df168394a13fe0619075188d6485d4`
 - `validate-vmem-picture-pts.sh`:
-  `5be777e7b0d6456a10ab8b9818a8705b09ee91292ab8e66c893bdeb823d94b9b`
+  `5c83704621bb90827b77f5bba10d39f741d0c31cc698bae4be4ba04d3bcf3346`
 
 The source checker includes negative mutations for scheduled-date
 substitution, missing `VLC_TICK_0` normalization, zero-for-invalid coercion,
@@ -90,11 +90,11 @@ threads. It also forces allocation failure across v4-to-v6 and v6-to-v4
 transitions and verifies that neither callback tuple tears.
 The pre-existing strict-frame checker retains all of its frozen v4 checks. It
 and the vmem checker now share one fail-closed source-composition resolver for
-versions 4 through 9. The resolver requires complete, unique and contiguous
+versions 4 through 10. The resolver requires complete, unique and contiguous
 feature groups plus the exact literal version implementation; the vmem checker
 then requires that the resolved version is at least 6. Patch 0033's audio
 session leases are a separately provable same-version refinement introduced at
-version 8 and retained unconditionally by version 9.
+version 8 and retained unconditionally by versions 9 and 10.
 Runtime probes receive one exact expected version owned by the ordered patch
 manifest. They neither infer archive identity from the shipped headers nor
 accept an open-ended version range.

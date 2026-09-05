@@ -39,12 +39,14 @@ reuse and cancel-versus-commit races.
 The strict frame-step surface introduced extension version 4, but its source
 checker also runs against the final additive patch series. A shared fail-closed
 resolver now proves every complete, unique and contiguous extension group from
-version 4 through version 9, the exact literal version function, declarations,
+version 4 through version 10, the exact literal version function, declarations,
 implementations and exports. Version 9 additionally binds the exact immutable
-PiP identity type and fresh-controller claim surface. Patch 0033 remains modeled
+PiP identity type and fresh-controller claim surface; version 10 binds the
+ordered semantic subtitle-text snapshot callback. Patch 0033 remains modeled
 separately as a required same-version refinement introduced at version 8, so
-removing all of that patch cannot be mistaken for a valid downgrade from v9;
-v9 inherits it even when a caller omits the historical v8 opt-in flag.
+removing all of that patch cannot be mistaken for a valid downgrade from v9 or
+v10; both successor versions inherit it even when a caller omits the historical
+v8 opt-in flag.
 
 The expected final version comes from the ordered patch manifest, not the
 checked-in header or the source tree being inspected. The clean source-replay

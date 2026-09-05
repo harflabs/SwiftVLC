@@ -124,6 +124,8 @@ The central observable type that drives all playback.
 | `Player+ABLoop.swift` | `extension Player` | A-B loop state plus checked time/position mutations. |
 | `Player+Programs.swift` | `extension Player` | DVB/MPEG-TS program selection, renderer targeting, mid-playback `recast(to:)`, and scrambled-state polling. |
 | `Player+Recording.swift` | `extension Player` | Snapshot capture and recording start/stop. |
+| `Player+TextSubtitles.swift` | `extension Player` | Pre-play opt-in to the ABI-v4 semantic-text snapshot callback. Publishes `TextSubtitleSnapshot` values whose regions remain in presentation order while native bitmap subtitles and OSD continue through VLC. |
+| `SubtitleTextBridge.swift` | `internal final class` | Synchronously copies callback-owned region text and parsed placement into `Sendable` Swift values, deduplicates text plus placement, and replays the newest snapshot through independent newest-one streams. Explicit decoder provenance is the only path to `.webVTT`; every other semantic format maps to `.automatic`. |
 | `Player+Overlays.swift` | `extension Player` | Scoped `withMarquee`/`withLogo`/`withAdjustments` accessors for the `~Copyable ~Escapable` overlay types. |
 | `Player+Typed.swift` | `extension Player` | Typed read-only accessors for raw `position`/`volume`/`rate`/`subtitleTextScale`, plus explicit checked mutation methods such as `setPlaybackRate(_:)`. |
 | `PlaybackValues.swift` | 5 typed wrapper structs | `PlaybackPosition`, `Volume`, `PlaybackRate`, `SubtitleScale`, `EqualizerGain`. Each is `Sendable, Hashable, Comparable, ExpressibleByFloatLiteral`, clamps finite input to its valid range, and maps `NaN` to a safe named default. |
@@ -172,6 +174,7 @@ try player.setSubtitleDelay(.milliseconds(-100))
 player.setSubtitleScale(1.25)
 
 // Playback control
+let subtitleSnapshots = try player.textSubtitleStream() // opt in before play
 try player.play(url: someURL)
 player.pause()
 player.resume()
@@ -185,6 +188,15 @@ try player.takeSnapshot(to: path, width: 320, height: 240)
 player.startRecording(to: directoryPath)
 try player.updateViewpoint(Viewpoint(yaw: 90, pitch: 0, roll: 0, fieldOfView: 80))
 ```
+
+Each text-subtitle value is an ordered region snapshot. An empty region array
+clears presentation; `snapshot.text` is the newline-flattened convenience view.
+Only explicitly decoder-marked WebVTT regions carry parsed normalized
+positions, cue-box anchors, optional maximum dimensions, physical text
+alignment, and writing direction. Renderer margins and collision avoidance are
+not folded into these semantic values. Generic region geometry never creates
+WebVTT provenance. The callback's array and strings are borrowed only for
+the callback duration, so `SubtitleTextBridge` copies them before publishing.
 
 ### Media
 
@@ -799,7 +811,7 @@ blocked until `check-qualification.sh` accepts that record.
 | `scripts/detach-managed-build-directory.py` | Implements no-follow, descriptor-relative initialization, handoff, quarantine cleanup, and publication primitives for native build/output directories. It rejects identity changes and device/filesystem crossings instead of falling back to pathname-recursive deletion. |
 | `scripts/validate-native-patch-series-source.sh` | Replays the complete hash-locked VLC patch stack in a disposable external work root and runs its fast source/mutation contracts, including libaom/NASM consumer compatibility. |
 | `scripts/validate-headless-vout-teardown.sh` | Verifies patch 0040's started-vout lifecycle ordering and, when given an XCFramework, runs bounded headless H.264 stop/release and natural-EOF/release regressions against its macOS archive. |
-| `scripts/validate-native-extension-contract.sh` | Binds the ordered native patch intent to exact extension v9 source/header semantics, the inherited v8 audio-session lease refinement, a fail-closed weak compatibility path, and one strong required symbol in every XCFramework architecture. |
+| `scripts/validate-native-extension-contract.sh` | Binds the ordered native patch intent to exact extension v10 source/header semantics, the inherited v8 audio-session lease refinement, the v10 subtitle-text callback, a fail-closed weak compatibility path, and the required symbols in every XCFramework architecture. |
 | `scripts/fix-duplicate-symbols.sh` | Localizes `_json_parse_error` and `_json_read` in the chromecast plugin, which two VLC plugins each emit. Called automatically by `build-libvlc.sh` and `setup-dev.sh`. |
 | `scripts/release.sh` | Stages a non-SemVer draft candidate on an exact release commit, requires that commit's GitHub gates, atomically assigns/publishes the final SemVer tag, proves immutability and public consumption, then advances `main`. |
 | `Validate SwiftVLC.command` | One-command physical-device validator for maintainers and community testers. Preflights signing and hardware, runs the complete applicable matrix unattended, and creates a privacy-scrubbed shareable report ZIP. |

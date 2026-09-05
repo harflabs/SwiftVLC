@@ -362,6 +362,12 @@ extension Player {
       libvlc_media_player_release(newPointer)
       newLifetime.initialOwnerDidRelease()
     }
+    do {
+      try reattachTextSubtitleCaptureIfEnabled(to: newLifetime)
+    } catch {
+      releaseUncommittedCandidate()
+      throw error
+    }
     #if os(iOS)
     let identityGeneration = successorPlaybackGeneration?.value ?? sessionGeneration
     if

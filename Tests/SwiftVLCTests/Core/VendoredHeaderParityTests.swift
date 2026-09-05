@@ -154,4 +154,77 @@ struct VendoredHeaderParityTests {
     #expect(snapshot.successful_submission_count == 99)
     #expect(snapshot.permanent_failure_count == 3)
   }
+
+  /// Extension version 10 preserves ordered regions and WebVTT provenance in
+  /// a fixed-width record. These layout and symbol checks compile through the
+  /// exact headers shipped in the xcframework.
+  @Test
+  func `The subtitle text snapshot ABI is present in vendored headers`() {
+    #expect(swiftvlc_subtitle_text_placement_automatic == 0)
+    #expect(swiftvlc_subtitle_text_placement_webvtt == 1)
+    #expect(swiftvlc_webvtt_horizontal_anchor_center == 0)
+    #expect(swiftvlc_webvtt_horizontal_anchor_left == 1)
+    #expect(swiftvlc_webvtt_horizontal_anchor_right == 2)
+    #expect(swiftvlc_webvtt_vertical_anchor_center == 0)
+    #expect(swiftvlc_webvtt_vertical_anchor_top == 1)
+    #expect(swiftvlc_webvtt_vertical_anchor_bottom == 2)
+    #expect(swiftvlc_webvtt_text_alignment_center == 0)
+    #expect(swiftvlc_webvtt_text_alignment_left == 1)
+    #expect(swiftvlc_webvtt_text_alignment_right == 2)
+    #expect(swiftvlc_webvtt_writing_direction_horizontal == 0)
+    #expect(swiftvlc_webvtt_writing_direction_vertical_growing_left == 1)
+    #expect(swiftvlc_webvtt_writing_direction_vertical_growing_right == 2)
+    #expect(SWIFTVLC_WEBVTT_PLACEMENT_HAS_MAXIMUM_WIDTH == 1)
+    #expect(SWIFTVLC_WEBVTT_PLACEMENT_HAS_MAXIMUM_HEIGHT == 2)
+
+    var placement = swiftvlc_webvtt_placement_t()
+    placement.horizontal_position = 0.25
+    placement.vertical_position = 0.75
+    placement.maximum_width = 0.5
+    placement.maximum_height = 0.4
+    placement.flags = UInt32(
+      SWIFTVLC_WEBVTT_PLACEMENT_HAS_MAXIMUM_WIDTH
+        | SWIFTVLC_WEBVTT_PLACEMENT_HAS_MAXIMUM_HEIGHT
+    )
+    placement.horizontal_anchor = swiftvlc_webvtt_horizontal_anchor_t(
+      swiftvlc_webvtt_horizontal_anchor_left
+    )
+    placement.vertical_anchor = swiftvlc_webvtt_vertical_anchor_t(
+      swiftvlc_webvtt_vertical_anchor_bottom
+    )
+    placement.text_alignment = swiftvlc_webvtt_text_alignment_t(
+      swiftvlc_webvtt_text_alignment_right
+    )
+    placement.writing_direction = swiftvlc_webvtt_writing_direction_t(
+      swiftvlc_webvtt_writing_direction_vertical_growing_left
+    )
+
+    var region = swiftvlc_subtitle_text_region_t()
+    region.placement = swiftvlc_subtitle_text_placement_kind_t(
+      swiftvlc_subtitle_text_placement_webvtt
+    )
+    region.webvtt = placement
+
+    #expect(MemoryLayout<swiftvlc_webvtt_placement_t>.size == 36)
+    #expect(MemoryLayout<swiftvlc_webvtt_placement_t>.offset(of: \.flags) == 16)
+    #expect(MemoryLayout<swiftvlc_webvtt_placement_t>.offset(of: \.writing_direction) == 32)
+    #expect(MemoryLayout<swiftvlc_subtitle_text_region_t>.size == 48)
+    #expect(MemoryLayout<swiftvlc_subtitle_text_region_t>.offset(of: \.placement) == 8)
+    #expect(MemoryLayout<swiftvlc_subtitle_text_region_t>.offset(of: \.webvtt) == 12)
+    #expect(region.webvtt.horizontal_position == 0.25)
+    #expect(region.webvtt.vertical_position == 0.75)
+
+    let callback: swiftvlc_subtitle_text_snapshot_cb = { _, regions, count in
+      _ = regions
+      _ = count
+    }
+
+    _ = callback
+    _ = swiftvlc_libvlc_media_player_set_subtitle_text_snapshot_callback
+    _ = swiftvlc_media_player_set_subtitle_text_snapshot_callback_if_available
+    #expect(
+      swiftvlc_subtitle_text_snapshot_callback_available()
+        == (swiftvlc_libvlc_pip_extensions_version() >= 10)
+    )
+  }
 }

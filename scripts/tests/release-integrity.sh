@@ -2050,12 +2050,14 @@ expected_manifest_tail = [
     "a4945772122ce3d02f9a5c0c7136fa5dae940f251081238260b760b86c834681  0040-headless-vout-teardown-deadlock.patch",
     "3587daa9ccd017cf109e3c809315b09e8f378d63b8d17600bd6c0366dbd750c8  0041-native-pip-output-identity.patch",
     "6675edb052faa037c763451b6c9aae9b43dc42769d9311332371eda8bd788611  0042-adaptive-es-recycling-extradata-identity.patch",
+    "8bf97e191e0f5765a8daa1d8d7848e7453f0c6f4dda57eff6bfff82744e64ab2  0043-text-subtitle-callback.patch",
 ]
-if manifest_lines[-6:] != expected_manifest_tail:
+if manifest_lines[-7:] != expected_manifest_tail:
     sys.exit(
         "patch manifest must end with frozen 0037 through 0040, native PiP "
-        "output identity 0041, then adaptive ES recycling 0042: "
-        f"got {manifest_lines[-6:]}"
+        "output identity 0041, adaptive ES recycling 0042, then text-subtitle "
+        "callback 0043: "
+        f"got {manifest_lines[-7:]}"
     )
 
 required_validator_assets = (
@@ -2080,6 +2082,7 @@ required_validator_assets = (
     "scripts/patches/validation/sample-buffer-renderer-snapshot-abi.cpp",
     "scripts/patches/validation/strict-frame-step-probe.c",
     "scripts/patches/validation/strict-frame-step-source-check.py",
+    "scripts/patches/validation/subtitle-text-snapshot.c",
     "scripts/patches/validation/test_pip_extension_version.py",
     "scripts/patches/validation/vmem-configuration-race.c",
     "scripts/patches/validation/vmem-picture-pts-abi.cpp",
@@ -2641,6 +2644,7 @@ expected_extension_patch_versions = {
     "0031-effective-playback-rate-event.patch": 7,
     "0032-audio-media-services-reset.patch": 8,
     "0041-native-pip-output-identity.patch": 9,
+    "0043-text-subtitle-callback.patch": 10,
 }
 for patch_name, version in expected_extension_patch_versions.items():
     marker = (
@@ -2684,36 +2688,55 @@ for marker in (
     'def validate_v9_native_pip_claim_semantics(',
     'def validate_weak_compatibility_shim(shim_source: str) -> None:',
     'effective_required_groups.add("apple-audio-session-leases")',
-    'expected version must be an integer from 4 through 9',
+    '"subtitle-text-snapshot",\n        10,',
+    '"subtitle text snapshot declaration"',
+    '"subtitle text snapshot implementation"',
+    '"subtitle text snapshot export"',
+    'subtitle_weak_signature = re.compile(',
+    '"weak subtitle text snapshot fallback",',
+    'subtitle_wrapper_contract = (',
+    '"version-gated subtitle text snapshot wrapper",',
+    'subtitle_availability_contract = (',
+    '"subtitle text snapshot availability helper",',
+    'expected version must be an integer from 4 through 10',
 ):
     if extension_resolver.count(marker) != 1:
-        sys.exit(f"v9 source resolver contract is incomplete: {marker}")
+        sys.exit(f"v10 source resolver contract is incomplete: {marker}")
 for marker in (
-    'Usage: $0 --expected-version <1..9>',
+    'Usage: $0 --expected-version <1..10>',
+    'if [[ ! "$EXPECTED_VERSION" =~ ^([1-9]|10)$ ]]; then',
+    'An exact expected extension version from 1 through 10 is required.',
     'VERSION_9_SYMBOLS=(\n'
     '        swiftvlc_libvlc_media_player_set_pip_playback_identity\n'
+    '    )',
+    'VERSION_10_SYMBOLS=(\n'
+    '        swiftvlc_libvlc_media_player_set_subtitle_text_snapshot_callback\n'
     '    )',
     'if (( EXPECTED_VERSION >= 9 )); then\n'
     '    # v9 succeeds the final v8+0033 profile. Do not let omission of an optional\n'
     '    # command-line flag turn an inherited safety contract back into an option.\n'
     '    REQUIRE_LEASES=yes\n'
     'fi',
-    'if (( EXPECTED_VERSION < 9 )); then',
+    'if (( EXPECTED_VERSION >= 10 )); then',
+    'if (( EXPECTED_VERSION < 10 )); then',
     'resolver.validate_weak_compatibility_shim(',
 ):
     if native_extension_validator.count(marker) != 1:
-        sys.exit(f"v9 archive/compatibility validator is incomplete: {marker}")
+        sys.exit(f"v10 archive/compatibility validator is incomplete: {marker}")
 for marker in (
-    'SWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION > 9',
+    'SWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION > 10',
     'sizeof(swiftvlc_pip_playback_identity_t) == 16',
     'offsetof(swiftvlc_pip_playback_identity_t,',
     'swiftvlc_libvlc_media_player_set_pip_playback_identity,',
     'native PiP identity setter accepted a null player',
+    'swiftvlc_set_subtitle_text_snapshot_callback_function_t',
+    'swiftvlc_libvlc_media_player_set_subtitle_text_snapshot_callback,',
+    'subtitle text callback setter accepted a null player',
     '#if SWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION >= 9 \\\n'
     ' && !SWIFTVLC_REQUIRE_APPLE_AUDIO_SESSION_LEASES',
 ):
     if marker not in native_extension_probe:
-        sys.exit(f"v9 linked type/runtime probe is incomplete: {marker}")
+        sys.exit(f"v10 linked type/runtime probe is incomplete: {marker}")
 for marker in (
     '__attribute__((weak))\n'
     'bool swiftvlc_libvlc_media_player_set_pip_playback_identity(',
@@ -2722,11 +2745,22 @@ for marker in (
 ):
     if clibvlc_shim.count(marker) != 1:
         sys.exit(f"v9 weak compatibility source is incomplete: {marker}")
+for marker in (
+    '__attribute__((weak))\n'
+    'bool swiftvlc_libvlc_media_player_set_subtitle_text_snapshot_callback(',
+    'swiftvlc_libvlc_pip_extensions_version() < 10',
+    'swiftvlc_libvlc_pip_extensions_version() >= 10',
+):
+    if clibvlc_shim.count(marker) != 1:
+        sys.exit(f"v10 weak callback compatibility source is incomplete: {marker}")
 adaptive_source_gate = native_patch_series_validator.index(
     'section "Validating adaptive ES codec-configuration recycling"'
 )
-v9_source_gate = native_patch_series_validator.index(
-    'section "Validating exact integrated extension version 9"'
+v10_source_gate = native_patch_series_validator.index(
+    'section "Validating exact integrated extension version 10"'
+)
+subtitle_snapshot_gate = native_patch_series_validator.index(
+    'section "Validating ordered semantic subtitle-text snapshots"'
 )
 pip_identity_gate = native_patch_series_validator.index(
     'section "Validating native PiP output identity and race semantics"'
@@ -2734,9 +2768,19 @@ pip_identity_gate = native_patch_series_validator.index(
 strict_source_gate = native_patch_series_validator.index(
     'section "Validating strict frame-step source semantics"'
 )
-if not adaptive_source_gate < v9_source_gate < pip_identity_gate < strict_source_gate:
-    sys.exit("0042/v9/0041/legacy native source gates are out of fail-closed order")
+if not (
+    adaptive_source_gate
+    < v10_source_gate
+    < subtitle_snapshot_gate
+    < pip_identity_gate
+    < strict_source_gate
+):
+    sys.exit(
+        "0042/v10/0043/0041/legacy native source gates are out of fail-closed "
+        "order"
+    )
 for marker in (
+    '--expected-version 10',
     '"$SCRIPT_DIR/patches/validation/adaptive-es-recycling-source-check.py"',
     '"$SCRIPT_DIR/patches/0042-adaptive-es-recycling-extradata-identity.patch"',
     '"$SCRIPT_DIR/patches/validation/native-pip-output-identity-source-check.py"',
@@ -2746,6 +2790,21 @@ for marker in (
 ):
     if native_patch_series_validator.count(marker) != 1:
         sys.exit(f"native source replay is missing one exact 0041/0042 proof: {marker}")
+for marker in (
+    'section "Validating ordered semantic subtitle-text snapshots"',
+    'subtitle_snapshot_compiler="${CC:-cc}"',
+    'C compiler not found for subtitle-text snapshot proof',
+    '"$subtitle_snapshot_compiler" -std=c11 -O2 -Wall -Wextra -Werror \\\n'
+    '    "$SCRIPT_DIR/patches/validation/subtitle-text-snapshot.c" \\\n'
+    '    -o "$REPLAY_DIR/subtitle-text-snapshot"',
+    '"$REPLAY_DIR/subtitle-text-snapshot"\n\n'
+    'section "Validating native PiP output identity and race semantics"',
+):
+    if native_patch_series_validator.count(marker) != 1:
+        sys.exit(
+            "native source replay is missing the exact 0043 semantic-text "
+            f"snapshot proof: {marker}"
+        )
 for export_marker in (
     'export SWIFTVLC_EXPECTED_EXTENSION_VERSION="$swiftvlc_manifest_extension_version"',
     'export SWIFTVLC_REQUIRE_APPLE_AUDIO_SESSION_LEASES="$swiftvlc_apple_audio_session_leases_listed"',
@@ -2827,7 +2886,8 @@ for stale_include in (
             f"{stale_include}"
         )
 for marker in (
-    'if [[ "$EXPECTED_EXTENSION_VERSION" == 9 ]]; then\n'
+    'if [[ "$EXPECTED_EXTENSION_VERSION" == 9 ||\n'
+    '      "$EXPECTED_EXTENSION_VERSION" == 10 ]]; then\n'
     '  REQUIRE_APPLE_AUDIO_SESSION_LEASES=yes\n'
     'fi',
     'if [[ "$EXPECTED_EXTENSION_VERSION" -ge 9 &&\n'
@@ -2836,7 +2896,7 @@ for marker in (
 ):
     if strict_frame_validator.count(marker) != 1:
         sys.exit(
-            "strict-frame validator does not inherit the v9 Apple audio lease "
+            "strict-frame validator does not inherit the v9+ Apple audio lease "
             f"contract exactly once: {marker}"
         )
 for marker in (
@@ -3118,7 +3178,7 @@ release_native_extension_command = release[
 for marker in (
     '"$SCRIPT_DIR/validate-native-extension-contract.sh"',
     '--xcframework "$XCFW_PATH"',
-    '--expected-version 9',
+    '--expected-version 10',
     '--require-apple-audio-session-leases',
 ):
     if release_native_extension_command.count(marker) != 1:

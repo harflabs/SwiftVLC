@@ -29,6 +29,7 @@
 
 /* Definitions of enum properties for video */
 #include "libvlc_video.h"
+#include "swiftvlc_subtitle.h"
 #include "swiftvlc_vmem.h"
 
 # ifdef __cplusplus
@@ -445,7 +446,8 @@ typedef struct swiftvlc_pip_playback_identity_t
  * resolution notifications. Version 8 adds Apple audio-session ownership,
  * causal reset recovery, and read-only qualification telemetry. Version 9
  * adds immutable native-handle/playback/output identity for race-free Apple
- * PiP controller handoff.
+ * PiP controller handoff. Version 10 adds ordered semantic text-region
+ * interception with explicit WebVTT placement provenance.
  */
 LIBVLC_API unsigned swiftvlc_libvlc_pip_extensions_version( void );
 
@@ -477,6 +479,34 @@ swiftvlc_libvlc_media_player_acquire_apple_audio_session_lease(
 LIBVLC_API bool
 swiftvlc_libvlc_media_player_release_apple_audio_session_lease(
     libvlc_media_player_t *, swiftvlc_apple_audio_session_lease_t);
+
+/**
+ * Intercept semantic text subtitle regions instead of rendering them in
+ * libVLC.
+ *
+ * Registration is accepted only before this media player's first successful
+ * playback start, and is then latched for the native player's lifetime.
+ * Passing NULL clears a registration that has not yet been latched. Bitmap
+ * subtitle regions and on-screen display regions continue to render normally.
+ *
+ * The callback runs synchronously on an internal video/subtitle-output
+ * pipeline thread. Calls are serialized, but are not guaranteed to use one
+ * fixed thread. The regions array and every text pointer it contains remain
+ * valid only until the callback returns. A zero region count represents
+ * subtitle clearing; regions may be NULL in that case.
+ *
+ * The callback must return quickly and must not call back into libVLC.
+ *
+ * @param p_mi the media player
+ * @param callback callback to install, or NULL to clear a pre-play callback
+ * @param opaque opaque pointer passed to @a callback
+ * @retval true the pre-play callback state was updated
+ * @retval false playback has already started
+ */
+LIBVLC_API bool swiftvlc_libvlc_media_player_set_subtitle_text_snapshot_callback(
+    libvlc_media_player_t *p_mi,
+    swiftvlc_subtitle_text_snapshot_cb callback,
+    void *opaque );
 
 /**
  * Atomically capture the media player's current media and playback length.

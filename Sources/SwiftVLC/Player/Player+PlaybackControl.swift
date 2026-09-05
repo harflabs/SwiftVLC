@@ -422,6 +422,9 @@ extension Player {
   /// barrier or requested terminal cause.
   @discardableResult
   func requestPlaybackStop() -> PlayerPlaybackStopEpisode? {
+    subtitleTextBridge.reset(
+      awaitingNativeClear: hasLiveNativeOutputForTextSubtitleReset
+    )
     let stopsRetiringHandleForDormantSuccessor = nativePlayerNeedsReplacementBeforePlayback
       && nativePlayerReplacementHasCommittedMediaGeneration
     guard

@@ -136,6 +136,7 @@ public final class Player {
   nonisolated let playbackHealthEventBridge = Broadcaster<PlaybackHealthEvent>(
     defaultBufferSize: 16
   )
+  nonisolated let subtitleTextBridge = SubtitleTextBridge()
   /// ``isPlaybackRequestedActive`` mirrored for readers that cannot touch the
   /// main actor.
   ///
@@ -545,6 +546,9 @@ public final class Player {
     eventBridge.currentPlaybackGenerationHasStartedPlayback
   }
 
+  @ObservationIgnored var isTextSubtitleCaptureEnabled = false
+  @ObservationIgnored var subtitleTextNativeOperations = SubtitleTextNativeOperations.live
+
   /// Set synchronously by the first ``shutdown()`` caller, before it
   /// suspends, so every command issued from that point on sees a player that
   /// is already retiring.
@@ -694,6 +698,7 @@ public final class Player {
     playbackStatusBridge.terminate()
     playbackHealthSnapshotBridge.terminate()
     playbackHealthEventBridge.terminate()
+    subtitleTextBridge.terminate()
     playbackHealthSamplingTask?.cancel()
     #if os(iOS) || os(macOS)
     retireDirectPiPVideoCallbacksForHandleEnd()

@@ -180,6 +180,7 @@ extension Integration {
 
       #expect(player.playbackControlIntent == .pause)
       #expect(!player.isPlaybackRequestedActive)
+      #expect(!player.nativePlayerHasStartedPlayback)
 
       let list = MediaList()
       try list.append(Media(url: TestMedia.twosecURL))
@@ -188,6 +189,7 @@ extension Integration {
 
       #expect(player.playbackControlIntent == .resume)
       #expect(player.isPlaybackRequestedActive)
+      #expect(player.nativePlayerHasStartedPlayback)
 
       player.setPauseTransition(
         .pausing,
@@ -204,6 +206,7 @@ extension Integration {
       #expect(player.pauseTransition == nil)
       #expect(player.deferredPauseCommand == nil)
       #expect(!player.isPlaybackRequestedActive)
+      #expect(player.nativePlayerHasStartedPlayback)
     }
 
     @Test
