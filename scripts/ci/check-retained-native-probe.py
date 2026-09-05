@@ -33,7 +33,7 @@ def main():
     # match that engine even when the current checkout's probes have changed.
     subprocess.run(["bash", str(checkout / "scripts/validate-native-patch-series-source.sh"),
                     "--work-root", str(replay), "--keep-worktree"],
-                   check=True, timeout=600)
+                   cwd=checkout, check=True, timeout=600)
     roots = list(replay.glob(".swiftvlc-native-source.*/vlc"))
     if len(roots) != 1:
         raise SystemExit("expected one exact retained source replay")
