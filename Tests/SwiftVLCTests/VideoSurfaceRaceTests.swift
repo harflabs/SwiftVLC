@@ -97,15 +97,56 @@ extension Integration {
       }
     }
 
-    /// Scenario (c): rapid surface swap while playback is active.
-    /// `attach(to:)` on B calls `Player.setDrawable(B)`, which internally
-    /// binds the previous drawable (A) to a local so its lifetime
-    /// extends across the `libvlc_media_player_set_nsobject` call — the
-    /// vout thread never sees A's pointer after B's has been stored,
-    /// but A is still alive through the atomic swap. A is released at
-    /// the end of `setDrawable`.
+    /// The running native view must migrate with the surface. Updating the
+    /// native drawable variable alone leaves VLC's captured container behind.
     @Test
     func `rapid surface swap A to B 20 iterations`() async throws {
+      #if os(macOS)
+      _ = NSApplication.shared
+      let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 640, height: 240),
+        styleMask: [.borderless], backing: .buffered, defer: false
+      )
+      window.isReleasedWhenClosed = false
+      defer { window.close() }
+      let first = VideoSurface(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+      let second = VideoSurface(frame: NSRect(x: 320, y: 0, width: 320, height: 240))
+      window.contentView?.addSubview(first)
+      window.contentView?.addSubview(second)
+      window.orderFront(nil)
+      let player = try Player(instance: VLCInstance(arguments: ["--no-audio", "--quiet"]))
+      first.attach(to: player)
+      let media = try Media(url: TestMedia.twosecURL)
+      media.addOption("input-repeat=-1")
+      try player.play(media)
+      var renderer: NSView?
+      let deadline = ContinuousClock.now + .seconds(10)
+      while renderer == nil, ContinuousClock.now < deadline {
+        renderer = nativeRenderer(in: first)
+        if renderer == nil {
+          try await Task.sleep(for: .milliseconds(20))
+        }
+      }
+      guard let renderer else {
+        await player.shutdown()
+        Issue.record("VLC did not create its native rendering view")
+        return
+      }
+      let handle = player.pointer
+      for _ in 0..<20 {
+        second.attach(to: player)
+        #expect(renderer.isDescendant(of: second))
+        #expect(!renderer.isDescendant(of: first))
+        first.detach()
+        #expect(renderer.isDescendant(of: second))
+        first.attach(to: player)
+        #expect(renderer.isDescendant(of: first))
+      }
+      #expect(player.pointer == handle)
+      first.detach()
+      second.detach()
+      await player.shutdown()
+      #else
       let instance = try VLCInstance(arguments: ["--quiet"])
       let player = Player(instance: instance)
       try player.play(url: TestMedia.twosecURL)
@@ -121,7 +162,22 @@ extension Integration {
         _ = surfaceB
       }
       player.stop()
+      #endif
     }
+
+    #if os(macOS)
+    private func nativeRenderer(in view: NSView) -> NSView? {
+      if String(describing: type(of: view)).contains("VLCVideoWindowContentView") {
+        return view
+      }
+      for child in view.subviews {
+        if let renderer = nativeRenderer(in: child) {
+          return renderer
+        }
+      }
+      return nil
+    }
+    #endif
 
     /// Scenario (d): concurrent attach from multiple surfaces within the
     /// same main-actor turn. Swift's main-actor serialization means

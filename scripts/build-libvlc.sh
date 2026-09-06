@@ -2495,6 +2495,10 @@ if grep -q 'swiftvlc_next_frame_request_result_t' \
         else
             error "Strict frame-step host build root is incomplete: ${STRICT_MACOS_BUILD_CONTAINER}"
         fi
+        info "Validating native playback recovery and playlist handoffs..."
+        "${SCRIPT_DIR}/validate-native-playback-stability.sh" \
+            "${VLC_SRC}" "${OUTPUT_DIR}/libvlc.xcframework" \
+            "${STRICT_MACOS_BUILD_ROOT}"
         info "Validating strict request-correlated frame stepping with source-linked race gates..."
         "${SCRIPT_DIR}/validate-strict-frame-step.sh" \
             "${OUTPUT_DIR}/libvlc.xcframework" \

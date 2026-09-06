@@ -2056,13 +2056,16 @@ expected_manifest_tail = [
     "6675edb052faa037c763451b6c9aae9b43dc42769d9311332371eda8bd788611  0042-adaptive-es-recycling-extradata-identity.patch",
     "8bf97e191e0f5765a8daa1d8d7848e7453f0c6f4dda57eff6bfff82744e64ab2  0043-text-subtitle-callback.patch",
     "3547212f487fccee8e3f4977bd3e990ce71252d36796cf27142d566ef6ea1780  0044-resume-deferred-pause.patch",
+    "088166ed95d7d9c00246bdd1d2e569636a5e7027161f738fe47eca8894a91e7f  0045-preserve-playlist-advance-on-mode-change.patch",
+    "0fb742b8d8f8819bc89643b0e298b4bf0468cf1b068824317a1dc064f4ec8438  0046-clear-recovered-playback-failures.patch",
 ]
-if manifest_lines[-8:] != expected_manifest_tail:
+if manifest_lines[-10:] != expected_manifest_tail:
     sys.exit(
         "patch manifest must end with frozen 0037 through 0040, native PiP "
         "output identity 0041, adaptive ES recycling 0042, then text-subtitle "
-        "callback 0043, then deferred-resume correction 0044: "
-        f"got {manifest_lines[-8:]}"
+        "callback 0043, deferred-resume correction 0044, playlist policy 0045, "
+        "and failure recovery 0046: "
+        f"got {manifest_lines[-10:]}"
     )
 
 required_validator_assets = (
@@ -2079,10 +2082,13 @@ required_validator_assets = (
     "scripts/patches/validation/native-extension-version-probe.c",
     "scripts/patches/validation/native-pip-output-identity-race.c",
     "scripts/patches/validation/native-pip-output-identity-source-check.py",
+    "scripts/patches/validation/native-playback-stability-source-check.py",
     "scripts/patches/validation/native-sample-buffer-renderer-immediate-sample.m",
     "scripts/patches/validation/native-sample-buffer-renderer-recovery.c",
     "scripts/patches/validation/pip-playback-snapshot-probe.c",
     "scripts/patches/validation/pip_extension_version.py",
+    "scripts/patches/validation/playback-recovery-eos-probe.c",
+    "scripts/patches/validation/playlist-mode-handoff-probe.c",
     "scripts/patches/validation/sample-buffer-renderer-snapshot-abi.c",
     "scripts/patches/validation/sample-buffer-renderer-snapshot-abi.cpp",
     "scripts/patches/validation/strict-frame-step-probe.c",
@@ -2100,6 +2106,7 @@ required_validator_assets = (
     "scripts/validate-headless-vout-teardown.sh",
     "scripts/validate-native-extension-contract.sh",
     "scripts/validate-native-patch-series-source.sh",
+    "scripts/validate-native-playback-stability.sh",
     "scripts/validate-pip-playback-snapshot.sh",
     "scripts/validate-sample-buffer-renderer-recovery.sh",
     "scripts/validate-strict-frame-step.sh",
@@ -2114,6 +2121,7 @@ required_executable_validator_assets = (
     "scripts/validate-headless-vout-teardown.sh",
     "scripts/validate-native-extension-contract.sh",
     "scripts/validate-native-patch-series-source.sh",
+    "scripts/validate-native-playback-stability.sh",
     "scripts/validate-pip-playback-snapshot.sh",
     "scripts/validate-sample-buffer-renderer-recovery.sh",
     "scripts/validate-strict-frame-step.sh",

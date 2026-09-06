@@ -1,4 +1,11 @@
 import CLibVLC
+import Dispatch
+
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 #if os(iOS)
 extension Player {
@@ -198,10 +205,13 @@ extension Player {
     // move this array into the closure that performs the native release.
     //
     // Before first playback there is no vout, so the local `previous` retain
-    // only needs to cover libVLC's synchronous variable swap.
+    // only needs to cover libVLC's synchronous variable swap. VideoSurface
+    // attachments use an inner container retained by the native lifetime, so
+    // their obsolete outer views can be released immediately after migration.
     let previous = drawable
     if
       let previous,
+      !(previous is VideoSurface),
       nativePlayerHasStartedPlayback || nativePlayerNeedsReplacementBeforePlayback,
       newDrawable.map({ previous !== $0 }) ?? true,
       !retainedDrawablesUntilNativePlayerRelease.contains(where: { $0 === previous }) {
@@ -217,11 +227,64 @@ extension Player {
     if newDrawable != nil {
       nativePlayerHasHostedDrawable = true
     }
+    let nativeTarget: AnyObject?
+    if newDrawable is VideoSurface {
+      if nativeDrawableSurface == nil {
+        nativeDrawableSurface = makeNativeVideoSurface(
+          for: newDrawable, lifetime: nativeHandleLifetime
+        )
+      }
+      mountNativeVideoSurface(nativeDrawableSurface, in: newDrawable)
+      nativeTarget = nativeDrawableSurface
+    } else {
+      nativeDrawableSurface?.removeFromSuperview()
+      nativeTarget = newDrawable
+    }
     libvlc_media_player_set_nsobject(
       pointer,
-      newDrawable.map { Unmanaged.passUnretained($0).toOpaque() }
+      nativeTarget.map { Unmanaged.passUnretained($0).toOpaque() }
     )
     _ = previous
+  }
+
+  /// Keep VLC's captured container stable when SwiftUI replaces its surface.
+  /// This inner surface has no attached player; it only sizes native children.
+  private func makeNativeVideoSurface(
+    for target: AnyObject?, lifetime: NativePlayerHandleLifetime
+  ) -> VideoSurface? {
+    guard let target = target as? VideoSurface else { return nil }
+    let container = VideoSurface(frame: target.bounds)
+    #if os(macOS)
+    container.wantsLayer = target.wantsLayer
+    #else
+    container.clipsToBounds = true
+    container.isUserInteractionEnabled = false
+    #endif
+    lifetime.retainUntilReleased([container])
+    lifetime.whenReleased { [weak container] in
+      DispatchQueue.main.async { [weak container] in
+        container?.removeFromSuperview()
+      }
+    }
+    return container
+  }
+
+  func clearNativeDrawableSurface() {
+    nativeDrawableSurface?.removeFromSuperview()
+    nativeDrawableSurface = nil
+  }
+
+  private func mountNativeVideoSurface(_ container: VideoSurface?, in target: AnyObject?) {
+    guard let container else { return }
+    guard let target = target as? VideoSurface else {
+      container.removeFromSuperview()
+      return
+    }
+    if container.superview !== target {
+      container.removeFromSuperview()
+      target.addSubview(container)
+    }
+    container.frame = target.bounds
   }
 
   func prepareDrawableForPlayback(
@@ -407,9 +470,11 @@ extension Player {
     _ = libvlc_video_set_spu_delay(newPointer, subtitleDelay)
     libvlc_video_set_spu_text_scale(newPointer, subtitleScale)
     libvlc_media_player_set_equalizer(newPointer, _equalizer?.pointer)
+    let preparedNativeSurface = makeNativeVideoSurface(for: target, lifetime: newLifetime)
+    let nativeTarget: AnyObject? = preparedNativeSurface ?? target
     libvlc_media_player_set_nsobject(
       newPointer,
-      target.map { Unmanaged.passUnretained($0).toOpaque() }
+      nativeTarget.map { Unmanaged.passUnretained($0).toOpaque() }
     )
 
     carryOverPerPlayerState(from: oldPointer, to: newPointer)
@@ -510,6 +575,9 @@ extension Player {
     // as B.
     pointer = newPointer
     nativeHandleLifetime = newLifetime
+    nativeDrawableSurface?.removeFromSuperview()
+    nativeDrawableSurface = preparedNativeSurface
+    mountNativeVideoSurface(preparedNativeSurface, in: target)
     if let preparedSubtitleGeneration {
       subtitleTextBridge.commitAttachment(preparedSubtitleGeneration)
     }

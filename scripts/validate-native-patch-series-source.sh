@@ -259,6 +259,9 @@ python3 -B \
     "$SCRIPT_DIR/patches/validation/audio-media-services-reset-source-check.py" \
     "$VLC_SOURCE_ROOT" "$REPO_ROOT"
 
+section "Validating native playback recovery and playlist policy"
+"$SCRIPT_DIR/validate-native-playback-stability.sh" "$VLC_SOURCE_ROOT"
+
 section "Native patch-series source contracts passed"
 echo "Pinned VLC commit: $actual_commit"
 echo "Applied patches:   ${#patch_names[@]}"

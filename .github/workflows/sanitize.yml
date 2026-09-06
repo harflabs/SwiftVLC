@@ -156,4 +156,4 @@ jobs:
             xcrun --toolchain "$TOOLCHAINS" swift test \
               --sanitize=${{ matrix.sanitizer }} \
               --no-parallel \
-              --filter "RaceTests|StressTests|MemoryAndRetainTests|MemoryPressureTests|LifecycleStressTests|OwnershipTests|Dialog|ThumbnailAliasTests"
+              --filter "RaceTests|StressTests|MemoryAndRetainTests|MemoryPressureTests|LifecycleStressTests|OwnershipTests|Dialog|ThumbnailAliasTests|VideoSurfaceMigrationTests"
