@@ -193,7 +193,14 @@ for patch_name in "${patch_names[@]}"; do
 done
 
 section "Checking final patch whitespace"
-git -C "$VLC_SOURCE_ROOT" diff --check
+# Embedded unified diffs require a leading context space, including before
+# tabs and on blank lines. Validate their patch syntax instead of treating that
+# syntax as C/C++ whitespace. All ordinary source keeps the strict check.
+git -C "$VLC_SOURCE_ROOT" diff --check -- . ':(exclude)contrib/src/live555/*.patch'
+for nested_patch in "$VLC_SOURCE_ROOT"/contrib/src/live555/*.patch; do
+    [[ -s "$nested_patch" ]] || continue
+    git apply --numstat "$nested_patch" >/dev/null
+done
 
 section "Validating libaom 3.13.2 and NASM 3 detection"
 "$SCRIPT_DIR/validate-aom-nasm3-detection.sh" \
