@@ -25,7 +25,7 @@ public final class DialogHandler: Sendable {
   private let instance: VLCInstance
   /// Internal, not private: the losslessness tests drive it directly, since
   /// VLC dialog callbacks cannot be raised from a test process.
-  let broadcaster: Broadcaster<DialogEvent>
+  let broadcaster: DialogEventBroadcaster
   /// Token returned by `VLCInstance.claimDialogRegistration` on
   /// successful registration. `nil` when this handler lost the race
   /// to another `DialogHandler` that owns the slot.
@@ -33,6 +33,8 @@ public final class DialogHandler: Sendable {
 
   /// Stream of dialog events from VLC. A new independent stream is
   /// returned per access; subscribers don't compete for events.
+  /// Outstanding login, question, and progress prompts replay to late
+  /// subscribers. Answered or cancelled prompts are not replayed.
   ///
   /// Unbounded, and that is load-bearing rather than generous. Most of
   /// ``DialogEvent`` is one-shot and *demands a reply*: VLC blocks until a
@@ -51,7 +53,7 @@ public final class DialogHandler: Sendable {
   /// updates for the life of the operation. That is the better failure: the
   /// alternative is a player that stops and cannot say why.
   public var dialogs: AsyncStream<DialogEvent> {
-    broadcaster.subscribe(policy: .unbounded)
+    broadcaster.subscribe()
   }
 
   /// Registers dialog callbacks with the given VLC instance.
@@ -63,7 +65,7 @@ public final class DialogHandler: Sendable {
   public init(instance: VLCInstance = .shared) {
     self.instance = instance
 
-    let broadcaster = Broadcaster<DialogEvent>(defaultBufferSize: 16)
+    let broadcaster = DialogEventBroadcaster()
     self.broadcaster = broadcaster
 
     let box = Unmanaged.passRetained(broadcaster).toOpaque()
@@ -89,7 +91,7 @@ public final class DialogHandler: Sendable {
       // Release our box and terminate the broadcaster so any
       // `dialogs` access on this handler returns an immediately-
       // finished stream.
-      Unmanaged<Broadcaster<DialogEvent>>.fromOpaque(box).release()
+      Unmanaged<DialogEventBroadcaster>.fromOpaque(box).release()
       registrationToken = nil
       broadcaster.terminate()
     }
@@ -114,7 +116,7 @@ public final class DialogHandler: Sendable {
           libvlc_dialog_set_error_callback(pointer, nil, nil)
         }
       ) {
-      Unmanaged<Broadcaster<DialogEvent>>.fromOpaque(box).release()
+      Unmanaged<DialogEventBroadcaster>.fromOpaque(box).release()
     }
     broadcaster.terminate()
   }
@@ -213,6 +215,18 @@ public struct DialogID: Sendable {
     storage = DialogIDStorage.shared(for: pointer)
   }
 
+  private init(storage: DialogIDStorage) {
+    self.storage = storage
+  }
+
+  static func existing(pointer: OpaquePointer) -> DialogID? {
+    DialogIDStorage.existing(for: pointer).map(Self.init(storage:))
+  }
+
+  var identity: ObjectIdentifier {
+    ObjectIdentifier(storage)
+  }
+
   /// Dismisses the dialog without responding.
   ///
   /// Safe to call on an already-closed dialog; the return value
@@ -251,12 +265,11 @@ public struct DialogID: Sendable {
 
   @discardableResult
   func _consumeForTesting() -> OpaquePointer? {
-    storage.consumePointer()
+    storage.consume { $0 }
   }
 
-  private func consume(_ operation: (OpaquePointer) -> Bool) -> Bool {
-    guard let pointer = storage.consumePointer() else { return false }
-    return operation(pointer)
+  func consume(_ operation: (OpaquePointer) -> Bool) -> Bool {
+    storage.consume(operation) ?? false
   }
 }
 
@@ -384,7 +397,7 @@ private func dialogLoginCallback(
   _ askStore: Bool
 ) {
   guard let data, let dialogId, let title, let text else { return }
-  let broadcaster = Unmanaged<Broadcaster<DialogEvent>>.fromOpaque(data).takeUnretainedValue()
+  let broadcaster = Unmanaged<DialogEventBroadcaster>.fromOpaque(data).takeUnretainedValue()
   broadcaster.broadcast(.login(LoginRequest(
     dialogId: DialogID(pointer: dialogId),
     title: String(cString: title),
@@ -405,7 +418,7 @@ private func dialogQuestionCallback(
   _ action2: UnsafePointer<CChar>?
 ) {
   guard let data, let dialogId, let title, let text, let cancel else { return }
-  let broadcaster = Unmanaged<Broadcaster<DialogEvent>>.fromOpaque(data).takeUnretainedValue()
+  let broadcaster = Unmanaged<DialogEventBroadcaster>.fromOpaque(data).takeUnretainedValue()
 
   let qType: QuestionType = switch type {
   case LIBVLC_DIALOG_QUESTION_WARNING: .warning
@@ -434,7 +447,7 @@ private func dialogProgressCallback(
   _ cancel: UnsafePointer<CChar>?
 ) {
   guard let data, let dialogId, let title, let text else { return }
-  let broadcaster = Unmanaged<Broadcaster<DialogEvent>>.fromOpaque(data).takeUnretainedValue()
+  let broadcaster = Unmanaged<DialogEventBroadcaster>.fromOpaque(data).takeUnretainedValue()
   broadcaster.broadcast(.progress(ProgressInfo(
     dialogId: DialogID(pointer: dialogId),
     title: String(cString: title),
@@ -450,8 +463,8 @@ private func dialogCancelCallback(
   _ dialogId: OpaquePointer?
 ) {
   guard let data, let dialogId else { return }
-  let broadcaster = Unmanaged<Broadcaster<DialogEvent>>.fromOpaque(data).takeUnretainedValue()
-  let dialog = DialogID(pointer: dialogId)
+  let broadcaster = Unmanaged<DialogEventBroadcaster>.fromOpaque(data).takeUnretainedValue()
+  guard let dialog = DialogID.existing(pointer: dialogId) else { return }
   broadcaster.broadcast(.cancel(dialog))
   _ = dialog.dismiss()
 }
@@ -463,9 +476,10 @@ private func dialogUpdateProgressCallback(
   _ text: UnsafePointer<CChar>?
 ) {
   guard let data, let dialogId, let text else { return }
-  let broadcaster = Unmanaged<Broadcaster<DialogEvent>>.fromOpaque(data).takeUnretainedValue()
+  let broadcaster = Unmanaged<DialogEventBroadcaster>.fromOpaque(data).takeUnretainedValue()
+  guard let dialog = DialogID.existing(pointer: dialogId), dialog.pointer != nil else { return }
   broadcaster.broadcast(.progressUpdated(ProgressUpdate(
-    dialogId: DialogID(pointer: dialogId),
+    dialogId: dialog,
     position: position,
     text: String(cString: text)
   )))
@@ -477,7 +491,7 @@ private func dialogErrorCallback(
   _ text: UnsafePointer<CChar>?
 ) {
   guard let data, let title, let text else { return }
-  let broadcaster = Unmanaged<Broadcaster<DialogEvent>>.fromOpaque(data).takeUnretainedValue()
+  let broadcaster = Unmanaged<DialogEventBroadcaster>.fromOpaque(data).takeUnretainedValue()
   broadcaster.broadcast(.error(
     title: String(cString: title),
     message: String(cString: text)
@@ -512,6 +526,10 @@ private final class DialogIDStorage: @unchecked Sendable {
     }
   }
 
+  static func existing(for pointer: OpaquePointer) -> DialogIDStorage? {
+    registryQueue.sync { registry[pointer]?.value }
+  }
+
   private let key: OpaquePointer
   private let state: Mutex<State>
 
@@ -524,22 +542,25 @@ private final class DialogIDStorage: @unchecked Sendable {
     state.withLock { $0.pointer }
   }
 
-  func consumePointer() -> OpaquePointer? {
-    Self.registryQueue.sync {
-      let pointer = state.withLock { state -> OpaquePointer? in
+  func consume<Result>(_ operation: (OpaquePointer) -> Result) -> Result? {
+    let pointer = Self.registryQueue.sync {
+      state.withLock { state -> OpaquePointer? in
         let pointer = state.pointer
         state.pointer = nil
         return pointer
       }
-
-      if pointer != nil {
+    }
+    guard let pointer else { return nil }
+    // Keep this consumed authority discoverable through the entire native
+    // call: a concurrent cancellation must not manufacture another owner.
+    defer {
+      Self.registryQueue.sync {
         if Self.registry[key]?.value === self {
           Self.registry.removeValue(forKey: key)
         }
       }
-
-      return pointer
     }
+    return operation(pointer)
   }
 
   deinit {

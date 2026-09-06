@@ -17,6 +17,39 @@ import Testing
 /// and consumption tokens.
 extension Logic {
   struct DialogIDTests {
+    @Test
+    func `Cancellation during an answer shares the consumed native authority`() {
+      let pointer = SyntheticDialogPointer.next()
+      let answer = DialogID(pointer: pointer)
+      var nativeCalls = 0
+      let answered = answer.consume { pointer in
+        nativeCalls += 1
+        guard let cancellation = DialogID.existing(pointer: pointer) else {
+          Issue.record("In-flight consumption lost its registry authority")
+          return false
+        }
+        #expect(!cancellation.consume { _ in nativeCalls += 1; return true })
+        return true
+      }
+      #expect(answered)
+      #expect(nativeCalls == 1)
+      #expect(DialogID.existing(pointer: pointer) == nil)
+    }
+
+    @Test
+    func `Finishing an old answer cannot remove a new allocation at its address`() {
+      let pointer = SyntheticDialogPointer.next()
+      let answer = DialogID(pointer: pointer)
+      var successor: DialogID?
+      #expect(answer.consume { pointer in
+        successor = DialogID(pointer: pointer)
+        return true
+      })
+      #expect(successor?._isValidForTesting == true)
+      #expect(DialogID.existing(pointer: pointer)?.identity == successor?.identity)
+      #expect(successor?._consumeForTesting() == pointer)
+    }
+
     /// A fresh DialogID reports itself valid until it's consumed.
     @Test
     func `New DialogID is valid before consume`() {

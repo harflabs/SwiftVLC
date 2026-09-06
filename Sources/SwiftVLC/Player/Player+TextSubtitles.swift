@@ -59,21 +59,24 @@ extension Player {
     return subtitleTextBridge.subscribe()
   }
 
-  /// Reattaches an already-enabled capture bridge to a replacement native
-  /// player. Called while the candidate handle is still private, before it can
-  /// start playback or replace the outgoing pointer.
-  func reattachTextSubtitleCaptureIfEnabled(
+  /// Prepares capture on a private candidate. The caller must commit the
+  /// returned generation with the native handle swap or cancel it on rollback.
+  func prepareTextSubtitleCaptureIfEnabled(
     to lifetime: NativePlayerHandleLifetime
   )
-    throws(VLCError) {
-    guard isTextSubtitleCaptureEnabled else { return }
+    throws(VLCError) -> UInt64? {
+    guard isTextSubtitleCaptureEnabled else { return nil }
     let native = subtitleTextNativeOperations
     guard native.isAvailable() else {
       throw .operationFailed("Reattach text subtitle capture")
     }
-    guard attachTextSubtitleCapture(to: lifetime, using: native) else {
+    guard
+      let generation = subtitleTextBridge.prepareAttachment(to: lifetime, using: { callback, opaque in
+        native.register(lifetime.pointer, callback, opaque)
+      }) else {
       throw .operationFailed("Reattach text subtitle capture")
     }
+    return generation
   }
 
   private func attachTextSubtitleCapture(

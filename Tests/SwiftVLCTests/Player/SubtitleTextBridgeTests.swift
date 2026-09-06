@@ -565,7 +565,8 @@ extension Integration {
       #expect(await values.next()?.text == "outgoing")
 
       let successorLifetime = makeLifetime(12)
-      try player.reattachTextSubtitleCaptureIfEnabled(to: successorLifetime)
+      let prepared = try #require(try player.prepareTextSubtitleCaptureIfEnabled(to: successorLifetime))
+      #expect(player.subtitleTextBridge.commitAttachment(prepared))
       #expect(harness.registrationCount == 2)
       #expect(await values.next()?.text == "")
 
@@ -612,6 +613,29 @@ extension Integration {
       harness.send("stale", registrationAt: 0)
       harness.send("still successor", registrationAt: 1)
       #expect(await values.next()?.text == "still successor")
+    }
+
+    @Test
+    func `Later event attachment failure preserves outgoing subtitle capture`() async throws {
+      let harness = SubtitleTextCallbackHarness()
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      _ = try player.textSubtitleStream(using: makeNativeOperations(harness: harness))
+      harness.send("outgoing", registrationAt: 0)
+      player.eventBridge._forcePreparedAttachmentFailureForTesting(afterAttachedCount: 2)
+      let outgoing = player.pointer
+      do {
+        try player.replaceNativePlayerForDrawablePlayback(target: nil)
+        Issue.record("Expected event attachment failure")
+      } catch {
+        #expect(error == .operationFailed("Attach player events"))
+      }
+      #expect(player.pointer == outgoing)
+      #expect(harness.registrationAttempts == 2)
+      var initial = player.subtitleTextBridge.subscribe().makeAsyncIterator()
+      #expect(await initial.next()?.text == "outgoing")
+      harness.send("still outgoing", registrationAt: 0)
+      var latest = player.subtitleTextBridge.subscribe().makeAsyncIterator()
+      #expect(await latest.next()?.text == "still outgoing")
     }
 
     @Test

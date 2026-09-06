@@ -13,11 +13,15 @@ import CLibVLC
 /// ```
 @MainActor
 public struct VideoAdjustments: ~Copyable, ~Escapable {
-  private let pointer: OpaquePointer
+  private let player: Player
 
   @_lifetime(borrow player)
   init(player: borrowing Player) {
-    pointer = player.pointer
+    self.player = copy player
+  }
+
+  private var pointer: OpaquePointer {
+    player.pointer
   }
 
   /// Whether video adjustments are enabled.

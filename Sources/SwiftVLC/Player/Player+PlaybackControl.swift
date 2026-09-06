@@ -29,10 +29,9 @@ extension Player {
         successorPlaybackGeneration: requestedPlaybackGeneration
       )
       let mediaPublicationGeneration = sessionGeneration
-      precondition(
-        mediaPublicationGeneration == requestedPlaybackGeneration.value,
-        "Fresh-handle playback must commit its requested generation"
-      )
+      // Replacement publishes observables synchronously. A newer load/play
+      // from an observer owns the successor and must win this transaction.
+      guard mediaPublicationGeneration == requestedPlaybackGeneration.value else { return }
       self.mediaPublicationGeneration = mediaPublicationGeneration
       defer {
         if self.mediaPublicationGeneration == mediaPublicationGeneration {
