@@ -42,6 +42,7 @@ ASSET_PATHS = (
     "scripts/patches/validation/native-sample-buffer-renderer-recovery.c",
     "scripts/patches/validation/pip-playback-snapshot-probe.c",
     "scripts/patches/validation/pip_extension_version.py",
+    "scripts/patches/validation/playback-recovery-eos-probe.c",
     "scripts/patches/validation/playlist-mode-handoff-probe.c",
     "scripts/patches/validation/sample-buffer-renderer-snapshot-abi.c",
     "scripts/patches/validation/sample-buffer-renderer-snapshot-abi.cpp",

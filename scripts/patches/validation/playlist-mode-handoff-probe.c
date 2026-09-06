@@ -18,6 +18,7 @@
 static _Atomic(vlc_mutex_t *) handoff_lock;
 static pthread_t main_thread;
 static atomic_bool armed, captured, proceed, completed;
+static atomic_uint starts;
 
 static bool wait_for(atomic_bool *flag)
 {
@@ -46,6 +47,7 @@ static void probe_unlock(vlc_mutex_t *mutex)
 static int probe_play(libvlc_media_player_t *player)
 {
     (void) player;
+    atomic_fetch_add(&starts, 1);
     return 0;
 }
 #define vlc_mutex_unlock probe_unlock
@@ -61,6 +63,7 @@ enum operation { mode_only, explicit_stop, explicit_selection };
 static bool run(libvlc_instance_t *instance, libvlc_playback_mode_t mode,
                 enum operation operation, int initial, int expected)
 {
+    atomic_store(&starts, 0);
     atomic_store(&captured, false);
     atomic_store(&proceed, false);
     atomic_store(&completed, false);
@@ -95,7 +98,8 @@ static bool run(libvlc_instance_t *instance, libvlc_playback_mode_t mode,
     int actual = list->current_playing_item_path
                ? list->current_playing_item_path[0] : -1;
     unlock(list);
-    bool passed = actual == expected;
+    unsigned expected_starts = operation == explicit_stop ? 1 : 2;
+    bool passed = actual == expected && atomic_load(&starts) == expected_starts;
     printf("%s mode=%d operation=%d initial=%d expected=%d actual=%d\n",
            passed ? "PASS" : "FAIL", mode, operation, initial, expected, actual);
     atomic_store(&handoff_lock, NULL);

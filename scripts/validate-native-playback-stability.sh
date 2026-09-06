@@ -14,11 +14,12 @@ if [[ ! -f "$ARCHIVE" || ! -f "$VLC_BUILD_ROOT/config.h" ]]; then
 fi
 WORK_DIR=$(mktemp -d "${TMPDIR:-/tmp}/swiftvlc-native-playback.XXXXXX")
 trap 'rm -rf "$WORK_DIR"' EXIT
+compile_probe() {
 clang -std=gnu17 -DHAVE_CONFIG_H \
     -I "$VLC_BUILD_ROOT" -I "$VLC_SOURCE_ROOT" \
     -I "$VLC_SOURCE_ROOT/include" -I "$VLC_SOURCE_ROOT/lib" \
     -I "$VLC_SOURCE_ROOT/src" -I "$VLC_BUILD_ROOT/include" \
-    "$SCRIPT_DIR/patches/validation/playlist-mode-handoff-probe.c" \
+    "$SCRIPT_DIR/patches/validation/$1.c" \
     "$ARCHIVE" \
     -framework AppKit -framework AudioToolbox -framework AudioUnit \
     -framework AVFoundation -framework AVKit -framework CoreAudio \
@@ -28,5 +29,9 @@ clang -std=gnu17 -DHAVE_CONFIG_H \
     -framework IOSurface -framework OpenGL -framework QuartzCore \
     -framework Security -framework SystemConfiguration -framework VideoToolbox \
     -lbz2 -lc++ -liconv -lresolv -lsqlite3 -lxml2 -lz \
-    -o "$WORK_DIR/playlist-mode-handoff"
-"$WORK_DIR/playlist-mode-handoff"
+    -o "$WORK_DIR/$1"
+}
+compile_probe playlist-mode-handoff-probe
+"$WORK_DIR/playlist-mode-handoff-probe"
+compile_probe playback-recovery-eos-probe
+"$WORK_DIR/playback-recovery-eos-probe" "$SCRIPT_DIR/../Tests/SwiftVLCTests/Fixtures/twosec.mp4"
