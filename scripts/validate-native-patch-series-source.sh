@@ -245,8 +245,8 @@ python3 -B \
     "$VLC_SOURCE_ROOT"
 
 section "Validating timestamp-bearing vmem source semantics"
-python3 -B \
-    "$SCRIPT_DIR/patches/validation/vmem-picture-pts-source-check.py" \
+PYTHONDONTWRITEBYTECODE=1 \
+    "$SCRIPT_DIR/validate-vmem-picture-pts.sh" \
     "$VLC_SOURCE_ROOT"
 
 section "Validating effective-rate source semantics"

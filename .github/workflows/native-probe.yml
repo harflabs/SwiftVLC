@@ -1,0 +1,80 @@
+name: Native artifact diagnostics
+
+on:
+  workflow_dispatch:
+    inputs:
+      retained-run:
+        description: Failed Tests run whose retained engine and source-linked probes should be exercised
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  released-native-probe:
+    if: ${{ !inputs.retained-run }}
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
+        with:
+          xcode-version: "26.4"
+      - name: Resolve declared public engine
+        timeout-minutes: 10
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/setup-dev.sh --artifact-only
+      - name: Repeat the strict-frame runtime probe
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          mkdir -p .build/ci-results
+          python3 -B scripts/ci/environment.py
+          python3 -B scripts/ci/check-strict-frame-step.py 2>&1 | tee .build/ci-results/native-probe.log
+      - name: Retain probe diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: released-native-probe
+          path: .build/ci-results
+          retention-days: 14
+
+  retained-source-probe:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.retained-run != '' }}
+    runs-on: macos-26
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
+        with:
+          xcode-version: "26.4"
+      - name: Reconstruct retained source and repeat source-linked probes
+        timeout-minutes: 22
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RETAINED_RUN: ${{ inputs.retained-run }}
+        run: |
+          set -euo pipefail
+          mkdir -p .build/ci-results
+          python3 -B scripts/ci/check-retained-native-probe.py 2>&1 | tee .build/ci-results/retained-native-probe.log
+      - name: Retain source-linked probe diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: retained-source-probe
+          path: .build/ci-results
+          retention-days: 14

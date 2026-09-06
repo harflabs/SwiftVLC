@@ -1003,6 +1003,29 @@ grep -Fq "requires a clean SwiftVLC checkout" \
 [[ ! -e "$dirty_root/.swiftvlc-libvlc-build.lock" ]] || \
   fail "dirty-checkout failure left external build lock behind"
 
+# Exercise the real startup environment without compiling VLC. A child import
+# at --help exit must run, but must not create bytecode in its source directory.
+bytecode_fixture="$temporary_root/bytecode-fixture"
+mkdir -p "$bytecode_fixture"
+printf 'value = 1\n' > "$bytecode_fixture/native_build_fixture_dependency.py"
+cat > "$temporary_root/bytecode-env.sh" <<'EOF'
+exit() {
+  "$SWIFTVLC_REAL_PYTHON3" -c 'import sys; sys.pycache_prefix = None; import native_build_fixture_dependency as dependency; from pathlib import Path; Path(dependency.__file__).with_suffix(".ran").touch()'
+  builtin exit "$@"
+}
+EOF
+env -u PYTHONDONTWRITEBYTECODE \
+  BASH_ENV="$temporary_root/bytecode-env.sh" \
+  PYTHONPATH="$bytecode_fixture" \
+  SWIFTVLC_REAL_PYTHON3="$real_python3" \
+  "$BUILD_SCRIPT" --help > "$temporary_root/bytecode-help.log"
+[[ -f "$bytecode_fixture/native_build_fixture_dependency.ran" ]] || \
+  fail "native startup bytecode fixture did not execute"
+[[ ! -d "$bytecode_fixture/__pycache__" ]] || \
+  fail "native startup allowed validator imports to dirty the checkout"
+grep -Fq '?? untracked' "$temporary_root/dirty-checkout.log" || \
+  fail "dirty-checkout diagnostic omitted the changed path"
+
 help_output=$("$BUILD_SCRIPT" --help)
 grep -Fq -- '--build-root=DIR' <<< "$help_output" || \
   fail "help does not document the external build root"

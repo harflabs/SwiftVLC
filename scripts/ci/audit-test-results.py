@@ -560,6 +560,8 @@ def markdown_code(value: object) -> str:
 
 
 def markdown_summary(report: dict[str, Any]) -> str:
+    if report.get("execution") == "not-run":
+        return "## SwiftPM behavior-contract accounting\n\n**NOT RUN** — " + report["reason"] + "\n"
     verdict = "PASS" if not report["errors"] else "FAIL"
     lines = [
         "## SwiftPM behavior-contract accounting",
@@ -640,6 +642,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--test-source-root", type=Path, required=True)
     parser.add_argument("--json-output", type=Path, required=True)
     parser.add_argument("--github-summary", type=Path)
+    parser.add_argument("--test-step-outcome", choices=("success", "failure", "cancelled", "skipped"))
     return parser.parse_args()
 
 
@@ -659,6 +662,12 @@ def emit_report(args: argparse.Namespace, report: dict[str, Any]) -> None:
 
 def main() -> int:
     args = parse_args()
+    if not args.xunit.exists() and args.test_step_outcome in {"skipped", "cancelled"}:
+        emit_report(args, {
+            "execution": "not-run",
+            "reason": "The test step did not execute. Check the preceding setup or cancellation result; no passing-test evidence was produced.",
+        })
+        return 0  # Keep the setup/cancellation failure as the primary cause.
     try:
         config = strict_json_loads(args.contract.read_text(encoding="utf-8"))
         root = ET.parse(args.xunit).getroot()

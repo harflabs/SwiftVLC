@@ -86,7 +86,32 @@ DEFINE_GENERATION_CALLBACKS(b, generation_b)
 struct stress_context
 {
     swiftvlc_vmem_configuration_registry *registry;
+    pthread_mutex_t lock;
+    pthread_cond_t changed;
+    unsigned arrivals;
+    unsigned phase;
 };
+
+enum { a_published, a_acquired, b_published, b_acquired,
+       disabled_published, snapshots_exercised };
+
+/* Portable four-party barrier: macOS does not provide pthread_barrier_t. */
+static void rendezvous(struct stress_context *stress, unsigned phase)
+{
+    pthread_mutex_lock(&stress->lock);
+    if (stress->phase != phase)
+        atomic_fetch_add_explicit(&failures, 1, memory_order_relaxed);
+    if (++stress->arrivals == 4)
+    {
+        stress->arrivals = 0;
+        ++stress->phase;
+        pthread_cond_broadcast(&stress->changed);
+    }
+    else
+        while (stress->phase == phase)
+            pthread_cond_wait(&stress->changed, &stress->lock);
+    pthread_mutex_unlock(&stress->lock);
+}
 
 static bool publish_generation(struct stress_context *stress, bool a)
 {
@@ -102,6 +127,21 @@ static bool publish_generation(struct stress_context *stress, bool a)
 static void *publisher(void *opaque)
 {
     struct stress_context *stress = opaque;
+    /* Retire each generation while every opener holds it. The free-running
+     * stress below may otherwise finish publishing before any opener runs. */
+    if (!publish_generation(stress, true))
+        atomic_fetch_add_explicit(&failures, 1, memory_order_relaxed);
+    rendezvous(stress, a_published);
+    rendezvous(stress, a_acquired);
+    if (!publish_generation(stress, false))
+        atomic_fetch_add_explicit(&failures, 1, memory_order_relaxed);
+    rendezvous(stress, b_published);
+    rendezvous(stress, b_acquired);
+    if (!swiftvlc_vmem_configuration_registry_PublishCompleteV2(
+            stress->registry, NULL, NULL, NULL, NULL, NULL, NULL, NULL))
+        atomic_fetch_add_explicit(&failures, 1, memory_order_relaxed);
+    rendezvous(stress, disabled_published);
+    rendezvous(stress, snapshots_exercised);
     for (unsigned iteration = 0; iteration < publish_iterations; ++iteration)
     {
         bool ok;
@@ -189,6 +229,31 @@ static void exercise_snapshot(
 static void *opener(void *opaque)
 {
     struct stress_context *stress = opaque;
+    rendezvous(stress, a_published);
+    const swiftvlc_vmem_configuration *a =
+        swiftvlc_vmem_configuration_registry_Acquire(stress->registry);
+    rendezvous(stress, a_acquired);
+    rendezvous(stress, b_published);
+    const swiftvlc_vmem_configuration *b =
+        swiftvlc_vmem_configuration_registry_Acquire(stress->registry);
+    rendezvous(stress, b_acquired);
+    rendezvous(stress, disabled_published);
+    const swiftvlc_vmem_configuration *disabled =
+        swiftvlc_vmem_configuration_registry_Acquire(stress->registry);
+    if (a == NULL || a->opaque != &generation_a ||
+        b == NULL || b->opaque != &generation_b ||
+        disabled == NULL || disabled->lock != NULL)
+        atomic_fetch_add_explicit(&failures, 1, memory_order_relaxed);
+    if (a != NULL)
+        exercise_snapshot(a);
+    if (b != NULL)
+        exercise_snapshot(b);
+    if (disabled != NULL)
+        exercise_snapshot(disabled);
+    swiftvlc_vmem_configuration_Release(a);
+    swiftvlc_vmem_configuration_Release(b);
+    swiftvlc_vmem_configuration_Release(disabled);
+    rendezvous(stress, snapshots_exercised);
     for (unsigned iteration = 0; iteration < acquire_iterations; ++iteration)
     {
         const swiftvlc_vmem_configuration *configuration =
@@ -215,6 +280,8 @@ int main(void)
 
     struct stress_context stress = {
         .registry = swiftvlc_vmem_configuration_registry_New(),
+        .lock = PTHREAD_MUTEX_INITIALIZER,
+        .changed = PTHREAD_COND_INITIALIZER,
     };
     if (stress.registry == NULL)
         return 2;
@@ -279,6 +346,8 @@ int main(void)
     for (size_t index = 0; index < 3; ++index)
         pthread_join(open_threads[index], NULL);
     swiftvlc_vmem_configuration_registry_Delete(stress.registry);
+    pthread_cond_destroy(&stress.changed);
+    pthread_mutex_destroy(&stress.lock);
 
     const unsigned a_setups = atomic_load_explicit(&generation_a.setups,
                                                     memory_order_relaxed);

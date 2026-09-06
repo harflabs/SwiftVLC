@@ -52,17 +52,24 @@ def _resolve_xctestrun_product_path(
 ) -> Path:
     if not isinstance(value, str) or not value:
         raise CandidateMetadataError(f"base xctestrun has no {description}")
-    expanded = value.replace("__TESTROOT__", str(xctestrun.resolve().parent))
-    if "__TESTHOST__" in expanded:
+    # Inspect template tokens before inserting filesystem paths. A directory
+    # supplied by tempfile (or a user) can legitimately contain '__' or '$'.
+    tokens = re.findall(r"__[A-Z][A-Z0-9_]*__|\$\([^)]+\)|\$\{[^}]+\}", value)
+    if any(token not in {"__TESTROOT__", "__TESTHOST__"} for token in tokens):
+        raise CandidateMetadataError(
+            f"base xctestrun {description} contains an unsupported path placeholder"
+        )
+    if "__TESTHOST__" in tokens:
         if test_host is None:
             raise CandidateMetadataError(
                 f"base xctestrun {description} uses __TESTHOST__ without a test host"
             )
-        expanded = expanded.replace("__TESTHOST__", str(test_host))
-    if "__" in expanded or "$" in expanded:
-        raise CandidateMetadataError(
-            f"base xctestrun {description} contains an unsupported path placeholder"
-        )
+    replacements = {"__TESTROOT__": str(xctestrun.resolve().parent)}
+    if test_host is not None:
+        replacements["__TESTHOST__"] = str(test_host)
+    expanded = re.sub(
+        r"__TESTROOT__|__TESTHOST__", lambda match: replacements[match[0]], value
+    )
     try:
         return Path(expanded).resolve(strict=True)
     except OSError as error:

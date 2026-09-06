@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 import sys
 import tempfile
+import argparse
+from unittest.mock import patch
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -17,6 +19,27 @@ SPEC.loader.exec_module(AUDIT)
 
 
 class AuditTestResultsTests(unittest.TestCase):
+    def test_missing_report_after_setup_failure_is_not_run(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            args = argparse.Namespace(xunit=root / "missing.xml", test_step_outcome="skipped",
+                                      json_output=root / "report.json", github_summary=None)
+            with patch.object(AUDIT, "parse_args", return_value=args):
+                self.assertEqual(AUDIT.main(), 0)
+            self.assertIn('"execution": "not-run"', args.json_output.read_text())
+
+    def test_missing_report_after_test_execution_fails_closed(self):
+        for outcome in ("success", "failure"):
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                contract = root / "contract.json"
+                contract.write_text("{}")
+                args = argparse.Namespace(xunit=root / "missing.xml", test_step_outcome=outcome,
+                                          contract=contract, json_output=root / "report.json", github_summary=None)
+                with patch.object(AUDIT, "parse_args", return_value=args):
+                    self.assertEqual(AUDIT.main(), 2)
+                self.assertNotIn('"execution": "not-run"', args.json_output.read_text())
+
     def config(self, **overrides):
         value = {
             "minimum_reported_tests": 2,

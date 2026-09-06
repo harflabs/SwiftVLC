@@ -37,7 +37,7 @@ verify_source() {
 }
 
 verify_source "$SOURCE_CHECKER" \
-    c3d38d12de458739e95bdacdedfcd5c233b9e41ce4bab922b5142c7cc9a3e8ad
+    167a6883f386c417db2b59f396e6f7a7c7fc73761c049dafcd11e5d26ce2f253
 verify_source "$VERSION_RESOLVER" \
     1582e0915d13a177fbe545099a1ed52696d1b60cfa5dbfd6a35a60943ccfcd36
 verify_source "$PROBE" \
@@ -45,7 +45,7 @@ verify_source "$PROBE" \
 verify_source "$ABI_CXX" \
     b0c92e73eeb6bdf2e940a414d88f25322d99361939d6a77468891c933f1ca068
 verify_source "$RACE" \
-    35b2dfa2e5587b35f7b0966cb079cbaef83828ef33e97f77b9c0f426d7fde3d7
+    06511e5f71fe70f85574d6b628ef4ac2e96598a94e03226d6326c9696a0a9b20
 
 resolver_args=(--source-root "$VLC_SOURCE_ROOT")
 if [[ -n "${SWIFTVLC_EXPECTED_EXTENSION_VERSION:-}" ]]; then
