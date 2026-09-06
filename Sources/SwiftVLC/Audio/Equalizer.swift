@@ -4,8 +4,8 @@ import Observation
 /// A 10-band audio equalizer with preamp and preset support.
 ///
 /// `Equalizer` is `@Observable` and `@MainActor`. SwiftUI views that
-/// read ``preamp`` or ``bands`` update automatically, and the player
-/// it is attached to re-applies its audio output on every change.
+/// read ``preamp`` or ``bands`` update automatically, and each attached
+/// player re-applies its audio output on every change.
 ///
 /// ```swift
 /// let eq = Equalizer()
@@ -19,12 +19,36 @@ public final class Equalizer {
   @ObservationIgnored
   let pointer: OpaquePointer // libvlc_equalizer_t*
 
-  /// Fires on the main actor after any observable change. `Player`
-  /// installs a handler here on assignment to re-apply the equalizer to
-  /// its audio output, since libVLC copies settings on
-  /// `libvlc_media_player_set_equalizer` and does not retain the reference.
+  /// Internal observation hook, independent of the attached players.
   @ObservationIgnored
   var onChange: (@MainActor () -> Void)?
+  private struct Attachment {
+    weak var player: Player?
+  }
+
+  @ObservationIgnored private var attachments: [ObjectIdentifier: Attachment] = [:]
+
+  func attach(to player: Player) {
+    attachments = attachments.filter { $0.value.player != nil }
+    attachments[ObjectIdentifier(player)] = Attachment(player: player)
+  }
+
+  func detach(from player: Player) {
+    attachments.removeValue(forKey: ObjectIdentifier(player))
+  }
+
+  private func notifyChange() {
+    attachments = attachments.filter { $0.value.player != nil }
+    for attachment in Array(attachments.values) {
+      guard let player = attachment.player, player._equalizer === self, !player.isShutdown else { continue }
+      #if DEBUG
+      player.recordObservableControlNativeDispatch(.equalizer(ObjectIdentifier(self)), pointer: player.pointer)
+      #endif
+      libvlc_media_player_set_equalizer(player.pointer, pointer)
+    }
+    onChange?()
+  }
+
   /// Separate causal identities for controls that mutate the same native
   /// value through more than one public API. Observation calls app code before
   /// the mutation body, so a newer reentrant command must invalidate the older
@@ -127,7 +151,7 @@ public final class Equalizer {
       didPerform = true
     }
     if didPerform {
-      onChange?()
+      notifyChange()
     }
   }
 
@@ -162,7 +186,7 @@ public final class Equalizer {
     guard result == 0 else {
       throw .operationFailed("Set equalizer amplification for band \(band)")
     }
-    onChange?()
+    notifyChange()
   }
 
   // MARK: - Presets
@@ -245,7 +269,7 @@ extension Equalizer {
       didPerform = true
     }
     if didPerform {
-      onChange?()
+      notifyChange()
     }
   }
 

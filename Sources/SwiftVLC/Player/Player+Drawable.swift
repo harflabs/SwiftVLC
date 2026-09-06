@@ -358,12 +358,16 @@ extension Player {
       throw .operationFailed("Set renderer")
     }
     let newLifetime = NativePlayerHandleLifetime(pointer: newPointer)
+    var preparedSubtitleGeneration: UInt64?
     func releaseUncommittedCandidate() {
+      if let preparedSubtitleGeneration {
+        subtitleTextBridge.cancelAttachment(preparedSubtitleGeneration)
+      }
       libvlc_media_player_release(newPointer)
       newLifetime.initialOwnerDidRelease()
     }
     do {
-      try reattachTextSubtitleCaptureIfEnabled(to: newLifetime)
+      preparedSubtitleGeneration = try prepareTextSubtitleCaptureIfEnabled(to: newLifetime)
     } catch {
       releaseUncommittedCandidate()
       throw error
@@ -506,6 +510,9 @@ extension Player {
     // as B.
     pointer = newPointer
     nativeHandleLifetime = newLifetime
+    if let preparedSubtitleGeneration {
+      subtitleTextBridge.commitAttachment(preparedSubtitleGeneration)
+    }
     supersedeAllSeekWorkForCausalBoundary()
     let drainedFrameResults = nativeSeekMonitor.reattach(
       to: newPointer,

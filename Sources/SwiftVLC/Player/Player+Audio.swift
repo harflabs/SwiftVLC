@@ -12,6 +12,8 @@ extension Player {
   /// handler. libVLC copies settings on each
   /// `libvlc_media_player_set_equalizer` call and does not retain the
   /// reference.
+  /// The same equalizer may be shared by multiple players; detaching it from
+  /// one player leaves the others subscribed to future changes.
   public var equalizer: Equalizer? {
     get {
       access(keyPath: \.equalizer)
@@ -28,8 +30,9 @@ extension Player {
         identity: identity,
         revision: \PlayerIntentRevisions.equalizer
       ) { pointer in
-        _equalizer?.onChange = nil
+        _equalizer?.detach(from: self)
         _equalizer = newValue
+        newValue?.attach(to: self)
         #if DEBUG
         recordObservableControlNativeDispatch(
           .equalizer(newValue.map(ObjectIdentifier.init)),
@@ -37,15 +40,6 @@ extension Player {
         )
         #endif
         libvlc_media_player_set_equalizer(pointer, newValue?.pointer)
-        newValue?.onChange = { [weak self, weak newValue] in
-          guard
-            let self,
-            let newValue,
-            _equalizer === newValue,
-            !isShutdown
-          else { return }
-          libvlc_media_player_set_equalizer(self.pointer, newValue.pointer)
-        }
       }
     }
   }

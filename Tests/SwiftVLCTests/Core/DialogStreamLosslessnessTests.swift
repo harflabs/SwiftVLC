@@ -35,6 +35,62 @@ struct DialogStreamLosslessnessTests {
     )
   }
 
+  @Test
+  func `Every late subscriber receives outstanding prompts`() async {
+    let handler = DialogHandler(instance: TestInstance.makeAudioOnly())
+    let first = loginRequest()
+    let second = loginRequest()
+    handler.broadcaster.broadcast(.login(first))
+    handler.broadcaster.broadcast(.login(second))
+    let one = handler.dialogs
+    let two = handler.dialogs
+    handler.broadcaster.terminate()
+    for stream in [one, two] {
+      var ids: [ObjectIdentifier] = []
+      for await event in stream {
+        if let request = event.login {
+          ids.append(request.dialogId.identity)
+        }
+      }
+      #expect(ids == [first.dialogId.identity, second.dialogId.identity])
+    }
+    _ = first.dialogId._consumeForTesting()
+    _ = second.dialogId._consumeForTesting()
+  }
+
+  @Test
+  func `Answered and cancelled prompts are not replayed`() async {
+    let handler = DialogHandler(instance: TestInstance.makeAudioOnly())
+    let answered = loginRequest()
+    let cancelled = loginRequest()
+    handler.broadcaster.broadcast(.login(answered))
+    handler.broadcaster.broadcast(.login(cancelled))
+    _ = answered.dialogId._consumeForTesting()
+    handler.broadcaster.broadcast(.cancel(cancelled.dialogId))
+    var stream = handler.dialogs.makeAsyncIterator()
+    handler.broadcaster.terminate()
+    #expect(await stream.next() == nil)
+    _ = cancelled.dialogId._consumeForTesting()
+  }
+
+  @Test
+  func `Late progress subscribers receive the latest presentation`() async {
+    let handler = DialogHandler(instance: TestInstance.makeAudioOnly())
+    let id = Self.syntheticDialogID()
+    handler.broadcaster.broadcast(.progress(ProgressInfo(
+      dialogId: id, title: "Download", text: "Starting", isIndeterminate: false,
+      position: 0, cancelText: "Cancel"
+    )))
+    handler.broadcaster.broadcast(.progressUpdated(ProgressUpdate(dialogId: id, position: 0.75, text: "Almost done")))
+    var values = handler.dialogs.makeAsyncIterator()
+    handler.broadcaster.terminate()
+    let latest = await values.next()?.progress
+    #expect(latest?.text == "Almost done")
+    #expect(latest?.position == 0.75)
+    #expect(await values.next() == nil)
+    _ = id._consumeForTesting()
+  }
+
   @Test(.timeLimit(.minutes(1)))
   func `A progress burst cannot evict a login prompt`() async {
     // A fresh instance per test: DialogHandler finishes its stream immediately

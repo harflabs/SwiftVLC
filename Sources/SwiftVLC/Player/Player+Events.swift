@@ -662,17 +662,45 @@ extension Player {
         break
       }
 
-    // Computed properties read fresh state from libVLC in their getter.
+    case .volumeChanged:
+      let revision = intentRevisions.audioVolume
+      #if DEBUG
+      let value = _nativeVolumeOverrideForTesting ?? libvlc_audio_get_volume(pointer)
+      #else
+      let value = libvlc_audio_get_volume(pointer)
+      #endif
+      performObservableMutation(
+        keyPath: \.volume,
+        ifPlaybackGeneration: sourcePlaybackGeneration ?? sessionGeneration,
+        nativeHandleGeneration: sourceNativeHandleGeneration ?? eventBridge.currentNativeHandleGeneration,
+        lifecycleControlEpoch: sourceLifecycleControlEpoch ?? eventBridge.currentLifecycleControlEpoch
+      ) {
+        guard value >= 0, intentRevisions.audioVolume == revision else { return }
+        _volume = Float(value) / 100
+      }
+
+    case .muted, .unmuted:
+      let revision = intentRevisions.mute
+      #if DEBUG
+      let value = _nativeMuteOverrideForTesting ?? libvlc_audio_get_mute(pointer)
+      #else
+      let value = libvlc_audio_get_mute(pointer)
+      #endif
+      performObservableMutation(
+        keyPath: \.isMuted,
+        ifPlaybackGeneration: sourcePlaybackGeneration ?? sessionGeneration,
+        nativeHandleGeneration: sourceNativeHandleGeneration ?? eventBridge.currentNativeHandleGeneration,
+        lifecycleControlEpoch: sourceLifecycleControlEpoch ?? eventBridge.currentLifecycleControlEpoch
+      ) {
+        guard value >= 0, intentRevisions.mute == revision else { return }
+        _isMuted = value != 0
+      }
+
+    // These computed properties read fresh state from libVLC in their getter.
     // An empty `withMutation` is what re-triggers SwiftUI when the
     // underlying C state changes externally (hardware keys, system controls,
     // renderer-initiated chapter/title moves). Without this
     // the observers stay pinned to their last read.
-    case .volumeChanged:
-      withMutation(keyPath: \.volume) {}
-
-    case .muted, .unmuted:
-      withMutation(keyPath: \.isMuted) {}
-
     case .chapterChanged:
       withMutation(keyPath: \.currentChapter) {}
 

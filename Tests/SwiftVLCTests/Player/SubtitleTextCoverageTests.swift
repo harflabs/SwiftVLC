@@ -65,7 +65,7 @@ extension Integration {
       defer { successorLifetime.initialOwnerDidRelease() }
 
       do {
-        try player.reattachTextSubtitleCaptureIfEnabled(to: successorLifetime)
+        try player.prepareTextSubtitleCaptureIfEnabled(to: successorLifetime)
         Issue.record("Expected unavailable capture reattachment to fail")
       } catch {
         #expect(error == .operationFailed("Reattach text subtitle capture"))

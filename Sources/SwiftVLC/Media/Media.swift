@@ -99,7 +99,7 @@ public struct MediaSlave: Sendable, Hashable {
 /// `@MainActor` ``Player`` via `player.load(media)`.
 public final class Media: Sendable {
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_media_t*
-  let thumbnailCoordinator = ThumbnailCoordinator()
+  let thumbnailCoordinator: ThumbnailCoordinator
 
   /// Creates media from a URL.
   ///
@@ -118,6 +118,7 @@ public final class Media: Sendable {
       throw .mediaCreationFailed(source: url.absoluteString)
     }
     pointer = media
+    thumbnailCoordinator = ThumbnailCoordinator.shared(for: media)
   }
 
   /// Creates media from a URL with per-media HTTP identity headers.
@@ -151,6 +152,7 @@ public final class Media: Sendable {
       throw .mediaCreationFailed(source: path)
     }
     pointer = media
+    thumbnailCoordinator = ThumbnailCoordinator.shared(for: media)
   }
 
   /// Parses the media's metadata and track list, awaiting the result.
@@ -176,15 +178,6 @@ public final class Media: Sendable {
     let em = libvlc_media_event_manager(media)!
     let instancePtr = instance.pointer
     let operationRef = ParseOperationRef()
-
-    // `onCancel` is a `@Sendable` closure and `OpaquePointer` isn't
-    // Sendable, so bind the pointers to `nonisolated(unsafe)` locals —
-    // the same pattern used elsewhere for libVLC pointer captures
-    // (Player.deinit, PixelBufferRenderer). The pointers stay valid for
-    // the duration of this call because `self` (Media) and `instance`
-    // (VLCInstance) are retained by the surrounding `async` frame.
-    nonisolated(unsafe) let cancelMedia = media
-    nonisolated(unsafe) let cancelInstance = instancePtr
 
     let result: Result<Metadata, VLCError> = await withTaskCancellationHandler {
       await withCheckedContinuation { cont in
@@ -242,13 +235,10 @@ public final class Media: Sendable {
         }
       }
     } onCancel: {
-      // Stop the in-progress parse. VLC will fire MediaParsedChanged
-      // with a failed status, which resumes the continuation.
-      if let operation = operationRef.value() {
-        operation.cancel()
-      } else {
-        libvlc_media_parse_stop(cancelInstance, cancelMedia)
-      }
+      // Only this operation can own a request. Before installation, the
+      // cancellation checks above settle this caller without stopping a
+      // different caller's active parse on the same native media.
+      operationRef.value()?.cancel()
     }
     operationRef.value()?.cleanupAfterCompletion()
     return try result.get()
@@ -349,6 +339,7 @@ public final class Media: Sendable {
   /// `Media` will call `libvlc_media_release` on deinit.
   init(retaining ptr: OpaquePointer) {
     pointer = ptr
+    thumbnailCoordinator = ThumbnailCoordinator.shared(for: ptr)
   }
 
   /// Creates media from an open file descriptor.
@@ -363,6 +354,7 @@ public final class Media: Sendable {
       throw .mediaCreationFailed(source: "fd:\(fd)")
     }
     pointer = media
+    thumbnailCoordinator = ThumbnailCoordinator.shared(for: media)
   }
 
   /// Applies a libVLC option to this media before playback starts.

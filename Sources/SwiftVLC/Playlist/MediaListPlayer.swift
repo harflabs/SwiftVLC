@@ -207,6 +207,7 @@ public final class MediaListPlayer {
 
   /// Starts playing the media list from the beginning.
   public func play() {
+    guard (try? prepareAttachedPlayerForPlayback()) == true else { return }
     guard
       attachedPlayerHandleIsCurrent,
       let reservation = reservePlaybackStart()
@@ -231,6 +232,17 @@ public final class MediaListPlayer {
   /// `src/audio_output/dec.c:876`, killing the process. Mirror the
   /// guard in ``Player/togglePlayPause()``.
   public func togglePause() {
+    if let player = _mediaPlayer, player.nativePlayerNeedsReplacementBeforePlayback {
+      // The list's state deliberately hides a retired handle as idle. Use
+      // the attached player's observed state until its stop has settled.
+      switch player.state {
+      case .idle, .stopped:
+        play()
+      case .playing, .paused, .opening, .buffering, .stopping, .error:
+        break
+      }
+      return
+    }
     guard attachedPlayerHandleIsCurrent else { return }
     switch state {
     case .playing:
@@ -262,6 +274,10 @@ public final class MediaListPlayer {
 
   /// Resumes playback.
   public func resume() {
+    if _mediaPlayer?.nativePlayerNeedsReplacementBeforePlayback == true {
+      play()
+      return
+    }
     guard attachedPlayerHandleIsCurrent else { return }
     if let mediaPlayer = _mediaPlayer {
       mediaPlayer.resume()
@@ -287,7 +303,7 @@ public final class MediaListPlayer {
   ///   ``VLCError/invalidInput(_:)`` if the index is out of range for the
   ///   attached list, or ``VLCError/operationFailed(_:)`` if libVLC rejects it.
   public func play(at requestedIndex: Int) throws(VLCError) {
-    guard attachedPlayerHandleIsCurrent else {
+    guard try prepareAttachedPlayerForPlayback() else {
       throw .invalidState("The attached Player is waiting for a fresh native handle")
     }
     let index = try checkedNonnegativeInt32(requestedIndex, parameter: "index")
@@ -314,7 +330,7 @@ public final class MediaListPlayer {
   /// - Throws: ``VLCError/invalidState(_:)`` if no media list is attached,
   ///   or ``VLCError/operationFailed(_:)`` if the item is not in the list.
   public func play(_ media: borrowing Media) throws(VLCError) {
-    guard attachedPlayerHandleIsCurrent else {
+    guard try prepareAttachedPlayerForPlayback() else {
       throw .invalidState("The attached Player is waiting for a fresh native handle")
     }
     guard _mediaList != nil else {
@@ -357,7 +373,7 @@ public final class MediaListPlayer {
   /// Advances to the next item in the list.
   /// - Throws: `VLCError.operationFailed` if there is no next item.
   public func next() throws(VLCError) {
-    guard attachedPlayerHandleIsCurrent else {
+    guard try prepareAttachedPlayerForPlayback() else {
       throw .invalidState("The attached Player is waiting for a fresh native handle")
     }
     guard let reservation = reservePlaybackStart() else {
@@ -373,7 +389,7 @@ public final class MediaListPlayer {
   /// Goes back to the previous item in the list.
   /// - Throws: `VLCError.operationFailed` if there is no previous item.
   public func previous() throws(VLCError) {
-    guard attachedPlayerHandleIsCurrent else {
+    guard try prepareAttachedPlayerForPlayback() else {
       throw .invalidState("The attached Player is waiting for a fresh native handle")
     }
     guard let reservation = reservePlaybackStart() else {
@@ -568,6 +584,37 @@ public final class MediaListPlayer {
       libvlc_media_list_player_stop_async(oldPointer)
       libvlc_media_list_player_release(oldPointer)
     }
+  }
+
+  /// A drawable-hosted stop retires the handle before the next transport.
+  /// Preparing the replacement also rebinds this list player's native owner.
+  /// Observation during preparation can install a newer command or owner;
+  /// that takeover must prevent this older transport from being dispatched.
+  private func prepareAttachedPlayerForPlayback() throws(VLCError) -> Bool {
+    guard let player = _mediaPlayer else { return true }
+    guard
+      !player.isShutdown,
+      player.attachedMediaListPlayer === self,
+      player.eventBridge.currentPlaybackGeneration == player.sessionGeneration
+    else { return false }
+    guard player.nativePlayerNeedsReplacementBeforePlayback else {
+      return attachedPlayerHandleIsCurrent
+    }
+    let listPlayer = pointer
+    let list = _mediaList
+    let ownership = player.mediaListOwnershipEpoch
+    let generation = player.sessionGeneration
+    let control = player.playbackControlIntentRevision
+    try player.prepareDrawableForPlayback()
+    return pointer == listPlayer
+      && _mediaList === list
+      && _mediaPlayer === player
+      && player.attachedMediaListPlayer === self
+      && player.mediaListOwnershipEpoch == ownership
+      && player.sessionGeneration == generation
+      && player.playbackControlIntentRevision == control
+      && !player.isShutdown
+      && attachedPlayerHandleIsCurrent
   }
 
   private var attachedPlayerHandleIsCurrent: Bool {

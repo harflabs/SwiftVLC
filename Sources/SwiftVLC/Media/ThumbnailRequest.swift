@@ -186,8 +186,44 @@ func checkedThumbnailRequestMilliseconds(
 // MARK: - Internals
 
 actor ThumbnailCoordinator {
+  /// Accessed only while the registry mutex is held.
+  private final class WeakCoordinator: @unchecked Sendable {
+    weak var value: ThumbnailCoordinator?
+
+    init(_ value: ThumbnailCoordinator) {
+      self.value = value
+    }
+  }
+
+  private static let registry = Mutex<[UInt: WeakCoordinator]>([:])
+  private let nativeIdentity: UInt?
   private var isBusy = false
   private var waiters: [ThumbnailGate] = []
+
+  init(nativeIdentity: UInt? = nil) {
+    self.nativeIdentity = nativeIdentity
+  }
+
+  static func shared(for media: OpaquePointer) -> ThumbnailCoordinator {
+    let key = UInt(bitPattern: media)
+    return registry.withLock { registry in
+      if let existing = registry[key]?.value {
+        return existing
+      }
+      let coordinator = ThumbnailCoordinator(nativeIdentity: key)
+      registry[key] = WeakCoordinator(coordinator)
+      return coordinator
+    }
+  }
+
+  deinit {
+    guard let nativeIdentity else { return }
+    Self.registry.withLock { registry in
+      if registry[nativeIdentity]?.value == nil {
+        registry.removeValue(forKey: nativeIdentity)
+      }
+    }
+  }
 
   func acquire() async throws(VLCError) {
     guard !Task.isCancelled else {

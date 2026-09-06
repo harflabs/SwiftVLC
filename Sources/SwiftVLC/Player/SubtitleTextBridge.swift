@@ -88,7 +88,17 @@ final class SubtitleTextBridge: Sendable {
     to lifetime: NativePlayerHandleLifetime,
     using registration: Registration
   ) -> Bool {
-    guard !lifetime.isReleased else { return false }
+    guard let generation = prepareAttachment(to: lifetime, using: registration) else { return false }
+    return commitAttachment(generation)
+  }
+
+  /// Registers a candidate without replacing the active subtitle source.
+  /// The enclosing native-player transaction must commit or cancel it.
+  func prepareAttachment(
+    to lifetime: NativePlayerHandleLifetime,
+    using registration: Registration
+  ) -> UInt64? {
+    guard !lifetime.isReleased else { return nil }
 
     guard
       let generation = state.withLock({ state -> UInt64? in
@@ -97,7 +107,7 @@ final class SubtitleTextBridge: Sendable {
         let generation = state.nextGeneration
         state.pendingSnapshots[generation] = PendingSnapshot()
         return generation
-      }) else { return false }
+      }) else { return nil }
 
     let attachment = SubtitleTextCallbackAttachment(
       bridge: self,
@@ -108,22 +118,28 @@ final class SubtitleTextBridge: Sendable {
       _ = state.withLock {
         $0.pendingSnapshots.removeValue(forKey: generation)
       }
-      return false
+      return nil
     }
 
     // Registration latches the opaque into the native handle. Establish its
     // lifetime before publishing the generation as current.
     lifetime.retainUntilReleased([attachment])
+    return generation
+  }
 
-    return state.withLock { state in
+  func cancelAttachment(_ generation: UInt64) {
+    _ = state.withLock { $0.pendingSnapshots.removeValue(forKey: generation) }
+  }
+
+  @discardableResult
+  func commitAttachment(_ generation: UInt64) -> Bool {
+    state.withLock { state in
       guard !state.isTerminated else {
         state.pendingSnapshots.removeValue(forKey: generation)
         return false
       }
       let pendingSnapshot = state.pendingSnapshots.removeValue(forKey: generation)
-      // Termination is the only operation that can remove a pending entry,
-      // and that state was handled above while holding this same lock.
-      precondition(pendingSnapshot != nil)
+      guard pendingSnapshot != nil else { return false }
       if let currentGeneration = state.currentGeneration {
         guard generation > currentGeneration else { return false }
       }
