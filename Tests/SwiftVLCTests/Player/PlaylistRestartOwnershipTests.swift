@@ -49,6 +49,30 @@ extension Integration {
       await player.shutdown()
     }
 
+    @Test(arguments: [PlayerState.playing, .paused, .opening, .buffering, .stopping, .error])
+    func `Toggle does not restart a retired handle before stop settles`(_ state: PlayerState) async throws {
+      let instance = TestInstance.makeAudioOnly()
+      let player = Player(instance: instance)
+      let playlist = MediaListPlayer(instance: instance)
+      playlist.mediaPlayer = player
+      player.setDrawable(NSObject())
+      playlist.stop()
+      let outgoing = player.pointer
+      try #require(player.nativePlayerNeedsReplacementBeforePlayback)
+      player._setStateForTesting(state: state)
+      var starts = 0
+      playlist._nativeTransportDispatchOverrideForTesting = { _ in
+        starts += 1
+        return 0
+      }
+      playlist.togglePause()
+      #expect(starts == 0)
+      #expect(player.pointer == outgoing)
+      #expect(player.nativePlayerNeedsReplacementBeforePlayback)
+      playlist.mediaPlayer = nil
+      await player.shutdown()
+    }
+
     @Test
     func `An ownership change during preparation supersedes the older playlist command`() async throws {
       let instance = TestInstance.makeAudioOnly()

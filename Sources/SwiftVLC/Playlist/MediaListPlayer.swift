@@ -232,8 +232,15 @@ public final class MediaListPlayer {
   /// `src/audio_output/dec.c:876`, killing the process. Mirror the
   /// guard in ``Player/togglePlayPause()``.
   public func togglePause() {
-    if _mediaPlayer?.nativePlayerNeedsReplacementBeforePlayback == true {
-      play()
+    if let player = _mediaPlayer, player.nativePlayerNeedsReplacementBeforePlayback {
+      // The list's state deliberately hides a retired handle as idle. Use
+      // the attached player's observed state until its stop has settled.
+      switch player.state {
+      case .idle, .stopped:
+        play()
+      case .playing, .paused, .opening, .buffering, .stopping, .error:
+        break
+      }
       return
     }
     guard attachedPlayerHandleIsCurrent else { return }
