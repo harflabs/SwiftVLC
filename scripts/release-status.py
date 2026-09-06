@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -26,7 +27,11 @@ def inspect(root, version, candidate=None):
     dirty = command("git", "status", "--porcelain")
     if dirty:
         blockers.append("The checkout has uncommitted or untracked files.")
-    facts["remoteMain"] = command("git", "ls-remote", "origin", "refs/heads/main")
+    remote_ref = command("git", "ls-remote", "origin", "refs/heads/main")
+    remote_match = re.fullmatch(r"([0-9a-f]{40}|[0-9a-f]{64})\s+refs/heads/main", remote_ref or "")
+    facts["remoteMain"] = remote_match.group(1) if remote_match else None
+    if remote_ref is not None and not remote_match:
+        blockers.append("Origin did not return a valid main revision.")
     command("gh", "auth", "status")
     artifact = candidate / "libvlc.xcframework" if candidate else root / "Vendor/libvlc.xcframework"
     facts["artifact"] = str(artifact)
@@ -67,6 +72,23 @@ def inspect(root, version, candidate=None):
                 blockers.append(f"Release CI {name}: {conclusion or check.get('status') or 'unknown'}.")
         if pull.get("state") == "CLOSED":
             blockers.append("The release PR was closed without merging; inspect its remote state.")
+    local, remote = facts["checkout"], facts["remoteMain"]
+    if local and remote and local != remote:
+        # Match release.sh's ancestry preflight for the suggested next action.
+        # Read the advertised remote SHA, never a potentially stale origin/main.
+        counts = command("git", "rev-list", "--left-right", "--count", f"{local}...{remote}")
+        if counts is None:
+            blockers.append("Fetch origin main, then rerun status to inspect its history locally.")
+        else:
+            ahead, behind = map(int, counts.split())
+            allowed = ahead == 1 and behind == 0
+            if not allowed and pulls and ahead == 0 and behind > 0:
+                local_tree = command("git", "rev-parse", f"{local}^{{tree}}")
+                remote_tree = command("git", "rev-parse", f"{remote}^{{tree}}")
+                allowed = local_tree is not None and local_tree == remote_tree
+            if not allowed:
+                blockers.append("Local main is not an allowed release state: start from exact origin/main, "
+                                "resume its one release commit, or finalize an identical-tree fast-forward.")
     facts["blockers"] = blockers
     facts["nextAction"] = "Resolve the listed blockers." if blockers else (
         "Resume --candidate ... --finalize to verify main CI and reconcile publication." if any(pull.get("state") == "MERGED" for pull in pulls)

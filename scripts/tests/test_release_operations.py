@@ -92,6 +92,10 @@ class ReleaseOperationsTests(unittest.TestCase):
                 return " M file\n"
             if args[:3] == ("gh", "pr", "list"):
                 return "[]"
+            if args[:3] == ("git", "ls-remote", "origin"):
+                return "a" * 40 + "\trefs/heads/main\n"
+            if args == ("git", "rev-parse", "HEAD"):
+                return "a" * 40
             return "fixture"
         with tempfile.TemporaryDirectory() as directory, patch.object(status.subprocess, "check_output", side_effect=response):
             report = status.inspect(Path(directory), "1.1.0-beta.11")
@@ -99,6 +103,94 @@ class ReleaseOperationsTests(unittest.TestCase):
         for args in commands:
             self.assertIn(args[:2], (("git", "rev-parse"), ("git", "branch"), ("git", "status"),
                                      ("git", "ls-remote"), ("gh", "auth"), ("gh", "pr")))
+
+    def test_status_checks_real_git_histories_without_changing_checkout_or_refs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "checkout"
+            origin = Path(directory) / "origin.git"
+            root.mkdir()
+            output = subprocess.check_output
+
+            def git(*args):
+                return output(["git", "-C", str(root), *args],
+                              stderr=subprocess.DEVNULL, text=True).strip()
+
+            git("init", "-q", "-b", "main")
+            git("config", "user.name", "Fixture")
+            git("config", "user.email", "fixture@example.invalid")
+            artifact = root / "Vendor/libvlc.xcframework"
+            artifact.mkdir(parents=True)
+            (artifact / ".keep").touch()
+            git("add", ".")
+            git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD")
+            tree = git("rev-parse", "HEAD^{tree}")
+            first = git("commit-tree", tree, "-p", base, "-m", "release")
+            second = git("commit-tree", tree, "-p", first, "-m", "second")
+            divergent = git("commit-tree", tree, "-p", base, "-m", "divergent")
+            (root / "changed").touch()
+            git("add", ".")
+            changed_tree = git("write-tree")
+            changed = git("commit-tree", changed_tree, "-p", first, "-m", "changed")
+            git("init", "--bare", "-q", str(origin))
+            git("remote", "add", "origin", str(origin))
+            merged_pr = [{"number": 1, "state": "MERGED", "statusCheckRollup": [
+                {"name": "test", "conclusion": "SUCCESS"}]}]
+
+            cases = (
+                ("equal", base, base, [], True),
+                ("one release commit ahead", first, base, [], True),
+                ("two commits ahead", second, base, [], False),
+                ("diverged with identical trees", first, divergent, merged_pr, False),
+                ("behind while preparing", first, second, [], False),
+                ("identical tree finalize", first, second, merged_pr, True),
+                ("changed tree finalize", first, changed, merged_pr, False),
+            )
+            for name, local, remote, pulls, allowed in cases:
+                with self.subTest(name=name):
+                    git("push", "--force", "origin", f"{remote}:refs/heads/main")
+                    git("reset", "--hard", local)
+                    # Deliberately leave the tracking ref stale: ls-remote is authoritative.
+                    git("update-ref", "refs/remotes/origin/main", local)
+                    before = (git("show-ref"), git("status", "--porcelain"))
+                    commands = []
+
+                    def response(args, **kwargs):
+                        commands.append(args)
+                        if args[0] == "gh":
+                            return json.dumps(pulls) if args[1:3] == ("pr", "list") else "authenticated"
+                        return output(args, **kwargs)
+
+                    with patch.object(status.subprocess, "check_output", side_effect=response):
+                        report = status.inspect(root, "1.1.0-beta.11")
+                    self.assertEqual(report["remoteMain"], remote)
+                    self.assertEqual(not report["blockers"], allowed, report)
+                    self.assertEqual((git("show-ref"), git("status", "--porcelain")), before)
+                    self.assertFalse(any(args[:2] in (("git", "fetch"), ("git", "merge")) for args in commands))
+
+    def test_status_blocks_missing_remote_history_and_invalid_remote_refs(self):
+        for remote in ("", "invalid", "b" * 40 + "\trefs/heads/main"):
+            with self.subTest(remote=remote), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / "Vendor/libvlc.xcframework").mkdir(parents=True)
+
+                def response(args, **kwargs):
+                    if args[:2] == ("git", "rev-parse"):
+                        return "a" * 40
+                    if args[:2] == ("git", "branch"):
+                        return "main"
+                    if args[:2] == ("git", "ls-remote"):
+                        return remote
+                    if args[:2] == ("git", "rev-list"):
+                        raise subprocess.CalledProcessError(128, args)
+                    if args[:3] == ("gh", "pr", "list"):
+                        return "[]"
+                    return ""
+
+                with patch.object(status.subprocess, "check_output", side_effect=response):
+                    report = status.inspect(root, "1.1.0-beta.11")
+                self.assertTrue(report["blockers"])
+                self.assertEqual(report["nextAction"], "Resolve the listed blockers.")
 
     def test_reuse_accepts_swift_only_change_and_rejects_native_or_unknown_inputs(self):
         with tempfile.TemporaryDirectory() as directory:
