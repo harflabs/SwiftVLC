@@ -1,0 +1,323 @@
+# Remove recovered decoder/output failures from terminal EOS attribution.
+#
+# A decoder contributes each unresolved failure once and emits a matching
+# recovery only after successful decoding or output creation. Per-kind counts
+# preserve failures in other decoders, and terminal publication stays final.
+# Source/demux failure sites remain terminal; diagnostic logging is unchanged.
+--- a/src/input/input_internal.h
++++ b/src/input/input_internal.h
+@@ -100,6 +100,9 @@
+ 
+     /* A playback subsystem reported a terminal failure */
+     INPUT_EVENT_FAILURE,
++
++    /* A decoder recovered a previously reported output failure. */
++    INPUT_EVENT_RECOVERY,
+ 
+     /* "rate" has changed */
+     INPUT_EVENT_RATE,
+--- a/src/input/event.h
++++ b/src/input/event.h
+@@ -169,6 +169,15 @@
+     });
+ }
+ 
++static inline void input_SendEventRecovery(input_thread_t *p_input,
++                                           enum vlc_input_failure_kind kind)
++{
++    input_SendEvent(p_input, &(struct vlc_input_event) {
++        .type = INPUT_EVENT_RECOVERY,
++        .failure = kind,
++    });
++}
++
+ static inline void input_SendEventCache(input_thread_t *p_input, double f_level)
+ {
+     input_SendEvent(p_input, &(struct vlc_input_event) {
+--- a/src/input/decoder.h
++++ b/src/input/decoder.h
+@@ -37,6 +37,8 @@
+     /* notifications */
+     void (*on_failure)(vlc_input_decoder_t *decoder,
+                        enum vlc_input_failure_kind kind, void *userdata);
++    void (*on_recovery)(vlc_input_decoder_t *decoder,
++                        enum vlc_input_failure_kind kind, void *userdata);
+     void (*on_vout_started)(vlc_input_decoder_t *decoder, vout_thread_t *vout,
+                             enum vlc_vout_order vout_order,
+                             void *userdata);
+--- a/src/input/decoder.c
++++ b/src/input/decoder.c
+@@ -239,6 +239,8 @@
+     size_t strict_frame_decode_countdown;
+     atomic_uint_fast64_t strict_frame_committed_generation;
+     bool paused, output_paused;
++    /* Decode-thread-owned: each unresolved subsystem contributes once. */
++    unsigned reported_failures;
+ 
+     bool error;
+ 
+@@ -292,6 +294,24 @@
+     if (decoder_priv->cbs && decoder_priv->cbs->event) \
+         decoder_priv->cbs->event(decoder_priv, __VA_ARGS__, \
+                                  decoder_priv->cbs_userdata);
++
++static void Decoder_ReportFailure(vlc_input_decoder_t *owner,
++                                        enum vlc_input_failure_kind kind)
++{
++    if (owner->reported_failures & (1u << kind))
++        return;
++    owner->reported_failures |= 1u << kind;
++    decoder_Notify(owner, on_failure, kind);
++}
++
++static void Decoder_ReportRecovery(vlc_input_decoder_t *owner,
++                                         enum vlc_input_failure_kind kind)
++{
++    if (!(owner->reported_failures & (1u << kind)))
++        return;
++    owner->reported_failures &= ~(1u << kind);
++    decoder_Notify(owner, on_recovery, kind);
++}
+ 
+ static inline vlc_input_decoder_t *dec_get_owner( decoder_t *p_dec )
+ {
+@@ -1092,11 +1112,12 @@
+ 
+         if( p_aout == NULL )
+         {
+-            decoder_Notify(p_owner, on_failure, VLC_INPUT_FAILURE_OUTPUT);
++            Decoder_ReportFailure(p_owner, VLC_INPUT_FAILURE_OUTPUT);
+             vlc_fifo_Unlock(p_owner->p_fifo);
+             return -1;
+         }
+ 
++        Decoder_ReportRecovery(p_owner, VLC_INPUT_FAILURE_OUTPUT);
+         p_dec->fmt_out.audio.i_bytes_per_frame =
+             p_owner->fmt.audio.i_bytes_per_frame;
+         p_dec->fmt_out.audio.i_bitspersample =
+@@ -1206,6 +1227,7 @@
+ 
+         vlc_fifo_Lock(p_owner->p_fifo);
+         p_owner->video.started = true;
++        Decoder_ReportRecovery(p_owner, VLC_INPUT_FAILURE_RENDERER);
+ 
+         if (vout_state == INPUT_RESOURCE_VOUT_STARTED)
+         {
+@@ -1226,7 +1248,7 @@
+     }
+ 
+ error:
+-    decoder_Notify(p_owner, on_failure, VLC_INPUT_FAILURE_RENDERER);
++    Decoder_ReportFailure(p_owner, VLC_INPUT_FAILURE_RENDERER);
+     /* Clean fmt and vctx to trigger a new vout creation on the next update
+      * call */
+     vlc_fifo_Lock(p_owner->p_fifo);
+@@ -2206,9 +2228,10 @@
+     switch( ret )
+     {
+         case VLCDEC_SUCCESS:
++            Decoder_ReportRecovery(p_owner, VLC_INPUT_FAILURE_DECODER);
+             break;
+         case VLCDEC_ECRITICAL:
+-            decoder_Notify(p_owner, on_failure, VLC_INPUT_FAILURE_DECODER);
++            Decoder_ReportFailure(p_owner, VLC_INPUT_FAILURE_DECODER);
+             p_owner->error = true;
+             Decoder_FailStrictFrameLocked(p_owner, -EIO);
+             break;
+@@ -2701,6 +2724,7 @@
+     p_owner->out_started = false;
+ 
+     p_owner->error = false;
++    p_owner->reported_failures = 0;
+ 
+     p_owner->flushing = false;
+     p_owner->b_draining = false;
+@@ -2942,7 +2966,7 @@
+     if( !p_dec->p_module )
+     {
+         DecoderUnsupportedCodec( p_dec, cfg->fmt, !cfg->sout );
+-        decoder_Notify(p_owner, on_failure, VLC_INPUT_FAILURE_DECODER);
++        Decoder_ReportFailure(p_owner, VLC_INPUT_FAILURE_DECODER);
+ 
+         /* Don't use dec->fmt_in->i_cat since it may not be initialized here. */
+         DeleteDecoder( p_owner, cfg->fmt->i_cat );
+--- a/src/input/es_out.c
++++ b/src/input/es_out.c
+@@ -384,6 +384,17 @@
+ }
+ 
+ static void
++decoder_on_recovery(vlc_input_decoder_t *decoder,
++                    enum vlc_input_failure_kind kind, void *userdata)
++{
++    (void) decoder;
++    es_out_id_t *id = userdata;
++    es_out_sys_t *sys = PRIV(&id->out->out);
++    if (sys->p_input)
++        input_SendEventRecovery(sys->p_input, kind);
++}
++
++static void
+ decoder_on_vout_started(vlc_input_decoder_t *decoder, vout_thread_t *vout,
+                       enum vlc_vout_order order, void *userdata)
+ {
+@@ -693,6 +704,7 @@
+ 
+ static const struct vlc_input_decoder_callbacks decoder_cbs = {
+     .on_failure = decoder_on_failure,
++    .on_recovery = decoder_on_recovery,
+     .on_vout_started = decoder_on_vout_started,
+     .on_vout_stopped = decoder_on_vout_stopped,
+     .on_output_paused = decoder_on_output_paused,
+--- /dev/null
++++ b/src/player/input_failure.h
+@@ -0,0 +1,64 @@
++/* Track unresolved failures, independently of diagnostic history. Decoder
++ * output retries contribute once until recovery; failures in other streams
++ * remain outstanding. All access belongs to the player lock. */
++#ifndef VLC_PLAYER_INPUT_FAILURE_H
++#define VLC_PLAYER_INPUT_FAILURE_H
++
++#include <limits.h>
++
++#define VLC_INPUT_FAILURE_KINDS (VLC_INPUT_FAILURE_OUTPUT + 1)
++struct vlc_player_input_failures
++{
++    unsigned counts[VLC_INPUT_FAILURE_KINDS];
++    enum vlc_input_failure_kind order[VLC_INPUT_FAILURE_KINDS];
++    unsigned length;
++};
++
++static inline void
++vlc_player_input_RecordFailure(struct vlc_player_input_failures *state,
++                               enum vlc_input_failure_kind kind)
++{
++    if ((unsigned) kind >= VLC_INPUT_FAILURE_KINDS)
++        kind = VLC_INPUT_FAILURE_UNKNOWN;
++    if (state->counts[kind] == 0)
++        state->order[state->length++] = kind;
++    if (state->counts[kind] != UINT_MAX)
++        state->counts[kind]++;
++}
++
++static inline void
++vlc_player_input_RecoverFailure(struct vlc_player_input_failures *state,
++                                enum vlc_input_failure_kind kind)
++{
++    if (kind != VLC_INPUT_FAILURE_RENDERER && kind != VLC_INPUT_FAILURE_OUTPUT &&
++        kind != VLC_INPUT_FAILURE_DECODER)
++        return;
++    /* Saturation is conservatively sticky; never clear an uncounted failure. */
++    if (state->counts[kind] == 0 || state->counts[kind] == UINT_MAX ||
++        --state->counts[kind] != 0)
++        return;
++    for (unsigned i = 0; i < state->length; ++i)
++    {
++        if (state->order[i] != kind) continue;
++        for (unsigned j = i + 1; j < state->length; ++j)
++            state->order[j - 1] = state->order[j];
++        state->length--;
++        break;
++    }
++}
++
++static inline enum vlc_player_error
++vlc_player_input_CurrentFailure(const struct vlc_player_input_failures *state)
++{
++    if (state->length == 0) return VLC_PLAYER_ERROR_NONE;
++    switch (state->order[0])
++    {
++        case VLC_INPUT_FAILURE_SOURCE: return VLC_PLAYER_ERROR_SOURCE;
++        case VLC_INPUT_FAILURE_DEMUX: return VLC_PLAYER_ERROR_DEMUX;
++        case VLC_INPUT_FAILURE_DECODER: return VLC_PLAYER_ERROR_DECODER;
++        case VLC_INPUT_FAILURE_RENDERER: return VLC_PLAYER_ERROR_RENDERER;
++        case VLC_INPUT_FAILURE_OUTPUT: return VLC_PLAYER_ERROR_OUTPUT;
++        default: return VLC_PLAYER_ERROR_GENERIC;
++    }
++}
++#endif
+--- a/src/player/player.h
++++ b/src/player/player.h
+@@ -29,6 +29,7 @@
+ #include <vlc_vout_osd.h>
+ 
+ #include "input/input_internal.h"
++#include "input_failure.h"
+ 
+ struct vlc_player_track_priv
+ {
+@@ -66,6 +67,7 @@
+     enum vlc_player_state state;
+     enum vlc_player_error error;
+     bool error_reported;
++    struct vlc_player_input_failures failures;
+     enum vlc_player_media_stopping_reason stopping_reason;
+     float rate;
+     int capabilities;
+--- a/src/player/input.c
++++ b/src/player/input.c
+@@ -1094,34 +1094,18 @@
+                                               event->state.date);
+             break;
+         case INPUT_EVENT_FAILURE:
+-            /* Preserve the first authoritative subsystem failure, including
+-             * failures raised while the input is still opening. The terminal
+-             * state transition owns the public notification so a recoverable
+-             * stream failure cannot end playback early. */
+-            if (input->error == VLC_PLAYER_ERROR_NONE)
+-            {
+-                switch (event->failure)
+-                {
+-                    case VLC_INPUT_FAILURE_SOURCE:
+-                        input->error = VLC_PLAYER_ERROR_SOURCE;
+-                        break;
+-                    case VLC_INPUT_FAILURE_DEMUX:
+-                        input->error = VLC_PLAYER_ERROR_DEMUX;
+-                        break;
+-                    case VLC_INPUT_FAILURE_DECODER:
+-                        input->error = VLC_PLAYER_ERROR_DECODER;
+-                        break;
+-                    case VLC_INPUT_FAILURE_RENDERER:
+-                        input->error = VLC_PLAYER_ERROR_RENDERER;
+-                        break;
+-                    case VLC_INPUT_FAILURE_OUTPUT:
+-                        input->error = VLC_PLAYER_ERROR_OUTPUT;
+-                        break;
+-                    case VLC_INPUT_FAILURE_UNKNOWN:
+-                    default:
+-                        input->error = VLC_PLAYER_ERROR_GENERIC;
+-                        break;
+-                }
++            if (!input->error_reported)
++            {
++                vlc_player_input_RecordFailure(&input->failures, event->failure);
++                input->error = vlc_player_input_CurrentFailure(&input->failures);
++            }
++            break;
++        case INPUT_EVENT_RECOVERY:
++            /* Recovery cannot rewrite a terminal error already published. */
++            if (!input->error_reported)
++            {
++                vlc_player_input_RecoverFailure(&input->failures, event->failure);
++                input->error = vlc_player_input_CurrentFailure(&input->failures);
+             }
+             break;
+         case INPUT_EVENT_EOF:
+@@ -1374,6 +1358,7 @@
+     input->state = VLC_PLAYER_STATE_STOPPED;
+     input->error = VLC_PLAYER_ERROR_NONE;
+     input->error_reported = false;
++    input->failures = (struct vlc_player_input_failures) {0};
+     input->stopping_reason = VLC_PLAYER_MEDIA_STOPPING_ERROR;
+     input->rate = 1.f;
+     input->capabilities = 0;
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -296,6 +296,7 @@
+ 	input/replay_gain.c \
+ 	player/player.c \
+ 	player/player.h \
++	player/input_failure.h \
+ 	player/input.c \
+ 	player/timer.c \
+ 	player/track.c \

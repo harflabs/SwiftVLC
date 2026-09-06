@@ -1,0 +1,20 @@
+# Preserve queued automatic advancement across playback-mode changes.
+#
+# A policy update is serialized by the normal object/callback lock order,
+# but does not supersede the transport captured by the playlist worker.
+# Explicit selection, stop, and player/list replacement still advance the
+# operation generation and discard an obsolete handoff.
+--- a/lib/media_list_player.c
++++ b/lib/media_list_player.c
+@@ -878,7 +878,10 @@
+                                             libvlc_media_list_player_t * p_mlp,
+                                             libvlc_playback_mode_t e_mode )
+ {
+-    lock(p_mlp);
++    /* A mode change changes how queued advancement is evaluated; it does
++     * not replace that transport. Preserve the generation captured by the
++     * worker while still serializing the policy update with both locks. */
++    lock_internal(p_mlp);
+     p_mlp->e_playback_mode = e_mode;
+     unlock(p_mlp);
+ }
