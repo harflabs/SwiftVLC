@@ -15,6 +15,12 @@ extension Integration {
       libvlc_media_player_get_nsobject(player.pointer)
     }
 
+    private func renders(_ player: Player, into surface: VideoSurface) -> Bool {
+      guard let pointer = drawable(of: player) else { return false }
+      let container = Unmanaged<VideoSurface>.fromOpaque(pointer).takeUnretainedValue()
+      return container.superview === surface
+    }
+
     @Test
     func `NSView VideoSurface creation`() {
       let surface = VideoSurface()
@@ -32,10 +38,10 @@ extension Integration {
     func `attach sets nsobject on player`() {
       let player = Player(instance: TestInstance.shared)
       let surface = VideoSurface()
-      let surfacePtr = Unmanaged.passUnretained(surface).toOpaque()
-
       surface.attach(to: player)
-      #expect(drawable(of: player) == surfacePtr)
+      let container = player.nativeDrawableSurface
+      #expect(container?.superview === surface)
+      #expect(drawable(of: player) == container.map { Unmanaged.passUnretained($0).toOpaque() })
       surface.detach()
     }
 
@@ -107,13 +113,12 @@ extension Integration {
       let player1 = Player(instance: TestInstance.shared)
       let player2 = Player(instance: TestInstance.shared)
       let surface = sizedSurface()
-      let surfacePtr = Unmanaged.passUnretained(surface).toOpaque()
 
       surface.attach(to: player1)
-      #expect(drawable(of: player1) == surfacePtr)
+      #expect(renders(player1, into: surface))
       surface.attach(to: player2)
       #expect(drawable(of: player1) == nil)
-      #expect(drawable(of: player2) == surfacePtr)
+      #expect(renders(player2, into: surface))
       surface.detach()
     }
 
@@ -122,14 +127,13 @@ extension Integration {
       let player = Player(instance: TestInstance.shared)
       let firstSurface = sizedSurface()
       let secondSurface = sizedSurface()
-      let secondPtr = Unmanaged.passUnretained(secondSurface).toOpaque()
 
       firstSurface.attach(to: player)
       secondSurface.attach(to: player)
-      #expect(drawable(of: player) == secondPtr)
+      #expect(renders(player, into: secondSurface))
 
       firstSurface.detach()
-      #expect(drawable(of: player) == secondPtr)
+      #expect(renders(player, into: secondSurface))
 
       secondSurface.detach()
       #expect(drawable(of: player) == nil)
@@ -139,7 +143,6 @@ extension Integration {
     func `playback after stop rebinds a retained drawable`() throws {
       let player = Player(instance: TestInstance.shared)
       let surface = sizedSurface()
-      let surfacePtr = Unmanaged.passUnretained(surface).toOpaque()
 
       surface.attach(to: player)
       player.stop()
@@ -148,7 +151,7 @@ extension Integration {
       let stoppedNativePlayer = player.pointer
       try player.prepareDrawableForPlayback()
       #expect(player.pointer != stoppedNativePlayer)
-      #expect(drawable(of: player) == surfacePtr)
+      #expect(renders(player, into: surface))
       #expect(!player.needsDrawableRebindForPlayback)
 
       surface.detach()
@@ -158,7 +161,6 @@ extension Integration {
     func `stop requires drawable rebind across surface detach and reattach`() throws {
       let player = Player(instance: TestInstance.shared)
       let surface = sizedSurface()
-      let surfacePtr = Unmanaged.passUnretained(surface).toOpaque()
 
       surface.attach(to: player)
       player.stop()
@@ -167,13 +169,13 @@ extension Integration {
       #expect(player.needsDrawableRebindForPlayback)
 
       surface.attach(to: player)
-      #expect(drawable(of: player) == surfacePtr)
+      #expect(renders(player, into: surface))
       #expect(player.needsDrawableRebindForPlayback)
 
       let stoppedNativePlayer = player.pointer
       try player.prepareDrawableForPlayback()
       #expect(player.pointer != stoppedNativePlayer)
-      #expect(drawable(of: player) == surfacePtr)
+      #expect(renders(player, into: surface))
       #expect(!player.needsDrawableRebindForPlayback)
 
       surface.detach()
@@ -183,7 +185,6 @@ extension Integration {
     func `playback after stop replaces native player even before surface reattaches`() throws {
       let player = Player(instance: TestInstance.shared)
       let surface = sizedSurface()
-      let surfacePtr = Unmanaged.passUnretained(surface).toOpaque()
 
       surface.attach(to: player)
       player.stop()
@@ -196,7 +197,7 @@ extension Integration {
       #expect(!player.needsDrawableRebindForPlayback)
 
       surface.attach(to: player)
-      #expect(drawable(of: player) == surfacePtr)
+      #expect(renders(player, into: surface))
 
       surface.detach()
     }

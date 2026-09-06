@@ -500,6 +500,9 @@ public final class Player {
   /// across the offloaded release so `libvlc_media_player_release` can
   /// tear down the vout before ARC releases the view.
   @ObservationIgnored var drawable: AnyObject?
+  /// The native output captures this container for one handle's lifetime.
+  /// Surface changes move it; handle replacement prepares a new container.
+  @ObservationIgnored var nativeDrawableSurface: VideoSurface?
   @ObservationIgnored var drawableOwner: ObjectIdentifier?
   @ObservationIgnored var needsDrawableRebindForPlayback = false
   @ObservationIgnored var nativePlayerHasHostedDrawable = false

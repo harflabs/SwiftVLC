@@ -374,6 +374,7 @@ extension Player {
     playbackHealthSnapshotBridge.terminate()
     playbackHealthEventBridge.terminate()
     subtitleTextBridge.terminate()
+    clearNativeDrawableSurface()
     libvlc_media_player_set_nsobject(pointer, nil)
 
     let bridge = eventBridge
