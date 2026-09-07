@@ -1725,6 +1725,24 @@ class AppleAudioQualificationPolicyTests(unittest.TestCase):
         )
         self.validate_ownership(evidence)
 
+    def test_audio_ownership_allows_registered_idle_module_objects(self):
+        evidence = ownership_evidence()
+        evidence["idleBrokerBeforePlayerConstruction"]["liveOutputCount"] = 1
+        evidence["idleBrokerAfterPlayerConstruction"]["liveOutputCount"] = 1
+        for cycle in evidence["libraryManagedCycles"]:
+            cycle["afterFinalOutputRelease"]["native"]["liveOutputCount"] = 1
+        for cycle in evidence["applicationManagedCycles"]:
+            cycle["brokerBeforePlayback"]["liveOutputCount"] = 1
+            cycle["brokerAfterPlayback"]["liveOutputCount"] = 1
+        self.validate_ownership(evidence)
+        # Registered objects never excuse a real owner or lease.
+        for field in ("brokerActiveOwnerCount", "brokerLiveLeaseCount"):
+            with self.subTest(field=field):
+                acquired = copy.deepcopy(evidence)
+                acquired["idleBrokerAfterPlayerConstruction"][field] = 1
+                with self.assertRaises(policy.QualificationPolicyError):
+                    self.validate_ownership(acquired)
+
     def test_audio_session_focus_probe_is_bound_to_the_signed_runner_identity(self):
         evidence = ownership_evidence()
         dynamic_identifier = "com.swiftvlc.validation.abcde12345.uitests.xctrunner"
@@ -2149,12 +2167,12 @@ class AppleAudioQualificationPolicyTests(unittest.TestCase):
                 0,
             ),
             set_mutation(
-                "application-output-live-after-shutdown",
+                "application-lease-retained-after-shutdown",
                 (
                     "applicationManagedCycles",
                     1,
                     "brokerAfterPlayback",
-                    "liveOutputCount",
+                    "brokerLiveLeaseCount",
                 ),
                 1,
             ),

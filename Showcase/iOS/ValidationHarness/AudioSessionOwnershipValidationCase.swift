@@ -416,7 +416,6 @@ struct AudioSessionOwnershipValidationCase: View {
       sessionBefore == expectedSession,
       sessionDuring == expectedSession,
       playbackAdvanced(from: playbackStart, to: playbackEnd),
-      brokerBefore.native.liveOutputCount == 0,
       brokerDuring.native.liveOutputCount > 0,
       brokerOwnershipFields(brokerBefore.native)
       == brokerOwnershipFields(expectedOwnership),
@@ -432,7 +431,6 @@ struct AudioSessionOwnershipValidationCase: View {
     let sessionAfter = AppleAudioQualificationSupport.sessionRecord(session)
     guard
       sessionAfter == expectedSession,
-      brokerAfter.native.liveOutputCount == 0,
       brokerOwnershipFields(brokerAfter.native)
       == brokerOwnershipFields(expectedOwnership)
     else {
@@ -476,12 +474,13 @@ struct AudioSessionOwnershipValidationCase: View {
   }
 
   private func validateIdle(_ checkpoint: AppleAudioRecoveryCheckpoint) throws {
+    // Module objects register before playback. Their lifetime is independent
+    // of audio focus; only broker owners and leases indicate ownership.
     guard
       checkpoint.native.brokerPhase == "ready",
       checkpoint.native.brokerEpoch > 0,
       checkpoint.native.brokerActiveOwnerCount == 0,
-      checkpoint.native.brokerLiveLeaseCount == 0,
-      checkpoint.native.liveOutputCount == 0
+      checkpoint.native.brokerLiveLeaseCount == 0
     else {
       let native = checkpoint.native
       throw AppleAudioQualificationFailure(

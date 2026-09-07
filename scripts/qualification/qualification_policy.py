@@ -3857,7 +3857,6 @@ def _validate_apple_audio_library_ownership_cycle(
         )
         or after_final["playerState"] != "idle"
         or after_final["playbackRequestedActive"] is not False
-        or after_final["native"]["liveOutputCount"] != 0
     ):
         raise QualificationPolicyError(f"{description} player lifecycle is invalid")
     natives = tuple(checkpoint["native"] for checkpoint in checkpoints.values())
@@ -3938,15 +3937,13 @@ def _validate_apple_audio_application_ownership_cycle(
             "brokerAfterPlayback",
         )
     )
-    before, during, after = brokers
+    _, during, _ = brokers
     if (
         any(
             _audio_ownership_tuple(broker) != _audio_ownership_tuple(expected_ownership)
             for broker in brokers
         )
-        or before["liveOutputCount"] != 0
         or during["liveOutputCount"] <= 0
-        or after["liveOutputCount"] != 0
     ):
         raise QualificationPolicyError(f"{description} touched broker ownership")
     start = _apple_audio_playback(cycle["playbackStart"], f"{description} start")
@@ -4038,10 +4035,12 @@ def validate_audio_session_ownership_evidence(
     idle_after = _apple_audio_native_snapshot(
         evidence.get("idleBrokerAfterPlayerConstruction"), "idle broker after"
     )
+    # liveOutputCount belongs to the checkpoint player, which can retain an
+    # idle module object (including the probe used after other players exit).
+    # Focus is proven by global owners/leases and the external focus probe.
     if any(
         snapshot["brokerActiveOwnerCount"] != 0
         or snapshot["brokerLiveLeaseCount"] != 0
-        or snapshot["liveOutputCount"] != 0
         for snapshot in (idle_before, idle_after)
     ) or _audio_ownership_tuple(idle_after) != _audio_ownership_tuple(idle_before):
         raise QualificationPolicyError("idle player construction acquired audio focus")

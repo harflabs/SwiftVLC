@@ -184,8 +184,6 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
     XCTAssertEqual(raw.idleBrokerAfterPlayerConstruction.brokerActiveOwnerCount, 0)
     XCTAssertEqual(raw.idleBrokerBeforePlayerConstruction.brokerLiveLeaseCount, 0)
     XCTAssertEqual(raw.idleBrokerAfterPlayerConstruction.brokerLiveLeaseCount, 0)
-    XCTAssertEqual(raw.idleBrokerBeforePlayerConstruction.liveOutputCount, 0)
-    XCTAssertEqual(raw.idleBrokerAfterPlayerConstruction.liveOutputCount, 0)
     XCTAssertEqual(
       brokerOwnershipFields(raw.idleBrokerBeforePlayerConstruction),
       brokerOwnershipFields(raw.idleBrokerAfterPlayerConstruction)
@@ -245,9 +243,7 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
         brokerOwnershipFields(cycle.brokerAfterPlayback),
         brokerOwnershipFields(deactivationBaseline)
       )
-      XCTAssertEqual(cycle.brokerBeforePlayback.liveOutputCount, 0)
       XCTAssertGreaterThan(cycle.brokerDuringPlayback.liveOutputCount, 0)
-      XCTAssertEqual(cycle.brokerAfterPlayback.liveOutputCount, 0)
       assertPlaybackAdvanced(from: cycle.playbackStart, to: cycle.playbackEnd)
     }
 
@@ -301,7 +297,6 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
     }
     XCTAssertEqual(afterFinal.playerState, "idle")
     XCTAssertFalse(afterFinal.playbackRequestedActive)
-    XCTAssertEqual(afterFinal.native.liveOutputCount, 0)
     XCTAssertEqual(first.native.brokerActiveOwnerCount, 1)
     XCTAssertEqual(both.native.brokerActiveOwnerCount, 2)
     XCTAssertEqual(afterFirst.native.brokerActiveOwnerCount, 1)
