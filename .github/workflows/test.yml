@@ -109,6 +109,7 @@ jobs:
           python3 -B scripts/ci/use-local-native.py
           ./scripts/ci-run-with-timeouts.py 600 180 \
             xcrun --toolchain "$TOOLCHAINS" swift test --no-parallel \
+            --cache-path "$RUNNER_TEMP/native-swift-cache" \
             --xunit-output .build/ci-results/native.xml
           python3 -B scripts/ci/audit-test-results.py \
             --xunit .build/ci-results/native-swift-testing.xml \
