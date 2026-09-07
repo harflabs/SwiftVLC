@@ -9749,6 +9749,37 @@ class FixtureServerTests(unittest.TestCase):
         self.assertIn("?sequence=7199", playlist)
         self.assertTrue(playlist.rstrip().endswith("#EXT-X-ENDLIST"))
 
+    def test_progressive_transcript_waits_for_delayed_server_completion(self):
+        runner = (ROOT / "qualification" / "run-device-tests.sh").read_text()
+        start = runner.index('      local transcript_path=')
+        end = runner.index('      rm -f "$transcript_temp"', start)
+        poll = runner[start:end]
+        with tempfile.TemporaryDirectory() as temporary:
+            program = r'''set -euo pipefail
+progressive_transcript_root="$1"
+attempt=1
+attempt_token=delayed
+polls=0
+request_fixture_control() {
+  polls=$((polls + 1))
+  if (( polls < 12 )); then
+    printf '%s\n' '{"formatVersion":1,"token":"delayed","events":[{"kind":"media-request"}]}'
+  else
+    printf '%s\n' '{"formatVersion":1,"token":"delayed","events":[{"kind":"media-request","responseStatus":200,"responseContentLength":42,"completedAtUTC":"2026-09-07T12:00:00Z"}]}'
+  fi
+}
+capture() {
+''' + poll + '\n[[ "$transcript_captured" == true ]]\n}\ncapture\n'
+            started = time.monotonic()
+            result = subprocess.run(
+                ["/bin/bash", "-c", program, "transcript-probe", temporary],
+                capture_output=True, text=True, timeout=15,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertGreater(time.monotonic() - started, 1)
+            transcript = json.loads((Path(temporary) / "attempt-1.json").read_text())
+            self.assertIn("completedAtUTC", transcript["events"][0])
+
     def test_host_control_request_times_out_when_server_never_replies(self):
         runner = (ROOT / "qualification" / "run-device-tests.sh").read_text()
         start = runner.index("request_fixture_control() {")

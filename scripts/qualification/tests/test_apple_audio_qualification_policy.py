@@ -1810,6 +1810,19 @@ class AppleAudioQualificationPolicyTests(unittest.TestCase):
                 self.update_focus_counts(evidence)
                 self.validate_ownership(evidence)
 
+    def test_audio_ownership_binds_late_end_to_candidate_snapshot_not_ax_delivery(self):
+        evidence = ownership_evidence()
+        evidence["interruptionNotificationSequence"][1]["systemUptime"] = 49.95
+        self.update_focus_counts(evidence)
+        # Candidate captured before=0 ended at 49.9. The optional end arrives
+        # while AX transports that immutable snapshot to the runner at 49.97.
+        self.validate_ownership(evidence)
+        evidence["applicationManagedReleaseFocusProbes"][1][
+            "observationBeforeProbeSystemUptime"
+        ] = 49.97
+        with self.assertRaises(policy.QualificationPolicyError):
+            self.validate_ownership(evidence)
+
     def test_audio_ownership_optional_ends_still_require_causal_focus_proof(self):
         for notifications in (
             [("began", 50.4)],  # missing first activation

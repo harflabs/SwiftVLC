@@ -362,6 +362,8 @@ enum AccessibilityID {
   enum AudioSessionOwnershipValidation {
     static let phaseLabel = "audioSessionOwnership.phase"
     static let interruptionCountsLabel = "audioSessionOwnership.interruptions"
+    static let captureInterruptionsButton = "audioSessionOwnership.captureInterruptions"
+    static let interruptionSnapshotLabel = "audioSessionOwnership.interruptionSnapshot"
     static let runButton = "audioSessionOwnership.run"
     static let continueFocusProbeButton = "audioSessionOwnership.continueFocusProbe"
     static let resultLabel = "audioSessionOwnership.result"

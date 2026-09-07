@@ -138,3 +138,12 @@ struct AudioSessionOwnershipQualificationRawResult: Codable, Equatable {
   let interruptionNotificationSequence: [AppleAudioInterruptionNotificationRecord]
   let notificationCaptureSystemUptime: TimeInterval
 }
+
+/// Captured synchronously in the candidate app, so AX delivery latency cannot
+/// bind an older counter value to a newer runner timestamp.
+struct AppleAudioInterruptionCounterSnapshot: Codable {
+  let id: String
+  let began: Int
+  let ended: Int
+  let systemUptime: Double
+}

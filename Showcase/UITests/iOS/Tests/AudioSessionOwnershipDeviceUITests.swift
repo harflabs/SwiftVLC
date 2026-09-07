@@ -51,6 +51,7 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
       error: error,
       timeout: 10
     )
+    reveal(run)
     run.tap()
 
     let idleFocusProbe = try performExclusiveFocusProbe(
@@ -389,11 +390,11 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
       error: errorElement,
       timeout: 90
     )
-    let before = try interruptionCounts(from: interruptionElement)
-    let observationBeforeProbeSystemUptime = ProcessInfo.processInfo.systemUptime
+    let before = try captureInterruptionCounts()
+    let observationBeforeProbeSystemUptime = before.systemUptime
     guard before.began == expectedBeganBefore, before.ended <= before.began else {
       throw OwnershipUITestFailure(
-        "Unexpected interruption count before \(expectedPhase): \(before.label)"
+        "Unexpected interruption count before \(expectedPhase): \(before.began):\(before.ended)"
       )
     }
 
@@ -480,7 +481,7 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
     }
     // Allow notifications to settle, but never require an optional ended event.
     RunLoop.current.run(until: Date().addingTimeInterval(2))
-    let observedAfter = try interruptionCounts(from: interruptionElement)
+    let observedAfter = try captureInterruptionCounts()
     guard
       observedAfter.began == expectedBeganAfter,
       observedAfter.ended >= before.ended,
@@ -500,7 +501,7 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
           + (errorElement.exists ? errorElement.label : "none")
       )
     }
-    let observationSystemUptime = ProcessInfo.processInfo.systemUptime
+    let observationSystemUptime = observedAfter.systemUptime
 
     if tapContinue {
       reveal(continueButton)
@@ -600,6 +601,34 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
     }
   }
 
+  private func captureInterruptionCounts() throws -> AppleAudioInterruptionCounterSnapshot {
+    let button = app.buttons[AccessibilityID.AudioSessionOwnershipValidation.captureInterruptionsButton]
+    reveal(button)
+    let label = app.descendants(matching: .any)[
+      AccessibilityID.AudioSessionOwnershipValidation.interruptionSnapshotLabel
+    ]
+    let previous = label.label
+    let beganAt = ProcessInfo.processInfo.systemUptime
+    button.tap()
+    let updated = expectation(
+      for: NSPredicate { _, _ in label.exists && label.label != previous },
+      evaluatedWith: NSObject()
+    )
+    guard
+      XCTWaiter.wait(for: [updated], timeout: 5) == .completed,
+      let data = Data(base64Encoded: label.label) else {
+      throw OwnershipUITestFailure("Candidate did not capture fresh interruption counters")
+    }
+    let snapshot = try JSONDecoder().decode(AppleAudioInterruptionCounterSnapshot.self, from: data)
+    guard
+      !snapshot.id.isEmpty, snapshot.began >= 0, snapshot.ended >= 0,
+      snapshot.systemUptime >= beganAt,
+      snapshot.systemUptime <= ProcessInfo.processInfo.systemUptime else {
+      throw OwnershipUITestFailure("Candidate interruption counter snapshot is stale or invalid")
+    }
+    return snapshot
+  }
+
   private func interruptionCounts(from element: XCUIElement) throws -> InterruptionCounts {
     let components = element.label.split(separator: ":", omittingEmptySubsequences: false)
     guard
@@ -683,8 +712,11 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
   }
 
   private func reveal(_ element: XCUIElement) {
-    for _ in 0..<12 where !element.isHittable {
+    for _ in 0..<6 where !element.isHittable {
       app.swipeUp()
+    }
+    for _ in 0..<12 where !element.isHittable {
+      app.swipeDown()
     }
     XCTAssertTrue(element.isHittable)
   }

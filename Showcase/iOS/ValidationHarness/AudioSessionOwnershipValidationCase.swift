@@ -7,6 +7,7 @@ import SwiftUI
 /// native outputs, relinquishes the true final owner, and leaves a host-owned
 /// AVAudioSession untouched in application-managed mode.
 struct AudioSessionOwnershipValidationCase: View {
+  @State private var interruptionSnapshot = "not-captured"
   @State private var phase = "ready"
   @State private var result = "not-run"
   @State private var errorMessage: String?
@@ -56,6 +57,27 @@ struct AudioSessionOwnershipValidationCase: View {
           AccessibilityID.AudioSessionOwnershipValidation.continueFocusProbeButton
         )
         .disabled(focusProbeContinuation == nil)
+
+        Button("Capture interruption counters") {
+          let snapshot = AppleAudioInterruptionCounterSnapshot(
+            id: UUID().uuidString,
+            began: interruptionBeganCount,
+            ended: interruptionEndedCount,
+            systemUptime: ProcessInfo.processInfo.systemUptime
+          )
+          do {
+            interruptionSnapshot = try JSONEncoder().encode(snapshot).base64EncodedString()
+          } catch {
+            errorMessage = String(describing: error)
+          }
+        }
+        .accessibilityIdentifier(AccessibilityID.AudioSessionOwnershipValidation.captureInterruptionsButton)
+        valueRow(
+          "Counter snapshot",
+          value: interruptionSnapshot,
+          identifier: AccessibilityID.AudioSessionOwnershipValidation.interruptionSnapshotLabel
+        )
+        .lineLimit(1)
 
         if let errorMessage {
           Text(errorMessage)

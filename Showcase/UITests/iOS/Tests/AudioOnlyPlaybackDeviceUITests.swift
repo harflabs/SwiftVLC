@@ -29,7 +29,9 @@ final class AudioOnlyPlaybackDeviceUITests: ShowcaseIOSTestCase {
       let error = element(AccessibilityID.AudioOnlyPlaybackValidation.errorLabel)
       // The retained native counter window proves playback even if XCTest
       // observes this result after EOF; a transient state label cannot do so.
-      waitForPrefix(result, prefix: "pass:", timeout: 30)
+      // Allow the download, the app's 30-second readiness window, and its
+      // five-second measurement to finish before the runner deadline.
+      waitForPrefix(result, prefix: "pass:", timeout: 100)
       XCTAssertFalse(error.exists, "Audio-only fixture failed: \(error.label)")
       let raw = try decodeRawResult(result.label)
       let rawFixture = try XCTUnwrap(raw["fixture"] as? [String: Any])

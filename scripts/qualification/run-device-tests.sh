@@ -2328,7 +2328,8 @@ EOF
       local transcript_path="$progressive_transcript_root/attempt-$attempt.json"
       local transcript_temp="$transcript_path.tmp"
       local transcript_captured=false
-      for _ in {1..5}; do
+      local transcript_deadline=$((SECONDS + 10))
+      while (( SECONDS < transcript_deadline )); do
         if request_fixture_control "progressive/$attempt_token/transcript" \
             > "$transcript_temp" 2>/dev/null \
           && jq -e --arg token "$attempt_token" '
