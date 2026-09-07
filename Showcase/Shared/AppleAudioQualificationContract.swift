@@ -96,6 +96,16 @@ struct AppleAudioLibraryManagedOwnershipCycleRecord: Codable, Equatable {
   let secondOutputPlaybackEnd: AppleAudioPlaybackCounterRecord
 }
 
+struct AppleAudioHostRecoveryRecord: Codable, Equatable {
+  let reactivationBeganSystemUptime: TimeInterval
+  let reactivationCompletedSystemUptime: TimeInterval
+  let sessionAfterReactivation: AppleAudioSessionConfigurationRecord
+  let playbackStart: AppleAudioRecoveryCheckpoint
+  let playbackEnd: AppleAudioRecoveryCheckpoint
+  let brokerAfterShutdown: AppleAudioNativeRecoveryRecord
+  let sessionAfterShutdown: AppleAudioSessionConfigurationRecord
+}
+
 struct AppleAudioApplicationManagedOwnershipCycleRecord: Codable, Equatable {
   let forcedAudioOutputModule: String
   let sessionBeforePlayback: AppleAudioSessionConfigurationRecord
@@ -106,6 +116,7 @@ struct AppleAudioApplicationManagedOwnershipCycleRecord: Codable, Equatable {
   let brokerAfterPlayback: AppleAudioNativeRecoveryRecord
   let playbackStart: AppleAudioPlaybackCounterRecord
   let playbackEnd: AppleAudioPlaybackCounterRecord
+  let hostRecovery: AppleAudioHostRecoveryRecord
 }
 
 struct AppleAudioInterruptionNotificationRecord: Codable, Equatable {
@@ -125,4 +136,5 @@ struct AudioSessionOwnershipQualificationRawResult: Codable, Equatable {
   let libraryManagedCycles: [AppleAudioLibraryManagedOwnershipCycleRecord]
   let applicationManagedCycles: [AppleAudioApplicationManagedOwnershipCycleRecord]
   let interruptionNotificationSequence: [AppleAudioInterruptionNotificationRecord]
+  let notificationCaptureSystemUptime: TimeInterval
 }

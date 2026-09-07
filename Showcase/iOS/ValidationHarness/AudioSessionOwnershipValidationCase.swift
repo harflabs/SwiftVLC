@@ -189,12 +189,6 @@ struct AudioSessionOwnershipValidationCase: View {
         expectedOwnership: inverseOrder.afterFinalOutputRelease.native,
         probe: probe
       )
-      try await awaitFocusProbe(
-        phase: "application-audiounit-released-awaiting-focus-probe"
-      )
-      // The external probe deliberately interrupted the host-owned session.
-      // Reactivation remains a host responsibility in application-managed mode.
-      try session.setActive(true)
       let applicationSampleBuffer = try await runApplicationManagedCycle(
         module: "avsamplebuffer",
         childLog: "application-avsamplebuffer",
@@ -204,10 +198,6 @@ struct AudioSessionOwnershipValidationCase: View {
         expectedOwnership: inverseOrder.afterFinalOutputRelease.native,
         probe: probe
       )
-      try await awaitFocusProbe(
-        phase: "application-avsamplebuffer-released-awaiting-focus-probe"
-      )
-      try session.setActive(true)
       let brokerSnapshots = [
         idleBrokerBefore.native,
         idleBrokerAfter.native,
@@ -224,7 +214,13 @@ struct AudioSessionOwnershipValidationCase: View {
         applicationAudioUnit.brokerAfterPlayback,
         applicationSampleBuffer.brokerBeforePlayback,
         applicationSampleBuffer.brokerDuringPlayback,
-        applicationSampleBuffer.brokerAfterPlayback
+        applicationSampleBuffer.brokerAfterPlayback,
+        applicationAudioUnit.hostRecovery.playbackStart.native,
+        applicationAudioUnit.hostRecovery.playbackEnd.native,
+        applicationAudioUnit.hostRecovery.brokerAfterShutdown,
+        applicationSampleBuffer.hostRecovery.playbackStart.native,
+        applicationSampleBuffer.hostRecovery.playbackEnd.native,
+        applicationSampleBuffer.hostRecovery.brokerAfterShutdown
       ]
       guard
         brokerSnapshots.allSatisfy({ $0.brokerPhase == "ready" }),
@@ -239,8 +235,9 @@ struct AudioSessionOwnershipValidationCase: View {
       try session.setActive(false, options: .notifyOthersOnDeactivation)
       hostActivatedSession = false
 
+      try await awaitFocusProbe(phase: "complete-awaiting-host-release-focus-probe")
       let raw = AudioSessionOwnershipQualificationRawResult(
-        formatVersion: 3,
+        formatVersion: 4,
         libraryManagedForcedModules: ["audiounit_ios", "avsamplebuffer"],
         applicationManagedForcedModules: ["audiounit_ios", "avsamplebuffer"],
         idleSessionBeforePlayerConstruction: idleSessionBefore,
@@ -249,10 +246,11 @@ struct AudioSessionOwnershipValidationCase: View {
         idleBrokerAfterPlayerConstruction: idleBrokerAfter.native,
         libraryManagedCycles: [directOrder, inverseOrder],
         applicationManagedCycles: [applicationAudioUnit, applicationSampleBuffer],
-        interruptionNotificationSequence: interruptionNotificationSequence
+        interruptionNotificationSequence: interruptionNotificationSequence,
+        notificationCaptureSystemUptime: ProcessInfo.processInfo.systemUptime
       )
       result = try AppleAudioQualificationSupport.encodedLabel(raw)
-      phase = "complete-awaiting-host-release-focus-probe"
+      phase = "complete"
     } catch is CancellationError {
       phase = "cancelled"
     } catch {
@@ -438,6 +436,37 @@ struct AudioSessionOwnershipValidationCase: View {
         "Application-managed \(module) teardown mutated host ownership"
       )
     }
+    let phaseModule = module == "audiounit_ios" ? "audiounit" : module
+    try await awaitFocusProbe(phase: "application-\(phaseModule)-released-awaiting-focus-probe")
+    // An interruption-ended notification is optional. Only the host may
+    // reactivate its session; prove that explicit action restores playback.
+    let reactivationBegan = ProcessInfo.processInfo.systemUptime
+    try session.setActive(true)
+    let reactivationCompleted = ProcessInfo.processInfo.systemUptime
+    let recoveredSession = AppleAudioQualificationSupport.sessionRecord(session)
+    let recoveredPlayer = Player(instance: instance)
+    defer { recoveredPlayer.stop() }
+    try recoveredPlayer.play(url: url)
+    try await waitForAudioProgress(recoveredPlayer, above: 0)
+    let recoveryStart = try await AppleAudioQualificationSupport.checkpoint(recoveredPlayer)
+    try await Task.sleep(for: .seconds(2))
+    let recoveryEnd = try await AppleAudioQualificationSupport.checkpoint(recoveredPlayer)
+    await recoveredPlayer.shutdown()
+    let afterRecovery = try await AppleAudioQualificationSupport.checkpoint(probe)
+    guard
+      recoveredSession == expectedSession,
+      AppleAudioQualificationSupport.sessionRecord(session) == expectedSession,
+      recoveryStart.playerState == "playing",
+      recoveryEnd.playerState == "playing",
+      recoveryStart.playbackRequestedActive,
+      recoveryEnd.playbackRequestedActive,
+      playbackAdvanced(from: recoveryStart.playback, to: recoveryEnd.playback),
+      [recoveryStart.native, recoveryEnd.native, afterRecovery.native].allSatisfy({
+        brokerOwnershipFields($0) == brokerOwnershipFields(expectedOwnership)
+      })
+    else {
+      throw AppleAudioQualificationFailure("Explicit host reactivation did not restore \(module)")
+    }
     return AppleAudioApplicationManagedOwnershipCycleRecord(
       forcedAudioOutputModule: module,
       sessionBeforePlayback: sessionBefore,
@@ -447,7 +476,16 @@ struct AudioSessionOwnershipValidationCase: View {
       brokerDuringPlayback: brokerDuring.native,
       brokerAfterPlayback: brokerAfter.native,
       playbackStart: playbackStart,
-      playbackEnd: playbackEnd
+      playbackEnd: playbackEnd,
+      hostRecovery: AppleAudioHostRecoveryRecord(
+        reactivationBeganSystemUptime: reactivationBegan,
+        reactivationCompletedSystemUptime: reactivationCompleted,
+        sessionAfterReactivation: recoveredSession,
+        playbackStart: recoveryStart,
+        playbackEnd: recoveryEnd,
+        brokerAfterShutdown: afterRecovery.native,
+        sessionAfterShutdown: AppleAudioQualificationSupport.sessionRecord(session)
+      )
     )
   }
 

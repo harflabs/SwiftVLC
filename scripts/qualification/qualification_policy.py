@@ -1129,7 +1129,7 @@ CANONICAL_REQUIRED_RUNNER_RUNS = frozenset(
     }
 )
 CANONICAL_SCENARIO_CONTRACT_DIGEST = (
-    "71a6db675e8b8bc3066060d22d1167aee38638cc1118fde33248e5d4f422d246"
+    "9e4ceb7c297650659f493bc5ab59c2e9f48f74a3f6298c00a5ea6983606c25a9"
 )
 CANONICAL_RUNNER_CONTRACT_DIGEST = (
     "0b66fdeadda254b382a165d47f9630d4c8e7b839e33424a98ff9c5afe85fd8fa"
@@ -2831,6 +2831,7 @@ APPLE_AUDIO_OWNERSHIP_RAW_KEYS = {
     "libraryManagedCycles",
     "applicationManagedCycles",
     "interruptionNotificationSequence",
+    "notificationCaptureSystemUptime",
     "idleConstruction",
     "multiOwnerRelease",
     "survivingOutputContinuity",
@@ -2863,6 +2864,16 @@ APPLE_AUDIO_APPLICATION_OWNERSHIP_CYCLE_KEYS = {
     "brokerAfterPlayback",
     "playbackStart",
     "playbackEnd",
+    "hostRecovery",
+}
+APPLE_AUDIO_HOST_RECOVERY_KEYS = {
+    "reactivationBeganSystemUptime",
+    "reactivationCompletedSystemUptime",
+    "sessionAfterReactivation",
+    "playbackStart",
+    "playbackEnd",
+    "brokerAfterShutdown",
+    "sessionAfterShutdown",
 }
 APPLE_AUDIO_FOCUS_PROBE_KEYS = {
     "phase",
@@ -2873,6 +2884,7 @@ APPLE_AUDIO_FOCUS_PROBE_KEYS = {
     "candidateApplicationStateBeforeProbe",
     "candidateApplicationStateDuringActivation",
     "candidateApplicationStateAfterProbe",
+    "observationBeforeProbeSystemUptime",
     "activationBeganSystemUptime",
     "activationCompletedSystemUptime",
     "deactivationBeganSystemUptime",
@@ -3672,7 +3684,7 @@ def _validate_apple_audio_focus_probe(
     *,
     description: str,
     expected_phase: str,
-    expected_before: tuple[int, int],
+    expected_began_before: int,
     expected_delta: int,
     expected_outcome: str,
     expected_probe_bundle_identifier: str,
@@ -3696,6 +3708,7 @@ def _validate_apple_audio_focus_probe(
     if any(value < 0 for value in counts.values()):
         raise QualificationPolicyError(f"{description} count cannot be negative")
     time_keys = (
+        "observationBeforeProbeSystemUptime",
         "activationBeganSystemUptime",
         "activationCompletedSystemUptime",
         "deactivationBeganSystemUptime",
@@ -3707,14 +3720,16 @@ def _validate_apple_audio_focus_probe(
     }
     if not (
         0
-        < times["activationBeganSystemUptime"]
+        < times["observationBeforeProbeSystemUptime"]
+        <= times["activationBeganSystemUptime"]
         <= times["activationCompletedSystemUptime"]
         <= times["deactivationBeganSystemUptime"]
         <= times["deactivationCompletedSystemUptime"]
         <= times["observationSystemUptime"]
     ):
         raise QualificationPolicyError(f"{description} timing window is invalid")
-    began_before, ended_before = expected_before
+    began_before = expected_began_before
+    ended_before = counts["candidateInterruptionEndedBefore"]
     if (
         probe["phase"] != expected_phase
         or probe["source"] != "foreground-XCTest-runner-audio-session"
@@ -3726,13 +3741,15 @@ def _validate_apple_audio_focus_probe(
         not in {"runningBackground", "runningBackgroundSuspended"}
         or probe["candidateApplicationStateAfterProbe"] != "runningForeground"
         or counts["candidateInterruptionBeganBefore"] != began_before
-        or counts["candidateInterruptionEndedBefore"] != ended_before
+        or ended_before > began_before
         or counts["candidateInterruptionBeganAfterProbe"]
         != began_before + expected_delta
-        or counts["candidateInterruptionEndedAfterProbe"]
-        != ended_before + expected_delta
+        or not ended_before
+        <= counts["candidateInterruptionEndedAfterProbe"]
+        <= began_before + expected_delta
         or counts["candidateInterruptionBeganDelta"] != expected_delta
-        or counts["candidateInterruptionEndedDelta"] != expected_delta
+        or counts["candidateInterruptionEndedDelta"]
+        != counts["candidateInterruptionEndedAfterProbe"] - ended_before
         or probe["outcome"] != expected_outcome
         or any(probe[key] != expected for key, expected in expected_extras.items())
     ):
@@ -3741,75 +3758,86 @@ def _validate_apple_audio_focus_probe(
 
 
 def _validate_apple_audio_focus_probe_causality(
-    probes: list[dict], notifications: list[dict]
+    probes: list[dict], notifications: list[dict], capture_uptime: float
 ) -> None:
-    expected_kinds = ["began", "ended", "began", "ended"]
-    if [notification["kind"] for notification in notifications] != expected_kinds:
+    # Apple does not guarantee paired interruption-ended notifications. Each
+    # began must still be caused by its own exclusive focus probe. Optional
+    # ended events may arrive later, but cannot precede release or be duplicated.
+    if capture_uptime < probes[-1]["observationSystemUptime"]:
         raise QualificationPolicyError(
-            "audio ownership interruption notification sequence is invalid"
+            "audio ownership notifications captured too early"
         )
-    notification_uptimes = [
-        notification["systemUptime"] for notification in notifications
-    ]
-    if any(
-        current < previous
-        for previous, current in zip(notification_uptimes, notification_uptimes[1:])
-    ):
+    uptimes = [notification["systemUptime"] for notification in notifications]
+    if any(current < previous for previous, current in zip(uptimes, uptimes[1:])):
         raise QualificationPolicyError(
             "audio ownership interruption notification sequence is unordered"
         )
+    if any(uptime > capture_uptime for uptime in uptimes):
+        raise QualificationPolicyError("audio ownership notification is after capture")
     if any(
-        current["activationBeganSystemUptime"] <= previous["observationSystemUptime"]
+        current["observationBeforeProbeSystemUptime"]
+        <= previous["observationSystemUptime"]
         for previous, current in zip(probes, probes[1:])
     ):
         raise QualificationPolicyError("audio ownership focus probe windows overlap")
 
-    began_notifications = [
-        notification
-        for notification in notifications
-        if notification["kind"] == "began"
+    active_probes = [
+        probe for probe in probes if probe["candidateInterruptionBeganDelta"] == 1
     ]
-    ended_notifications = [
-        notification
-        for notification in notifications
-        if notification["kind"] == "ended"
-    ]
-    for probe in probes:
-        began_before = probe["candidateInterruptionBeganBefore"]
-        ended_before = probe["candidateInterruptionEndedBefore"]
-        delta = probe["candidateInterruptionBeganDelta"]
-        window_start = probe["activationBeganSystemUptime"]
-        deactivation_start = probe["deactivationBeganSystemUptime"]
-        window_end = probe["observationSystemUptime"]
-        events_in_window = [
-            notification
-            for notification in notifications
-            if window_start <= notification["systemUptime"] <= window_end
-        ]
-        if delta == 0:
-            if events_in_window:
+    began_count = 0
+    pending_probe = None
+    for notification in notifications:
+        uptime = notification["systemUptime"]
+        if notification["kind"] == "began":
+            if began_count >= len(active_probes):
                 raise QualificationPolicyError(
-                    "released audio ownership focus probe observed an interruption"
+                    "audio ownership observed an extra interruption"
                 )
-            continue
-        if (
-            delta != 1
-            or began_before >= len(began_notifications)
-            or ended_before >= len(ended_notifications)
-        ):
-            raise QualificationPolicyError(
-                "audio ownership focus probe notification indices are invalid"
+            pending_probe = active_probes[began_count]
+            began_count += 1
+            if (
+                not pending_probe["activationBeganSystemUptime"]
+                <= uptime
+                <= pending_probe["deactivationBeganSystemUptime"]
+            ):
+                raise QualificationPolicyError(
+                    "audio ownership interruption is outside its focus probe window"
+                )
+        else:
+            if (
+                pending_probe is None
+                or uptime < pending_probe["deactivationBeganSystemUptime"]
+            ):
+                raise QualificationPolicyError(
+                    "audio ownership ended notification is unpaired or precedes release"
+                )
+            pending_probe = None
+    if began_count != len(active_probes):
+        raise QualificationPolicyError(
+            "audio ownership interruption notification sequence is incomplete"
+        )
+
+    # Bind all six runner counter observations to the actual app notifications,
+    # including optional ends delivered between probes. Counts are never inferred.
+    for probe in probes:
+        for kind, field in (("began", "Began"), ("ended", "Ended")):
+            before = sum(
+                n["kind"] == kind
+                and n["systemUptime"] <= probe["observationBeforeProbeSystemUptime"]
+                for n in notifications
             )
-        began = began_notifications[began_before]["systemUptime"]
-        ended = ended_notifications[ended_before]["systemUptime"]
-        if not (
-            window_start <= began <= deactivation_start <= ended <= window_end
-            and events_in_window
-            == [began_notifications[began_before], ended_notifications[ended_before]]
-        ):
-            raise QualificationPolicyError(
-                "audio ownership interruption is outside its focus probe window"
+            after = sum(
+                n["kind"] == kind
+                and n["systemUptime"] <= probe["observationSystemUptime"]
+                for n in notifications
             )
+            if (
+                probe[f"candidateInterruption{field}Before"] != before
+                or probe[f"candidateInterruption{field}AfterProbe"] != after
+            ):
+                raise QualificationPolicyError(
+                    "audio ownership notification counters do not match retained events"
+                )
 
 
 def _validate_apple_audio_library_ownership_cycle(
@@ -3953,7 +3981,64 @@ def _validate_apple_audio_application_ownership_cycle(
         or end["playedAudioBuffers"] <= start["playedAudioBuffers"]
     ):
         raise QualificationPolicyError(f"{description} did not play")
-    return brokers
+    recovery = _exact_object(
+        cycle["hostRecovery"],
+        APPLE_AUDIO_HOST_RECOVERY_KEYS,
+        f"{description} host recovery",
+    )
+    reactivation_start = _finite_number(
+        recovery["reactivationBeganSystemUptime"], f"{description} reactivation start"
+    )
+    reactivation_end = _finite_number(
+        recovery["reactivationCompletedSystemUptime"], f"{description} reactivation end"
+    )
+    recovered_session = _apple_audio_session_configuration(
+        recovery["sessionAfterReactivation"], f"{description} recovered session"
+    )
+    recovered_final_session = _apple_audio_session_configuration(
+        recovery["sessionAfterShutdown"], f"{description} recovered final session"
+    )
+    recovered_start = _apple_audio_checkpoint(
+        recovery["playbackStart"], f"{description} recovered playback start"
+    )
+    recovered_end = _apple_audio_checkpoint(
+        recovery["playbackEnd"], f"{description} recovered playback end"
+    )
+    recovered_after = _apple_audio_native_snapshot(
+        recovery["brokerAfterShutdown"], f"{description} recovered teardown"
+    )
+    recovered_brokers = (
+        recovered_start["native"],
+        recovered_end["native"],
+        recovered_after,
+    )
+    if (
+        not 0
+        < reactivation_start
+        <= reactivation_end
+        <= recovered_start["systemUptime"]
+        < recovered_end["systemUptime"]
+        or recovered_session != expected_session
+        or recovered_final_session != expected_session
+        or any(
+            _audio_ownership_tuple(broker) != _audio_ownership_tuple(expected_ownership)
+            for broker in recovered_brokers
+        )
+        or any(
+            checkpoint["playerState"] != "playing"
+            or checkpoint["playbackRequestedActive"] is not True
+            or checkpoint["native"]["liveOutputCount"] <= 0
+            for checkpoint in (recovered_start, recovered_end)
+        )
+        or recovered_end["playback"]["mediaTimeMilliseconds"]
+        <= recovered_start["playback"]["mediaTimeMilliseconds"]
+        or recovered_end["playback"]["playedAudioBuffers"]
+        <= recovered_start["playback"]["playedAudioBuffers"]
+    ):
+        raise QualificationPolicyError(
+            f"{description} explicit host recovery is invalid"
+        )
+    return brokers + recovered_brokers
 
 
 def validate_audio_session_ownership_evidence(
@@ -3971,7 +4056,7 @@ def validate_audio_session_ownership_evidence(
         duration_is_host_owned=True,
     )
     if (
-        _integer(evidence.get("formatVersion"), "audio ownership formatVersion") != 3
+        _integer(evidence.get("formatVersion"), "audio ownership formatVersion") != 4
         or evidence.get("scenario") != scenario_id
         or evidence.get("libraryManagedForcedModules")
         != ["audiounit_ios", "avsamplebuffer"]
@@ -3988,7 +4073,10 @@ def validate_audio_session_ownership_evidence(
         raise QualificationPolicyError("audio ownership attachment header is invalid")
 
     interruption_value = evidence.get("interruptionNotificationSequence")
-    if not isinstance(interruption_value, list) or len(interruption_value) != 4:
+    if (
+        not isinstance(interruption_value, list)
+        or not 2 <= len(interruption_value) <= 4
+    ):
         raise QualificationPolicyError(
             "audio ownership interruption notification set is not exact"
         )
@@ -4039,8 +4127,7 @@ def validate_audio_session_ownership_evidence(
     # idle module object (including the probe used after other players exit).
     # Focus is proven by global owners/leases and the external focus probe.
     if any(
-        snapshot["brokerActiveOwnerCount"] != 0
-        or snapshot["brokerLiveLeaseCount"] != 0
+        snapshot["brokerActiveOwnerCount"] != 0 or snapshot["brokerLiveLeaseCount"] != 0
         for snapshot in (idle_before, idle_after)
     ) or _audio_ownership_tuple(idle_after) != _audio_ownership_tuple(idle_before):
         raise QualificationPolicyError("idle player construction acquired audio focus")
@@ -4123,7 +4210,7 @@ def validate_audio_session_ownership_evidence(
             evidence.get("idleConstructionFocusProbe"),
             description="idle construction focus probe",
             expected_phase="idle-constructed-awaiting-focus-probe",
-            expected_before=(0, 0),
+            expected_began_before=0,
             expected_delta=0,
             expected_outcome="candidate-session-released",
             expected_probe_bundle_identifier=expected_probe_bundle_identifier,
@@ -4140,7 +4227,7 @@ def validate_audio_session_ownership_evidence(
                 probe,
                 description=f"library release focus probe {index}",
                 expected_phase=f"library-order{index + 1}-released-awaiting-focus-probe",
-                expected_before=(0, 0),
+                expected_began_before=0,
                 expected_delta=0,
                 expected_outcome="candidate-session-released",
                 expected_probe_bundle_identifier=expected_probe_bundle_identifier,
@@ -4163,7 +4250,7 @@ def validate_audio_session_ownership_evidence(
                 expected_phase=(
                     f"application-{phase_module}-released-awaiting-focus-probe"
                 ),
-                expected_before=(index, index),
+                expected_began_before=index,
                 expected_delta=1,
                 expected_outcome="candidate-session-active-after-output-teardown",
                 expected_probe_bundle_identifier=expected_probe_bundle_identifier,
@@ -4175,15 +4262,31 @@ def validate_audio_session_ownership_evidence(
             evidence.get("hostReleaseFocusProbe"),
             description="host release focus probe",
             expected_phase="complete-awaiting-host-release-focus-probe",
-            expected_before=(2, 2),
+            expected_began_before=2,
             expected_delta=0,
             expected_outcome="candidate-session-released",
             expected_probe_bundle_identifier=expected_probe_bundle_identifier,
         )
     )
     _validate_apple_audio_focus_probe_causality(
-        focus_probes, interruption_notifications
+        focus_probes,
+        interruption_notifications,
+        _finite_number(
+            evidence.get("notificationCaptureSystemUptime"),
+            "audio ownership notification capture uptime",
+        ),
     )
+    for index, cycle in enumerate(application_cycles_value):
+        recovery = cycle["hostRecovery"]
+        if not (
+            application_focus[index]["observationSystemUptime"]
+            <= recovery["reactivationBeganSystemUptime"]
+            <= recovery["playbackEnd"]["systemUptime"]
+            < focus_probes[index + 4]["observationBeforeProbeSystemUptime"]
+        ):
+            raise QualificationPolicyError(
+                "audio ownership host recovery is outside its focus probe interval"
+            )
     producer = evidence.get("qualificationProducer")
     _validate_apple_audio_source_request_proof(
         evidence.get("sourceRequestProof"),
