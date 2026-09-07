@@ -6,8 +6,14 @@ import subprocess
 
 
 def needs_build(paths):
-    return any(path == "Package.swift" or path.startswith((
-        "Sources/CLibVLC/", "scripts/patches/", "scripts/build-libvlc",
+    exact_inputs = {
+        "Package.swift", ".github/workflows/test.yml",
+        "scripts/ci/check-rtsp.py", "scripts/ci/native-changes.py",
+        "scripts/ci/tests/test_native_integration.py",
+        "scripts/ci/tests/test_rtsp_transport.py",
+    }
+    return any(path in exact_inputs or path.startswith((
+        "scripts/ci/rtsp", "Sources/CLibVLC/", "scripts/patches/", "scripts/build-libvlc",
         "scripts/native-validator-assets", "scripts/validate-", "scripts/verify-",
         "scripts/fix-duplicate-symbols", "scripts/libvlc-provenance",
         "scripts/artifact-tree-digest.py", "scripts/canonical-libvlc-artifact", "scripts/detach-managed-build-directory",

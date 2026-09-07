@@ -87,6 +87,20 @@ jobs:
             --source-root "$native_source" \
             --build-root "$native_source/build-macosx-arm64/build" \
             --repetitions 20 2>&1 | tee .build/ci-results/native-ordering.log
+      - name: Verify RTSP playback against a local server
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          brew install ffmpeg
+          curl --fail --location --retry 3 -o "$RUNNER_TEMP/mediamtx.tar.gz" \
+            https://github.com/bluenviron/mediamtx/releases/download/v1.21.0/mediamtx_v1.21.0_darwin_arm64.tar.gz
+          echo "159b8e8164022189e654b61ee8bb7edf2d3ff9354ff06cf4c315bb59f5cc9eca  $RUNNER_TEMP/mediamtx.tar.gz" | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/mediamtx"
+          tar -xzf "$RUNNER_TEMP/mediamtx.tar.gz" -C "$RUNNER_TEMP/mediamtx"
+          python3 -B scripts/ci/check-rtsp.py \
+            --archive Vendor/libvlc.xcframework/macos-arm64_x86_64/libvlc.a \
+            --server "$RUNNER_TEMP/mediamtx/mediamtx" \
+            --output .build/ci-results/rtsp
       - name: Test Swift behavior against the new engine
         timeout-minutes: 12
         env:
@@ -95,6 +109,7 @@ jobs:
           python3 -B scripts/ci/use-local-native.py
           ./scripts/ci-run-with-timeouts.py 600 180 \
             xcrun --toolchain "$TOOLCHAINS" swift test --no-parallel \
+            --cache-path "$RUNNER_TEMP/native-swift-cache" \
             --xunit-output .build/ci-results/native.xml
           python3 -B scripts/ci/audit-test-results.py \
             --xunit .build/ci-results/native-swift-testing.xml \

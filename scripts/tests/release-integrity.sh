@@ -2060,14 +2060,16 @@ expected_manifest_tail = [
     "3547212f487fccee8e3f4977bd3e990ce71252d36796cf27142d566ef6ea1780  0044-resume-deferred-pause.patch",
     "088166ed95d7d9c00246bdd1d2e569636a5e7027161f738fe47eca8894a91e7f  0045-preserve-playlist-advance-on-mode-change.patch",
     "0fb742b8d8f8819bc89643b0e298b4bf0468cf1b068824317a1dc064f4ec8438  0046-clear-recovered-playback-failures.patch",
+    "c0a203e6a83d0eed27074095c9a7c4e7a649015e73d00b40fb2d7fb8bbc584b2  0047-restore-live555-compatible-contrib.patch",
+    "f1f89c4ef3ae9858d6f47040c23271048fb49bea71ff75224c9c09f853e1a59a  0048-enable-lgpl2-live555-rtsp.patch",
 ]
-if manifest_lines[-10:] != expected_manifest_tail:
+if manifest_lines[-12:] != expected_manifest_tail:
     sys.exit(
         "patch manifest must end with frozen 0037 through 0040, native PiP "
         "output identity 0041, adaptive ES recycling 0042, then text-subtitle "
         "callback 0043, deferred-resume correction 0044, playlist policy 0045, "
-        "and failure recovery 0046: "
-        f"got {manifest_lines[-10:]}"
+        "failure recovery 0046, and LGPL2 live555 0047/0048: "
+        f"got {manifest_lines[-12:]}"
     )
 
 required_validator_assets = (
