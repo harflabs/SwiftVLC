@@ -11,6 +11,7 @@ import os
 import plistlib
 import re
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -2538,6 +2539,36 @@ class QualificationRunnerStorageTests(unittest.TestCase):
                 captured,
             )
 
+    def test_materialization_optional_arguments_work_with_system_bash_nounset(self):
+        script = (ROOT / "qualification" / "run-device-tests.sh").read_text()
+        line = next(line.strip() for line in script.splitlines()
+                    if "materialize_extra_args[@]" in line)
+        expansion = line.removesuffix(" " + chr(92))
+        for elements, expected in (("", ["start", "end"]),
+                                   ('--sample "value with spaces"',
+                                    ["start", "--sample", "value with spaces", "end"])):
+            with self.subTest(elements=elements):
+                program = f'materialize_extra_args=({elements}); values=(start {expansion} end); printf "%s\\n" "${{values[@]}}"'
+                result = subprocess.run(["/bin/bash", "-uc", program],
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.splitlines(), expected)
+
+    def test_install_falls_back_only_after_configurator_failure(self):
+        script = (ROOT / "qualification" / "run-device-tests.sh").read_text()
+        body = script[script.index("install_app() {"):script.index("install_candidate_with_fresh_permission_state()")]
+        for config_status, device_status, expected in ((0, 0, 0), (1, 0, 0), (1, 7, 7)):
+            with self.subTest(config_status=config_status, device_status=device_status), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                configurator = root / "cfgutil"
+                configurator.write_text(f"#!/bin/bash\nexit {config_status}\n")
+                configurator.chmod(0o755)
+                program = body.replace("/Applications/Apple Configurator.app/Contents/MacOS/cfgutil", str(configurator))
+                program += f"\nassert_device_lock_held() {{ :; }}\nxcrun() {{ echo FALLBACK; return {device_status}; }}\ninstall_app '/tmp/candidate with spaces.app'\n"
+                result = subprocess.run(["bash", "-c", program], capture_output=True, text=True)
+                self.assertEqual(result.returncode, expected, result.stderr)
+                self.assertEqual("FALLBACK" in result.stdout, config_status != 0)
+
     def test_runner_proves_device_lock_ownership_at_mutation_and_seal_boundaries(self):
         script = (ROOT / "qualification" / "run-device-tests.sh").read_text()
         assertion = script[
@@ -3187,7 +3218,7 @@ class QualificationRunnerStorageTests(unittest.TestCase):
             "SWIFTVLC_PROGRESSIVE_HTTP_RANGE_ATTEMPT_TOKEN",
         ):
             self.assertIn(environment, script)
-        self.assertIn('"$BASE_URL/progressive/$attempt_token/transcript"', script)
+        self.assertIn('request_fixture_control "progressive/$attempt_token/transcript"', script)
         self.assertIn(
             '--progressive-transcripts "$progressive_transcript_root"', script
         )
@@ -3509,7 +3540,7 @@ class QualificationRunnerStorageTests(unittest.TestCase):
         self.assertNotIn('payload["sourceRequestProof"]', ownership_test)
         self.assertIn("capture_apple_audio_source_metrics()", script)
         self.assertGreaterEqual(
-            script.count('curl -fsS "$BASE_URL/adaptive/$token/metrics"'),
+            script.count('request_fixture_control "adaptive/$token/metrics"'),
             2,
         )
         self.assertIn('cmp -s "$first_snapshot" "$second_snapshot"', script)
@@ -3784,6 +3815,7 @@ class PrimeXCTRunnerScriptTests(unittest.TestCase):
 import json
 import os
 import signal
+import socket
 from pathlib import Path
 import sys
 import time
@@ -4092,6 +4124,17 @@ PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.showcase.macos;
                 "PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.showcase.macos;",
                 value,
             )
+
+    def test_preserves_project_permissions(self):
+        for mode in (0o644, 0o640):
+            with self.subTest(mode=oct(mode)), tempfile.TemporaryDirectory() as directory:
+                project = Path(directory) / "project.pbxproj"
+                project.write_text(self.project_text)
+                project.chmod(mode)
+                configure_signing.configure(
+                    project, "WNWACJNFDX", "com.swiftvlc.validation.wnwacjnfdx"
+                )
+                self.assertEqual(project.stat().st_mode & 0o7777, mode)
 
     def test_refuses_an_unexpected_project_shape(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -7877,6 +7920,17 @@ class QualificationRecordAssemblyTests(unittest.TestCase):
             self.assertIsNone(assembled["scenarios"][0]["testExecution"])
             self.validate_report_receipt(report, stable_required=True)
             self.assertTrue(report_validation.is_valid(report.parent))
+            # Early assertion failures may never create all declared child logs.
+            # The failed report is still useful, but cannot be promoted to pass.
+            assembled["scenarios"][0]["appLog"] = "missing"
+            assembled["scenarios"][0]["hostErrorInventory"] = None
+            report.write_text(json.dumps(assembled))
+            self.validate_report_receipt(report, stable_required=True)
+            self.assertTrue(report_validation.is_valid(report.parent))
+            assembled["result"] = "pass"
+            report.write_text(json.dumps(assembled))
+            with self.assertRaises(report_validation.ReportValidationError):
+                self.validate_report_receipt(report, stable_required=True)
         finally:
             assemble_record.policy.xcresult_test_document = passing_reader
 
@@ -9695,6 +9749,68 @@ class FixtureServerTests(unittest.TestCase):
         self.assertIn("?sequence=7199", playlist)
         self.assertTrue(playlist.rstrip().endswith("#EXT-X-ENDLIST"))
 
+    def test_progressive_transcript_waits_for_delayed_server_completion(self):
+        runner = (ROOT / "qualification" / "run-device-tests.sh").read_text()
+        start = runner.index('      local transcript_path=')
+        end = runner.index('      rm -f "$transcript_temp"', start)
+        poll = runner[start:end]
+        with tempfile.TemporaryDirectory() as temporary:
+            program = r'''set -euo pipefail
+progressive_transcript_root="$1"
+attempt=1
+attempt_token=delayed
+polls=0
+request_fixture_control() {
+  polls=$((polls + 1))
+  if (( polls < 12 )); then
+    printf '%s\n' '{"formatVersion":1,"token":"delayed","events":[{"kind":"media-request"}]}'
+  else
+    printf '%s\n' '{"formatVersion":1,"token":"delayed","events":[{"kind":"media-request","responseStatus":200,"responseContentLength":42,"completedAtUTC":"2026-09-07T12:00:00Z"}]}'
+  fi
+}
+capture() {
+''' + poll + '\n[[ "$transcript_captured" == true ]]\n}\ncapture\n'
+            started = time.monotonic()
+            result = subprocess.run(
+                ["/bin/bash", "-c", program, "transcript-probe", temporary],
+                capture_output=True, text=True, timeout=15,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertGreater(time.monotonic() - started, 1)
+            transcript = json.loads((Path(temporary) / "attempt-1.json").read_text())
+            self.assertIn("completedAtUTC", transcript["events"][0])
+
+    def test_host_control_request_times_out_when_server_never_replies(self):
+        runner = (ROOT / "qualification" / "run-device-tests.sh").read_text()
+        start = runner.index("request_fixture_control() {")
+        end = runner.index("\n}\n", start) + 2
+        release = threading.Event()
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen()
+            listener.settimeout(8)
+
+            def stall():
+                with listener.accept()[0]:
+                    release.wait(8)
+
+            worker = threading.Thread(target=stall, daemon=True)
+            worker.start()
+            program = runner[start:end] + '\nCONTROL_BASE_URL="$1"\nrequest_fixture_control metrics\n'
+            started = time.monotonic()
+            try:
+                result = subprocess.run(
+                    ["bash", "-c", program, "control-probe",
+                     f"http://127.0.0.1:{listener.getsockname()[1]}"],
+                    capture_output=True, text=True, timeout=8,
+                    env={**os.environ, "http_proxy": "http://127.0.0.1:1", "ALL_PROXY": "http://127.0.0.1:1"},
+                )
+                self.assertEqual(result.returncode, 28, result.stderr)
+                self.assertLess(time.monotonic() - started, 7)
+            finally:
+                release.set()
+                worker.join(timeout=2)
+
     def test_apple_audio_shell_capture_retains_exact_quiescent_metrics(self):
         token = "hostproof"
         for path in (
@@ -9709,14 +9825,14 @@ class FixtureServerTests(unittest.TestCase):
             connection.close()
 
         runner = (ROOT / "qualification" / "run-device-tests.sh").read_text()
-        start = runner.index("capture_apple_audio_source_metrics() {")
+        start = runner.index("request_fixture_control() {")
         end = runner.index("\n}\n\nrun_scenario()", start) + 2
         function_source = runner[start:end]
         destination = self.root / "captured" / "attempt-1.json"
         program = (
             "set -euo pipefail\n"
             + function_source
-            + '\nBASE_URL="$1"\n'
+            + '\nCONTROL_BASE_URL="$1"\n'
             + 'capture_apple_audio_source_metrics "$2" 2 "$3"\n'
         )
         subprocess.run(

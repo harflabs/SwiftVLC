@@ -1001,6 +1001,10 @@ def main() -> None:
         "host": advertised,
         "port": server.server_port,
         "baseURL": advertised_url(advertised, server.server_port),
+        "controlURL": advertised_url(
+            "::1" if server.address_family == socket.AF_INET6 else "127.0.0.1",
+            server.server_port,
+        ),
     }
     if args.ready_file:
         atomic_write_json(args.ready_file, ready)

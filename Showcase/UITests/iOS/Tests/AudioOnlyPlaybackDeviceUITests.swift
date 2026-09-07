@@ -21,12 +21,17 @@ final class AudioOnlyPlaybackDeviceUITests: ShowcaseIOSTestCase {
     for fixture in LocalPlaybackFixtureContract.audioFixtures {
       configureLaunch(fixture: fixture, encodedBaseURL: encodedBaseURL)
       launchDirectlyHandlingQualificationPermissions()
+      let run = app.buttons[AccessibilityID.AudioOnlyPlaybackValidation.runButton]
+      XCTAssertTrue(run.waitForExistence(timeout: 10))
+      run.tap()
 
-      let state = element(AccessibilityID.AudioOnlyPlaybackValidation.stateLabel)
       let result = element(AccessibilityID.AudioOnlyPlaybackValidation.resultLabel)
       let error = element(AccessibilityID.AudioOnlyPlaybackValidation.errorLabel)
-      waitForLabel(state, equals: "playing", timeout: 30)
-      waitForPrefix(result, prefix: "pass:", timeout: 30)
+      // The retained native counter window proves playback even if XCTest
+      // observes this result after EOF; a transient state label cannot do so.
+      // Allow the download, the app's 30-second readiness window, and its
+      // five-second measurement to finish before the runner deadline.
+      waitForPrefix(result, prefix: "pass:", timeout: 100)
       XCTAssertFalse(error.exists, "Audio-only fixture failed: \(error.label)")
       let raw = try decodeRawResult(result.label)
       let rawFixture = try XCTUnwrap(raw["fixture"] as? [String: Any])

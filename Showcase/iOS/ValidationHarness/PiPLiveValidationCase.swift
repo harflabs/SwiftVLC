@@ -91,6 +91,19 @@ struct PiPLiveValidationCase: View {
           value: lifecycleEvents.isEmpty ? "none" : lifecycleEvents.joined(separator: "|"),
           identifier: AccessibilityID.PiPLiveValidation.lifecycleEventsLabel
         )
+        if renderingPath == .direct {
+          HStack {
+            Text("Renderer diagnostics")
+            Spacer()
+            Text("Capture \(diagnosticCaptureOrdinal)")
+              .foregroundStyle(.secondary)
+          }
+          .qualificationAccessibilityValue(
+            label: "Renderer diagnostics",
+            value: capturedRendererDiagnostics,
+            identifier: AccessibilityID.PiPLiveValidation.rendererDiagnosticsLabel
+          )
+        }
       }
 
       Section("Picture in Picture") {
@@ -122,7 +135,6 @@ struct PiPLiveValidationCase: View {
           }
           .accessibilityIdentifier(AccessibilityID.PiPLiveValidation.captureDiagnosticsButton)
           .accessibilityLabel("Capture diagnostics")
-          .accessibilityValue(Text(capturedRendererDiagnostics))
         }
       }
     }
@@ -131,7 +143,7 @@ struct PiPLiveValidationCase: View {
       lifecycleEvents.removeAll()
       guard let controller else { return }
       for await envelope in controller.pipEventEnvelopes {
-        lifecycleEvents.append(lifecycleName(envelope.event))
+        lifecycleEvents.append(lifecycleName(envelope))
       }
     }
     .onChange(of: controller?.isPossible) { _, _ in
@@ -242,16 +254,16 @@ struct PiPLiveValidationCase: View {
     }
   }
 
-  private func lifecycleName(_ event: PiPEvent) -> String {
-    switch event {
+  private func lifecycleName(_ envelope: PiPEventEnvelope) -> String {
+    switch envelope.event {
     case .willStart:
       "willStart"
     case .didStart:
       "didStart"
     case .willStop(let reason):
-      "willStop:\(String(describing: reason))"
+      "willStop:\(envelope.stopCause?.rawValue ?? String(describing: reason))"
     case .didStop(let reason):
-      "didStop:\(String(describing: reason))"
+      "didStop:\(envelope.stopCause?.rawValue ?? String(describing: reason))"
     case .failedToStart:
       "failedToStart"
     }

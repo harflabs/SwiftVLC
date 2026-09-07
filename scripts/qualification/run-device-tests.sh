@@ -773,6 +773,7 @@ if [[ ! -s "$READY_FILE" ]]; then
 fi
 cp "$READY_FILE" "$OUTPUT_DIR/fixture-server.json"
 BASE_URL=$(jq -r '.baseURL' "$READY_FILE")
+CONTROL_BASE_URL=$(jq -er '.controlURL' "$READY_FILE")
 PIP_LIVE_URL_BASE64=$(printf '%s' "$BASE_URL/live/live.ts" | base64 | tr -d '\r\n')
 PIP_LONG_STALL_URL_BASE64=$(printf '%s' \
   "$BASE_URL/fault/gated-stall/long-stall/12/live.ts" | base64 | tr -d '\r\n')
@@ -1160,10 +1161,13 @@ install_app() {
   local configurator="/Applications/Apple Configurator.app/Contents/MacOS/cfgutil"
   assert_device_lock_held
   if [[ -x "$configurator" ]]; then
-    "$configurator" --ecid "$DEVICE_ECID" install-app "$app"
-  else
-    xcrun devicectl device install app --device "$DEVICE_UDID" "$app"
+    if "$configurator" --ecid "$DEVICE_ECID" install-app "$app"; then
+      return 0
+    fi
+    echo "Warning: Apple Configurator installation failed; retrying the same app with devicectl." >&2
   fi
+  assert_device_lock_held
+  xcrun devicectl device install app --device "$DEVICE_UDID" "$app"
 }
 
 install_candidate_with_fresh_permission_state() {
@@ -1291,6 +1295,12 @@ record_performance_trace() {
   [[ -s "$toc" ]]
 }
 
+request_fixture_control() {
+  # Host diagnostics must remain reachable after the device tunnel disconnects.
+  # Ignore proxy settings for the run-owned loopback service and bound every call.
+  curl --noproxy '*' --connect-timeout 2 --max-time 5 -fsS "$CONTROL_BASE_URL/$1"
+}
+
 capture_apple_audio_source_metrics() {
   local token="$1"
   local minimum_successful_segments="$2"
@@ -1353,13 +1363,13 @@ capture_apple_audio_source_metrics() {
   # snapshots across three seconds proves the candidate has actually quiesced
   # after XCTest teardown instead of catching an ordinary inter-segment gap.
   for _ in {1..5}; do
-    if curl -fsS "$BASE_URL/adaptive/$token/metrics" > "$first_snapshot" \
+    if request_fixture_control "adaptive/$token/metrics" > "$first_snapshot" \
         2>/dev/null \
       && jq -e --arg token "$token" \
         --argjson minimum "$minimum_successful_segments" \
         "$validate_filter" "$first_snapshot" >/dev/null \
       && sleep 3 \
-      && curl -fsS "$BASE_URL/adaptive/$token/metrics" > "$second_snapshot" \
+      && request_fixture_control "adaptive/$token/metrics" > "$second_snapshot" \
         2>/dev/null \
       && jq -e --arg token "$token" \
         --argjson minimum "$minimum_successful_segments" \
@@ -1919,7 +1929,7 @@ run_scenario() {
         if ! kill -0 "$xcodebuild_pid" 2>/dev/null; then
           break
         fi
-        if curl -fsS "$BASE_URL/adaptive/$attempt_token/metrics" 2>/dev/null \
+        if request_fixture_control "adaptive/$attempt_token/metrics" 2>/dev/null \
             | jq -e '.masterRequests > 0' >/dev/null 2>&1; then
           xcrun xctrace record --quiet \
             --template Allocations \
@@ -1939,7 +1949,7 @@ run_scenario() {
       if [[ -n "$xctrace_pid" ]]; then
         while kill -0 "$xcodebuild_pid" 2>/dev/null; do
           if ! kill -0 "$xctrace_pid" 2>/dev/null; then
-            if curl -fsS "$BASE_URL/adaptive/$attempt_token/metrics" 2>/dev/null \
+            if request_fixture_control "adaptive/$attempt_token/metrics" 2>/dev/null \
                 | jq -e '.clientCompleted == true' >/dev/null 2>&1; then
               break
             fi
@@ -2318,8 +2328,9 @@ EOF
       local transcript_path="$progressive_transcript_root/attempt-$attempt.json"
       local transcript_temp="$transcript_path.tmp"
       local transcript_captured=false
-      for _ in {1..100}; do
-        if curl -fsS "$BASE_URL/progressive/$attempt_token/transcript" \
+      local transcript_deadline=$((SECONDS + 10))
+      while (( SECONDS < transcript_deadline )); do
+        if request_fixture_control "progressive/$attempt_token/transcript" \
             > "$transcript_temp" 2>/dev/null \
           && jq -e --arg token "$attempt_token" '
             .formatVersion == 1
@@ -2448,6 +2459,7 @@ EOF
       --device "$DEVICE_UDID" \
       --domain-type appDataContainer \
       --domain-identifier "$CANDIDATE_BUNDLE_IDENTIFIER" \
+      --timeout 30 \
       --source Documents \
       --destination "$document_capture" \
       > "$OUTPUT_DIR/$scenario-pull-log.log" 2>&1
@@ -2696,7 +2708,7 @@ EOF
             --duration-seconds "$((ended - started))" \
             --runner-scenario "$scenario" \
             --attempts "$attempts_json" \
-            "${materialize_extra_args[@]}" \
+            ${materialize_extra_args[@]+"${materialize_extra_args[@]}"} \
             --output "$evidence_file" \
             > "$OUTPUT_DIR/$scenario-$qualification_scenario-materialize-evidence.log" 2>&1
           materialize_status=$?

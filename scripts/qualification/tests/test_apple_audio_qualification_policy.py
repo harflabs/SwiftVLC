@@ -354,6 +354,7 @@ def focus_probe(
         "candidateApplicationStateBeforeProbe": "runningForeground",
         "candidateApplicationStateDuringActivation": "runningBackground",
         "candidateApplicationStateAfterProbe": "runningForeground",
+        "observationBeforeProbeSystemUptime": window_start - 0.1,
         "activationBeganSystemUptime": window_start,
         "activationCompletedSystemUptime": window_start + 0.2,
         "deactivationBeganSystemUptime": window_start + 1.0,
@@ -424,6 +425,7 @@ def ownership_evidence() -> dict:
             liveOutputCount=1,
             brokerSuccessfulDeactivationCount=4,
         )
+        recovery_time = 42.0 if module == "audiounit_ios" else 52.0
         return {
             "forcedAudioOutputModule": module,
             "sessionBeforePlayback": copy.deepcopy(application_session),
@@ -434,10 +436,31 @@ def ownership_evidence() -> dict:
             "brokerAfterPlayback": copy.deepcopy(application_idle),
             "playbackStart": playback(media_time=3_000, played=40),
             "playbackEnd": playback(media_time=4_000, played=100),
+            "hostRecovery": {
+                "reactivationBeganSystemUptime": recovery_time,
+                "reactivationCompletedSystemUptime": recovery_time + 0.2,
+                "sessionAfterReactivation": copy.deepcopy(application_session),
+                "playbackStart": checkpoint(
+                    recovery_time + 1,
+                    "playing",
+                    True,
+                    copy.deepcopy(application_during),
+                    playback(media_time=1_000, played=20),
+                ),
+                "playbackEnd": checkpoint(
+                    recovery_time + 3,
+                    "playing",
+                    True,
+                    copy.deepcopy(application_during),
+                    playback(media_time=3_000, played=100),
+                ),
+                "brokerAfterShutdown": copy.deepcopy(application_idle),
+                "sessionAfterShutdown": copy.deepcopy(application_session),
+            },
         }
 
     return {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "scenario": "audio-session-ownership",
         "libraryManagedForcedModules": ["audiounit_ios", "avsamplebuffer"],
         "applicationManagedForcedModules": ["audiounit_ios", "avsamplebuffer"],
@@ -480,6 +503,7 @@ def ownership_evidence() -> dict:
                 forcedModuleOrder=["avsamplebuffer", "audiounit_ios"],
             ),
         ],
+        "notificationCaptureSystemUptime": 62.0,
         "interruptionNotificationSequence": [
             {"kind": "began", "systemUptime": 40.4, "reasonRawValue": 0},
             {"kind": "ended", "systemUptime": 41.4, "reasonRawValue": 0},
@@ -1725,6 +1749,186 @@ class AppleAudioQualificationPolicyTests(unittest.TestCase):
         )
         self.validate_ownership(evidence)
 
+    def test_audio_ownership_allows_registered_idle_module_objects(self):
+        evidence = ownership_evidence()
+        evidence["idleBrokerBeforePlayerConstruction"]["liveOutputCount"] = 1
+        evidence["idleBrokerAfterPlayerConstruction"]["liveOutputCount"] = 1
+        for cycle in evidence["libraryManagedCycles"]:
+            cycle["afterFinalOutputRelease"]["native"]["liveOutputCount"] = 1
+        for cycle in evidence["applicationManagedCycles"]:
+            cycle["brokerBeforePlayback"]["liveOutputCount"] = 1
+            cycle["brokerAfterPlayback"]["liveOutputCount"] = 1
+        self.validate_ownership(evidence)
+        # Registered objects never excuse a real owner or lease.
+        for field in ("brokerActiveOwnerCount", "brokerLiveLeaseCount"):
+            with self.subTest(field=field):
+                acquired = copy.deepcopy(evidence)
+                acquired["idleBrokerAfterPlayerConstruction"][field] = 1
+                with self.assertRaises(policy.QualificationPolicyError):
+                    self.validate_ownership(acquired)
+
+    @staticmethod
+    def update_focus_counts(evidence: dict) -> None:
+        notifications = evidence["interruptionNotificationSequence"]
+        probes = [
+            evidence["idleConstructionFocusProbe"],
+            *evidence["libraryReleaseFocusProbes"],
+            *evidence["applicationManagedReleaseFocusProbes"],
+            evidence["hostReleaseFocusProbe"],
+        ]
+        for probe in probes:
+            for kind, field in (("began", "Began"), ("ended", "Ended")):
+                before = sum(
+                    n["kind"] == kind
+                    and n["systemUptime"] <= probe["observationBeforeProbeSystemUptime"]
+                    for n in notifications
+                )
+                after = sum(
+                    n["kind"] == kind
+                    and n["systemUptime"] <= probe["observationSystemUptime"]
+                    for n in notifications
+                )
+                probe[f"candidateInterruption{field}Before"] = before
+                probe[f"candidateInterruption{field}AfterProbe"] = after
+                probe[f"candidateInterruption{field}Delta"] = after - before
+
+    def test_audio_ownership_accepts_optional_and_late_ended_notifications(self):
+        for ends in ((), (41.4,), (51.4,), (41.4, 51.4), (46.0, 61.8)):
+            with self.subTest(ends=ends):
+                evidence = ownership_evidence()
+                evidence["interruptionNotificationSequence"] = sorted(
+                    [
+                        {"kind": "began", "systemUptime": 40.4, "reasonRawValue": 0},
+                        {"kind": "began", "systemUptime": 50.4, "reasonRawValue": 0},
+                        *(
+                            {"kind": "ended", "systemUptime": time, "reasonRawValue": 0}
+                            for time in ends
+                        ),
+                    ],
+                    key=lambda item: item["systemUptime"],
+                )
+                self.update_focus_counts(evidence)
+                self.validate_ownership(evidence)
+
+    def test_audio_ownership_binds_late_end_to_candidate_snapshot_not_ax_delivery(self):
+        evidence = ownership_evidence()
+        evidence["interruptionNotificationSequence"][1]["systemUptime"] = 49.95
+        self.update_focus_counts(evidence)
+        # Candidate captured before=0 ended at 49.9. The optional end arrives
+        # while AX transports that immutable snapshot to the runner at 49.97.
+        self.validate_ownership(evidence)
+        evidence["applicationManagedReleaseFocusProbes"][1][
+            "observationBeforeProbeSystemUptime"
+        ] = 49.97
+        with self.assertRaises(policy.QualificationPolicyError):
+            self.validate_ownership(evidence)
+
+    def test_audio_ownership_optional_ends_still_require_causal_focus_proof(self):
+        for notifications in (
+            [("began", 50.4)],  # missing first activation
+            [("began", 39.9), ("began", 50.4)],  # begins before its probe
+            [("began", 41.2), ("began", 50.4)],  # begins after release
+            [("ended", 40.1), ("began", 40.4), ("began", 50.4)],
+            [("began", 40.4), ("ended", 40.8), ("began", 50.4)],
+            [("began", 40.4), ("ended", 41.4), ("ended", 42.0), ("began", 50.4)],
+            [("began", 40.4), ("began", 50.4), ("ended", 63.0)],
+            [("began", 40.4), ("began", 50.4), ("began", 60.4)],
+        ):
+            with self.subTest(notifications=notifications):
+                evidence = ownership_evidence()
+                evidence["interruptionNotificationSequence"] = [
+                    {"kind": kind, "systemUptime": time, "reasonRawValue": 0}
+                    for kind, time in notifications
+                ]
+                self.update_focus_counts(evidence)
+                with self.assertRaises(policy.QualificationPolicyError):
+                    self.validate_ownership(evidence)
+
+    def test_audio_ownership_requires_measured_host_recovery(self):
+        evidence = ownership_evidence()
+        prefix = ("applicationManagedCycles", 0, "hostRecovery")
+        mutations = [
+            delete_mutation(f"missing-{key}", (*prefix, key))
+            for key in policy.APPLE_AUDIO_HOST_RECOVERY_KEYS
+        ]
+        mutations += [
+            set_mutation(
+                "stale-pre-probe-observation",
+                (
+                    "applicationManagedReleaseFocusProbes",
+                    1,
+                    "observationBeforeProbeSystemUptime",
+                ),
+                41.0,
+            ),
+            set_mutation(
+                "recovery-after-next-observation",
+                (*prefix, "playbackEnd", "systemUptime"),
+                49.95,
+            ),
+            set_mutation("old-paired-only-format", ("formatVersion",), 3),
+            set_mutation("forged-recovery", (*prefix, "claimedPass"), True),
+            set_mutation(
+                "reactivated-before-probe",
+                (*prefix, "reactivationBeganSystemUptime"),
+                40.0,
+            ),
+            set_mutation(
+                "inverted-reactivation",
+                (*prefix, "reactivationCompletedSystemUptime"),
+                41.0,
+            ),
+            set_mutation(
+                "recovery-after-next-probe",
+                (*prefix, "playbackEnd", "systemUptime"),
+                51.0,
+            ),
+            set_mutation(
+                "no-recovered-audio",
+                (*prefix, "playbackEnd", "playback", "playedAudioBuffers"),
+                20,
+            ),
+            set_mutation(
+                "no-recovered-clock",
+                (*prefix, "playbackEnd", "playback", "mediaTimeMilliseconds"),
+                1_000,
+            ),
+            set_mutation(
+                "recovered-owner",
+                (*prefix, "playbackEnd", "native", "brokerActiveOwnerCount"),
+                1,
+            ),
+            set_mutation(
+                "recovered-lease",
+                (*prefix, "brokerAfterShutdown", "brokerLiveLeaseCount"),
+                1,
+            ),
+            set_mutation(
+                "recovered-deactivation",
+                (*prefix, "brokerAfterShutdown", "brokerSuccessfulDeactivationCount"),
+                5,
+            ),
+            set_mutation(
+                "recovered-epoch", (*prefix, "playbackEnd", "native", "brokerEpoch"), 2
+            ),
+            set_mutation(
+                "recovered-session-mutated",
+                (*prefix, "sessionAfterReactivation", "category"),
+                "AVAudioSessionCategoryAmbient",
+            ),
+            set_mutation(
+                "teardown-session-mutated",
+                (*prefix, "sessionAfterShutdown", "category"),
+                "AVAudioSessionCategoryAmbient",
+            ),
+            set_mutation(
+                "raw-captured-before-final-probe",
+                ("notificationCaptureSystemUptime",),
+                59.0,
+            ),
+        ]
+        self.assert_rejected(evidence, self.validate_ownership, mutations)
+
     def test_audio_session_focus_probe_is_bound_to_the_signed_runner_identity(self):
         evidence = ownership_evidence()
         dynamic_identifier = "com.swiftvlc.validation.abcde12345.uitests.xctrunner"
@@ -1764,7 +1968,7 @@ class AppleAudioQualificationPolicyTests(unittest.TestCase):
                         expected_probe_bundle_identifier=mismatched_identifier,
                     )
 
-    def test_audio_session_ownership_v3_rejects_every_schema_boundary(self):
+    def test_audio_session_ownership_v4_rejects_every_schema_boundary(self):
         evidence = ownership_evidence()
         mutations: list[Mutation] = [
             delete_mutation(f"missing-top-level-{key}", (key,))
@@ -1927,7 +2131,7 @@ class AppleAudioQualificationPolicyTests(unittest.TestCase):
         )
         self.assert_rejected(evidence, self.validate_ownership, mutations)
 
-    def test_audio_session_ownership_v3_rejects_causal_forgeries(self):
+    def test_audio_session_ownership_v4_rejects_causal_forgeries(self):
         evidence = ownership_evidence()
         mutations = [
             set_mutation("wrong-scenario", ("scenario",), "background-audio"),
@@ -2149,12 +2353,12 @@ class AppleAudioQualificationPolicyTests(unittest.TestCase):
                 0,
             ),
             set_mutation(
-                "application-output-live-after-shutdown",
+                "application-lease-retained-after-shutdown",
                 (
                     "applicationManagedCycles",
                     1,
                     "brokerAfterPlayback",
-                    "liveOutputCount",
+                    "brokerLiveLeaseCount",
                 ),
                 1,
             ),
@@ -2202,7 +2406,7 @@ class AppleAudioQualificationPolicyTests(unittest.TestCase):
         ]
         self.assert_rejected(evidence, self.validate_ownership, mutations)
 
-    def test_audio_session_ownership_v3_rejects_focus_probe_forgeries(self):
+    def test_audio_session_ownership_v4_rejects_focus_probe_forgeries(self):
         evidence = ownership_evidence()
         mutations = [
             set_mutation(
@@ -2368,7 +2572,7 @@ class AppleAudioQualificationPolicyTests(unittest.TestCase):
         ]
         self.assert_rejected(evidence, self.validate_ownership, mutations)
 
-    def test_audio_session_ownership_v3_retained_logs_bind_exact_modules(self):
+    def test_audio_session_ownership_v4_retained_logs_bind_exact_modules(self):
         expected = {
             "library-order1-audiounit": (
                 "audiounit_ios",

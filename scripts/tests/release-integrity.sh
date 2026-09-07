@@ -160,6 +160,8 @@ python3 -B -m unittest discover \
   -s "$SCRIPT_DIR/tests" -p 'test_release_version_policy.py'
 python3 -B -m unittest discover \
   -s "$SCRIPT_DIR/tests" -p 'test_release_operations.py'
+python3 -B -m unittest discover \
+  -s "$SCRIPT_DIR/tests" -p 'test_setup_dev_modes.py'
 python3 -B "$SCRIPT_DIR/tests/test_pip_extension_version.py"
 python3 -B "$SCRIPT_DIR/patches/validation/test_pip_extension_version.py"
 

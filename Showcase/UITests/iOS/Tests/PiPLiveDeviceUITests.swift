@@ -142,7 +142,6 @@ final class PiPLiveDeviceUITests: ShowcaseIOSTestCase {
       AccessibilityID.PiPLiveValidation.captureDiagnosticsButton
     ]
     let video = app.otherElements[AccessibilityID.PiPLiveValidation.videoView]
-    var previousDirectRendererDiagnostics: String?
 
     waitForAccessibilityValue(state, equals: "playing", timeout: 20)
     waitForAccessibilityValue(duration, equals: "unknown", timeout: 5)
@@ -167,7 +166,6 @@ final class PiPLiveDeviceUITests: ShowcaseIOSTestCase {
     if renderingPath == "direct" {
       attachDirectRendererDiagnostics(
         captureDiagnostics,
-        previous: &previousDirectRendererDiagnostics,
         name: "inline-before-pip"
       )
     }
@@ -188,7 +186,6 @@ final class PiPLiveDeviceUITests: ShowcaseIOSTestCase {
       if renderingPath == "direct" {
         attachDirectRendererDiagnostics(
           captureDiagnostics,
-          previous: &previousDirectRendererDiagnostics,
           name: "cycle-\(cycle + 1)-started"
         )
       }
@@ -207,7 +204,6 @@ final class PiPLiveDeviceUITests: ShowcaseIOSTestCase {
         if renderingPath == "direct" {
           attachDirectRendererDiagnostics(
             captureDiagnostics,
-            previous: &previousDirectRendererDiagnostics,
             name: "cycle-\(cycle + 1)-stopped"
           )
         }
@@ -259,7 +255,6 @@ final class PiPLiveDeviceUITests: ShowcaseIOSTestCase {
     if renderingPath == "direct" {
       attachDirectRendererDiagnostics(
         captureDiagnostics,
-        previous: &previousDirectRendererDiagnostics,
         name: "after-background"
       )
     }
@@ -399,19 +394,22 @@ final class PiPLiveDeviceUITests: ShowcaseIOSTestCase {
   }
 
   private func attachDirectRendererDiagnostics(
-    _ diagnosticsElement: XCUIElement,
-    previous: inout String?,
+    _ captureButton: XCUIElement,
     name: String
   ) {
+    // UIBarButtonItem bridging does not expose the SwiftUI button's value.
+    // Read the regular measurement row and use the toolbar only as a control.
+    let diagnosticsElement = app.descendants(matching: .any)[
+      AccessibilityID.PiPLiveValidation.rendererDiagnosticsLabel
+    ]
+    revealMeasurement(diagnosticsElement, swiping: .up)
     XCTAssertTrue(diagnosticsElement.waitForExistence(timeout: 5))
-    let predicate = if let previous {
-      NSPredicate { _, _ in
-        self.accessibilityValue(of: diagnosticsElement) != previous
-      }
-    } else {
-      NSPredicate { _, _ in
-        self.accessibilityValue(of: diagnosticsElement).hasPrefix("capture=")
-      }
+    let previous = accessibilityValue(of: diagnosticsElement)
+    XCTAssertTrue(captureButton.isHittable, "Diagnostics control is not hittable")
+    captureButton.tap()
+    let predicate = NSPredicate { _, _ in
+      let value = self.accessibilityValue(of: diagnosticsElement)
+      return value.hasPrefix("capture=") && value != previous
     }
     let updated = XCTNSPredicateExpectation(predicate: predicate, object: diagnosticsElement)
     XCTAssertEqual(
@@ -420,7 +418,6 @@ final class PiPLiveDeviceUITests: ShowcaseIOSTestCase {
       "Diagnostics capture did not publish a new snapshot"
     )
     let current = accessibilityValue(of: diagnosticsElement)
-    previous = current
     let attachment = XCTAttachment(string: current)
     attachment.name = "direct-renderer-diagnostics-\(name)"
     attachment.lifetime = .keepAlways

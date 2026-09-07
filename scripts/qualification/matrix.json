@@ -423,6 +423,7 @@
         "libraryManagedCycles",
         "applicationManagedCycles",
         "interruptionNotificationSequence",
+        "notificationCaptureSystemUptime",
         "idleConstruction",
         "multiOwnerRelease",
         "survivingOutputContinuity",
@@ -436,7 +437,7 @@
         "libraryErrorCount"
       ],
       "expectedEvidenceValues": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "libraryManagedForcedModules": ["audiounit_ios", "avsamplebuffer"],
         "applicationManagedForcedModules": ["audiounit_ios", "avsamplebuffer"],
         "idleConstruction": "pass",

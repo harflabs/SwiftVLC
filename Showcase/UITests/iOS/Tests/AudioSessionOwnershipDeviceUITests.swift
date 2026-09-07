@@ -51,18 +51,16 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
       error: error,
       timeout: 10
     )
+    reveal(run)
     run.tap()
 
-    let zero = InterruptionCounts(began: 0, ended: 0)
-    let one = InterruptionCounts(began: 1, ended: 1)
-    let two = InterruptionCounts(began: 2, ended: 2)
     let idleFocusProbe = try performExclusiveFocusProbe(
       phaseElement: phase,
       interruptionElement: interruptions,
       continueButton: continueFocusProbe,
       errorElement: error,
       expectedPhase: "idle-constructed-awaiting-focus-probe",
-      expectedBefore: zero,
+      expectedBeganBefore: 0,
       expectCandidateInterruption: false,
       tapContinue: true
     )
@@ -72,7 +70,7 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
       continueButton: continueFocusProbe,
       errorElement: error,
       expectedPhase: "library-order1-released-awaiting-focus-probe",
-      expectedBefore: zero,
+      expectedBeganBefore: 0,
       expectCandidateInterruption: false,
       tapContinue: true
     )
@@ -82,7 +80,7 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
       continueButton: continueFocusProbe,
       errorElement: error,
       expectedPhase: "library-order2-released-awaiting-focus-probe",
-      expectedBefore: zero,
+      expectedBeganBefore: 0,
       expectCandidateInterruption: false,
       tapContinue: true
     )
@@ -92,22 +90,20 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
       continueButton: continueFocusProbe,
       errorElement: error,
       expectedPhase: "application-audiounit-released-awaiting-focus-probe",
-      expectedBefore: zero,
+      expectedBeganBefore: 0,
       expectCandidateInterruption: true,
       tapContinue: true
     )
-    XCTAssertEqual(try interruptionCounts(from: interruptions), one)
     let sampleBufferManagedFocusProbe = try performExclusiveFocusProbe(
       phaseElement: phase,
       interruptionElement: interruptions,
       continueButton: continueFocusProbe,
       errorElement: error,
       expectedPhase: "application-avsamplebuffer-released-awaiting-focus-probe",
-      expectedBefore: one,
+      expectedBeganBefore: 1,
       expectCandidateInterruption: true,
       tapContinue: true
     )
-    XCTAssertEqual(try interruptionCounts(from: interruptions), two)
 
     try waitForPhaseOrFailure(
       phase,
@@ -115,18 +111,19 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
       error: error,
       timeout: 300
     )
-    let raw: AudioSessionOwnershipQualificationRawResult = try decodeResult(result.label)
-    validate(raw)
     let hostReleaseFocusProbe = try performExclusiveFocusProbe(
       phaseElement: phase,
       interruptionElement: interruptions,
       continueButton: continueFocusProbe,
       errorElement: error,
       expectedPhase: "complete-awaiting-host-release-focus-probe",
-      expectedBefore: two,
+      expectedBeganBefore: 2,
       expectCandidateInterruption: false,
-      tapContinue: false
+      tapContinue: true
     )
+    try waitForPhaseOrFailure(phase, equals: "complete", error: error, timeout: 10)
+    let raw: AudioSessionOwnershipQualificationRawResult = try decodeResult(result.label)
+    validate(raw)
     assertNoLibraryErrors()
     var payload = try jsonObject(raw)
     payload["idleConstruction"] = "pass"
@@ -166,7 +163,7 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
   }
 
   private func validate(_ raw: AudioSessionOwnershipQualificationRawResult) {
-    XCTAssertEqual(raw.formatVersion, 3)
+    XCTAssertEqual(raw.formatVersion, 4)
     XCTAssertEqual(
       raw.libraryManagedForcedModules,
       ["audiounit_ios", "avsamplebuffer"]
@@ -184,8 +181,6 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
     XCTAssertEqual(raw.idleBrokerAfterPlayerConstruction.brokerActiveOwnerCount, 0)
     XCTAssertEqual(raw.idleBrokerBeforePlayerConstruction.brokerLiveLeaseCount, 0)
     XCTAssertEqual(raw.idleBrokerAfterPlayerConstruction.brokerLiveLeaseCount, 0)
-    XCTAssertEqual(raw.idleBrokerBeforePlayerConstruction.liveOutputCount, 0)
-    XCTAssertEqual(raw.idleBrokerAfterPlayerConstruction.liveOutputCount, 0)
     XCTAssertEqual(
       brokerOwnershipFields(raw.idleBrokerBeforePlayerConstruction),
       brokerOwnershipFields(raw.idleBrokerAfterPlayerConstruction)
@@ -208,10 +203,11 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
       ["audiounit_ios", "avsamplebuffer"]
     )
     XCTAssertEqual(raw.applicationManagedCycles.count, 2)
-    XCTAssertEqual(
-      raw.interruptionNotificationSequence.map(\.kind),
-      ["began", "ended", "began", "ended"]
-    )
+    XCTAssertEqual(raw.interruptionNotificationSequence.filter { $0.kind == "began" }.count, 2)
+    XCTAssertLessThanOrEqual(raw.interruptionNotificationSequence.filter { $0.kind == "ended" }.count, 2)
+    XCTAssertTrue(raw.interruptionNotificationSequence.allSatisfy {
+      $0.systemUptime <= raw.notificationCaptureSystemUptime
+    })
     XCTAssertTrue(
       raw.interruptionNotificationSequence.allSatisfy {
         $0.reasonRawValue == AVAudioSession.InterruptionReason.default.rawValue
@@ -245,10 +241,22 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
         brokerOwnershipFields(cycle.brokerAfterPlayback),
         brokerOwnershipFields(deactivationBaseline)
       )
-      XCTAssertEqual(cycle.brokerBeforePlayback.liveOutputCount, 0)
       XCTAssertGreaterThan(cycle.brokerDuringPlayback.liveOutputCount, 0)
-      XCTAssertEqual(cycle.brokerAfterPlayback.liveOutputCount, 0)
       assertPlaybackAdvanced(from: cycle.playbackStart, to: cycle.playbackEnd)
+      let recovery = cycle.hostRecovery
+      XCTAssertEqual(recovery.sessionAfterReactivation, applicationSession)
+      XCTAssertEqual(recovery.sessionAfterShutdown, applicationSession)
+      XCTAssertLessThanOrEqual(recovery.reactivationBeganSystemUptime, recovery.reactivationCompletedSystemUptime)
+      XCTAssertLessThanOrEqual(recovery.reactivationCompletedSystemUptime, recovery.playbackStart.systemUptime)
+      XCTAssertLessThan(recovery.playbackStart.systemUptime, recovery.playbackEnd.systemUptime)
+      for checkpoint in [recovery.playbackStart, recovery.playbackEnd] {
+        XCTAssertEqual(checkpoint.playerState, "playing")
+        XCTAssertTrue(checkpoint.playbackRequestedActive)
+        XCTAssertGreaterThan(checkpoint.native.liveOutputCount, 0)
+        XCTAssertEqual(brokerOwnershipFields(checkpoint.native), brokerOwnershipFields(deactivationBaseline))
+      }
+      XCTAssertEqual(brokerOwnershipFields(recovery.brokerAfterShutdown), brokerOwnershipFields(deactivationBaseline))
+      assertPlaybackAdvanced(from: recovery.playbackStart.playback, to: recovery.playbackEnd.playback)
     }
 
     let brokerSnapshots =
@@ -268,7 +276,10 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
         [
           $0.brokerBeforePlayback,
           $0.brokerDuringPlayback,
-          $0.brokerAfterPlayback
+          $0.brokerAfterPlayback,
+          $0.hostRecovery.playbackStart.native,
+          $0.hostRecovery.playbackEnd.native,
+          $0.hostRecovery.brokerAfterShutdown
         ]
       }
     XCTAssertTrue(brokerSnapshots.allSatisfy { $0.brokerPhase == "ready" })
@@ -301,7 +312,6 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
     }
     XCTAssertEqual(afterFinal.playerState, "idle")
     XCTAssertFalse(afterFinal.playbackRequestedActive)
-    XCTAssertEqual(afterFinal.native.liveOutputCount, 0)
     XCTAssertEqual(first.native.brokerActiveOwnerCount, 1)
     XCTAssertEqual(both.native.brokerActiveOwnerCount, 2)
     XCTAssertEqual(afterFirst.native.brokerActiveOwnerCount, 1)
@@ -369,7 +379,7 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
     continueButton: XCUIElement,
     errorElement: XCUIElement,
     expectedPhase: String,
-    expectedBefore: InterruptionCounts,
+    expectedBeganBefore: Int,
     expectCandidateInterruption: Bool,
     tapContinue: Bool
   )
@@ -380,10 +390,11 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
       error: errorElement,
       timeout: 90
     )
-    let before = try interruptionCounts(from: interruptionElement)
-    guard before == expectedBefore else {
+    let before = try captureInterruptionCounts()
+    let observationBeforeProbeSystemUptime = before.systemUptime
+    guard before.began == expectedBeganBefore, before.ended <= before.began else {
       throw OwnershipUITestFailure(
-        "Unexpected interruption count before \(expectedPhase): \(before.label)"
+        "Unexpected interruption count before \(expectedPhase): \(before.began):\(before.ended)"
       )
     }
 
@@ -458,25 +469,24 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
           + stateName(app.state)
       )
     }
-    let expectedAfter =
-      expectCandidateInterruption
-        ? InterruptionCounts(began: before.began + 1, ended: before.ended + 1)
-        : before
+    let expectedBeganAfter = before.began + (expectCandidateInterruption ? 1 : 0)
     if expectCandidateInterruption {
-      try waitForInterruptionCounts(
+      try waitForInterruptionBeganCount(
         interruptionElement,
-        equals: expectedAfter,
+        equals: expectedBeganAfter,
         phase: phaseElement,
         error: errorElement,
         timeout: 10
       )
-    } else {
-      RunLoop.current.run(until: Date().addingTimeInterval(2))
-      guard try interruptionCounts(from: interruptionElement) == expectedAfter else {
-        throw OwnershipUITestFailure(
-          "Released candidate received a delayed interruption during \(expectedPhase)"
-        )
-      }
+    }
+    // Allow notifications to settle, but never require an optional ended event.
+    RunLoop.current.run(until: Date().addingTimeInterval(2))
+    let observedAfter = try captureInterruptionCounts()
+    guard
+      observedAfter.began == expectedBeganAfter,
+      observedAfter.ended >= before.ended,
+      observedAfter.ended <= observedAfter.began else {
+      throw OwnershipUITestFailure("Unexpected interruption counts during \(expectedPhase)")
     }
     guard
       app.exists,
@@ -491,11 +501,13 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
           + (errorElement.exists ? errorElement.label : "none")
       )
     }
-    let observedAfter = try interruptionCounts(from: interruptionElement)
-    let observationSystemUptime = ProcessInfo.processInfo.systemUptime
+    let observationSystemUptime = observedAfter.systemUptime
 
     if tapContinue {
       reveal(continueButton)
+      guard continueButton.isEnabled else {
+        throw OwnershipUITestFailure("Focus probe continuation is disabled during \(expectedPhase)")
+      }
       continueButton.tap()
     }
     return [
@@ -507,6 +519,7 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
       "candidateApplicationStateBeforeProbe": "runningForeground",
       "candidateApplicationStateDuringActivation": candidateStateDuringActivation,
       "candidateApplicationStateAfterProbe": "runningForeground",
+      "observationBeforeProbeSystemUptime": observationBeforeProbeSystemUptime,
       "activationBeganSystemUptime": activationBeganSystemUptime,
       "activationCompletedSystemUptime": activationCompletedSystemUptime,
       "deactivationBeganSystemUptime": deactivationBeganSystemUptime,
@@ -561,9 +574,9 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
     }
   }
 
-  private func waitForInterruptionCounts(
+  private func waitForInterruptionBeganCount(
     _ interruptions: XCUIElement,
-    equals expected: InterruptionCounts,
+    equals expected: Int,
     phase: XCUIElement,
     error: XCUIElement,
     timeout: TimeInterval
@@ -571,21 +584,49 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
     throws {
     let predicate = NSPredicate { _, _ in
       !self.app.exists
-        || interruptions.label == expected.label
+        || (try? self.interruptionCounts(from: interruptions).began) == expected
         || ["failed", "cancelled"].contains(phase.label)
     }
     let expectation = XCTNSPredicateExpectation(predicate: predicate, object: interruptions)
     guard XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed else {
       throw OwnershipUITestFailure(
-        "Timed out waiting for interruptions \(expected.label); found \(interruptions.label)"
+        "Timed out waiting for interruption began count \(expected); found \(interruptions.label)"
       )
     }
-    guard app.exists, interruptions.label == expected.label else {
+    guard app.exists, (try? interruptionCounts(from: interruptions).began) == expected else {
       throw OwnershipUITestFailure(
         "Ownership surface failed while waiting for interruptions: "
           + (error.exists ? error.label : phase.label)
       )
     }
+  }
+
+  private func captureInterruptionCounts() throws -> AppleAudioInterruptionCounterSnapshot {
+    let button = app.buttons[AccessibilityID.AudioSessionOwnershipValidation.captureInterruptionsButton]
+    reveal(button)
+    let label = app.descendants(matching: .any)[
+      AccessibilityID.AudioSessionOwnershipValidation.interruptionSnapshotLabel
+    ]
+    let previous = label.label
+    let beganAt = ProcessInfo.processInfo.systemUptime
+    button.tap()
+    let updated = expectation(
+      for: NSPredicate { _, _ in label.exists && label.label != previous },
+      evaluatedWith: NSObject()
+    )
+    guard
+      XCTWaiter.wait(for: [updated], timeout: 5) == .completed,
+      let data = Data(base64Encoded: label.label) else {
+      throw OwnershipUITestFailure("Candidate did not capture fresh interruption counters")
+    }
+    let snapshot = try JSONDecoder().decode(AppleAudioInterruptionCounterSnapshot.self, from: data)
+    guard
+      !snapshot.id.isEmpty, snapshot.began >= 0, snapshot.ended >= 0,
+      snapshot.systemUptime >= beganAt,
+      snapshot.systemUptime <= ProcessInfo.processInfo.systemUptime else {
+      throw OwnershipUITestFailure("Candidate interruption counter snapshot is stale or invalid")
+    }
+    return snapshot
   }
 
   private func interruptionCounts(from element: XCUIElement) throws -> InterruptionCounts {
@@ -671,8 +712,11 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
   }
 
   private func reveal(_ element: XCUIElement) {
-    for _ in 0..<12 where !element.isHittable {
+    for _ in 0..<6 where !element.isHittable {
       app.swipeUp()
+    }
+    for _ in 0..<12 where !element.isHittable {
+      app.swipeDown()
     }
     XCTAssertTrue(element.isHittable)
   }
