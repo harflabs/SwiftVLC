@@ -504,6 +504,9 @@ final class AudioSessionOwnershipDeviceUITests: ShowcaseIOSTestCase {
 
     if tapContinue {
       reveal(continueButton)
+      guard continueButton.isEnabled else {
+        throw OwnershipUITestFailure("Focus probe continuation is disabled during \(expectedPhase)")
+      }
       continueButton.tap()
     }
     return [

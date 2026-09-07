@@ -55,7 +55,7 @@ struct AudioSessionOwnershipValidationCase: View {
         .accessibilityIdentifier(
           AccessibilityID.AudioSessionOwnershipValidation.continueFocusProbeButton
         )
-        .disabled(!phase.hasSuffix("awaiting-focus-probe"))
+        .disabled(focusProbeContinuation == nil)
 
         if let errorMessage {
           Text(errorMessage)
