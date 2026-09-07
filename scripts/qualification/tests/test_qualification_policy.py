@@ -4078,6 +4078,22 @@ class QualificationPolicyTests(unittest.TestCase):
         )
         self.assertEqual(catalog, ["iOSUITests/AnalyzerTests/test_pixels"])
 
+    def test_enumeration_excludes_disabled_tests(self):
+        document = {
+            "errors": [],
+            "values": [{
+                "enabledTests": [{"identifier": "iOSUITests/AnalyzerTests/test_pixels()"}],
+                "disabledTests": [{"identifier": "iOSUITests/PlayerTests/test_play()"}],
+            }],
+        }
+        self.assertEqual(
+            policy.catalog_from_enumeration(document),
+            ["iOSUITests/AnalyzerTests/test_pixels"],
+        )
+        document["values"][0]["enabledTests"] = []
+        with self.assertRaisesRegex(policy.QualificationPolicyError, "zero leaf tests"):
+            policy.catalog_from_enumeration(document)
+
     def test_ui_suite_contract_excludes_only_matrix_owned_device_prefixes(self):
         matrix = policy.load_json(QUALIFICATION / "matrix.json", "qualification matrix")
         contracts, _ = policy.validate_runner_contracts(matrix)

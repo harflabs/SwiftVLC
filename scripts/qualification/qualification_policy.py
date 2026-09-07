@@ -12212,7 +12212,14 @@ def catalog_from_enumeration(document: dict) -> list[str]:
             f"XCTest enumeration reported errors: {errors!r}"
         )
     identifiers: list[str] = []
-    for node in _walk_json(document.get("values", [])):
+    # Xcode's flat enumeration includes disabledTests alongside enabledTests.
+    # Only enabled leaves belong to the selected execution contract.
+    enabled = [
+        value.get("enabledTests", [])
+        for value in document.get("values", [])
+        if isinstance(value, dict)
+    ]
+    for node in _walk_json(enabled):
         identifier = node.get("identifier")
         if not isinstance(identifier, str):
             continue
