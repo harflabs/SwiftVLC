@@ -14,7 +14,9 @@ not decide whether a transport test passes; hardware decode needs separate
 physical-device qualification. It checks three TCP
 sessions, three UDP sessions, authenticated playback, and rejection of an
 incorrect password. Successful cases require decoded video frames and completed
-stop before release. Each probe has a process timeout and all fixture processes
+stop before release. Each successful case also requires MediaMTX to record
+exactly one reader using the requested transport, considering only log entries
+written during that case. UDP-to-TCP fallback fails the UDP case. Each probe has a process timeout and all fixture processes
 are terminated on success or failure. CI pins the server archive checksum.
 
 Run with a MediaMTX v1.21.0 executable and FFmpeg available:

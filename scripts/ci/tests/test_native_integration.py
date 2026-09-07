@@ -16,7 +16,11 @@ class NativeIntegrationTests(unittest.TestCase):
     def test_changed_native_inputs_require_compilation(self):
         for path in ("Sources/CLibVLC/shim.h", "scripts/patches/old.patch", "Package.swift",
                      "scripts/build-libvlc.sh", "scripts/validate-libvlc-extensions.sh",
-                     "scripts/native-validator-assets.sha256", "scripts/artifact-tree-digest.py"):
+                     "scripts/native-validator-assets.sha256", "scripts/artifact-tree-digest.py",
+                     "scripts/ci/check-rtsp.py", "scripts/ci/rtsp-playback-probe.c",
+                     "scripts/ci/rtsp_transport.py", ".github/workflows/test.yml",
+                     "scripts/ci/native-changes.py", "scripts/ci/tests/test_native_integration.py",
+                     "scripts/ci/tests/test_rtsp_transport.py"):
             with self.subTest(path=path):
                 self.assertTrue(CHANGES.needs_build([path]))
         self.assertFalse(CHANGES.needs_build(["Sources/SwiftVLC/Player.swift", "README.md"]))

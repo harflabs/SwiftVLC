@@ -10,6 +10,7 @@ import socket
 import subprocess
 import tempfile
 import time
+from rtsp_transport import require_transport
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--archive', type=pathlib.Path, required=True)
@@ -106,10 +107,20 @@ paths:
         cases += [('authenticated',f'rtsp://fixture:fixture-password@127.0.0.1:{rtsp}/protected',':rtsp-tcp',0),
                   ('bad-password',f'rtsp://fixture:wrong@127.0.0.1:{rtsp}/protected',':rtsp-tcp',1)]
         for name,url,option,expected in cases:
+            # Restrict evidence to this case; a prior successful UDP session
+            # must not mask fallback to TCP in a later case.
+            server_log = args.output / 'server.log'
+            log_offset = server_log.stat().st_size
             result=subprocess.run([str(executable),url,option],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=35)
             (args.output/(name+'.log')).write_bytes(result.stdout)
             if result.returncode != expected:
                 raise RuntimeError(f'{name}: exit {result.returncode}, expected {expected}')
+            if expected == 0:
+                with server_log.open('rb') as evidence:
+                    evidence.seek(log_offset)
+                    case_log = evidence.read().decode('utf-8')
+                require_transport(case_log, 'protected' if name == 'authenticated' else 'test',
+                                  'UDP' if name.startswith('udp-') else 'TCP')
             print(f'PASS {name}',flush=True)
     finally:
         for process in reversed(processes):
