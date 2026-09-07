@@ -4,6 +4,8 @@ import importlib.util
 import sys
 import tempfile
 import argparse
+import json
+import subprocess
 from unittest.mock import patch
 import unittest
 import xml.etree.ElementTree as ET
@@ -896,6 +898,60 @@ class AuditTestResultsTests(unittest.TestCase):
 
         self.assertTrue(any("without exact class/name" in error for error in errors))
         self.assertEqual(len(report["malformed_test_identities"]), 1)
+
+    def test_lane_requirement_rejects_a_reviewed_skip_or_missing_native_test(self):
+        classname = "SwiftVLCTests.Integration.RemoteMP4SeekTests"
+        conditional = {
+            "classname": classname, "name": "native seek",
+            "skip_reason": "Requires rebuilt engine", "reason": "native patch boundary",
+        }
+        config = self.config(
+            maximum_uncontracted_reported_skips=0,
+            reviewed_conditional_skips=[conditional],
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "contract.json").write_text(json.dumps(config))
+            (root / "Tests.swift").write_text("@Test func one() {}\n@Test func two() {}\n")
+            command = [
+                sys.executable, str(SCRIPT), "--xunit", str(root / "results.xml"),
+                "--contract", str(root / "contract.json"),
+                "--test-source-root", str(root), "--json-output", str(root / "report.json"),
+            ]
+            for outcome, published_exit, native_exit in (
+                ("", 0, 0),
+                ('<skipped message="Requires rebuilt engine" />', 0, 1),
+                ('<skipped message="Unexpected skip" />', 1, 1),
+                ("<failure />", 1, 1),
+                (None, 1, 1),
+            ):
+                with self.subTest(outcome=outcome):
+                    native = (f'<testcase classname="{classname}" name="native seek">'
+                              f'{outcome}</testcase>') if outcome is not None else ""
+                    (root / "results.xml").write_text(
+                        '<testsuite><testcase classname="SwiftVLCTests.Integration.DecodedFrameHarnessTests" '
+                        'name="decode" />'
+                        f'<testcase classname="{classname}" name="existing seek" />'
+                        + native + '</testsuite>'
+                    )
+                    result = subprocess.run(command, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, published_exit, result.stdout + result.stderr)
+                    result = subprocess.run(
+                        command + ["--require-suite", classname, "2"],
+                        capture_output=True, text=True,
+                    )
+                    self.assertEqual(result.returncode, native_exit, result.stdout + result.stderr)
+                    report = json.loads((root / "report.json").read_text())
+                    self.assertEqual(report["uncontracted_skip_budget"], 0)
+                    if outcome != "":
+                        self.assertTrue(any("contract requires 2" in error for error in report["errors"]))
+            # A lane cannot replace an existing strict requirement with a lower one.
+            result = subprocess.run(
+                command + ["--require-suite", "SwiftVLCTests.Integration.DecodedFrameHarnessTests", "1"],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("duplicate required suite", result.stderr)
 
     def test_repository_contract_matches_declared_headless_debt(self):
         contract = AUDIT.strict_json_loads(

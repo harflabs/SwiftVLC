@@ -114,6 +114,7 @@ jobs:
             --xunit-output .build/ci-results/native.xml
           python3 -B scripts/ci/audit-test-results.py \
             --xunit .build/ci-results/native-swift-testing.xml \
+            --require-suite SwiftVLCTests.Integration.RemoteMP4SeekTests 2 \
             --contract scripts/ci/headless-test-contracts.json \
             --test-source-root Tests/SwiftVLCTests \
             --json-output .build/ci-results/native-accounting.json \
