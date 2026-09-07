@@ -394,13 +394,19 @@ final class PiPLiveDeviceUITests: ShowcaseIOSTestCase {
   }
 
   private func attachDirectRendererDiagnostics(
-    _ diagnosticsElement: XCUIElement,
+    _ captureButton: XCUIElement,
     name: String
   ) {
+    // UIBarButtonItem bridging does not expose the SwiftUI button's value.
+    // Read the regular measurement row and use the toolbar only as a control.
+    let diagnosticsElement = app.descendants(matching: .any)[
+      AccessibilityID.PiPLiveValidation.rendererDiagnosticsLabel
+    ]
+    revealMeasurement(diagnosticsElement, swiping: .up)
     XCTAssertTrue(diagnosticsElement.waitForExistence(timeout: 5))
     let previous = accessibilityValue(of: diagnosticsElement)
-    XCTAssertTrue(diagnosticsElement.isHittable, "Diagnostics control is not hittable")
-    diagnosticsElement.tap()
+    XCTAssertTrue(captureButton.isHittable, "Diagnostics control is not hittable")
+    captureButton.tap()
     let predicate = NSPredicate { _, _ in
       let value = self.accessibilityValue(of: diagnosticsElement)
       return value.hasPrefix("capture=") && value != previous

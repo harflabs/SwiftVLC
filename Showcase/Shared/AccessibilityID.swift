@@ -234,6 +234,7 @@ enum AccessibilityID {
     static let lifecycleEventsLabel = "pipLive.lifecycleEvents"
     static let toggleButton = "pipLive.toggle"
     static let captureDiagnosticsButton = "pipLive.captureDiagnostics"
+    static let rendererDiagnosticsLabel = "pipLive.rendererDiagnostics"
     static let errorLabel = "pipLive.error"
   }
 
