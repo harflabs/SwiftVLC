@@ -2538,6 +2538,21 @@ class QualificationRunnerStorageTests(unittest.TestCase):
                 captured,
             )
 
+    def test_install_falls_back_only_after_configurator_failure(self):
+        script = (ROOT / "qualification" / "run-device-tests.sh").read_text()
+        body = script[script.index("install_app() {"):script.index("install_candidate_with_fresh_permission_state()")]
+        for config_status, device_status, expected in ((0, 0, 0), (1, 0, 0), (1, 7, 7)):
+            with self.subTest(config_status=config_status, device_status=device_status), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                configurator = root / "cfgutil"
+                configurator.write_text(f"#!/bin/bash\nexit {config_status}\n")
+                configurator.chmod(0o755)
+                program = body.replace("/Applications/Apple Configurator.app/Contents/MacOS/cfgutil", str(configurator))
+                program += f"\nassert_device_lock_held() {{ :; }}\nxcrun() {{ echo FALLBACK; return {device_status}; }}\ninstall_app '/tmp/candidate with spaces.app'\n"
+                result = subprocess.run(["bash", "-c", program], capture_output=True, text=True)
+                self.assertEqual(result.returncode, expected, result.stderr)
+                self.assertEqual("FALLBACK" in result.stdout, config_status != 0)
+
     def test_runner_proves_device_lock_ownership_at_mutation_and_seal_boundaries(self):
         script = (ROOT / "qualification" / "run-device-tests.sh").read_text()
         assertion = script[

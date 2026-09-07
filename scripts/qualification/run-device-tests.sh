@@ -1160,10 +1160,13 @@ install_app() {
   local configurator="/Applications/Apple Configurator.app/Contents/MacOS/cfgutil"
   assert_device_lock_held
   if [[ -x "$configurator" ]]; then
-    "$configurator" --ecid "$DEVICE_ECID" install-app "$app"
-  else
-    xcrun devicectl device install app --device "$DEVICE_UDID" "$app"
+    if "$configurator" --ecid "$DEVICE_ECID" install-app "$app"; then
+      return 0
+    fi
+    echo "Warning: Apple Configurator installation failed; retrying the same app with devicectl." >&2
   fi
+  assert_device_lock_held
+  xcrun devicectl device install app --device "$DEVICE_UDID" "$app"
 }
 
 install_candidate_with_fresh_permission_state() {
