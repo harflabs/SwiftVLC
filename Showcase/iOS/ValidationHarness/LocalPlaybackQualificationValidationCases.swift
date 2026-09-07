@@ -20,6 +20,7 @@ private struct LocalPlaybackQualificationValidationCase: View {
   @State private var result = "not-run"
   @State private var errorMessage: String?
   @State private var isRunning = false
+  @State private var runTask: Task<Void, Never>?
 
   let expectedKind: LocalPlaybackQualificationKind
 
@@ -41,6 +42,15 @@ private struct LocalPlaybackQualificationValidationCase: View {
       }
 
       Section("Native playback evidence") {
+        Button("Run fixture") {
+          runTask = Task { await run() }
+        }
+        .disabled(isRunning)
+        .accessibilityIdentifier(
+          expectedKind == .video
+            ? AccessibilityID.LocalFileMatrixValidation.runButton
+            : AccessibilityID.AudioOnlyPlaybackValidation.runButton
+        )
         valueRow(
           "Fixture",
           value: fixture?.id ?? "missing",
@@ -61,11 +71,10 @@ private struct LocalPlaybackQualificationValidationCase: View {
     }
     .showcaseFormStyle()
     .navigationTitle(expectedKind == .video ? "Local file matrix" : "Audio-only matrix")
-    .task(id: fixture?.id) {
-      guard !isRunning else { return }
-      await run()
+    .onDisappear {
+      runTask?.cancel()
+      player.stop()
     }
-    .onDisappear { player.stop() }
   }
 
   private var fixtureIdentifier: String {
@@ -103,6 +112,7 @@ private struct LocalPlaybackQualificationValidationCase: View {
   }
 
   private func run() async {
+    guard !isRunning else { return }
     isRunning = true
     result = "running"
     errorMessage = nil

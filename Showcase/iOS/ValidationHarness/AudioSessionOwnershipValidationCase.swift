@@ -483,7 +483,12 @@ struct AudioSessionOwnershipValidationCase: View {
       checkpoint.native.brokerLiveLeaseCount == 0,
       checkpoint.native.liveOutputCount == 0
     else {
-      throw AppleAudioQualificationFailure("Idle construction acquired audio focus")
+      let native = checkpoint.native
+      throw AppleAudioQualificationFailure(
+        "Idle construction checkpoint failed: phase=\(native.brokerPhase), "
+          + "epoch=\(native.brokerEpoch), owners=\(native.brokerActiveOwnerCount), "
+          + "leases=\(native.brokerLiveLeaseCount), outputs=\(native.liveOutputCount)"
+      )
     }
   }
 

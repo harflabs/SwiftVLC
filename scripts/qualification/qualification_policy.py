@@ -14051,11 +14051,20 @@ def validate_report(
                         f"runner scenario {runner_id} error inventory count mismatch"
                     )
                 if (
-                    runner_id not in {"terminal-outcomes", "adaptive-hls-soak"}
+                    runner_result == "pass"
+                    and runner_id not in {"terminal-outcomes", "adaptive-hls-soak"}
                     and inventory.get("errorCount") != 0
                 ):
                     raise QualificationPolicyError(
                         f"runner scenario {runner_id} has unexpected raw errors"
+                    )
+            elif runner_result == "fail" and runner_row.get("appLog") == "missing":
+                # An assertion can stop before every child player/log exists.
+                # Retain a diagnostic failed report; missing logs never satisfy
+                # a passing scenario or provide an error-free playback claim.
+                if inventory_value is not None or runner_row.get("libraryErrorCount") != 0:
+                    raise QualificationPolicyError(
+                        f"failed runner {runner_id} claims an inventory for missing logs"
                     )
             elif runner_id == "analyzer":
                 if (

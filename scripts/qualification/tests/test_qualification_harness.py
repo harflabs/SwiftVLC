@@ -11,6 +11,7 @@ import os
 import plistlib
 import re
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -3202,7 +3203,7 @@ class QualificationRunnerStorageTests(unittest.TestCase):
             "SWIFTVLC_PROGRESSIVE_HTTP_RANGE_ATTEMPT_TOKEN",
         ):
             self.assertIn(environment, script)
-        self.assertIn('"$BASE_URL/progressive/$attempt_token/transcript"', script)
+        self.assertIn('request_fixture_control "progressive/$attempt_token/transcript"', script)
         self.assertIn(
             '--progressive-transcripts "$progressive_transcript_root"', script
         )
@@ -3524,7 +3525,7 @@ class QualificationRunnerStorageTests(unittest.TestCase):
         self.assertNotIn('payload["sourceRequestProof"]', ownership_test)
         self.assertIn("capture_apple_audio_source_metrics()", script)
         self.assertGreaterEqual(
-            script.count('curl -fsS "$BASE_URL/adaptive/$token/metrics"'),
+            script.count('request_fixture_control "adaptive/$token/metrics"'),
             2,
         )
         self.assertIn('cmp -s "$first_snapshot" "$second_snapshot"', script)
@@ -3799,6 +3800,7 @@ class PrimeXCTRunnerScriptTests(unittest.TestCase):
 import json
 import os
 import signal
+import socket
 from pathlib import Path
 import sys
 import time
@@ -7903,6 +7905,17 @@ class QualificationRecordAssemblyTests(unittest.TestCase):
             self.assertIsNone(assembled["scenarios"][0]["testExecution"])
             self.validate_report_receipt(report, stable_required=True)
             self.assertTrue(report_validation.is_valid(report.parent))
+            # Early assertion failures may never create all declared child logs.
+            # The failed report is still useful, but cannot be promoted to pass.
+            assembled["scenarios"][0]["appLog"] = "missing"
+            assembled["scenarios"][0]["hostErrorInventory"] = None
+            report.write_text(json.dumps(assembled))
+            self.validate_report_receipt(report, stable_required=True)
+            self.assertTrue(report_validation.is_valid(report.parent))
+            assembled["result"] = "pass"
+            report.write_text(json.dumps(assembled))
+            with self.assertRaises(report_validation.ReportValidationError):
+                self.validate_report_receipt(report, stable_required=True)
         finally:
             assemble_record.policy.xcresult_test_document = passing_reader
 
@@ -9721,6 +9734,37 @@ class FixtureServerTests(unittest.TestCase):
         self.assertIn("?sequence=7199", playlist)
         self.assertTrue(playlist.rstrip().endswith("#EXT-X-ENDLIST"))
 
+    def test_host_control_request_times_out_when_server_never_replies(self):
+        runner = (ROOT / "qualification" / "run-device-tests.sh").read_text()
+        start = runner.index("request_fixture_control() {")
+        end = runner.index("\n}\n", start) + 2
+        release = threading.Event()
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen()
+            listener.settimeout(8)
+
+            def stall():
+                with listener.accept()[0]:
+                    release.wait(8)
+
+            worker = threading.Thread(target=stall, daemon=True)
+            worker.start()
+            program = runner[start:end] + '\nCONTROL_BASE_URL="$1"\nrequest_fixture_control metrics\n'
+            started = time.monotonic()
+            try:
+                result = subprocess.run(
+                    ["bash", "-c", program, "control-probe",
+                     f"http://127.0.0.1:{listener.getsockname()[1]}"],
+                    capture_output=True, text=True, timeout=8,
+                    env={**os.environ, "http_proxy": "http://127.0.0.1:1", "ALL_PROXY": "http://127.0.0.1:1"},
+                )
+                self.assertEqual(result.returncode, 28, result.stderr)
+                self.assertLess(time.monotonic() - started, 7)
+            finally:
+                release.set()
+                worker.join(timeout=2)
+
     def test_apple_audio_shell_capture_retains_exact_quiescent_metrics(self):
         token = "hostproof"
         for path in (
@@ -9735,14 +9779,14 @@ class FixtureServerTests(unittest.TestCase):
             connection.close()
 
         runner = (ROOT / "qualification" / "run-device-tests.sh").read_text()
-        start = runner.index("capture_apple_audio_source_metrics() {")
+        start = runner.index("request_fixture_control() {")
         end = runner.index("\n}\n\nrun_scenario()", start) + 2
         function_source = runner[start:end]
         destination = self.root / "captured" / "attempt-1.json"
         program = (
             "set -euo pipefail\n"
             + function_source
-            + '\nBASE_URL="$1"\n'
+            + '\nCONTROL_BASE_URL="$1"\n'
             + 'capture_apple_audio_source_metrics "$2" 2 "$3"\n'
         )
         subprocess.run(

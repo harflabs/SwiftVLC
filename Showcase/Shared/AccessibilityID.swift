@@ -144,6 +144,7 @@ enum AccessibilityID {
   }
 
   enum LocalFileMatrixValidation {
+    static let runButton = "localFileMatrix.run"
     static let videoView = "localFileMatrix.videoView"
     static let fixtureLabel = "localFileMatrix.fixture"
     static let stateLabel = "localFileMatrix.state"
@@ -152,6 +153,7 @@ enum AccessibilityID {
   }
 
   enum AudioOnlyPlaybackValidation {
+    static let runButton = "audioOnlyPlayback.run"
     static let fixtureLabel = "audioOnlyPlayback.fixture"
     static let stateLabel = "audioOnlyPlayback.state"
     static let resultLabel = "audioOnlyPlayback.result"

@@ -25,6 +25,10 @@ final class LocalPlaybackMatrixDeviceUITests: ShowcaseIOSTestCase {
         encodedBaseURL: encodedBaseURL
       )
       launchDirectlyHandlingQualificationPermissions()
+      // Complete XCTest launch/identity setup before consuming the short clip.
+      let run = app.buttons[AccessibilityID.LocalFileMatrixValidation.runButton]
+      XCTAssertTrue(run.waitForExistence(timeout: 10))
+      run.tap()
 
       let state = element(AccessibilityID.LocalFileMatrixValidation.stateLabel)
       let result = element(AccessibilityID.LocalFileMatrixValidation.resultLabel)
