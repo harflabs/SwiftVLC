@@ -8,7 +8,10 @@ contribs globally. Reference:
 https://code.videolan.org/videolan/VLCKit/-/tree/4.0.0a18/libvlc/patches
 
 `check-rtsp.py` compiles the public libVLC probe against the supplied archive and
-uses MediaMTX with an FFmpeg H.264 publisher on loopback. It checks three TCP
+uses MediaMTX with an FFmpeg H.264 publisher on loopback. The probe selects
+software decoding (`avcodec`) so virtualized CI VideoToolbox availability does
+not decide whether a transport test passes; hardware decode needs separate
+physical-device qualification. It checks three TCP
 sessions, three UDP sessions, authenticated playback, and rejection of an
 incorrect password. Successful cases require decoded video frames and completed
 stop before release. Each probe has a process timeout and all fixture processes

@@ -3,8 +3,8 @@
 #include <unistd.h>
 int main(int argc, char **argv) {
  if (argc != 3) return 2;
- const char *opts[] = {"--vout=dummy", "--aout=dummy", "--no-video-title-show", "--verbose=2"};
- libvlc_instance_t *vlc = libvlc_new(4, opts);
+ const char *opts[] = {"--vout=dummy", "--aout=dummy", "--no-video-title-show", "--verbose=2", "--codec=avcodec"};
+ libvlc_instance_t *vlc = libvlc_new(5, opts);
  if (!vlc) return 3;
  libvlc_media_t *media = libvlc_media_new_location(argv[1]);
  libvlc_media_add_option(media, argv[2]);
