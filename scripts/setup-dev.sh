@@ -84,6 +84,7 @@ if result == text:
 fd, tmp = tempfile.mkstemp(dir=".", prefix=".Package.swift.", suffix=".tmp")
 try:
     with os.fdopen(fd, "w") as f:
+        os.fchmod(f.fileno(), os.stat(path).st_mode & 0o7777)
         f.write(result)
     os.replace(tmp, path)
 except Exception:
@@ -154,6 +155,7 @@ if result == text:
 fd, tmp = tempfile.mkstemp(dir=".", prefix=".SwiftVLCShowcase.", suffix=".tmp")
 try:
     with os.fdopen(fd, "w") as f:
+        os.fchmod(f.fileno(), os.stat(path).st_mode & 0o7777)
         f.write(result)
     os.replace(tmp, path)
 except Exception:
