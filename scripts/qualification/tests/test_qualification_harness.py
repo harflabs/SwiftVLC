@@ -4093,6 +4093,17 @@ PRODUCT_BUNDLE_IDENTIFIER = com.swiftvlc.showcase.macos;
                 value,
             )
 
+    def test_preserves_project_permissions(self):
+        for mode in (0o644, 0o640):
+            with self.subTest(mode=oct(mode)), tempfile.TemporaryDirectory() as directory:
+                project = Path(directory) / "project.pbxproj"
+                project.write_text(self.project_text)
+                project.chmod(mode)
+                configure_signing.configure(
+                    project, "WNWACJNFDX", "com.swiftvlc.validation.wnwacjnfdx"
+                )
+                self.assertEqual(project.stat().st_mode & 0o7777, mode)
+
     def test_refuses_an_unexpected_project_shape(self):
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory) / "project.pbxproj"

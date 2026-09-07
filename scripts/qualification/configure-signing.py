@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import tempfile
 from pathlib import Path
@@ -51,6 +52,7 @@ def configure(project: Path, team: str, bundle_prefix: str) -> tuple[str, str]:
     with tempfile.NamedTemporaryFile(
         mode="w", dir=project.parent, prefix=f".{project.name}.", delete=False
     ) as output:
+        os.fchmod(output.fileno(), project.stat().st_mode & 0o7777)
         output.write(text)
         temporary = Path(output.name)
     temporary.replace(project)
