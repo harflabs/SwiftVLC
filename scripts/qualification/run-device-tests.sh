@@ -2707,7 +2707,7 @@ EOF
             --duration-seconds "$((ended - started))" \
             --runner-scenario "$scenario" \
             --attempts "$attempts_json" \
-            "${materialize_extra_args[@]}" \
+            ${materialize_extra_args[@]+"${materialize_extra_args[@]}"} \
             --output "$evidence_file" \
             > "$OUTPUT_DIR/$scenario-$qualification_scenario-materialize-evidence.log" 2>&1
           materialize_status=$?

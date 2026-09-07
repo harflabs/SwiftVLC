@@ -2539,6 +2539,21 @@ class QualificationRunnerStorageTests(unittest.TestCase):
                 captured,
             )
 
+    def test_materialization_optional_arguments_work_with_system_bash_nounset(self):
+        script = (ROOT / "qualification" / "run-device-tests.sh").read_text()
+        line = next(line.strip() for line in script.splitlines()
+                    if "materialize_extra_args[@]" in line)
+        expansion = line.removesuffix(" " + chr(92))
+        for elements, expected in (("", ["start", "end"]),
+                                   ('--sample "value with spaces"',
+                                    ["start", "--sample", "value with spaces", "end"])):
+            with self.subTest(elements=elements):
+                program = f'materialize_extra_args=({elements}); values=(start {expansion} end); printf "%s\\n" "${{values[@]}}"'
+                result = subprocess.run(["/bin/bash", "-uc", program],
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.splitlines(), expected)
+
     def test_install_falls_back_only_after_configurator_failure(self):
         script = (ROOT / "qualification" / "run-device-tests.sh").read_text()
         body = script[script.index("install_app() {"):script.index("install_candidate_with_fresh_permission_state()")]
