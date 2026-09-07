@@ -96,6 +96,9 @@ paths:
         processes.append(subprocess.Popen(['ffmpeg','-hide_banner','-loglevel','error','-re',
             '-stream_loop','-1','-i',str(root/'Tests/SwiftVLCTests/Fixtures/twosec.mp4'),
             '-an','-c:v','libx264','-preset','ultrafast','-tune','zerolatency',
+            # Late readers need a fresh IDR without waiting for x264's default
+            # 250-frame GOP (10 seconds for this 25 fps fixture).
+            '-g','25','-keyint_min','25','-sc_threshold','0',
             '-f','rtsp','-rtsp_transport','tcp',f'rtsp://127.0.0.1:{rtsp}/test'],stdout=log,stderr=subprocess.STDOUT))
         deadline=time.monotonic()+10
         while 'is publishing to path' not in (args.output/'server.log').read_text():
@@ -114,6 +117,7 @@ paths:
             result=subprocess.run([str(executable),url,option],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=35)
             (args.output/(name+'.log')).write_bytes(result.stdout)
             if result.returncode != expected:
+                print(result.stdout.decode('utf-8', errors='replace')[-6000:], flush=True)
                 raise RuntimeError(f'{name}: exit {result.returncode}, expected {expected}')
             if expected == 0:
                 with server_log.open('rb') as evidence:
