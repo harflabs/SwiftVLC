@@ -252,6 +252,27 @@ extension Integration {
     }
 
     @Test
+    func `A changed pause sample cannot settle a video seek before its output point`() async throws {
+      let player = makePausedSeekPlayer()
+      player._seekOverridesForTesting.hasSelectedVideo = true
+      player._nativeSetTimeOverrideForTesting = { _, _ in 0 }
+      player._nativeSeekBaselineOverrideForTesting = { (2000, 2.0 / 60.0) }
+      player._nativeSeekLandingOverrideForTesting = { (2001, 2.001 / 60.0) }
+      let request = try player.requestSeek(to: .seconds(30))
+      player.nativeSeekMonitor._noteSeekStartedForTesting()
+      player.nativeSeekMonitor._noteSeekEndedForTesting()
+      await drainMainActor()
+      player._pollPendingSeekForTesting()
+      player._pollPendingSeekForTesting()
+      #expect(player.pendingSeekSettlement != nil)
+      #expect(player.currentTime == .seconds(30))
+      player.nativeSeekMonitor._noteTimeUpdatedForTesting(timeMilliseconds: 30000, position: 0.5)
+      await drainMainActor()
+      #expect(await request.outcome == .settled)
+      #expect(player.currentTime == .seconds(30))
+    }
+
+    @Test
     func `A watched post-end point wins the paused fallback race`() async throws {
       let player = makePausedSeekPlayer()
       player._nativeSetTimeOverrideForTesting = { _, _ in 0 }

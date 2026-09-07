@@ -395,6 +395,14 @@ extension Player {
       nativePlaybackState == .paused
     else { return }
 
+    // Seek-end marks the discontinuity, before the sought picture is decoded.
+    // Until that picture arrives, get_time can fall back to the input's last
+    // pause sample. That sample can differ slightly from the dispatch baseline;
+    // repeated reads do not make it a video landing. Selected video must settle
+    // from its watched output point. Audio-only inputs retain the getter path
+    // because their paused output may not emit another point until resumed.
+    guard !nativeSeekHasSelectedVideo else { return }
+
     let point: (timeMilliseconds: Int64, position: Double)
     #if DEBUG
     if let override = _nativeSeekLandingOverrideForTesting {
@@ -436,6 +444,19 @@ extension Player {
     )
     guard let claimed = nativeSeekMonitor.claimPausedFallback(candidate) else { return }
     processNativeSeekLanding(claimed)
+  }
+
+  private var nativeSeekHasSelectedVideo: Bool {
+    #if DEBUG
+    if let override = _seekOverridesForTesting.hasSelectedVideo {
+      return override
+    }
+    #endif
+    guard let track = libvlc_media_player_get_selected_track(pointer, libvlc_track_video) else {
+      return false
+    }
+    libvlc_media_track_release(track)
+    return true
   }
 
   /// Reconciles facts already committed by the native callback lane before a

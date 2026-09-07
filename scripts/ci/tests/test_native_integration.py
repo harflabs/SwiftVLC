@@ -14,7 +14,10 @@ SPEC.loader.exec_module(CHANGES)
 
 class NativeIntegrationTests(unittest.TestCase):
     def test_changed_native_inputs_require_compilation(self):
-        for path in ("Sources/CLibVLC/shim.h", "scripts/patches/old.patch", "Package.swift",
+        for path in ("Tests/SwiftVLCTests/Player/PausedSeekPlaybackTests.swift",
+                     "Tests/SwiftVLCTests/Player/RemoteMP4SeekTests.swift",
+                     "Tests/SwiftVLCTests/Fixtures/paused-seek.mp4",
+                     "Sources/CLibVLC/shim.h", "scripts/patches/old.patch", "Package.swift",
                      "scripts/build-libvlc.sh", "scripts/validate-libvlc-extensions.sh",
                      "scripts/native-validator-assets.sha256", "scripts/artifact-tree-digest.py",
                      "scripts/ci/check-rtsp.py", "scripts/ci/rtsp-playback-probe.c",

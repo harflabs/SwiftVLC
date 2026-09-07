@@ -8,7 +8,11 @@ extension Integration {
   @Suite(
     .tags(.mainActor, .async, .media),
     .serialized,
-    .enabled(if: TestCondition.canPlayMedia, "Requires the rebuilt release XCFramework")
+    .enabled(
+      if: TestCondition.canPlayMedia
+        || ProcessInfo.processInfo.environment["SWIFTVLC_NATIVE_SEEK_TESTS"] == "1",
+      "Requires the rebuilt release XCFramework"
+    )
   )
   @MainActor struct RemoteMP4SeekTests {
     @Test(.timeLimit(.minutes(1)))
@@ -88,7 +92,7 @@ extension Integration {
   }
 }
 
-private final class MP4RangeProbeServer: Sendable {
+final class MP4RangeProbeServer: Sendable {
   private let socketFD: Int32
   private let acceptQueue = DispatchQueue(label: "swiftvlc.mp4-range.accept")
   private let clientQueue = DispatchQueue(

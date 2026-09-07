@@ -2,6 +2,7 @@ import CLibVLC
 
 #if DEBUG
 struct PlayerSeekTestOverrides {
+  var hasSelectedVideo: Bool?
   var setTime: ((Int64, Bool) -> Int32)?
   var jumpTime: ((Int64) -> Int32)?
   var setPosition: ((Double, Bool) -> Int32)?
