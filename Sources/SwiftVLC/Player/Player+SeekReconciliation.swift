@@ -397,11 +397,10 @@ extension Player {
 
     // Seek-end marks the discontinuity, before the sought picture is decoded.
     // Until that picture arrives, get_time can fall back to the input's last
-    // pause sample. That sample can differ slightly from the dispatch baseline;
-    // repeated reads do not make it a video landing. Selected video must settle
-    // from its watched output point. Audio-only inputs retain the getter path
-    // because their paused output may not emit another point until resumed.
-    guard !nativeSeekHasSelectedVideo else { return }
+    // pause sample. Native extension v11 guarantees a selected video's paused
+    // output point; older released engines do not, so they retain the bounded
+    // getter fallback instead of timing out on an event they cannot provide.
+    guard !(nativeSeekSupportsPausedOutputClock && nativeSeekHasSelectedVideo) else { return }
 
     let point: (timeMilliseconds: Int64, position: Double)
     #if DEBUG
@@ -457,6 +456,15 @@ extension Player {
     }
     libvlc_media_track_release(track)
     return true
+  }
+
+  private var nativeSeekSupportsPausedOutputClock: Bool {
+    #if DEBUG
+    if let override = _seekOverridesForTesting.supportsPausedSeekOutputClock {
+      return override
+    }
+    #endif
+    return swiftvlc_libvlc_pip_extensions_version() >= 11
   }
 
   /// Reconciles facts already committed by the native callback lane before a

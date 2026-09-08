@@ -66,7 +66,7 @@ callback.
 - `vmem-picture-pts-source-check.py`:
   `c3d38d12de458739e95bdacdedfcd5c233b9e41ce4bab922b5142c7cc9a3e8ad`
 - `pip_extension_version.py`:
-  `1582e0915d13a177fbe545099a1ed52696d1b60cfa5dbfd6a35a60943ccfcd36`
+  `4c120aa28964bb854d3720d2399f473cadcd754de8a1ef74f1a53494522b31a5`
 - `vmem-picture-pts-probe.c`:
   `65347de5f707e49e0d2208e4c8310f84026a518ff87730c0d17eabe5757d3bb7`
 - `vmem-picture-pts-abi.cpp`:
@@ -90,7 +90,7 @@ threads. It also forces allocation failure across v4-to-v6 and v6-to-v4
 transitions and verifies that neither callback tuple tears.
 The pre-existing strict-frame checker retains all of its frozen v4 checks. It
 and the vmem checker now share one fail-closed source-composition resolver for
-versions 4 through 10. The resolver requires complete, unique and contiguous
+versions 4 through 11. The resolver requires complete, unique and contiguous
 feature groups plus the exact literal version implementation; the vmem checker
 then requires that the resolved version is at least 6. Patch 0033's audio
 session leases are a separately provable same-version refinement introduced at

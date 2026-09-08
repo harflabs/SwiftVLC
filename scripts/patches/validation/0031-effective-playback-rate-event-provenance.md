@@ -75,7 +75,7 @@ existing weak version shim and reports the stream unavailable.
 - `effective-playback-rate-event-source-check.py`:
   `335a0999ce19577819df1382e8c5260876eab514a8fc460646fb4925e3de2700`
 - `pip_extension_version.py`:
-  `1582e0915d13a177fbe545099a1ed52696d1b60cfa5dbfd6a35a60943ccfcd36`
+  `4c120aa28964bb854d3720d2399f473cadcd754de8a1ef74f1a53494522b31a5`
 - `effective-playback-rate-event-abi.c`:
   `cc824316f4cd8044e5976ed36dba61a9dbaff8f2125b5ba1674f342efc5cb94b`
 - `effective-playback-rate-event-abi.cpp`:

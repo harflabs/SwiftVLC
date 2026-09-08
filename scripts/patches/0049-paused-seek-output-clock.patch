@@ -1,7 +1,34 @@
 # Paused seeks must retain and immediately render their first output picture,
 # then publish it as a fixed clock point even when audio owns the clock.
 # Paced input PCR updates must exclude wall time spent paused after a seek.
+# Native extension version 11 lets Swift distinguish this behavior from the
+# previously published version-10 archive and retain its compatibility fallback.
 # Regression coverage: PausedSeekPlaybackTests against the rebuilt native engine.
+diff --git a/include/vlc/libvlc_media_player.h b/include/vlc/libvlc_media_player.h
+--- a/include/vlc/libvlc_media_player.h
++++ b/include/vlc/libvlc_media_player.h
+@@ -459,6 +459,8 @@ typedef struct swiftvlc_pip_playback_identity_t
+  * adds immutable native-handle/playback/output identity for race-free Apple
+  * PiP controller handoff. Version 10 adds ordered semantic text-region
+- * interception with explicit WebVTT placement provenance.
++ * interception with explicit WebVTT placement provenance. Version 11 retains
++ * and immediately presents the first paused-seek video output while publishing
++ * its fixed clock point.
+  */
+ LIBVLC_API unsigned swiftvlc_libvlc_pip_extensions_version( void );
+ 
+diff --git a/lib/media_player.c b/lib/media_player.c
+--- a/lib/media_player.c
++++ b/lib/media_player.c
+@@ -1142,7 +1142,7 @@ libvlc_media_player_get_media( libvlc_media_player_t *p_mi )
+ 
+ unsigned swiftvlc_libvlc_pip_extensions_version( void )
+ {
+-    return 10;
++    return 11;
+ }
+ 
+ bool
 diff --git a/src/input/es_out.c b/src/input/es_out.c
 --- a/src/input/es_out.c
 +++ b/src/input/es_out.c

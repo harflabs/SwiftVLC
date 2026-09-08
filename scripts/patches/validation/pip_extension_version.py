@@ -2,7 +2,7 @@
 """Fail-closed resolver for SwiftVLC's additive libVLC extension ABI.
 
 The extension function is shared by several otherwise independent patches.
-This module is the single composition proof for versions 4 through 10: every
+This module is the single composition proof for versions 4 through 11: every
 stage must be complete, unique, and contiguous, and the implementation must be
 exactly one literal return of the resolved version.  Release callers should
 also provide ``expected_version`` from the ordered patch manifest so removing
@@ -45,10 +45,12 @@ BASE_SOURCE_KEYS = frozenset(
 OPTIONAL_SUCCESSOR_SOURCE_KEYS = frozenset(
     {
         "drawable_header",
+        "es_out",
         "media_player_internal",
         "pip_controller",
         "pip_controller_header",
         "sample_buffer_display",
+        "video_output",
     }
 )
 V9_LIFECYCLE_MARKER_LABEL = "fail-closed exact PiP lifecycle preflight"
@@ -338,6 +340,37 @@ VERSION_GROUPS = (
                 "exports",
                 "subtitle text snapshot export",
                 r"(?m)^swiftvlc_libvlc_media_player_set_subtitle_text_snapshot_callback$",
+            ),
+        ),
+    ),
+    MarkerGroup(
+        "paused-seek-output-clock",
+        11,
+        (
+            Marker(
+                "es_out",
+                "paced paused PCR anchor",
+                r"i_pcr\s*,\s*p_sys\s*->\s*b_paused\s*&&\s*"
+                r"input_CanPaceControl\s*\(\s*p_sys\s*->\s*p_input\s*\)\s*"
+                r"\?\s*p_sys\s*->\s*i_pause_date\s*:\s*vlc_tick_now\s*\(\s*\)",
+            ),
+            Marker(
+                "video_output",
+                "paused picture late-drop exemption",
+                r"sys\s*->\s*is_late_dropped\s*&&\s*!\s*frame_by_frame\s*"
+                r"&&\s*!\s*sys\s*->\s*pause\.is_on",
+            ),
+            Marker(
+                "video_output",
+                "paused picture fixed clock point",
+                r"render_type\s*==\s*RENDER_PICTURE_NEXT\s*\|\|\s*"
+                r"sys\s*->\s*pause\.is_on",
+            ),
+            Marker(
+                "video_output",
+                "paused picture immediate render",
+                r"sys\s*->\s*displayed\.current\s*->\s*b_force\s*\|\|\s*"
+                r"sys\s*->\s*pause\.is_on",
             ),
         ),
     ),
@@ -1620,9 +1653,9 @@ def resolve_extension_version(
         required_same_version_groups: Sequence[str] = ()) -> Resolution:
     if (expected_version is not None
             and (isinstance(expected_version, bool)
-                 or expected_version not in range(4, 11))):
+                 or expected_version not in range(4, 12))):
         raise ExtensionVersionError(
-            f"expected version must be an integer from 4 through 10: "
+            f"expected version must be an integer from 4 through 11: "
             f"{expected_version!r}")
     if isinstance(required_same_version_groups, (str, bytes)):
         raise ExtensionVersionError(
@@ -2350,6 +2383,7 @@ def read_source_root(root: Path) -> Dict[str, str]:
         "drawable_header": (
             root / "modules/video_output/apple/VLCDrawable.h"
         ),
+        "es_out": root / "src/input/es_out.c",
         "media_player_internal": root / "lib/media_player_internal.h",
         "pip_controller": (
             root
@@ -2361,6 +2395,7 @@ def read_source_root(root: Path) -> Dict[str, str]:
         "sample_buffer_display": (
             root / "modules/video_output/apple/VLCSampleBufferDisplay.m"
         ),
+        "video_output": root / "src/video_output/video_output.c",
     }
     sources.update({
         key: (current.read_text(encoding="utf-8")

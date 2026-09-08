@@ -10,7 +10,7 @@
 #endif
 
 #if SWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION < 1 \
- || SWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION > 10
+ || SWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION > 11
 # error "unsupported SwiftVLC native extension version"
 #endif
 

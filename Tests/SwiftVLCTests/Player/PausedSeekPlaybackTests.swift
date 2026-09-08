@@ -4,7 +4,14 @@ import Foundation
 import Testing
 
 extension Integration.RemoteMP4SeekTests {
-  @Test(.timeLimit(.minutes(1)), arguments: [true, false], [true, false])
+  @Test(
+    .enabled(
+      if: ProcessInfo.processInfo.environment["SWIFTVLC_NATIVE_SEEK_TESTS"] == "1",
+      "Requires the rebuilt release XCFramework"
+    ),
+    .timeLimit(.minutes(1)),
+    arguments: [true, false], [true, false]
+  )
   func `Paused HTTP seeks settle at the output and retain that clock`(fast: Bool, audio: Bool) async throws {
     let fixtureURL = try #require(Bundle.module.url(
       forResource: "paused-seek", withExtension: "mp4", subdirectory: "Fixtures"

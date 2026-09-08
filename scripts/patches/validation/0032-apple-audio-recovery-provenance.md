@@ -113,7 +113,7 @@ Validation asset pins for the composed version/archive proof are:
 - `validate-audio-media-services-reset.sh`:
   `6d1712cfdcc60a7cda6f9333958880592d8a1201e6eaf847755ac7e7f16591b6`
 - `pip_extension_version.py`:
-  `1582e0915d13a177fbe545099a1ed52696d1b60cfa5dbfd6a35a60943ccfcd36`
+  `4c120aa28964bb854d3720d2399f473cadcd754de8a1ef74f1a53494522b31a5`
 - `native-extension-version-probe.c`:
   `b044fa0f493bedd01bc14489b432a326438df74826887ef2d227fa9bc812df39`
 - `validate-native-extension-contract.sh`:
@@ -131,7 +131,7 @@ configured slice. `build-libvlc.sh` runs the portable proof before architecture
 compilation and repeats it with configured Apple syntax as a postflight; it
 does not replace the physical oracle.
 
-The ordered patch manifest owns extension version 10 and separately requires
+The ordered patch manifest owns extension version 11 and separately requires
 the patch 0033 audio-session lease refinement introduced at version 8. Version
 8 retains both historical base and explicit refined profiles, but every v9 or
 v10 source and archive inherits the complete refined profile even when a caller
