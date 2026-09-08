@@ -1,0 +1,81 @@
+# Paused seeks must retain and immediately render their first output picture,
+# then publish it as a fixed clock point even when audio owns the clock.
+# Paced input PCR updates must exclude wall time spent paused after a seek.
+# Native extension version 11 lets Swift distinguish this behavior from the
+# previously published version-10 archive and retain its compatibility fallback.
+# Regression coverage: PausedSeekPlaybackTests against the rebuilt native engine.
+diff --git a/include/vlc/libvlc_media_player.h b/include/vlc/libvlc_media_player.h
+--- a/include/vlc/libvlc_media_player.h
++++ b/include/vlc/libvlc_media_player.h
+@@ -459,6 +459,8 @@ typedef struct swiftvlc_pip_playback_identity_t
+  * adds immutable native-handle/playback/output identity for race-free Apple
+  * PiP controller handoff. Version 10 adds ordered semantic text-region
+- * interception with explicit WebVTT placement provenance.
++ * interception with explicit WebVTT placement provenance. Version 11 retains
++ * and immediately presents the first paused-seek video output while publishing
++ * its fixed clock point.
+  */
+ LIBVLC_API unsigned swiftvlc_libvlc_pip_extensions_version( void );
+ 
+diff --git a/lib/media_player.c b/lib/media_player.c
+--- a/lib/media_player.c
++++ b/lib/media_player.c
+@@ -1142,7 +1142,7 @@ libvlc_media_player_get_media( libvlc_media_player_t *p_mi )
+ 
+ unsigned swiftvlc_libvlc_pip_extensions_version( void )
+ {
+-    return 10;
++    return 11;
+ }
+ 
+ bool
+diff --git a/src/input/es_out.c b/src/input/es_out.c
+--- a/src/input/es_out.c
++++ b/src/input/es_out.c
+@@ -3768,7 +3768,8 @@
+                             p_pgrm->p_input_clock,
+                             input_CanPaceControl(p_sys->p_input), buffering,
+                             b_extra_buffering_allowed,
+-                            i_pcr, vlc_tick_now() );
++                            i_pcr, p_sys->b_paused && input_CanPaceControl(p_sys->p_input)
++                                   ? p_sys->i_pause_date : vlc_tick_now() );
+ 
+         if (tracer != NULL)
+         {
+diff --git a/src/video_output/video_output.c b/src/video_output/video_output.c
+--- a/src/video_output/video_output.c
++++ b/src/video_output/video_output.c
+@@ -1316,7 +1316,10 @@
+                                  bool frame_by_frame)
+ {
+     vout_thread_sys_t *sys = vout;
+-    bool is_late_dropped = sys->is_late_dropped && !frame_by_frame;
++    /* A paused seek has only one output picture. Its presentation date is
++     * anchored to the pause, so wall-clock lateness must not discard it. */
++    bool is_late_dropped = sys->is_late_dropped && !frame_by_frame
++                        && !sys->pause.is_on;
+ 
+     vlc_mutex_lock(&sys->filter.lock);
+ 
+@@ -1813,8 +1816,10 @@
+         sys->displayed.date = system_now;
+     }
+ 
+-    /* Next frames should be updated as forced points */
+-    if (render_type == RENDER_PICTURE_NEXT)
++    /* Every picture rendered while paused is an exact output point, including
++     * the first picture after a seek. Let it override the dormant audio clock
++     * without interpolating or advancing that clock. */
++    if (render_type == RENDER_PICTURE_NEXT || sys->pause.is_on)
+         system_now = VLC_TICK_MAX;
+     else
+         system_now = vlc_tick_now();
+@@ -2037,7 +2042,7 @@
+         // next frame will still need some waiting before display, we don't need
+         // to render now
+         // display forced picture immediately
+-        bool render_now = sys->displayed.current->b_force;
++        bool render_now = sys->displayed.current->b_force || sys->pause.is_on;
+ 
+         RenderPicture(vout, render_now ? RENDER_PICTURE_FORCED
+                                        : RENDER_PICTURE_NORMAL);

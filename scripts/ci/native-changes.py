@@ -7,6 +7,9 @@ import subprocess
 
 def needs_build(paths):
     exact_inputs = {
+        "Tests/SwiftVLCTests/Player/PausedSeekPlaybackTests.swift",
+        "Tests/SwiftVLCTests/Player/RemoteMP4SeekTests.swift",
+        "Tests/SwiftVLCTests/Fixtures/paused-seek.mp4",
         "Package.swift", ".github/workflows/test.yml",
         "scripts/ci/check-rtsp.py", "scripts/ci/native-changes.py",
         "scripts/ci/tests/test_native_integration.py",

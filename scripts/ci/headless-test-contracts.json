@@ -5,7 +5,8 @@
   "counting_assumptions": [
     "Reported and passed floors are calibrated to the macOS SwiftPM lane with Swift 6.3.1, CI=true, and Swift Testing xUnit output; review them when that toolchain or lane changes.",
     "The source floor is a lexical inventory of @Test declarations in every Swift file under Tests/SwiftVLCTests, including declarations behind platform conditionals; it is not an executed-test count.",
-    "The uncontracted skip ceiling excludes only the exact native-version identities below. CI is transitioning from the released extension-version-9 artifact to the rebuilt extension-version-10 artifact, so the five version-10 text-subtitle scenarios receive allowances only before that upgrade. The retained version-8 boundary contracts remain mutually exclusive: four audio-session scenarios apply before version 8, while the reciprocal pre-version-8 rejection applies on version 8 or newer, preserving the same general skip-debt ceiling across that historical artifact boundary."
+    "The uncontracted skip ceiling excludes only the exact conditional identities below. CI is transitioning from the released extension-version-9 artifact to the rebuilt extension-version-10 artifact, so the five version-10 text-subtitle scenarios receive allowances only before that upgrade. The retained version-8 boundary contracts remain mutually exclusive: four audio-session scenarios apply before version 8, while the reciprocal pre-version-8 rejection applies on version 8 or newer, preserving the same general skip-debt ceiling across that historical artifact boundary.",
+    "The paused HTTP seek regression requires native patch 0049, which the published engine lacks. Only its exact identity and skip reason receive an allowance in the published-engine job. The rebuilt-engine job enables SWIFTVLC_NATIVE_SEEK_TESTS and requires both RemoteMP4SeekTests tests to pass through --require-suite; a skip there fails accounting."
   ],
   "maximum_uncontracted_reported_skips": 175,
   "maximum_declared_playback_gates": 119,
@@ -69,6 +70,12 @@
       "name": "`Positioned TTML decoder still reports automatic placement`()",
       "skip_reason": "Requires the patched libVLC text-subtitle snapshot ABI",
       "reason": "requires the rebuilt libVLC extension-version-10 text-subtitle snapshot ABI"
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.RemoteMP4SeekTests",
+      "name": "`Paused HTTP seeks settle at the output and retain that clock`(fast:audio:)",
+      "skip_reason": "Requires the rebuilt release XCFramework",
+      "reason": "requires native paused-seek patch 0049; mandatory in the rebuilt-engine job"
     }
   ],
   "required_suites": [

@@ -17,7 +17,7 @@ RUN_MUTATIONS=no
 
 usage() {
     cat >&2 <<EOF
-Usage: $0 --expected-version <1..10> [--source-root <patched-vlc>] \\
+Usage: $0 --expected-version <1..11> [--source-root <patched-vlc>] \\
   [--xcframework <candidate>] [--require-apple-audio-session-leases] \\
   [--run-mutations]
 EOF
@@ -60,8 +60,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ ! "$EXPECTED_VERSION" =~ ^([1-9]|10)$ ]]; then
-    echo "An exact expected extension version from 1 through 10 is required." >&2
+if [[ ! "$EXPECTED_VERSION" =~ ^([1-9]|10|11)$ ]]; then
+    echo "An exact expected extension version from 1 through 11 is required." >&2
     exit 2
 fi
 if [[ "$REQUIRE_LEASES" = yes ]] && (( EXPECTED_VERSION < 8 )); then
@@ -105,7 +105,7 @@ PY
 
 if [[ -n "$SOURCE_ROOT" ]]; then
     if (( EXPECTED_VERSION < 4 )); then
-        echo "Source composition proof is defined for extension versions 4 through 10." >&2
+        echo "Source composition proof is defined for extension versions 4 through 11." >&2
         exit 2
     fi
     if [[ ! -d "$SOURCE_ROOT" ]]; then
@@ -423,8 +423,8 @@ PY
                 fi
             done
             # Bash 3.2 treats expansion of an explicitly empty array as an
-            # unbound variable under `set -u`. Version 10 has no future group,
-            # so guard the only empty-array boundary before expanding it.
+            # unbound variable under `set -u`. Version 10 and later have no
+            # future symbol group, so guard the empty-array boundary.
             if (( EXPECTED_VERSION < 10 )); then
                 for symbol in "${FUTURE_SYMBOLS[@]}"; do
                     counts=$(symbol_definition_counts "$nm_output" "$symbol")

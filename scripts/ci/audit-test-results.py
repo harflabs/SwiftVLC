@@ -642,6 +642,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--test-source-root", type=Path, required=True)
     parser.add_argument("--json-output", type=Path, required=True)
     parser.add_argument("--github-summary", type=Path)
+    parser.add_argument(
+        "--require-suite", nargs=2, action="append", default=[],
+        metavar=("CLASSNAME", "MINIMUM_PASSED"),
+        help="Add a mandatory suite for this CI lane without relaxing the shared contract",
+    )
     parser.add_argument("--test-step-outcome", choices=("success", "failure", "cancelled", "skipped"))
     return parser.parse_args()
 
@@ -673,6 +678,13 @@ def main() -> int:
         root = ET.parse(args.xunit).getroot()
         cases = xunit_cases(root)
         declarations, gates = source_inventory(args.test_source_root)
+        validate_contract(config)
+        for classname, minimum in args.require_suite:
+            config["required_suites"].append({
+                "classname": classname,
+                "minimum_passed": int(minimum),
+                "reason": "mandatory execution in this CI lane",
+            })
         report, errors = evaluate(cases, config, declarations, gates)
     except (OSError, ET.ParseError, KeyError, TypeError, ValueError) as error:
         message = f"test-accounting error: {error}"

@@ -447,7 +447,9 @@ typedef struct swiftvlc_pip_playback_identity_t
  * causal reset recovery, and read-only qualification telemetry. Version 9
  * adds immutable native-handle/playback/output identity for race-free Apple
  * PiP controller handoff. Version 10 adds ordered semantic text-region
- * interception with explicit WebVTT placement provenance.
+ * interception with explicit WebVTT placement provenance. Version 11 retains
+ * and immediately presents the first paused-seek video output while publishing
+ * its fixed clock point.
  */
 LIBVLC_API unsigned swiftvlc_libvlc_pip_extensions_version( void );
 

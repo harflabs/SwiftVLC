@@ -2062,14 +2062,15 @@ expected_manifest_tail = [
     "0fb742b8d8f8819bc89643b0e298b4bf0468cf1b068824317a1dc064f4ec8438  0046-clear-recovered-playback-failures.patch",
     "c0a203e6a83d0eed27074095c9a7c4e7a649015e73d00b40fb2d7fb8bbc584b2  0047-restore-live555-compatible-contrib.patch",
     "f1f89c4ef3ae9858d6f47040c23271048fb49bea71ff75224c9c09f853e1a59a  0048-enable-lgpl2-live555-rtsp.patch",
+    "a513915440be51e99ce90db2ee878c44a1c7eaf8d4da238060ceaa0dc1efee5c  0049-paused-seek-output-clock.patch",
 ]
-if manifest_lines[-12:] != expected_manifest_tail:
+if manifest_lines[-len(expected_manifest_tail):] != expected_manifest_tail:
     sys.exit(
         "patch manifest must end with frozen 0037 through 0040, native PiP "
         "output identity 0041, adaptive ES recycling 0042, then text-subtitle "
         "callback 0043, deferred-resume correction 0044, playlist policy 0045, "
-        "failure recovery 0046, and LGPL2 live555 0047/0048: "
-        f"got {manifest_lines[-12:]}"
+        "failure recovery 0046, LGPL2 live555 0047/0048, and paused-seek clock 0049: "
+        f"got {manifest_lines[-len(expected_manifest_tail):]}"
     )
 
 required_validator_assets = (
@@ -2662,6 +2663,7 @@ expected_extension_patch_versions = {
     "0032-audio-media-services-reset.patch": 8,
     "0041-native-pip-output-identity.patch": 9,
     "0043-text-subtitle-callback.patch": 10,
+    "0049-paused-seek-output-clock.patch": 11,
 }
 for patch_name, version in expected_extension_patch_versions.items():
     marker = (
@@ -2715,14 +2717,19 @@ for marker in (
     '"version-gated subtitle text snapshot wrapper",',
     'subtitle_availability_contract = (',
     '"subtitle text snapshot availability helper",',
-    'expected version must be an integer from 4 through 10',
+    '"paused-seek-output-clock",\n        11,',
+    '"paced paused PCR anchor"',
+    '"paused picture late-drop exemption"',
+    '"paused picture fixed clock point"',
+    '"paused picture immediate render"',
+    'expected version must be an integer from 4 through 11',
 ):
     if extension_resolver.count(marker) != 1:
         sys.exit(f"v10 source resolver contract is incomplete: {marker}")
 for marker in (
-    'Usage: $0 --expected-version <1..10>',
-    'if [[ ! "$EXPECTED_VERSION" =~ ^([1-9]|10)$ ]]; then',
-    'An exact expected extension version from 1 through 10 is required.',
+    'Usage: $0 --expected-version <1..11>',
+    'if [[ ! "$EXPECTED_VERSION" =~ ^([1-9]|10|11)$ ]]; then',
+    'An exact expected extension version from 1 through 11 is required.',
     'VERSION_9_SYMBOLS=(\n'
     '        swiftvlc_libvlc_media_player_set_pip_playback_identity\n'
     '    )',
@@ -2741,7 +2748,7 @@ for marker in (
     if native_extension_validator.count(marker) != 1:
         sys.exit(f"v10 archive/compatibility validator is incomplete: {marker}")
 for marker in (
-    'SWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION > 10',
+    'SWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION > 11',
     'sizeof(swiftvlc_pip_playback_identity_t) == 16',
     'offsetof(swiftvlc_pip_playback_identity_t,',
     'swiftvlc_libvlc_media_player_set_pip_playback_identity,',
@@ -2773,8 +2780,8 @@ for marker in (
 adaptive_source_gate = native_patch_series_validator.index(
     'section "Validating adaptive ES codec-configuration recycling"'
 )
-v10_source_gate = native_patch_series_validator.index(
-    'section "Validating exact integrated extension version 10"'
+v11_source_gate = native_patch_series_validator.index(
+    'section "Validating exact integrated extension version 11"'
 )
 subtitle_snapshot_gate = native_patch_series_validator.index(
     'section "Validating ordered semantic subtitle-text snapshots"'
@@ -2787,17 +2794,17 @@ strict_source_gate = native_patch_series_validator.index(
 )
 if not (
     adaptive_source_gate
-    < v10_source_gate
+    < v11_source_gate
     < subtitle_snapshot_gate
     < pip_identity_gate
     < strict_source_gate
 ):
     sys.exit(
-        "0042/v10/0043/0041/legacy native source gates are out of fail-closed "
+        "0042/v11/0043/0041/legacy native source gates are out of fail-closed "
         "order"
     )
 for marker in (
-    '--expected-version 10',
+    '--expected-version 11',
     '"$SCRIPT_DIR/patches/validation/adaptive-es-recycling-source-check.py"',
     '"$SCRIPT_DIR/patches/0042-adaptive-es-recycling-extradata-identity.patch"',
     '"$SCRIPT_DIR/patches/validation/native-pip-output-identity-source-check.py"',
@@ -2904,7 +2911,8 @@ for stale_include in (
         )
 for marker in (
     'if [[ "$EXPECTED_EXTENSION_VERSION" == 9 ||\n'
-    '      "$EXPECTED_EXTENSION_VERSION" == 10 ]]; then\n'
+    '      "$EXPECTED_EXTENSION_VERSION" == 10 ||\n'
+    '      "$EXPECTED_EXTENSION_VERSION" == 11 ]]; then\n'
     '  REQUIRE_APPLE_AUDIO_SESSION_LEASES=yes\n'
     'fi',
     'if [[ "$EXPECTED_EXTENSION_VERSION" -ge 9 &&\n'
@@ -3195,7 +3203,7 @@ release_native_extension_command = release[
 for marker in (
     '"$SCRIPT_DIR/validate-native-extension-contract.sh"',
     '--xcframework "$XCFW_PATH"',
-    '--expected-version 10',
+    '--expected-version 11',
     '--require-apple-audio-session-leases',
 ):
     if release_native_extension_command.count(marker) != 1:

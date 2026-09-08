@@ -109,15 +109,15 @@
 Validation asset pins for the composed version/archive proof are:
 
 - `audio-media-services-reset-source-check.py`:
-  `ed0d4eaec115e0d93f98e69ba02ce2f3c6b6a88e1651f8b2d38bd1fa3ade756c`
+  `3687fcc432c7682f69774181d8e50351bffd90302d4fff7aa2b064a0c6107f90`
 - `validate-audio-media-services-reset.sh`:
-  `6d1712cfdcc60a7cda6f9333958880592d8a1201e6eaf847755ac7e7f16591b6`
+  `10fb9032ecb3f09c7383aec38d5ae8cbe36092616d3376fc06cd7f6b7c6ed02d`
 - `pip_extension_version.py`:
-  `1582e0915d13a177fbe545099a1ed52696d1b60cfa5dbfd6a35a60943ccfcd36`
+  `4c120aa28964bb854d3720d2399f473cadcd754de8a1ef74f1a53494522b31a5`
 - `native-extension-version-probe.c`:
-  `b044fa0f493bedd01bc14489b432a326438df74826887ef2d227fa9bc812df39`
+  `1f0a0756198c4fa4f2f06a0d9e68715b003378d426483fc63b160d600e4dc590`
 - `validate-native-extension-contract.sh`:
-  `4d89c85709f710b6df19e76cb1727e451fbffee1909145e2f3686f1cf379b545`
+  `d7c1d4ab5c0b8e6dc89397f2aa5ae9542fb0b317889be47c34aa964dfaa75ebe`
 
 The source validator performs exactly 130 structural checks with one deliberate
 negative mutation per gate, ABI parity checks, bounded-exhaustive
@@ -131,7 +131,7 @@ configured slice. `build-libvlc.sh` runs the portable proof before architecture
 compilation and repeats it with configured Apple syntax as a postflight; it
 does not replace the physical oracle.
 
-The ordered patch manifest owns extension version 10 and separately requires
+The ordered patch manifest owns extension version 11 and separately requires
 the patch 0033 audio-session lease refinement introduced at version 8. Version
 8 retains both historical base and explicit refined profiles, but every v9 or
 v10 source and archive inherits the complete refined profile even when a caller
