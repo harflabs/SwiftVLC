@@ -12,7 +12,7 @@
 # Usage:
 #   ./scripts/release.sh 0.1.0 --status [--candidate /path/to/candidate]
 #   ./scripts/release.sh 0.1.0 --prepare /path/to/candidate
-#   ./scripts/release.sh 0.1.0 --prepare /path/to/new --reuse-native /path/to/old
+#   ./scripts/release.sh 0.1.0 --prepare /path/to/new --reuse-native /path/to/old-candidate-or-build
 #   ./scripts/release.sh 0.1.0 --candidate /path/to/candidate
 #   ./scripts/release.sh 0.1.0 --candidate /path/to/candidate --finalize
 #   ./scripts/release.sh 0.1.0 --dry-run          # strip/zip/checksum only, no push
@@ -86,7 +86,7 @@ while [[ $# -gt 0 ]]; do
       DRY_RUN=true
       shift 2 ;;
     --reuse-native)
-      [[ $# -ge 2 ]] || { echo "Error: --reuse-native requires a candidate directory." >&2; exit 2; }
+      [[ $# -ge 2 ]] || { echo "Error: --reuse-native requires a candidate or verified build directory." >&2; exit 2; }
       REUSE_NATIVE_DIR="$2"
       shift 2 ;;
     --candidate)
@@ -634,16 +634,29 @@ for context in expected_checks:
 PY
 }
 
-# A prepared candidate may be released from a later main commit when the
-# release-significant source digest is unchanged. Its native artifact must still
-# prove the exact commit that created the candidate, not merely the current HEAD.
+# A prepared candidate or verified clean-build output may be reused from a later
+# main commit when native inputs are unchanged. Its native artifact must still
+# prove the exact commit that created it, not merely the current HEAD.
 SOURCE_COMMIT=$(git rev-parse HEAD)
 EXPECTED_ARTIFACT_SWIFTVLC_REVISION="$SOURCE_COMMIT"
 if [[ -n "$REUSE_NATIVE_DIR" ]]; then
-  NATIVE_SOURCE_COMMIT=$(python3 - "$REUSE_NATIVE_DIR/release-candidate.json" <<'PYREUSE'
+  NATIVE_SOURCE_COMMIT=$(python3 - "$REUSE_NATIVE_DIR" <<'PYREUSE'
 import json, sys
-value = json.load(open(sys.argv[1]))
-print(value.get("nativeSourceCommit", value["sourceCommit"]))
+from pathlib import Path
+
+root = Path(sys.argv[1])
+candidate = root / "release-candidate.json"
+provenance = root / "libvlc-provenance.json"
+try:
+    if candidate.is_file():
+        value = json.loads(candidate.read_text())
+        revision = value.get("nativeSourceCommit", value["sourceCommit"])
+    else:
+        value = json.loads(provenance.read_text())
+        revision = value["swiftVLCRevision"]
+except (OSError, ValueError, KeyError, TypeError) as error:
+    sys.exit(f"Error: cannot read reusable native source revision: {error}")
+print(revision)
 PYREUSE
   )
   NATIVE_SOURCE_COMMIT=$(python3 -B "$SCRIPT_DIR/native-reuse.py" "$NATIVE_SOURCE_COMMIT")

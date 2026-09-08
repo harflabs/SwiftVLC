@@ -505,17 +505,19 @@ and rerun the same phase: the normal checks reconcile remote state and retain
 verified uploads. Status reports local prerequisites and visible PR checks;
 it does not verify artifact bytes or grant qualification or publication credit.
 
-A Swift, test, or release-tooling correction can reuse a previously prepared
-native artifact with:
+A Swift, test, release-tooling, or content-addressed native-inventory correction
+can reuse a previously prepared candidate or a verified clean-build output with:
 
 ```bash
 ./scripts/release.sh X.Y.Z --prepare /path/to/new-candidate \
-  --reuse-native /path/to/old-candidate
+  --reuse-native /path/to/old-candidate-or-build-output
 ```
 
 This requires unchanged native inputs between the original build commit and
-the current clean checkout. Unknown paths and changes to native code, patches,
-build configuration, or validators require a rebuild. Both original provenance
+the current clean checkout. A build-output directory must contain the complete
+XCFramework, both provenance records, and the reproducibility proof produced by
+the two clean builds. Unknown paths and changes to native code, patches, build
+configuration, or validators require a rebuild. Both original provenance
 records and the reproducibility proof remain unchanged. The new candidate binds
 the current Swift source and qualification policy, records the original
 `nativeSourceCommit`, and requires fresh CI and, for stable releases, physical
