@@ -1405,6 +1405,8 @@ if [ -n "${PATCHES_DIR}" ] && [ -d "${PATCHES_DIR}" ]; then
                 manifest_extension_candidate=9 ;;
             0043-text-subtitle-callback.patch)
                 manifest_extension_candidate=10 ;;
+            0049-paused-seek-output-clock.patch)
+                manifest_extension_candidate=11 ;;
         esac
         if [ -n "$manifest_extension_candidate" ] &&
            { [ -z "$swiftvlc_manifest_extension_version" ] ||

@@ -2663,6 +2663,7 @@ expected_extension_patch_versions = {
     "0032-audio-media-services-reset.patch": 8,
     "0041-native-pip-output-identity.patch": 9,
     "0043-text-subtitle-callback.patch": 10,
+    "0049-paused-seek-output-clock.patch": 11,
 }
 for patch_name, version in expected_extension_patch_versions.items():
     marker = (
