@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 def non_native_path(path):
     return path.startswith(("Sources/SwiftVLC/", "Tests/SwiftVLCTests/", "Showcase/",
                             ".github/", "docs/", "scripts/ci/", "scripts/tests/",
-                            "scripts/qualification/")) or path in {
+                            "scripts/qualification/", "scripts/libvlc-manifests/")) or path in {
         "README.md", "CHANGELOG.md", "CONTRIBUTING.md", "CLAUDE.md", "AGENTS.md",
         "LICENSE", ".gitignore", ".swiftlint.yml", ".swiftformat",
         "scripts/release.sh", "scripts/release-runner.py", "scripts/release-status.py",

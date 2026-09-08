@@ -217,6 +217,32 @@ class ReleaseOperationsTests(unittest.TestCase):
                     reuse.verify(root, base)
                 git("reset", "--hard", "HEAD^")
 
+    def test_reuse_accepts_content_addressed_binary_validation_inventory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def git(*args):
+                return subprocess.check_output(
+                    ["git", "-C", str(root), *args],
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                ).strip()
+
+            git("init", "-q")
+            git("config", "user.name", "Fixture")
+            git("config", "user.email", "fixture@example.invalid")
+            (root / "base").write_text("base")
+            git("add", ".")
+            git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD")
+            inventory = root / "scripts/libvlc-manifests/sets/digest/ios-arm64.txt"
+            inventory.parent.mkdir(parents=True)
+            inventory.write_text("arm64 member.o\n")
+            git("add", ".")
+            git("commit", "-qm", "record validation inventory")
+
+            self.assertEqual(reuse.verify(root, base), base)
+
     def test_reuse_rejects_native_input_renamed_to_documentation(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
