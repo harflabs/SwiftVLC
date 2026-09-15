@@ -104,7 +104,9 @@ extension Integration {
       let resources = try Dictionary(uniqueKeysWithValues: FileManager.default.contentsOfDirectory(
         at: hlsRoot, includingPropertiesForKeys: nil
       ).map { try ("/" + $0.lastPathComponent, Data(contentsOf: $0)) })
-      let server = try MP4RangeProbeServer(resources: resources, path: "/index.m3u8")
+      // Accuracy cases use an unthrottled transport. Deadline behavior is
+      // exercised separately with deterministic 3.5-second response delays.
+      let server = try MP4RangeProbeServer(resources: resources, path: "/index.m3u8", chunkDelayMicroseconds: 0)
       defer { server.stop() }
       let url = source == "http-hls" ? server.url
         : hls ? hlsRoot.appendingPathComponent("index.m3u8") : fixture
@@ -123,12 +125,19 @@ extension Integration {
           let atSettlement = try #require(sink.latest)
           #expect(sink.count > baseline)
           #expect(atSettlement.frame == min(1799, Int((target * 30 + 999) / 1000)))
-          #expect(abs((Double(player.currentTime.components.seconds) + Double(player.currentTime.components.attoseconds) / 1e18) - Double(atSettlement.frame) / 30) < 0.002)
+          let observed = player.currentTime.components
+          let observedSeconds = Double(observed.seconds) + Double(observed.attoseconds) / 1e18
+          let settlementError = abs(observedSeconds - Double(atSettlement.frame) / 30)
+          #expect(settlementError < 0.002)
           try await Task.sleep(for: .milliseconds(250))
           let actual = try #require(sink.latest)
           #expect(outcome == (target == 59999 ? .inaccurate : .settled))
           #expect(actual.frame == min(1799, Int((target * 30 + 999) / 1000)))
-          #expect(abs(Double(actual.pts) / 1000 - (hls ? 1466.666666 : 0) - Double(actual.frame) * 1000 / 30) < 1)
+          let ptsMilliseconds = Double(actual.pts) / 1000
+          let originMilliseconds: Double = hls ? 1466.666666 : 0
+          let contentMilliseconds = Double(actual.frame) * 1000 / 30
+          let ptsError = abs(ptsMilliseconds - originMilliseconds - contentMilliseconds)
+          #expect(ptsError < 1)
           let c = player.currentTime.components
           let mirrorSeconds = Double(c.seconds) + Double(c.attoseconds) / 1e18
           #expect(abs(mirrorSeconds - Double(actual.frame) / 30) < 0.002)

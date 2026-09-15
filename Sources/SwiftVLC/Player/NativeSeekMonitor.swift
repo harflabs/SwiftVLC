@@ -478,6 +478,10 @@ final class NativeSeekMonitor: Sendable {
     swiftvlc_libvlc_pip_extensions_version() >= 12
   }
 
+  func expireVideoOutputObservation(for token: UInt64) {
+    context.expireVideoOutputObservation(for: token)
+  }
+
   func requireVideoOutput(for token: UInt64) {
     context.requireVideoOutput(for: token)
   }

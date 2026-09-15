@@ -283,6 +283,7 @@ extension Integration {
       let player = makePausedSeekPlayer()
       player._seekOverridesForTesting.hasSelectedVideo = true
       player._seekOverridesForTesting.supportsPausedSeekOutputClock = false
+      player._seekOverridesForTesting.supportsVideoOutputEvidence = false
       player._nativeSetTimeOverrideForTesting = { _, _ in 0 }
       player._nativeSeekLandingOverrideForTesting = { (30000, 0.5) }
 

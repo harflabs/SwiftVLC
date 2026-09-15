@@ -119,7 +119,8 @@ final class MP4RangeProbeServer: Sendable {
     try self.init(resources: ["/seek-fixture.mp4": data], path: "/seek-fixture.mp4")
   }
 
-  init(resources: [String: Data], path: String) throws {
+  init(resources: [String: Data], path: String, chunkDelayMicroseconds: UInt32 = 20000) throws {
+    state.mutex.withLock { $0.chunkDelayMicroseconds = chunkDelayMicroseconds }
     let fd = socket(AF_INET, SOCK_STREAM, 0)
     guard fd >= 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
 
@@ -266,6 +267,7 @@ final class MP4RangeProbeServer: Sendable {
     let headerData = Data((headers.joined(separator: "\r\n") + "\r\n\r\n").utf8)
     guard sendAll(headerData, to: client), method != "HEAD" else { return }
 
+    let chunkDelay = state.mutex.withLock { $0.chunkDelayMicroseconds }
     let chunkSize = 4 * 1024
     var offset = start
     while offset <= end {
@@ -275,7 +277,9 @@ final class MP4RangeProbeServer: Sendable {
       let chunkEnd = min(offset + chunkSize - 1, end)
       guard sendRange(data, range: offset...chunkEnd, to: client) else { return }
       offset = chunkEnd + 1
-      usleep(20000)
+      if chunkDelay > 0 {
+        usleep(chunkDelay)
+      }
     }
   }
 
@@ -345,6 +349,7 @@ final class MP4RangeProbeServer: Sendable {
   }
 
   private struct State: Sendable {
+    var chunkDelayMicroseconds: UInt32 = 20000
     var delayResponses = false
     var isStopped = false
     var clients: Set<Int32> = []

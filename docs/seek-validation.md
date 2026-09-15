@@ -11,9 +11,12 @@
    public observation deadline from the lifetime of the latest queued intent.
 2. **Late output discarded after timeout.** Canceling monitor ownership at the
    active deadline prevented the eventual native landing from correcting the
-   optimistic paused timeline. A deadline now leaves the native lease intact;
-   output can update observed time and drain the lane while the original result
-   remains terminal `.timedOut`.
+   optimistic paused timeline. A deadline preserves pending native work;
+   output can update observed time while the original result remains terminal
+   `.timedOut`. Once seek-end and a subsequent clock prove the native episode
+   completed, an expired video observation releases the navigation lease even
+   if no frame arrives. Late output remains observable until another seek,
+   frame request, or timeline replacement takes ownership.
 3. **Paused adaptive decoder replacement.** HLS can replace its video decoder
    during a seek. The old decoder's flush allowance did not reach the replacement.
    Treating bootstrap as a next-frame request then hit the explicit frame-step
@@ -60,6 +63,11 @@ The implementation and executable source guards are patch 0050 and
 - **Deadline fault injection:** two 3.5-second HTTP response delays must produce
   terminal timeout observations while still dispatching the final intent and
   eventually displaying its pixels. Paused and playing cases both apply.
+- **Missing-output liveness:** deterministic tests cover the deadline on either
+  side of native seek completion, a queued successor, late output without a
+  successor, and retirement at external-seek/frame-request boundaries. A clock
+  may release an expired lease but cannot produce video `.settled`. Paused
+  audio retains its post-end getter proof after timeout.
 - **Adjacent behavior:** full Swift tests, strict-frame burst/EOF/ordering probes,
   native patch replay, ABI and symbol verification, and mutation-sensitive source
   checks. CI requires the output-oracle suite to execute against the rebuilt

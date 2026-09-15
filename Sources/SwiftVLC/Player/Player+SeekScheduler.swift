@@ -468,9 +468,10 @@ extension Player {
         nativeHandleGeneration: command.nativeHandleGeneration
       )
     else { return -1 }
-    if nativeSeekMonitor.supportsVideoOutputEvidence, nativeSeekHasSelectedVideo {
+    if nativeSeekSupportsVideoOutputEvidence, nativeSeekHasSelectedVideo {
       nativeSeekMonitor.requireVideoOutput(for: command.nativeSeekToken)
     }
+    lateNativeSeekObservation = nil
     return nativeSeekMonitor.withCausalSeekInvocation(token: command.nativeSeekToken) {
       let result: Int32 = switch command.operation {
       case .time(let milliseconds, let fast):
@@ -647,13 +648,19 @@ extension Player {
 
     activeNativeSeek.deadlineTask?.cancel()
     activeNativeSeek.deadlineTask = nil
-    activeNativeSeek.pollingTask?.cancel()
-    activeNativeSeek.pollingTask = nil
-    activeNativeSeek.allowsPausedFallback = false
+    // Paused audio may never emit another watched point. Its existing
+    // post-end getter proof must remain available after observation expires.
+    if nativeSeekHasSelectedVideo {
+      activeNativeSeek.pollingTask?.cancel()
+      activeNativeSeek.pollingTask = nil
+      activeNativeSeek.allowsPausedFallback = false
+    }
     activeNativeSeek.isTombstoned = true
     self.activeNativeSeek = activeNativeSeek
-    // Native work is still running. Keep its observed landing even though
-    // the public result is terminal; it must repair time and release the lane.
+    nativeSeekMonitor.expireVideoOutputObservation(for: nativeSeekToken)
+    reconcileCommittedNativeSeekProgress()
+    // Pending native work or late output retains observation authority.
+    // The public result becomes terminal without inventing a video landing.
 
     if
       pendingSeekSettlement?.nativeSeekToken == nativeSeekToken,
