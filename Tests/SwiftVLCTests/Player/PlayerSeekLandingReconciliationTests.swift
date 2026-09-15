@@ -269,6 +269,11 @@ extension Integration {
       #expect(player.currentTime == .seconds(30))
       player.nativeSeekMonitor._noteTimeUpdatedForTesting(timeMilliseconds: 30000, position: 0.5)
       await drainMainActor()
+      if player.nativeSeekMonitor.supportsVideoOutputEvidence {
+        #expect(player.pendingSeekSettlement != nil)
+        player.nativeSeekMonitor._noteVideoOutputForTesting(timeMilliseconds: 30000, position: 0.5)
+        await drainMainActor()
+      }
       #expect(await request.outcome == .settled)
       #expect(player.currentTime == .seconds(30))
     }
@@ -278,6 +283,7 @@ extension Integration {
       let player = makePausedSeekPlayer()
       player._seekOverridesForTesting.hasSelectedVideo = true
       player._seekOverridesForTesting.supportsPausedSeekOutputClock = false
+      player._seekOverridesForTesting.supportsVideoOutputEvidence = false
       player._nativeSetTimeOverrideForTesting = { _, _ in 0 }
       player._nativeSeekLandingOverrideForTesting = { (30000, 0.5) }
 

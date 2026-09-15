@@ -8,17 +8,23 @@ struct NativeSeekLanding: Sendable {
   /// Total order assigned by the callback authority before this landing is
   /// handed to another executor. Zero is reserved for direct DEBUG seams.
   let emissionSequence: UInt64
+  let isVideoOutput: Bool
+  let frameDurationMicroseconds: Int64
 
   init(
     token: UInt64,
     timeMilliseconds: Int64,
     position: Double,
-    emissionSequence: UInt64 = 0
+    emissionSequence: UInt64 = 0,
+    isVideoOutput: Bool = false,
+    frameDurationMicroseconds: Int64 = 0
   ) {
     self.token = token
     self.timeMilliseconds = timeMilliseconds
     self.position = position
     self.emissionSequence = emissionSequence
+    self.isVideoOutput = isVideoOutput
+    self.frameDurationMicroseconds = frameDurationMicroseconds
   }
 }
 
@@ -468,6 +474,18 @@ final class NativeSeekMonitor: Sendable {
     context.reserveCommand()
   }
 
+  var supportsVideoOutputEvidence: Bool {
+    swiftvlc_libvlc_pip_extensions_version() >= 12
+  }
+
+  func expireVideoOutputObservation(for token: UInt64) {
+    context.expireVideoOutputObservation(for: token)
+  }
+
+  func requireVideoOutput(for token: UInt64) {
+    context.requireVideoOutput(for: token)
+  }
+
   func stageReservedCommandIfIdle(
     _ token: UInt64,
     expectedExternalEpoch: UInt64
@@ -761,7 +779,13 @@ final class NativeSeekMonitor: Sendable {
     to player: OpaquePointer,
     opaque: UnsafeMutableRawPointer
   ) -> Int32 {
-    libvlc_media_player_watch_time(
+    if swiftvlc_libvlc_pip_extensions_version() >= 12 {
+      return swiftvlc_libvlc_media_player_watch_time_with_video_output(
+        player, 250_000, nativeSeekTimeUpdate, nil, nativeSeekStateChanged,
+        nativeSeekVideoOutput, opaque
+      )
+    }
+    return libvlc_media_player_watch_time(
       player,
       250_000,
       nativeSeekTimeUpdate,
@@ -852,6 +876,14 @@ final class NativeSeekMonitor: Sendable {
     )
   }
 
+  func _noteVideoOutputForTesting(timeMilliseconds: Int64, position: Double, frameDurationMicroseconds: Int64 = 33333) {
+    context.noteTimeUpdated(
+      timeMicroseconds: timeMilliseconds * 1000, position: position,
+      timelineGeneration: context.currentTimelineGeneration(),
+      isVideoOutput: true, frameDurationMicroseconds: frameDurationMicroseconds
+    )
+  }
+
   func _requestFrameStepForTesting(
     requestID: UInt64,
     frameGeneration: UInt64,
@@ -908,6 +940,23 @@ private func nativeSeekTimeUpdate(
     timeMicroseconds: timeMicroseconds,
     position: point.pointee.position,
     timelineGeneration: attachment.timelineGeneration
+  )
+}
+
+private func nativeSeekVideoOutput(
+  _ point: UnsafePointer<libvlc_media_player_time_point_t>?,
+  _ durationMicroseconds: Int64,
+  _ opaque: UnsafeMutableRawPointer?
+) {
+  guard let point, let opaque else { return }
+  let attachment = Unmanaged<NativeSeekMonitor.Attachment>.fromOpaque(opaque)
+    .takeUnretainedValue()
+  attachment.context.noteTimeUpdated(
+    timeMicroseconds: point.pointee.ts_us,
+    position: point.pointee.position,
+    timelineGeneration: attachment.timelineGeneration,
+    isVideoOutput: true,
+    frameDurationMicroseconds: durationMicroseconds
   )
 }
 

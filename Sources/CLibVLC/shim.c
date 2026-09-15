@@ -123,6 +123,18 @@ _Static_assert(_Alignof(swiftvlc_pip_playback_identity_t) == 8,
  * provider dylib at static-link time on Darwin).
  */
 __attribute__((weak))
+int swiftvlc_libvlc_media_player_watch_time_with_video_output(
+    libvlc_media_player_t *player, int64_t period,
+    libvlc_media_player_watch_time_on_update update,
+    libvlc_media_player_watch_time_on_paused paused,
+    libvlc_media_player_watch_time_on_seek seek,
+    swiftvlc_video_output_time_cb video, void *data) {
+    (void)player; (void)period; (void)update; (void)paused;
+    (void)seek; (void)video; (void)data;
+    return -ENOSYS;
+}
+
+__attribute__((weak))
 unsigned swiftvlc_libvlc_pip_extensions_version(void) {
     return 0;
 }

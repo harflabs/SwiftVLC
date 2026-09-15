@@ -1407,6 +1407,8 @@ if [ -n "${PATCHES_DIR}" ] && [ -d "${PATCHES_DIR}" ]; then
                 manifest_extension_candidate=10 ;;
             0049-paused-seek-output-clock.patch)
                 manifest_extension_candidate=11 ;;
+            0050-seek-video-output-contract.patch)
+                manifest_extension_candidate=12 ;;
         esac
         if [ -n "$manifest_extension_candidate" ] &&
            { [ -z "$swiftvlc_manifest_extension_version" ] ||

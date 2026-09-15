@@ -45,6 +45,7 @@ extension PiPController {
           case .pending: preconditionFailure("a terminal seek outcome cannot be pending")
           case .rejected: .rejected
           case .settled: .settled
+          case .inaccurate: .rejected
           case .timedOut: .timedOut
           case .superseded: .superseded
           }

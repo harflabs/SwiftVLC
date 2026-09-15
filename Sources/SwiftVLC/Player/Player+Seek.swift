@@ -4,6 +4,7 @@ import CLibVLC
 struct PlayerSeekTestOverrides {
   var hasSelectedVideo: Bool?
   var supportsPausedSeekOutputClock: Bool?
+  var supportsVideoOutputEvidence: Bool?
   var setTime: ((Int64, Bool) -> Int32)?
   var jumpTime: ((Int64) -> Int32)?
   var setPosition: ((Double, Bool) -> Int32)?
@@ -92,6 +93,7 @@ extension Player {
   }
 
   struct ActiveNativeSeek {
+    let requiresVideoOutput: Bool
     var command: NativeSeekCommand
     var firstPostEndTimeMilliseconds: Int64?
     var firstPostEndPosition: Double?

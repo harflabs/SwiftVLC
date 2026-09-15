@@ -19,7 +19,7 @@ extension Player {
       && (0.0...1.0).contains(landing.position)
     guard
       !isShutdown,
-      let activeNativeSeek,
+      let activeNativeSeek = activeNativeSeek ?? lateNativeSeekObservation,
       activeNativeSeek.command.nativeSeekToken == landing.token,
       activeNativeSeek.command.playbackGeneration == sessionGeneration,
       activeNativeSeek.command.nativeHandleGeneration
@@ -52,6 +52,7 @@ extension Player {
     activeNativeSeek.deadlineTask?.cancel()
     activeNativeSeek.pollingTask?.cancel()
     self.activeNativeSeek = nil
+    lateNativeSeekObservation = nil
     let canPublishLanding = hasCoherentLanding
       && canCommitNativeTimelineEmission(landing.emissionSequence)
     let postLandingTimeline = canPublishLanding
@@ -158,11 +159,30 @@ extension Player {
       finishCurrentPublicSeek(
         nativeSeekToken: command.nativeSeekToken,
         resolver: command.resolver,
-        outcome: hasCoherentLanding ? .settled : .timedOut
+        outcome: !hasCoherentLanding ? .timedOut
+          : videoSeekLandingMeetsTarget(landing, command: command) ? .settled : .inaccurate
       )
     }
     dispatchQueuedNativeSeekIfPossible()
     dispatchNextPendingFrameStepIfNeeded()
+  }
+
+  /// A successful output is still an observation, not proof that a precise
+  /// target was honored. Reject off-target output without pinning the native
+  /// lane or hiding the actual playback position from the user.
+  func videoSeekLandingMeetsTarget(
+    _ landing: NativeSeekLanding,
+    command: NativeSeekCommand
+  ) -> Bool {
+    guard landing.isVideoOutput else { return true }
+    let precise: Bool = switch command.operation {
+    case .time(_, let fast), .position(_, let fast): !fast
+    case .relative, .strictRelative, .composed: false
+    }
+    guard precise, let target = command.evidence.requestedTimeMilliseconds else { return true }
+    let delta = Double(landing.timeMilliseconds) - Double(target)
+    let frameMilliseconds = max(1, Double(landing.frameDurationMicroseconds) / 1000)
+    return delta >= -1 && delta <= frameMilliseconds + 1
   }
 
   /// A start with no matching staged token was issued outside SwiftVLC. It
@@ -171,6 +191,11 @@ extension Player {
   /// active/queued work from an older epoch is superseded fail-closed.
   func nativeSeekDidStart(_ start: NativeSeekStart) {
     guard !isShutdown else { return }
+    if
+      let token = start.token, let lateNativeSeekObservation,
+      token > lateNativeSeekObservation.command.nativeSeekToken {
+      self.lateNativeSeekObservation = nil
+    }
     if
       let token = start.token,
       activeNativeSeek?.command.nativeSeekToken == token {
@@ -184,6 +209,11 @@ extension Player {
   }
 
   func quarantineSeekWork(beforeExternalEpoch externalEpoch: UInt64) {
+    if
+      let lateNativeSeekObservation,
+      lateNativeSeekObservation.command.externalEpoch < externalEpoch {
+      self.lateNativeSeekObservation = nil
+    }
     if
       let activeNativeSeek,
       activeNativeSeek.command.externalEpoch < externalEpoch {
@@ -328,15 +358,15 @@ extension Player {
     dispatchNextPendingFrameStepIfNeeded()
   }
 
-  /// A tombstoned timeout has no landing delivery, but its native end+point
-  /// still clears the monitor drain. Release only that tombstone here; a live
-  /// command continues to require its sole-episode landing callback.
+  /// Consume any late landing before retiring the drained timeout lease.
+  /// Observation deadlines do not discard native output authority.
   func nativeSeekDrainDidClear() {
     reconcileCommittedNativeSeekProgress()
     guard !isShutdown, !nativeSeekMonitor.hasSeekDrainPending else { return }
     if activeNativeSeek?.isTombstoned == true {
       activeNativeSeek?.deadlineTask?.cancel()
       activeNativeSeek?.pollingTask?.cancel()
+      lateNativeSeekObservation = activeNativeSeek
       activeNativeSeek = nil
     }
     dispatchQueuedNativeSeekIfPossible()
@@ -345,7 +375,7 @@ extension Player {
 
   /// A paused input may emit seek-end before its cached getter reflects the
   /// landing. The first watched point remains the primary authority. This path
-  /// only starts a bounded fallback poll after leaving the C callback, and it
+  /// starts fallback polling after leaving the C callback, and it
   /// rejects an unchanged pre-dispatch clock as stale evidence.
   func nativeSeekDidEnd(token: UInt64) {
     guard
@@ -354,7 +384,6 @@ extension Player {
       activeNativeSeek.command.nativeSeekToken == token,
       activeNativeSeek.command.playbackGeneration == sessionGeneration,
       activeNativeSeek.allowsPausedFallback,
-      !activeNativeSeek.isTombstoned,
       nativePlaybackState == .paused
     else { return }
 
@@ -375,8 +404,7 @@ extension Player {
         guard let self else { return }
         guard
           self.activeNativeSeek?.command.nativeSeekToken == token,
-          self.activeNativeSeek?.allowsPausedFallback == true,
-          self.activeNativeSeek?.isTombstoned == false
+          self.activeNativeSeek?.allowsPausedFallback == true
         else { return }
         pollPausedNativeSeek(token: token)
       }
@@ -391,16 +419,8 @@ extension Player {
       activeNativeSeek.command.nativeSeekToken == token,
       activeNativeSeek.command.playbackGeneration == sessionGeneration,
       activeNativeSeek.allowsPausedFallback,
-      !activeNativeSeek.isTombstoned,
       nativePlaybackState == .paused
     else { return }
-
-    // Seek-end marks the discontinuity, before the sought picture is decoded.
-    // Until that picture arrives, get_time can fall back to the input's last
-    // pause sample. Native extension v11 guarantees a selected video's paused
-    // output point; older released engines do not, so they retain the bounded
-    // getter fallback instead of timing out on an event they cannot provide.
-    guard !(nativeSeekSupportsPausedOutputClock && nativeSeekHasSelectedVideo) else { return }
 
     let point: (timeMilliseconds: Int64, position: Double)
     #if DEBUG
@@ -445,7 +465,7 @@ extension Player {
     processNativeSeekLanding(claimed)
   }
 
-  private var nativeSeekHasSelectedVideo: Bool {
+  var nativeSeekHasSelectedVideo: Bool {
     #if DEBUG
     if let override = _seekOverridesForTesting.hasSelectedVideo {
       return override
@@ -458,7 +478,16 @@ extension Player {
     return true
   }
 
-  private var nativeSeekSupportsPausedOutputClock: Bool {
+  var nativeSeekSupportsVideoOutputEvidence: Bool {
+    #if DEBUG
+    if let override = _seekOverridesForTesting.supportsVideoOutputEvidence {
+      return override
+    }
+    #endif
+    return nativeSeekMonitor.supportsVideoOutputEvidence
+  }
+
+  var nativeSeekSupportsPausedOutputClock: Bool {
     #if DEBUG
     if let override = _seekOverridesForTesting.supportsPausedSeekOutputClock {
       return override
@@ -476,7 +505,7 @@ extension Player {
     let currentExternalEpoch = nativeSeekMonitor.externalSeekEpoch
     quarantineSeekWork(beforeExternalEpoch: currentExternalEpoch)
 
-    guard let activeToken = activeNativeSeek?.command.nativeSeekToken else {
+    guard let activeToken = (activeNativeSeek ?? lateNativeSeekObservation)?.command.nativeSeekToken else {
       return
     }
     if let landing = nativeSeekMonitor.consumeSeekLanding(token: activeToken) {
@@ -709,6 +738,7 @@ extension Player {
       nativeSeekMonitor.cancelCommand(activeNativeSeek.command.nativeSeekToken)
     }
     activeNativeSeek = nil
+    lateNativeSeekObservation = nil
     if let queuedNativeSeek {
       nativeSeekMonitor.cancelReservedCommand(queuedNativeSeek.nativeSeekToken)
     }
@@ -729,7 +759,9 @@ extension Player {
     self.pendingSeekSettlement = nil
     pendingSeekSettlement.timeoutTask?.cancel()
     pendingSeekSettlement.pollingTask?.cancel()
-    if queuedNativeSeek?.nativeSeekToken == nativeSeekToken {
+    // A deadline ends observation, not intent. Retain the latest queued
+    // command until dispatch or a real superseding/cancellation boundary.
+    if outcome != .timedOut, queuedNativeSeek?.nativeSeekToken == nativeSeekToken {
       nativeSeekMonitor.cancelReservedCommand(nativeSeekToken)
       queuedNativeSeek = nil
     }

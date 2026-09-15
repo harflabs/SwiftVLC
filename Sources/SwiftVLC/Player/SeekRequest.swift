@@ -8,8 +8,8 @@ import Synchronization
 /// waiting behind one active untagged native seek rather than dispatched yet.
 /// libVLC 4 retains an integer result for ABI compatibility, but its current
 /// seek entry points return zero after dispatch without reporting whether the
-/// demuxer can honor the request. This is normally resolved by the first
-/// watched timer point after seek end; paused audio-only input instead uses a
+/// demuxer can honor the request. On native extension v12, video selected at dispatch resolves from successful output
+/// submission after seek end. Older engines use a watched timer point; paused audio-only input instead uses a
 /// direct post-end clock read because it may not produce another point until
 /// playback resumes. Every request eventually reaches one of the other,
 /// terminal cases.
@@ -22,10 +22,20 @@ public enum SeekOutcome: Hashable, Sendable {
   /// lane also publishes no target because timeline authority is adopted only
   /// after native dispatch accepts it.
   case rejected
-  /// The dispatched seek ended and its authoritative landed clock reached the mirror.
+  /// The dispatched seek ended and its observed landing reached the mirror.
+  /// With native extension v12, video selected at dispatch requires a successful output
+  /// submission. Precise absolute video seeks with a known target also require a landing within one
+  /// reported frame duration after the target (1ms timestamp rounding allowed).
+  /// Older engines retain their clock-only compatibility behavior.
   case settled
+  /// Video was submitted, but its timestamp did not satisfy the precise
+  /// target bound. The mirror reports the observed landing, not the target.
+  case inaccurate
   /// Native dispatch or authoritative landing did not arrive within its
   /// bounded phase window. Dispatch refreshes the window after any queued wait.
+  /// This ends observation, not the seek intent: the latest queued command
+  /// may still dispatch, and a late landing still updates observed playback.
+  /// A newer seek or a media/playback replacement supersedes that intent.
   case timedOut
   /// A newer seek, media replacement, terminal playback state, or teardown
   /// made this request no longer authoritative.

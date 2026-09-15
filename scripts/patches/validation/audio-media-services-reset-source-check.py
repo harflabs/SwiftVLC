@@ -914,13 +914,13 @@ def build_gates() -> list[Gate]:
             "swiftvlc_libvlc_pip_extensions_version(",
         ))
         if version_body not in (
-            "{ return 8; }", "{ return 9; }", "{ return 10; }", "{ return 11; }"
+            "{ return 8; }", "{ return 9; }", "{ return 10; }", "{ return 11; }", "{ return 12; }"
         ):
             raise ProofFailure(
-                "Apple audio recovery requires extension version 8 through 11"
+                "Apple audio recovery requires extension version 8 through 12"
             )
     add(custom_gate(
-        "snapshot.extension_version_v8_through_v11", inherited_extension_version,
+        "snapshot.extension_version_v8_through_v12", inherited_extension_version,
         "media_player", "swiftvlc_libvlc_pip_extensions_version(",
         "return "))
     add(source_gate(

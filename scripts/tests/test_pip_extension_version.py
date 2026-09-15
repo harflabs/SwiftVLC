@@ -485,6 +485,13 @@ static int OpenController(pip_controller_t *pipcontroller)
                 "sys->pause.is_on;\n"
             ),
         },
+        12: {
+            "public_header": "int swiftvlc_libvlc_media_player_watch_time_with_video_output(void);\n",
+            "media_player": "int swiftvlc_libvlc_media_player_watch_time_with_video_output(void) { return 0; }\n",
+            "exports": "swiftvlc_libvlc_media_player_watch_time_with_video_output\n",
+            "es_out": "vlc_input_decoder_SetSeekDisplayTime(dec, time);\n",
+            "video_output": "drift = !submission_unproven ? vlc_clock_UpdateVideoFrameStep(clock);\n",
+        },
     }
     for current_version in range(4, highest_version + 1):
         if current_version in omitted_versions:
@@ -519,7 +526,7 @@ class PiPExtensionVersionTests(unittest.TestCase):
             version.resolve_extension_version(sources, **kwargs)
 
     def test_every_supported_version_resolves_exactly(self) -> None:
-        for expected in range(4, 12):
+        for expected in range(4, 13):
             with self.subTest(expected=expected):
                 sources = synthetic_sources(expected, leases=expected >= 9)
                 self.assertEqual(

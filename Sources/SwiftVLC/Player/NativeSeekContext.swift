@@ -1,7 +1,7 @@
 import Synchronization
 
 final class NativeSeekContext: Sendable {
-  private struct State: Sendable {
+  struct State: Sendable {
     var nextToken: UInt64 = 0
     var timelineGeneration: UInt64 = 1
     var nativeHandleGeneration: UInt64 = 1
@@ -21,6 +21,10 @@ final class NativeSeekContext: Sendable {
     var overlappedTokens: Set<UInt64> = []
     var activeToken: UInt64?
     var awaitingUpdateToken: UInt64?
+    var videoOutputTokens: Set<UInt64> = []
+    var expiredVideoOutputToken: UInt64?
+    var postEndVideoClockToken: UInt64?
+    var lateVideoOutputToken: UInt64?
     /// Exact watched landings committed on VLC's callback lane but not yet
     /// consumed by Player. The callback's MainActor task is only a wake-up;
     /// timeout and drain reconciliation race through this single slot so the
@@ -62,8 +66,9 @@ final class NativeSeekContext: Sendable {
     var frameAvailabilityHandler: (@Sendable () -> Void)?
   }
 
-  private let state: Mutex<State>
-  private let emissionAuthority: NativeSeekEmissionAuthority
+  // Shared by the output-observation extension; all access remains locked.
+  let state: Mutex<State>
+  let emissionAuthority: NativeSeekEmissionAuthority
 
   init(
     nativeHandleGeneration: UInt64,
@@ -119,6 +124,7 @@ final class NativeSeekContext: Sendable {
     state.withLock { state in
       state.reservedTokens.remove(token)
       state.cancelledTokens.remove(token)
+      state.videoOutputTokens.remove(token)
       state.causallyStartedTokens.remove(token)
       state.overlappedTokens.remove(token)
       state.seekLandingsAwaitingConsumption.removeValue(forKey: token)
@@ -161,6 +167,7 @@ final class NativeSeekContext: Sendable {
         state.frameGeneration -= 1
       }
       state.cancelledTokens.remove(token)
+      state.videoOutputTokens.remove(token)
       state.causallyStartedTokens.remove(token)
       state.overlappedTokens.remove(token)
       state.seekLandingsAwaitingConsumption.removeValue(forKey: token)
@@ -188,6 +195,7 @@ final class NativeSeekContext: Sendable {
       // would shift the next seek token onto this command's late start/end
       // callbacks and let an older landing settle a newer rapid seek.
       state.cancelledTokens.insert(token)
+      state.videoOutputTokens.remove(token)
       if state.awaitingUpdateToken == token {
         // An overlapped episode is deliberately fail-closed. Its untagged
         // point can never prove that the latest request landed, so retain the
@@ -195,6 +203,7 @@ final class NativeSeekContext: Sendable {
         guard !state.overlappedTokens.contains(token) else { return }
         state.awaitingUpdateToken = nil
         state.cancelledTokens.remove(token)
+        state.videoOutputTokens.remove(token)
         state.overlappedTokens.remove(token)
       }
     }
@@ -271,7 +280,8 @@ final class NativeSeekContext: Sendable {
         state.activeToken == nil,
         state.awaitingUpdateToken == landing.token,
         state.seekEndedAwaitingPoint,
-        !state.overlappedTokens.contains(landing.token)
+        !state.overlappedTokens.contains(landing.token),
+        !state.videoOutputTokens.contains(landing.token)
       else { return nil }
 
       state.awaitingUpdateToken = nil
@@ -361,6 +371,7 @@ final class NativeSeekContext: Sendable {
       guard state.activeFrameRequestID == requestID else { return disposition }
       switch disposition {
       case .accepted:
+        Self.retireLateVideoObservation(&state)
         // Acceptance proves no retired request still owns the native slot.
         // Its late exact event remains harmless because IDs never alias.
         state.retiredFrameRequestIDs.removeAll(keepingCapacity: true)
@@ -445,6 +456,7 @@ final class NativeSeekContext: Sendable {
         emissionSequence: emissionSequence
       )
       if releasedActive {
+        Self.retireLateVideoObservation(&state)
         state.activeFrameRequestID = nil
         state.retiredFrameRequestIDs.removeAll(keepingCapacity: true)
         state.frameDispatchRetiredSnapshot.removeAll(keepingCapacity: true)
@@ -572,6 +584,7 @@ final class NativeSeekContext: Sendable {
         isCausallyAttributed = true
       }
 
+      Self.retireLateVideoObservation(&state)
       let hasStagedWrapperReservation = !state.stagedTokens.isEmpty
       let overlapsWrapperEpisode = state.activeToken != nil
         || state.awaitingUpdateToken != nil
@@ -706,6 +719,7 @@ final class NativeSeekContext: Sendable {
         // but never expose its uncorrelated end to the getter fallback.
         state.awaitingUpdateToken = token
         state.cancelledTokens.remove(token)
+        state.videoOutputTokens.remove(token)
         return nil
       }
       if state.cancelledTokens.remove(token) != nil {
@@ -720,141 +734,6 @@ final class NativeSeekContext: Sendable {
     if let delivery {
       delivery.1(delivery.0)
     }
-  }
-
-  func noteTimeUpdated(
-    timeMicroseconds: Int64,
-    position: Double,
-    timelineGeneration: UInt64
-  ) {
-    typealias SeekDelivery = (NativeSeekLanding, @Sendable (NativeSeekLanding) -> Void)
-    typealias ExternalDelivery = (
-      NativeExternalSeekLanding,
-      @Sendable (NativeExternalSeekLanding) -> Void
-    )
-    typealias Delivery = (
-      SeekDelivery?,
-      ExternalDelivery?,
-      (@Sendable () -> Void)?,
-      (@Sendable () -> Void)?
-    )
-    let delivery = state.withLock { state -> Delivery in
-      let hasAuthoritativeTime = timeMicroseconds >= 0
-      let hasAuthoritativePosition = position.isFinite && (0.0...1.0).contains(position)
-      let timeMilliseconds = hasAuthoritativeTime ? timeMicroseconds / 1000 : nil
-      let authoritativePosition = hasAuthoritativePosition ? position : nil
-      guard
-        timelineGeneration == state.timelineGeneration,
-        hasAuthoritativeTime || (state.seekEndedAwaitingPoint && hasAuthoritativePosition)
-      else {
-        return (nil, nil, nil, nil)
-      }
-      if
-        state.seekEndedAwaitingPoint,
-        state.externalEpisodeAmbiguous {
-        // An end after overlapping tokenless starts cannot identify which
-        // episode produced this point. Retain drain ownership until reset.
-        return (nil, nil, nil, nil)
-      }
-      if
-        state.seekEndedAwaitingPoint,
-        let awaitingUpdateToken = state.awaitingUpdateToken,
-        state.overlappedTokens.contains(awaitingUpdateToken) {
-        // VLC supplies no request ID on seek end/update. For overlapping
-        // controls this point may be the displaced request's landing, so it
-        // cannot settle the latest token or release frame ownership.
-        return (nil, nil, nil, nil)
-      }
-      let availabilityHandler: (@Sendable () -> Void)?
-      let seekDrainAvailabilityHandler: (@Sendable () -> Void)?
-      let externalLandingSequence: UInt64?
-      if state.seekEndedAwaitingPoint {
-        state.seekEndedAwaitingPoint = false
-        state.seekDrainPending = !state.stagedTokens.isEmpty || state.activeToken != nil
-        if let activeFrameRequestID = state.activeFrameRequestID {
-          state.retiredFrameRequestIDs.insert(activeFrameRequestID)
-        }
-        state.activeFrameRequestID = nil
-        state.frameDispatchRetiredSnapshot.removeAll(keepingCapacity: true)
-        state.frameRetryBlockerIDs.removeAll(keepingCapacity: true)
-        state.frameQuarantined = false
-        availabilityHandler = state.seekDrainPending ? nil : state.frameAvailabilityHandler
-        seekDrainAvailabilityHandler = state.seekDrainPending
-          ? nil
-          : state.seekDrainAvailabilityHandler
-        if state.awaitingUpdateExternalEpoch != nil {
-          externalLandingSequence = emissionAuthority.finishExternalDrainAndAdvance(
-            timelineGeneration: state.timelineGeneration,
-            playbackGeneration: state.playbackGeneration,
-            externalEpoch: state.externalSeekEpoch,
-            timeMilliseconds: timeMilliseconds,
-            position: authoritativePosition
-          )
-        } else {
-          externalLandingSequence = nil
-        }
-      } else {
-        availabilityHandler = nil
-        seekDrainAvailabilityHandler = nil
-        externalLandingSequence = nil
-      }
-      if let token = state.awaitingUpdateToken {
-        let emissionSequence = emissionAuthority.recordTimelineAndAdvance(
-          timelineGeneration: state.timelineGeneration,
-          playbackGeneration: state.playbackGeneration,
-          timeMilliseconds: timeMilliseconds,
-          position: authoritativePosition
-        )
-        state.awaitingUpdateToken = nil
-        state.awaitingUpdateExternalEpoch = nil
-        state.overlappedTokens.remove(token)
-        let landing = NativeSeekLanding(
-          token: token,
-          timeMilliseconds: timeMilliseconds ?? -1,
-          position: position,
-          emissionSequence: emissionSequence
-        )
-        let reservedLanding: NativeSeekLanding
-        if let existing = state.seekLandingsAwaitingConsumption[token] {
-          reservedLanding = existing
-        } else {
-          state.seekLandingsAwaitingConsumption[token] = landing
-          reservedLanding = landing
-        }
-        let seekDelivery = state.handler.map { (reservedLanding, $0) }
-        return (seekDelivery, nil, seekDrainAvailabilityHandler, availabilityHandler)
-      }
-      if
-        let externalEpoch = state.awaitingUpdateExternalEpoch,
-        let handler = state.externalSeekLandingHandler {
-        state.awaitingUpdateExternalEpoch = nil
-        return (
-          nil,
-          (NativeExternalSeekLanding(
-            timelineGeneration: timelineGeneration,
-            nativeHandleGeneration: state.nativeHandleGeneration,
-            playbackGeneration: state.playbackGeneration,
-            externalEpoch: externalEpoch,
-            timeMilliseconds: timeMilliseconds ?? -1,
-            position: position,
-            emissionSequence: externalLandingSequence
-              ?? emissionAuthority.advanceTimelineEmissionSequence()
-          ), handler),
-          seekDrainAvailabilityHandler,
-          availabilityHandler
-        )
-      }
-      state.awaitingUpdateExternalEpoch = nil
-      return (nil, nil, seekDrainAvailabilityHandler, availabilityHandler)
-    }
-    if let seek = delivery.0 {
-      seek.1(seek.0)
-    }
-    if let external = delivery.1 {
-      external.1(external.0)
-    }
-    delivery.2?()
-    delivery.3?()
   }
 
   func resetForTimelineReplacement(
@@ -876,6 +755,10 @@ final class NativeSeekContext: Sendable {
       state.nativeHandleGeneration = nativeHandleGeneration
       state.playbackGeneration = playbackGeneration
       state.reservedTokens.removeAll(keepingCapacity: true)
+      state.videoOutputTokens.removeAll(keepingCapacity: true)
+      state.expiredVideoOutputToken = nil
+      state.postEndVideoClockToken = nil
+      state.lateVideoOutputToken = nil
       state.stagedTokens.removeAll(keepingCapacity: true)
       state.stagedFrameGenerations.removeAll(keepingCapacity: true)
       state.cancelledTokens.removeAll(keepingCapacity: true)

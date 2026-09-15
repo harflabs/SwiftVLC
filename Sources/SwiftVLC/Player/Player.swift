@@ -580,6 +580,8 @@ public final class Player {
   /// The single command that has crossed into libVLC's request-ID-less v4
   /// watcher. Its native ownership outlives public timeout or supersession.
   @ObservationIgnored var activeNativeSeek: ActiveNativeSeek?
+  /// An expired, drained episode may still submit video before its successor.
+  @ObservationIgnored var lateNativeSeekObservation: ActiveNativeSeek?
   /// Latest accepted command waiting behind the active or externally-issued
   /// native episode. Replacements never enter VLC; only this newest command is
   /// retained for later dispatch.

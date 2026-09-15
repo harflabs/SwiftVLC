@@ -147,6 +147,10 @@ case "$command_name" in
     verify_logical_tree "$source_path"
     ditto --norsrc --noextattr --noqtn --noacl --nopersistRootless \
       "$source_path" "$staged"
+    # macOS 27 ditto can clone APFS extended attributes despite --noextattr.
+    # Scrub the new staging tree explicitly; -s treats symlinks themselves.
+    xattr -crs "$staged"
+    chmod -RN "$staged"
     verify_logical_tree "$staged"
     # Verification reads every file and may advance atime. Normalize only after
     # that final logical-tree read so staging has deterministic metadata.
