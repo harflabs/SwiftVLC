@@ -82,7 +82,7 @@ extension Integration {
     }
 
     @Test
-    func `Queued timeout releases retained A clock without settling A`() async {
+    func `Queued timeout retains intent and quarantine until A drains`() async {
       let player = makePlayingPlayer()
       player._nativeJumpTimeOverrideForTesting = { _ in 0 }
 
@@ -105,10 +105,10 @@ extension Integration {
 
       player._expirePendingSeekForTesting(deadlinePhase: .queued)
       #expect(await b.outcome == .timedOut)
-      #expect(player.currentTime == .seconds(12))
-      #expect(abs(player.position - 0.12) < 0.000_001)
+      #expect(player.currentTime == .seconds(10))
+      #expect(abs(player.position - 0.1) < 0.000_001)
       #expect(player.activeNativeSeek != nil)
-      #expect(player.queuedNativeSeek == nil)
+      #expect(player.queuedNativeSeek != nil)
     }
 
     @Test

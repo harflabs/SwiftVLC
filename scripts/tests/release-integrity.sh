@@ -2063,6 +2063,7 @@ expected_manifest_tail = [
     "c0a203e6a83d0eed27074095c9a7c4e7a649015e73d00b40fb2d7fb8bbc584b2  0047-restore-live555-compatible-contrib.patch",
     "f1f89c4ef3ae9858d6f47040c23271048fb49bea71ff75224c9c09f853e1a59a  0048-enable-lgpl2-live555-rtsp.patch",
     "a513915440be51e99ce90db2ee878c44a1c7eaf8d4da238060ceaa0dc1efee5c  0049-paused-seek-output-clock.patch",
+    "f5eeb4e96924f134133457b729e00cc46d8ec48c0da2dfdfc8081c43c5e88f57  0050-seek-video-output-contract.patch",
 ]
 if manifest_lines[-len(expected_manifest_tail):] != expected_manifest_tail:
     sys.exit(
@@ -2096,6 +2097,7 @@ required_validator_assets = (
     "scripts/patches/validation/playlist-mode-handoff-probe.c",
     "scripts/patches/validation/sample-buffer-renderer-snapshot-abi.c",
     "scripts/patches/validation/sample-buffer-renderer-snapshot-abi.cpp",
+    "scripts/patches/validation/seek-video-output-source-check.py",
     "scripts/patches/validation/strict-frame-step-probe.c",
     "scripts/patches/validation/strict-frame-step-source-check.py",
     "scripts/patches/validation/subtitle-text-snapshot.c",
@@ -2664,6 +2666,7 @@ expected_extension_patch_versions = {
     "0041-native-pip-output-identity.patch": 9,
     "0043-text-subtitle-callback.patch": 10,
     "0049-paused-seek-output-clock.patch": 11,
+    "0050-seek-video-output-contract.patch": 12,
 }
 for patch_name, version in expected_extension_patch_versions.items():
     marker = (
@@ -2722,14 +2725,14 @@ for marker in (
     '"paused picture late-drop exemption"',
     '"paused picture fixed clock point"',
     '"paused picture immediate render"',
-    'expected version must be an integer from 4 through 11',
+    'expected version must be an integer from 4 through 12',
 ):
     if extension_resolver.count(marker) != 1:
         sys.exit(f"v10 source resolver contract is incomplete: {marker}")
 for marker in (
-    'Usage: $0 --expected-version <1..11>',
-    'if [[ ! "$EXPECTED_VERSION" =~ ^([1-9]|10|11)$ ]]; then',
-    'An exact expected extension version from 1 through 11 is required.',
+    'Usage: $0 --expected-version <1..12>',
+    'if [[ ! "$EXPECTED_VERSION" =~ ^([1-9]|10|11|12)$ ]]; then',
+    'An exact expected extension version from 1 through 12 is required.',
     'VERSION_9_SYMBOLS=(\n'
     '        swiftvlc_libvlc_media_player_set_pip_playback_identity\n'
     '    )',
@@ -2742,13 +2745,13 @@ for marker in (
     '    REQUIRE_LEASES=yes\n'
     'fi',
     'if (( EXPECTED_VERSION >= 10 )); then',
-    'if (( EXPECTED_VERSION < 10 )); then',
+    'if (( EXPECTED_VERSION < 12 )); then',
     'resolver.validate_weak_compatibility_shim(',
 ):
     if native_extension_validator.count(marker) != 1:
         sys.exit(f"v10 archive/compatibility validator is incomplete: {marker}")
 for marker in (
-    'SWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION > 11',
+    'SWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION > 12',
     'sizeof(swiftvlc_pip_playback_identity_t) == 16',
     'offsetof(swiftvlc_pip_playback_identity_t,',
     'swiftvlc_libvlc_media_player_set_pip_playback_identity,',
@@ -2781,7 +2784,7 @@ adaptive_source_gate = native_patch_series_validator.index(
     'section "Validating adaptive ES codec-configuration recycling"'
 )
 v11_source_gate = native_patch_series_validator.index(
-    'section "Validating exact integrated extension version 11"'
+    'section "Validating exact integrated extension version 12"'
 )
 subtitle_snapshot_gate = native_patch_series_validator.index(
     'section "Validating ordered semantic subtitle-text snapshots"'
@@ -2804,7 +2807,7 @@ if not (
         "order"
     )
 for marker in (
-    '--expected-version 11',
+    '--expected-version 12',
     '"$SCRIPT_DIR/patches/validation/adaptive-es-recycling-source-check.py"',
     '"$SCRIPT_DIR/patches/0042-adaptive-es-recycling-extradata-identity.patch"',
     '"$SCRIPT_DIR/patches/validation/native-pip-output-identity-source-check.py"',
@@ -2912,7 +2915,8 @@ for stale_include in (
 for marker in (
     'if [[ "$EXPECTED_EXTENSION_VERSION" == 9 ||\n'
     '      "$EXPECTED_EXTENSION_VERSION" == 10 ||\n'
-    '      "$EXPECTED_EXTENSION_VERSION" == 11 ]]; then\n'
+    '      "$EXPECTED_EXTENSION_VERSION" == 11 ||\n'
+    '      "$EXPECTED_EXTENSION_VERSION" == 12 ]]; then\n'
     '  REQUIRE_APPLE_AUDIO_SESSION_LEASES=yes\n'
     'fi',
     'if [[ "$EXPECTED_EXTENSION_VERSION" -ge 9 &&\n'
@@ -3203,7 +3207,7 @@ release_native_extension_command = release[
 for marker in (
     '"$SCRIPT_DIR/validate-native-extension-contract.sh"',
     '--xcframework "$XCFW_PATH"',
-    '--expected-version 11',
+    '--expected-version 12',
     '--require-apple-audio-session-leases',
 ):
     if release_native_extension_command.count(marker) != 1:

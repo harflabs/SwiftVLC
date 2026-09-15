@@ -2,7 +2,7 @@
 """Fail-closed resolver for SwiftVLC's additive libVLC extension ABI.
 
 The extension function is shared by several otherwise independent patches.
-This module is the single composition proof for versions 4 through 11: every
+This module is the single composition proof for versions 4 through 12: every
 stage must be complete, unique, and contiguous, and the implementation must be
 exactly one literal return of the resolved version.  Release callers should
 also provide ``expected_version`` from the ordered patch manifest so removing
@@ -372,6 +372,22 @@ VERSION_GROUPS = (
                 r"sys\s*->\s*displayed\.current\s*->\s*b_force\s*\|\|\s*"
                 r"sys\s*->\s*pause\.is_on",
             ),
+        ),
+    ),
+    MarkerGroup(
+        "seek-video-output",
+        12,
+        (
+            marker("public_header", "video output watcher declaration",
+                   "swiftvlc_libvlc_media_player_watch_time_with_video_output"),
+            implementation_marker("video output watcher implementation",
+                   "swiftvlc_libvlc_media_player_watch_time_with_video_output"),
+            Marker("exports", "video output watcher export",
+                   r"(?m)^swiftvlc_libvlc_media_player_watch_time_with_video_output$"),
+            Marker("video_output", "submitted video clock capture",
+                   r"drift\s*=\s*!submission_unproven\s*\?\s*vlc_clock_UpdateVideoFrameStep"),
+            Marker("es_out", "selected decoder seek display threshold",
+                   r"vlc_input_decoder_SetSeekDisplayTime\s*\(\s*dec\s*,"),
         ),
     ),
 )
@@ -1653,9 +1669,9 @@ def resolve_extension_version(
         required_same_version_groups: Sequence[str] = ()) -> Resolution:
     if (expected_version is not None
             and (isinstance(expected_version, bool)
-                 or expected_version not in range(4, 12))):
+                 or expected_version not in range(4, 13))):
         raise ExtensionVersionError(
-            f"expected version must be an integer from 4 through 11: "
+            f"expected version must be an integer from 4 through 12: "
             f"{expected_version!r}")
     if isinstance(required_same_version_groups, (str, bytes)):
         raise ExtensionVersionError(

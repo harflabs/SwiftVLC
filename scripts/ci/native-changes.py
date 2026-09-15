@@ -9,6 +9,8 @@ def needs_build(paths):
     exact_inputs = {
         "Tests/SwiftVLCTests/Player/PausedSeekPlaybackTests.swift",
         "Tests/SwiftVLCTests/Player/RemoteMP4SeekTests.swift",
+        "Tests/SwiftVLCTests/Player/SeekOutputPlaybackTests.swift",
+        "Tests/SwiftVLCTests/Support/SeekVideoSink.swift",
         "Tests/SwiftVLCTests/Fixtures/paused-seek.mp4",
         "Package.swift", ".github/workflows/test.yml",
         "scripts/ci/check-rtsp.py", "scripts/ci/native-changes.py",
@@ -16,7 +18,7 @@ def needs_build(paths):
         "scripts/ci/tests/test_rtsp_transport.py",
     }
     return any(path in exact_inputs or path.startswith((
-        "scripts/ci/rtsp", "Sources/CLibVLC/", "scripts/patches/", "scripts/build-libvlc",
+        "Tests/SwiftVLCTests/Fixtures/seek-oracle/", "scripts/ci/rtsp", "Sources/CLibVLC/", "scripts/patches/", "scripts/build-libvlc",
         "scripts/native-validator-assets", "scripts/validate-", "scripts/verify-",
         "scripts/fix-duplicate-symbols", "scripts/libvlc-provenance",
         "scripts/artifact-tree-digest.py", "scripts/canonical-libvlc-artifact", "scripts/detach-managed-build-directory",

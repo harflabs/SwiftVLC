@@ -97,6 +97,8 @@ extension Player {
       after: activeNativeSeek?.command
     )
     if let previousQueued = queuedNativeSeek {
+      nativeSeekMonitor.cancelReservedCommand(previousQueued.nativeSeekToken)
+      previousQueued.resolver.resolve(.superseded)
       queuedCommand = mergeQueuedSeekReplacement(
         queuedCommand,
         replacing: previousQueued
@@ -466,6 +468,9 @@ extension Player {
         nativeHandleGeneration: command.nativeHandleGeneration
       )
     else { return -1 }
+    if nativeSeekMonitor.supportsVideoOutputEvidence, nativeSeekHasSelectedVideo {
+      nativeSeekMonitor.requireVideoOutput(for: command.nativeSeekToken)
+    }
     return nativeSeekMonitor.withCausalSeekInvocation(token: command.nativeSeekToken) {
       let result: Int32 = switch command.operation {
       case .time(let milliseconds, let fast):
@@ -581,7 +586,6 @@ extension Player {
     guard publishDispatchedSeekCommand(command) else { return }
     guard
       activeNativeSeek?.command.nativeSeekToken == command.nativeSeekToken,
-      pendingSeekSettlement?.nativeSeekToken == command.nativeSeekToken,
       ownsPlaybackMutation(
         command.playbackGeneration,
         nativeHandleGeneration: command.nativeHandleGeneration
@@ -648,7 +652,8 @@ extension Player {
     activeNativeSeek.allowsPausedFallback = false
     activeNativeSeek.isTombstoned = true
     self.activeNativeSeek = activeNativeSeek
-    nativeSeekMonitor.cancelCommand(nativeSeekToken)
+    // Native work is still running. Keep its observed landing even though
+    // the public result is terminal; it must repair time and release the lane.
 
     if
       pendingSeekSettlement?.nativeSeekToken == nativeSeekToken,

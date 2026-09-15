@@ -29,38 +29,42 @@ extension Integration {
 
       let instance = try VLCInstance(
         arguments: VLCInstance.defaultArguments + [
-          "--vout=dummy",
           "--aout=dummy",
           "--no-hw-dec",
           "--quiet"
         ]
       )
       let player = Player(instance: instance)
-      defer { player.stop() }
+      let sink = SeekVideoSink()
 
-      try player.play(url: server.url)
-      try #require(
-        await poll(every: .milliseconds(50), timeout: .seconds(10)) {
-          player.state == .playing && player.isSeekable
-        },
-        "Waiting for remote MP4 playback to become seekable"
-      )
+      try installSeekVideoSink(sink, on: player)
+      do {
+        try player.play(url: server.url)
+        try #require(
+          await poll(every: .milliseconds(50), timeout: .seconds(10)) {
+            player.state == .playing && player.isSeekable
+          },
+          "Waiting for remote MP4 playback to become seekable"
+        )
 
-      let nativeLanding = subscribeAndAwaitTime(atLeast: .seconds(34), on: player)
-      try player.seek(to: .seconds(36), fast: false)
-      let landedTime = try #require(
-        await nativeLanding.value,
-        "Waiting for a native time event near the 36 second seek target"
-      )
+        let nativeLanding = subscribeAndAwaitTime(atLeast: .seconds(34), on: player)
+        try player.seek(to: .seconds(36), fast: false)
+        let landedTime = try #require(
+          await nativeLanding.value,
+          "Waiting for a native time event near the 36 second seek target"
+        )
 
-      let targetRangeThreshold = fixture.count / 3
-      try #require(
-        await poll(every: .milliseconds(50), timeout: .seconds(5)) {
-          server.rangeStarts.contains { $0 > targetRangeThreshold }
-        },
-        "Expected a discontinuous HTTP range request after seeking, observed starts: \(server.rangeStarts)"
-      )
-      #expect(landedTime >= .seconds(34))
+        let targetRangeThreshold = fixture.count / 3
+        try #require(
+          await poll(every: .milliseconds(50), timeout: .seconds(5)) {
+            server.rangeStarts.contains { $0 > targetRangeThreshold }
+          },
+          "Expected a discontinuous HTTP range request after seeking, observed starts: \(server.rangeStarts)"
+        )
+        #expect(landedTime >= .seconds(34))
+      } catch { await player.shutdown(); throw error }
+      await player.shutdown()
+      withExtendedLifetime(sink) {}
     }
 
     private func subscribeAndAwaitTime(
@@ -100,17 +104,22 @@ final class MP4RangeProbeServer: Sendable {
     attributes: .concurrent
   )
   private let state = StateBox()
-  private let data: Data
 
   let url: URL
+
+  func delayFutureResponses() {
+    state.mutex.withLock { $0.delayResponses = true }
+  }
 
   var rangeStarts: [Int] {
     state.mutex.withLock { $0.rangeStarts }
   }
 
-  init(data: Data) throws {
-    self.data = data
+  convenience init(data: Data) throws {
+    try self.init(resources: ["/seek-fixture.mp4": data], path: "/seek-fixture.mp4")
+  }
 
+  init(resources: [String: Data], path: String) throws {
     let fd = socket(AF_INET, SOCK_STREAM, 0)
     guard fd >= 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
 
@@ -155,10 +164,10 @@ final class MP4RangeProbeServer: Sendable {
 
     let port = UInt16(bigEndian: boundAddress.sin_port)
     socketFD = fd
-    url = URL(string: "http://127.0.0.1:\(port)/seek-fixture.mp4")!
+    url = URL(string: "http://127.0.0.1:\(port)\(path)")!
 
-    acceptQueue.async { [fd, data, state, clientQueue] in
-      Self.acceptLoop(socketFD: fd, data: data, state: state, clientQueue: clientQueue)
+    acceptQueue.async { [fd, resources, state, clientQueue] in
+      Self.acceptLoop(socketFD: fd, resources: resources, state: state, clientQueue: clientQueue)
     }
   }
 
@@ -182,7 +191,7 @@ final class MP4RangeProbeServer: Sendable {
 
   private static func acceptLoop(
     socketFD: Int32,
-    data: Data,
+    resources: [String: Data],
     state: StateBox,
     clientQueue: DispatchQueue
   ) {
@@ -212,7 +221,7 @@ final class MP4RangeProbeServer: Sendable {
       }
 
       clientQueue.async {
-        handle(client: client, data: data, state: state)
+        handle(client: client, resources: resources, state: state)
         _ = state.mutex.withLock { $0.clients.remove(client) }
         shutdown(client, SHUT_RDWR)
         close(client)
@@ -220,8 +229,15 @@ final class MP4RangeProbeServer: Sendable {
     }
   }
 
-  private static func handle(client: Int32, data: Data, state: StateBox) {
+  private static func handle(client: Int32, resources: [String: Data], state: StateBox) {
     let request = readRequest(from: client)
+    let fields = request.split(whereSeparator: \.isWhitespace)
+    guard fields.count >= 2, let data = resources[String(fields[1])] else {
+      _ = sendAll(Data("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n".utf8), to: client)
+      return
+    }
+    let contentType = fields[1].hasSuffix(".m3u8") ? "application/vnd.apple.mpegurl"
+      : fields[1].hasSuffix(".ts") ? "video/mp2t" : "video/mp4"
     let method = request.prefix { !$0.isWhitespace }
     let requested = requestedRange(in: request, length: data.count)
     let start = requested?.lowerBound ?? 0
@@ -233,11 +249,14 @@ final class MP4RangeProbeServer: Sendable {
       return
     }
 
+    if state.mutex.withLock({ $0.delayResponses }) {
+      usleep(3_500_000)
+    }
     let responseLength = end - start + 1
     var headers = [
       requested == nil ? "HTTP/1.1 200 OK" : "HTTP/1.1 206 Partial Content",
       "Accept-Ranges: bytes",
-      "Content-Type: video/mp4",
+      "Content-Type: \(contentType)",
       "Content-Length: \(responseLength)",
       "Connection: close"
     ]
@@ -326,6 +345,7 @@ final class MP4RangeProbeServer: Sendable {
   }
 
   private struct State: Sendable {
+    var delayResponses = false
     var isStopped = false
     var clients: Set<Int32> = []
     var rangeStarts: [Int] = []

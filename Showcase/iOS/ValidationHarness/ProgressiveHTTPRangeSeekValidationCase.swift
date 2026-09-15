@@ -404,6 +404,7 @@ struct ProgressiveHTTPRangeSeekValidationCase: View {
     case .pending: "pending"
     case .rejected: "rejected"
     case .settled: "settled"
+    case .inaccurate: "inaccurate"
     case .timedOut: "timedOut"
     case .superseded: "superseded"
     }

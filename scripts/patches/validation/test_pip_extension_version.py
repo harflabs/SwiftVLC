@@ -21,8 +21,8 @@ SPEC.loader.exec_module(VERSION)
 
 
 def make_sources(version: int, leases: bool = False) -> Dict[str, str]:
-    """Build one minimal but realistic contiguous v4-v11 source surface."""
-    if version not in range(4, 12):
+    """Build one minimal but realistic contiguous v4-v12 source surface."""
+    if version not in range(4, 13):
         raise ValueError(f"unsupported fixture version: {version}")
     if leases and version < 8:
         raise ValueError("the lease refinement requires version 8 or newer")
@@ -261,6 +261,13 @@ def make_sources(version: int, leases: bool = False) -> Dict[str, str]:
             "    system_now = VLC_TICK_MAX;",
             "bool render_now = sys->displayed.current->b_force || sys->pause.is_on;",
         ]) + "\n"
+
+    if version >= 12:
+        public_header.append("int swiftvlc_libvlc_media_player_watch_time_with_video_output(void);")
+        media_player.append("int swiftvlc_libvlc_media_player_watch_time_with_video_output(void) { return 0; }")
+        exports.append("swiftvlc_libvlc_media_player_watch_time_with_video_output")
+        es_out += "vlc_input_decoder_SetSeekDisplayTime(dec, time);\n"
+        video_output += "drift = !submission_unproven ? vlc_clock_UpdateVideoFrameStep(clock);\n"
 
     drawable_header = ""
     media_player_internal = ""
@@ -674,7 +681,7 @@ class PiPExtensionVersionTests(unittest.TestCase):
             VERSION.resolve_extension_version(sources, **kwargs)
 
     def test_every_historical_version_boundary_resolves_exactly(self) -> None:
-        for expected in range(4, 12):
+        for expected in range(4, 13):
             with self.subTest(version=expected):
                 resolution = VERSION.resolve_extension_version(
                     make_sources(expected, leases=expected >= 9),
@@ -815,7 +822,7 @@ class PiPExtensionVersionTests(unittest.TestCase):
 
     def test_comment_and_string_markers_do_not_advance_version(self) -> None:
         baseline = make_sources(4)
-        complete = make_sources(11, leases=True)
+        complete = make_sources(12, leases=True)
         marker_index = 0
         for group in VERSION.VERSION_GROUPS[1:] + VERSION.SAME_VERSION_GROUPS:
             for current in group.markers:
@@ -1163,11 +1170,11 @@ class PiPExtensionVersionTests(unittest.TestCase):
                         )
 
     def test_all_predecessor_gaps_are_rejected(self) -> None:
-        baseline = make_sources(11, leases=True)
+        baseline = make_sources(12, leases=True)
         for predecessor in VERSION.VERSION_GROUPS[:-1]:
             with self.subTest(missing=predecessor.name):
                 self.assert_rejected(
-                    remove_group(baseline, predecessor), expected_version=11
+                    remove_group(baseline, predecessor), expected_version=12
                 )
 
     def test_version_body_must_be_only_the_exact_literal_return(self) -> None:

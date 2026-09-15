@@ -19,37 +19,43 @@ extension Integration.RemoteMP4SeekTests {
     let server = try MP4RangeProbeServer(data: Data(contentsOf: fixtureURL))
     defer { server.stop() }
     let instance = try VLCInstance(arguments: VLCInstance.defaultArguments + [
-      "--vout=dummy", "--aout=dummy", "--no-hw-dec", "--quiet",
+      "--aout=dummy", "--no-hw-dec", "--quiet",
       audio ? "--audio" : "--no-audio"
     ])
     let player = Player(instance: instance)
-    defer { player.stop() }
-    try player.play(url: server.url)
-    try #require(await poll(every: .milliseconds(50), timeout: .seconds(10)) {
-      player.state == .playing && player.isSeekable && player.currentTime >= .seconds(2)
-    })
-    player.pause()
-    try #require(await poll(every: .milliseconds(50), timeout: .seconds(3)) {
-      player.state == .paused
-    })
-    // Paused wall time must not be counted as input clock lateness after seek.
-    try await Task.sleep(for: .seconds(1))
-    let start = player.currentTime
-    let forward = try player.requestSeek(by: .seconds(10), fast: fast)
-    try await assertLanding(forward, target: start + .seconds(10), fast: fast, player: player)
-    let afterForward = player.currentTime
-    let backward = try player.requestSeek(by: .seconds(-5), fast: fast)
-    try await assertLanding(backward, target: afterForward - .seconds(5), fast: fast, player: player)
-    let position = player.requestSeek(toPosition: PlaybackPosition(0.7), fast: fast)
-    try await assertLanding(position, target: .seconds(14), fast: fast, player: player)
-    let absolute = try player.requestSeek(to: .milliseconds(5400), fast: fast)
-    try await assertLanding(absolute, target: .milliseconds(5400), fast: fast, player: player)
-    let pausedTime = player.currentTime
-    player.resume()
-    try #require(await poll(every: .milliseconds(50), timeout: .seconds(5)) {
-      player.state == .playing && player.currentTime >= pausedTime + .milliseconds(500)
-    })
-    #expect(player.currentTime < pausedTime + .seconds(5))
+    let sink = SeekVideoSink()
+
+    try installSeekVideoSink(sink, on: player)
+    do {
+      try player.play(url: server.url)
+      try #require(await poll(every: .milliseconds(50), timeout: .seconds(10)) {
+        player.state == .playing && player.isSeekable && player.currentTime >= .seconds(2)
+      })
+      player.pause()
+      try #require(await poll(every: .milliseconds(50), timeout: .seconds(3)) {
+        player.state == .paused
+      })
+      // Paused wall time must not be counted as input clock lateness after seek.
+      try await Task.sleep(for: .seconds(1))
+      let start = player.currentTime
+      let forward = try player.requestSeek(by: .seconds(10), fast: fast)
+      try await assertLanding(forward, target: start + .seconds(10), fast: fast, player: player)
+      let afterForward = player.currentTime
+      let backward = try player.requestSeek(by: .seconds(-5), fast: fast)
+      try await assertLanding(backward, target: afterForward - .seconds(5), fast: fast, player: player)
+      let position = player.requestSeek(toPosition: PlaybackPosition(0.7), fast: fast)
+      try await assertLanding(position, target: .seconds(14), fast: fast, player: player)
+      let absolute = try player.requestSeek(to: .milliseconds(5400), fast: fast)
+      try await assertLanding(absolute, target: .milliseconds(5400), fast: fast, player: player)
+      let pausedTime = player.currentTime
+      player.resume()
+      try #require(await poll(every: .milliseconds(50), timeout: .seconds(5)) {
+        player.state == .playing && player.currentTime >= pausedTime + .milliseconds(500)
+      })
+      #expect(player.currentTime < pausedTime + .seconds(5))
+    } catch { await player.shutdown(); throw error }
+    await player.shutdown()
+    withExtendedLifetime(sink) {}
   }
 
   private func assertLanding(

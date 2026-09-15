@@ -449,7 +449,7 @@ typedef struct swiftvlc_pip_playback_identity_t
  * PiP controller handoff. Version 10 adds ordered semantic text-region
  * interception with explicit WebVTT placement provenance. Version 11 retains
  * and immediately presents the first paused-seek video output while publishing
- * its fixed clock point.
+ * its fixed clock point. Version 12 adds output-backed seek observation.
  */
 LIBVLC_API unsigned swiftvlc_libvlc_pip_extensions_version( void );
 
@@ -3615,6 +3615,28 @@ typedef void (*libvlc_media_player_watch_time_on_paused)(
  */
 typedef void (*libvlc_media_player_watch_time_on_seek)(
         const libvlc_media_player_time_point_t *value, void *data);
+
+/** A successful final video-output submission, normalized to media time.
+ * Requires a module acknowledgment. The fixed point must not be interpolated;
+ * duration_us is zero if the frame rate is unknown. This certifies submission,
+ * not a physical display scanout. No player functions may be called here.
+ */
+typedef void (*swiftvlc_video_output_time_cb)(
+        const libvlc_media_player_time_point_t *value,
+        int64_t duration_us, void *data);
+
+/** Additive version-12 watcher. Shares the ordinary watcher's single slot
+ * and unwatch lifetime. Video evidence is unthrottled and suppressed before
+ * seek discontinuity; it is never synthesized from input/audio time.
+ * Request attribution remains the caller's responsibility.
+ */
+LIBVLC_API int
+swiftvlc_libvlc_media_player_watch_time_with_video_output(
+        libvlc_media_player_t *, int64_t min_period_us,
+        libvlc_media_player_watch_time_on_update,
+        libvlc_media_player_watch_time_on_paused,
+        libvlc_media_player_watch_time_on_seek,
+        swiftvlc_video_output_time_cb on_video_output, void *data);
 
 /**
  * Watch for times updates

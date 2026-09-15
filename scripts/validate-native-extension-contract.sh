@@ -17,7 +17,7 @@ RUN_MUTATIONS=no
 
 usage() {
     cat >&2 <<EOF
-Usage: $0 --expected-version <1..11> [--source-root <patched-vlc>] \\
+Usage: $0 --expected-version <1..12> [--source-root <patched-vlc>] \\
   [--xcframework <candidate>] [--require-apple-audio-session-leases] \\
   [--run-mutations]
 EOF
@@ -60,8 +60,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ ! "$EXPECTED_VERSION" =~ ^([1-9]|10|11)$ ]]; then
-    echo "An exact expected extension version from 1 through 11 is required." >&2
+if [[ ! "$EXPECTED_VERSION" =~ ^([1-9]|10|11|12)$ ]]; then
+    echo "An exact expected extension version from 1 through 12 is required." >&2
     exit 2
 fi
 if [[ "$REQUIRE_LEASES" = yes ]] && (( EXPECTED_VERSION < 8 )); then
@@ -105,7 +105,7 @@ PY
 
 if [[ -n "$SOURCE_ROOT" ]]; then
     if (( EXPECTED_VERSION < 4 )); then
-        echo "Source composition proof is defined for extension versions 4 through 11." >&2
+        echo "Source composition proof is defined for extension versions 4 through 12." >&2
         exit 2
     fi
     if [[ ! -d "$SOURCE_ROOT" ]]; then
@@ -311,6 +311,9 @@ PY
     VERSION_10_SYMBOLS=(
         swiftvlc_libvlc_media_player_set_subtitle_text_snapshot_callback
     )
+    VERSION_12_SYMBOLS=(
+        swiftvlc_libvlc_media_player_watch_time_with_video_output
+    )
     LEASE_SYMBOLS=(
         swiftvlc_libvlc_media_player_acquire_apple_audio_session_lease
         swiftvlc_libvlc_media_player_release_apple_audio_session_lease
@@ -352,6 +355,12 @@ PY
         REQUIRED_SYMBOLS+=("${VERSION_10_SYMBOLS[@]}")
     else
         FUTURE_SYMBOLS+=("${VERSION_10_SYMBOLS[@]}")
+    fi
+
+    if (( EXPECTED_VERSION >= 12 )); then
+        REQUIRED_SYMBOLS+=("${VERSION_12_SYMBOLS[@]}")
+    else
+        FUTURE_SYMBOLS+=("${VERSION_12_SYMBOLS[@]}")
     fi
 
     symbol_definition_counts() {
@@ -423,9 +432,9 @@ PY
                 fi
             done
             # Bash 3.2 treats expansion of an explicitly empty array as an
-            # unbound variable under `set -u`. Version 10 and later have no
+            # unbound variable under `set -u`. Version 12 and later have no
             # future symbol group, so guard the empty-array boundary.
-            if (( EXPECTED_VERSION < 10 )); then
+            if (( EXPECTED_VERSION < 12 )); then
                 for symbol in "${FUTURE_SYMBOLS[@]}"; do
                     counts=$(symbol_definition_counts "$nm_output" "$symbol")
                     definition_count=${counts#*:}

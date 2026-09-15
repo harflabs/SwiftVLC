@@ -147,7 +147,7 @@ guard request.initialOutcome == .pending else { return }
 
 switch await request.outcome {
 case .settled: updateTransportUI()
-case .timedOut, .superseded, .rejected: recoverTransportUI()
+case .timedOut, .superseded, .rejected, .inaccurate: recoverTransportUI()
 case .pending: break // `outcome` is always terminal
 }
 ```
@@ -171,7 +171,7 @@ guard request.initialOutcome == .pending else { return }
 
 switch await request.outcome {
 case .settled: updateTransportUI()
-case .timedOut, .superseded, .rejected: recoverTransportUI()
+case .timedOut, .superseded, .rejected, .inaccurate: recoverTransportUI()
 case .pending: break // `outcome` is always terminal
 }
 ```

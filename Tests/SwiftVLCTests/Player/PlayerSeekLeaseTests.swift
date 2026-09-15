@@ -290,7 +290,7 @@ extension Integration {
     }
 
     @Test
-    func `Queued request times out and removes its reservation if A never drains`() async {
+    func `Queued observation times out but its intent remains until replaced`() async {
       let player = makePlayingPlayer()
       var dispatchedOffsets: [Int64] = []
       player._nativeJumpTimeOverrideForTesting = { offset in
@@ -306,7 +306,7 @@ extension Integration {
       player._expirePendingSeekForTesting()
 
       #expect(await b.outcome == .timedOut)
-      #expect(player.queuedNativeSeek == nil)
+      #expect(player.queuedNativeSeek?.nativeSeekToken == 2)
       #expect(player.activeNativeSeek?.command.nativeSeekToken == 1)
       #expect(player.activeNativeSeek?.isTombstoned == false)
       expectNoDifference(dispatchedOffsets, [10000])

@@ -217,10 +217,10 @@ python3 -B \
     "$VLC_SOURCE_ROOT" \
     "$SCRIPT_DIR/patches/0042-adaptive-es-recycling-extradata-identity.patch"
 
-section "Validating exact integrated extension version 11"
+section "Validating exact integrated extension version 12"
 "$SCRIPT_DIR/validate-native-extension-contract.sh" \
     --source-root "$VLC_SOURCE_ROOT" \
-    --expected-version 11 \
+    --expected-version 12 \
     --require-apple-audio-session-leases \
     --run-mutations
 
@@ -269,7 +269,10 @@ python3 -B \
 section "Validating native playback recovery and playlist policy"
 "$SCRIPT_DIR/validate-native-playback-stability.sh" "$VLC_SOURCE_ROOT"
 
+section "Validating seek video output and paused bootstrap"
+python3 -B "$SCRIPT_DIR/patches/validation/seek-video-output-source-check.py" "$VLC_SOURCE_ROOT"
+
 section "Native patch-series source contracts passed"
 echo "Pinned VLC commit: $actual_commit"
 echo "Applied patches:   ${#patch_names[@]}"
-echo "Extension version: 11 (apple-audio-session-leases required)"
+echo "Extension version: 12 (apple-audio-session-leases required)"

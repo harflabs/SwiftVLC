@@ -158,11 +158,30 @@ extension Player {
       finishCurrentPublicSeek(
         nativeSeekToken: command.nativeSeekToken,
         resolver: command.resolver,
-        outcome: hasCoherentLanding ? .settled : .timedOut
+        outcome: !hasCoherentLanding ? .timedOut
+          : videoSeekLandingMeetsTarget(landing, command: command) ? .settled : .inaccurate
       )
     }
     dispatchQueuedNativeSeekIfPossible()
     dispatchNextPendingFrameStepIfNeeded()
+  }
+
+  /// A successful output is still an observation, not proof that a precise
+  /// target was honored. Reject off-target output without pinning the native
+  /// lane or hiding the actual playback position from the user.
+  func videoSeekLandingMeetsTarget(
+    _ landing: NativeSeekLanding,
+    command: NativeSeekCommand
+  ) -> Bool {
+    guard landing.isVideoOutput else { return true }
+    let precise: Bool = switch command.operation {
+    case .time(_, let fast), .position(_, let fast): !fast
+    case .relative, .strictRelative, .composed: false
+    }
+    guard precise, let target = command.evidence.requestedTimeMilliseconds else { return true }
+    let delta = Double(landing.timeMilliseconds) - Double(target)
+    let frameMilliseconds = max(1, Double(landing.frameDurationMicroseconds) / 1000)
+    return delta >= -1 && delta <= frameMilliseconds + 1
   }
 
   /// A start with no matching staged token was issued outside SwiftVLC. It
@@ -328,9 +347,8 @@ extension Player {
     dispatchNextPendingFrameStepIfNeeded()
   }
 
-  /// A tombstoned timeout has no landing delivery, but its native end+point
-  /// still clears the monitor drain. Release only that tombstone here; a live
-  /// command continues to require its sole-episode landing callback.
+  /// Consume any late landing before retiring the drained timeout lease.
+  /// Observation deadlines do not discard native output authority.
   func nativeSeekDrainDidClear() {
     reconcileCommittedNativeSeekProgress()
     guard !isShutdown, !nativeSeekMonitor.hasSeekDrainPending else { return }
@@ -445,7 +463,7 @@ extension Player {
     processNativeSeekLanding(claimed)
   }
 
-  private var nativeSeekHasSelectedVideo: Bool {
+  var nativeSeekHasSelectedVideo: Bool {
     #if DEBUG
     if let override = _seekOverridesForTesting.hasSelectedVideo {
       return override
@@ -729,7 +747,9 @@ extension Player {
     self.pendingSeekSettlement = nil
     pendingSeekSettlement.timeoutTask?.cancel()
     pendingSeekSettlement.pollingTask?.cancel()
-    if queuedNativeSeek?.nativeSeekToken == nativeSeekToken {
+    // A deadline ends observation, not intent. Retain the latest queued
+    // command until dispatch or a real superseding/cancellation boundary.
+    if outcome != .timedOut, queuedNativeSeek?.nativeSeekToken == nativeSeekToken {
       nativeSeekMonitor.cancelReservedCommand(nativeSeekToken)
       queuedNativeSeek = nil
     }

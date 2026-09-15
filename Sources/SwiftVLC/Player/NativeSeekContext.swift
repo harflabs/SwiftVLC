@@ -21,6 +21,7 @@ final class NativeSeekContext: Sendable {
     var overlappedTokens: Set<UInt64> = []
     var activeToken: UInt64?
     var awaitingUpdateToken: UInt64?
+    var videoOutputTokens: Set<UInt64> = []
     /// Exact watched landings committed on VLC's callback lane but not yet
     /// consumed by Player. The callback's MainActor task is only a wake-up;
     /// timeout and drain reconciliation race through this single slot so the
@@ -119,6 +120,7 @@ final class NativeSeekContext: Sendable {
     state.withLock { state in
       state.reservedTokens.remove(token)
       state.cancelledTokens.remove(token)
+      state.videoOutputTokens.remove(token)
       state.causallyStartedTokens.remove(token)
       state.overlappedTokens.remove(token)
       state.seekLandingsAwaitingConsumption.removeValue(forKey: token)
@@ -161,6 +163,7 @@ final class NativeSeekContext: Sendable {
         state.frameGeneration -= 1
       }
       state.cancelledTokens.remove(token)
+      state.videoOutputTokens.remove(token)
       state.causallyStartedTokens.remove(token)
       state.overlappedTokens.remove(token)
       state.seekLandingsAwaitingConsumption.removeValue(forKey: token)
@@ -188,6 +191,7 @@ final class NativeSeekContext: Sendable {
       // would shift the next seek token onto this command's late start/end
       // callbacks and let an older landing settle a newer rapid seek.
       state.cancelledTokens.insert(token)
+      state.videoOutputTokens.remove(token)
       if state.awaitingUpdateToken == token {
         // An overlapped episode is deliberately fail-closed. Its untagged
         // point can never prove that the latest request landed, so retain the
@@ -195,6 +199,7 @@ final class NativeSeekContext: Sendable {
         guard !state.overlappedTokens.contains(token) else { return }
         state.awaitingUpdateToken = nil
         state.cancelledTokens.remove(token)
+        state.videoOutputTokens.remove(token)
         state.overlappedTokens.remove(token)
       }
     }
@@ -706,6 +711,7 @@ final class NativeSeekContext: Sendable {
         // but never expose its uncorrelated end to the getter fallback.
         state.awaitingUpdateToken = token
         state.cancelledTokens.remove(token)
+        state.videoOutputTokens.remove(token)
         return nil
       }
       if state.cancelledTokens.remove(token) != nil {
@@ -722,10 +728,16 @@ final class NativeSeekContext: Sendable {
     }
   }
 
+  func requireVideoOutput(for token: UInt64) {
+    _ = state.withLock { $0.videoOutputTokens.insert(token) }
+  }
+
   func noteTimeUpdated(
     timeMicroseconds: Int64,
     position: Double,
-    timelineGeneration: UInt64
+    timelineGeneration: UInt64,
+    isVideoOutput: Bool = false,
+    frameDurationMicroseconds: Int64 = 0
   ) {
     typealias SeekDelivery = (NativeSeekLanding, @Sendable (NativeSeekLanding) -> Void)
     typealias ExternalDelivery = (
@@ -747,6 +759,13 @@ final class NativeSeekContext: Sendable {
         timelineGeneration == state.timelineGeneration,
         hasAuthoritativeTime || (state.seekEndedAwaitingPoint && hasAuthoritativePosition)
       else {
+        return (nil, nil, nil, nil)
+      }
+      if
+        let token = state.awaitingUpdateToken ?? state.activeToken,
+        state.videoOutputTokens.contains(token), !isVideoOutput {
+        // Clock discontinuity is not video output. Keep the native lease and
+        // its landing reservation until the module acknowledges a picture.
         return (nil, nil, nil, nil)
       }
       if
@@ -812,8 +831,11 @@ final class NativeSeekContext: Sendable {
           token: token,
           timeMilliseconds: timeMilliseconds ?? -1,
           position: position,
-          emissionSequence: emissionSequence
+          emissionSequence: emissionSequence,
+          isVideoOutput: isVideoOutput,
+          frameDurationMicroseconds: frameDurationMicroseconds
         )
+        state.videoOutputTokens.remove(token)
         let reservedLanding: NativeSeekLanding
         if let existing = state.seekLandingsAwaitingConsumption[token] {
           reservedLanding = existing
@@ -876,6 +898,7 @@ final class NativeSeekContext: Sendable {
       state.nativeHandleGeneration = nativeHandleGeneration
       state.playbackGeneration = playbackGeneration
       state.reservedTokens.removeAll(keepingCapacity: true)
+      state.videoOutputTokens.removeAll(keepingCapacity: true)
       state.stagedTokens.removeAll(keepingCapacity: true)
       state.stagedFrameGenerations.removeAll(keepingCapacity: true)
       state.cancelledTokens.removeAll(keepingCapacity: true)

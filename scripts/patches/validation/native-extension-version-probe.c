@@ -10,7 +10,7 @@
 #endif
 
 #if SWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION < 1 \
- || SWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION > 11
+ || SWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION > 12
 # error "unsupported SwiftVLC native extension version"
 #endif
 
@@ -185,8 +185,26 @@ SWIFTVLC_ASSERT_FUNCTION_TYPE(
     swiftvlc_release_audio_session_lease_function_t);
 #endif
 
+#if SWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION >= 12
+typedef int (*swiftvlc_video_output_watch_function_t)(
+    libvlc_media_player_t *, int64_t,
+    libvlc_media_player_watch_time_on_update,
+    libvlc_media_player_watch_time_on_paused,
+    libvlc_media_player_watch_time_on_seek,
+    swiftvlc_video_output_time_cb, void *);
+SWIFTVLC_ASSERT_FUNCTION_TYPE(
+    swiftvlc_libvlc_media_player_watch_time_with_video_output,
+    swiftvlc_video_output_watch_function_t);
+/* A volatile relocation also proves that the archive exports the new ABI. */
+static swiftvlc_video_output_watch_function_t volatile video_output_watch =
+    swiftvlc_libvlc_media_player_watch_time_with_video_output;
+#endif
+
 int main(void)
 {
+#if SWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION >= 12
+    if (video_output_watch == NULL) return 1;
+#endif
     const unsigned actual = swiftvlc_libvlc_pip_extensions_version();
     const unsigned expected = SWIFTVLC_EXPECTED_PIP_EXTENSIONS_VERSION;
     if (actual != expected)

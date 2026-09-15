@@ -15,7 +15,7 @@ ARCHIVE="$XCFRAMEWORK/macos-arm64_x86_64/libvlc.a"
 PUBLIC_HEADER="$REPO_ROOT/Sources/CLibVLC/include/vlc/libvlc_media_player.h"
 EVENTS_HEADER="$REPO_ROOT/Sources/CLibVLC/include/vlc/libvlc_events.h"
 VERSION_RESOLVER="$SCRIPT_DIR/patches/validation/pip_extension_version.py"
-EXPECTED_VERSION_RESOLVER_SHA="4c120aa28964bb854d3720d2399f473cadcd754de8a1ef74f1a53494522b31a5"
+EXPECTED_VERSION_RESOLVER_SHA="4464830b53da9eaa6c031faff8e111c126c7916211d51bf120bb0a0ef467854e"
 
 actual_version_resolver_sha=$(shasum -a 256 "$VERSION_RESOLVER" | awk '{print $1}')
 if [[ "$actual_version_resolver_sha" != "$EXPECTED_VERSION_RESOLVER_SHA" ]]; then
@@ -31,7 +31,8 @@ fi
 # exact source tree; archive-only callers must state their expected version.
 if [[ "$EXPECTED_EXTENSION_VERSION" == 9 ||
       "$EXPECTED_EXTENSION_VERSION" == 10 ||
-      "$EXPECTED_EXTENSION_VERSION" == 11 ]]; then
+      "$EXPECTED_EXTENSION_VERSION" == 11 ||
+      "$EXPECTED_EXTENSION_VERSION" == 12 ]]; then
   REQUIRE_APPLE_AUDIO_SESSION_LEASES=yes
 fi
 if [[ -n "$VLC_SOURCE_ROOT" ]]; then
@@ -70,9 +71,9 @@ elif [[ "$REQUIRE_APPLE_AUDIO_SESSION_LEASES" == yes ]]; then
 fi
 
 case "$EXPECTED_EXTENSION_VERSION" in
-  4|5|6|7|8|9|10|11) ;;
+  4|5|6|7|8|9|10|11|12) ;;
   *)
-    echo "Expected PiP extension version must be an integer from 4 through 11: $EXPECTED_EXTENSION_VERSION" >&2
+    echo "Expected PiP extension version must be an integer from 4 through 12: $EXPECTED_EXTENSION_VERSION" >&2
     exit 2
     ;;
 esac

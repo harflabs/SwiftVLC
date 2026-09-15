@@ -14,6 +14,52 @@ extension Integration {
   @MainActor struct PlayerSeekLandingReconciliationTests {
     /// The strict absolute-time surface shares the same optimistic-publication
     /// rule as fractional seeking and must retain native landing evidence too.
+    @Test(arguments: [29900, 30000, 30033, 30100])
+    func `Video evidence checks the precise target and publishes the observed frame`(landedMilliseconds: Int64) async throws {
+      let player = makePausedSeekPlayer()
+      player._nativeSetTimeOverrideForTesting = { _, _ in 0 }
+      player._nativeSeekLandingOverrideForTesting = { (2000, 2.0 / 60.0) }
+      let request = try player.requestSeek(to: .seconds(30))
+      let token = try #require(player.activeNativeSeek?.command.nativeSeekToken)
+      player.nativeSeekMonitor.requireVideoOutput(for: token)
+      player.nativeSeekMonitor._noteSeekStartedForTesting()
+      player.nativeSeekMonitor._noteSeekEndedForTesting()
+      player.nativeSeekMonitor._noteTimeUpdatedForTesting(timeMilliseconds: 30000, position: 0.5)
+      await drainMainActor()
+      #expect(player.pendingSeekSettlement != nil)
+      #expect(player.nativeSeekMonitor.hasSeekDrainPending)
+      player.nativeSeekMonitor._noteVideoOutputForTesting(
+        timeMilliseconds: landedMilliseconds, position: Double(landedMilliseconds) / 60000
+      )
+      await drainMainActor()
+      #expect(await request.outcome == ((30000...30033).contains(landedMilliseconds) ? .settled : .inaccurate))
+      #expect(player.currentTime == .milliseconds(landedMilliseconds))
+      #expect(player.activeNativeSeek == nil)
+      #expect(!player.nativeSeekMonitor.hasSeekDrainPending)
+    }
+
+    @Test
+    func `Late video corrects a timed out seek without resolving it again`() async throws {
+      let player = makePausedSeekPlayer()
+      player._nativeSetTimeOverrideForTesting = { _, _ in 0 }
+      player._nativeSeekLandingOverrideForTesting = { (2000, 2.0 / 60.0) }
+      let request = try player.requestSeek(to: .seconds(30), fast: true)
+      let token = try #require(player.activeNativeSeek?.command.nativeSeekToken)
+      player.nativeSeekMonitor.requireVideoOutput(for: token)
+      player.nativeSeekMonitor._noteSeekStartedForTesting()
+      player._expirePendingSeekForTesting()
+      #expect(await request.outcome == .timedOut)
+      player.nativeSeekMonitor._noteSeekEndedForTesting()
+      player.nativeSeekMonitor._noteTimeUpdatedForTesting(timeMilliseconds: 30000, position: 0.5)
+      await drainMainActor()
+      #expect(player.activeNativeSeek != nil)
+      player.nativeSeekMonitor._noteVideoOutputForTesting(timeMilliseconds: 25000, position: 25.0 / 60)
+      await drainMainActor()
+      #expect(player.currentTime == .seconds(25))
+      #expect(player.activeNativeSeek == nil)
+      #expect(await request.outcome == .timedOut)
+    }
+
     @Test
     func `A paused absolute seek reconciles its optimistic target with the native landing`() async throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
@@ -269,6 +315,11 @@ extension Integration {
       #expect(player.currentTime == .seconds(30))
       player.nativeSeekMonitor._noteTimeUpdatedForTesting(timeMilliseconds: 30000, position: 0.5)
       await drainMainActor()
+      if player.nativeSeekMonitor.supportsVideoOutputEvidence {
+        #expect(player.pendingSeekSettlement != nil)
+        player.nativeSeekMonitor._noteVideoOutputForTesting(timeMilliseconds: 30000, position: 0.5)
+        await drainMainActor()
+      }
       #expect(await request.outcome == .settled)
       #expect(player.currentTime == .seconds(30))
     }
