@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 
 CHECKS = (
+    ('src/libvlccore.sym', 'shared core timer entry point is exported',
+     r'(?m)^vlc_player_AddTimerWithVideoOutput$'),
     ('src/input/decoder.c', 'EOF retires paused bootstrap and transfers the last picture',
      r'owner->paused_seek_pending = false;\s*if \(owner->seek_last_picture != NULL\)\s*\{\s*picture_t \*last = owner->seek_last_picture;\s*owner->seek_last_picture = NULL;\s*owner->seek_display_time = VLC_TICK_INVALID;\s*owner->i_preroll_end = PREROLL_NONE;\s*\(void\) ModuleThread_PlayVideo\(owner, last\);'),
     ('src/input/decoder.c', 'separate paused bootstrap',

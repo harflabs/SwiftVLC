@@ -476,6 +476,18 @@ index dec55bf..1fc07f2 100644
  
          return VLC_SUCCESS;
      }
+diff --git a/src/libvlccore.sym b/src/libvlccore.sym
+index 9cc209b..1958bbc 100644
+--- a/src/libvlccore.sym
++++ b/src/libvlccore.sym
+@@ -848,6 +848,7 @@ vlc_player_AddListener
+ vlc_player_AddMetadataListener
+ vlc_player_AddSmpteTimer
+ vlc_player_AddTimer
++vlc_player_AddTimerWithVideoOutput
+ vlc_player_aout_AddListener
+ vlc_player_aout_EnableFilter
+ vlc_player_aout_GetVolume
 diff --git a/src/player/input.c b/src/player/input.c
 index f718758..717dee5 100644
 --- a/src/player/input.c
