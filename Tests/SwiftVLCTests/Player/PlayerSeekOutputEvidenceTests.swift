@@ -50,6 +50,12 @@ extension Integration {
       #expect(await request.outcome == .timedOut)
     }
 
+    private func drainMainActor() async {
+      for _ in 0..<20 {
+        await Task.yield()
+      }
+    }
+
     private func makePausedSeekPlayer() -> Player {
       let player = Player(instance: TestInstance.makeAudioOnly())
       player._setStateForTesting(
