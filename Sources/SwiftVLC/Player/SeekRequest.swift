@@ -8,7 +8,7 @@ import Synchronization
 /// waiting behind one active untagged native seek rather than dispatched yet.
 /// libVLC 4 retains an integer result for ABI compatibility, but its current
 /// seek entry points return zero after dispatch without reporting whether the
-/// demuxer can honor the request. On native extension v12, selected video resolves from successful output
+/// demuxer can honor the request. On native extension v12, video selected at dispatch resolves from successful output
 /// submission after seek end. Older engines use a watched timer point; paused audio-only input instead uses a
 /// direct post-end clock read because it may not produce another point until
 /// playback resumes. Every request eventually reaches one of the other,
@@ -23,7 +23,7 @@ public enum SeekOutcome: Hashable, Sendable {
   /// after native dispatch accepts it.
   case rejected
   /// The dispatched seek ended and its observed landing reached the mirror.
-  /// With native extension v12, selected video requires a successful output
+  /// With native extension v12, video selected at dispatch requires a successful output
   /// submission. Precise absolute video seeks with a known target also require a landing within one
   /// reported frame duration after the target (1ms timestamp rounding allowed).
   /// Older engines retain their clock-only compatibility behavior.

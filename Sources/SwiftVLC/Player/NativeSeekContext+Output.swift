@@ -2,7 +2,7 @@ import Synchronization
 
 extension NativeSeekContext {
   static func retireLateVideoObservation(_ state: inout State) {
-    if let token = state.lateVideoOutputToken {
+    if let token = state.lateVideoOutputToken ?? state.expiredVideoOutputToken {
       state.videoOutputTokens.remove(token)
       state.seekLandingsAwaitingConsumption.removeValue(forKey: token)
     }
@@ -84,8 +84,7 @@ extension NativeSeekContext {
       }
       if
         isVideoOutput, let lateToken = state.lateVideoOutputToken,
-        state.awaitingUpdateToken == nil, state.activeToken == nil,
-        state.stagedTokens.isEmpty {
+        state.awaitingUpdateToken == nil, state.activeToken == nil {
         state.awaitingUpdateToken = lateToken
         state.lateVideoOutputToken = nil
       }

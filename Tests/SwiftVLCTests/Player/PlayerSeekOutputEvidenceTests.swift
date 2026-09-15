@@ -60,16 +60,22 @@ extension Integration {
       #expect(await request.outcome == .timedOut)
     }
 
-    @Test
-    func `Late paused audio proof drains a timed out seek`() async throws {
+    @Test(arguments: [false, true])
+    func `Late paused audio proof drains a timed out seek`(selectVideoBeforeDeadline: Bool) async throws {
       let player = makePausedSeekPlayer()
       player._nativeSetTimeOverrideForTesting = { _, _ in 0 }
+      player._seekOverridesForTesting.hasSelectedVideo = false
       var point: (Int64, Double) = (2000, 2.0 / 60)
       player._nativeSeekLandingOverrideForTesting = { point }
       let request = try player.requestSeek(to: .seconds(30), fast: true)
       let token = try #require(player.activeNativeSeek?.command.nativeSeekToken)
+      #expect(player.activeNativeSeek?.requiresVideoOutput == false)
+      if selectVideoBeforeDeadline {
+        player._seekOverridesForTesting.hasSelectedVideo = true
+      }
       player._expirePendingSeekForTesting()
       #expect(await request.outcome == .timedOut)
+      player._seekOverridesForTesting.hasSelectedVideo = true
       player.nativeSeekMonitor._noteSeekEndedForTesting()
       await drainMainActor()
       point = (25000, 25.0 / 60)
@@ -134,6 +140,70 @@ extension Integration {
       player.nativeSeekMonitor._noteVideoOutputForTesting(timeMilliseconds: 25000, position: 25.0 / 60)
       await drainMainActor()
       #expect(player.currentTime != .seconds(25))
+      #expect(await request.outcome == .timedOut)
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func `An unstarted successor preserves the prior late output`(unprovenSuccess: Bool, outputDuringSetter: Bool) async throws {
+      let player = makePausedSeekPlayer()
+      player._nativeSetTimeOverrideForTesting = { _, _ in 0 }
+      let request = try player.requestSeek(to: .seconds(30))
+      let token = try #require(player.activeNativeSeek?.command.nativeSeekToken)
+      player.nativeSeekMonitor.requireVideoOutput(for: token)
+      player._expirePendingSeekForTesting()
+      player.nativeSeekMonitor._noteSeekEndedForTesting()
+      player.nativeSeekMonitor._noteTimeUpdatedForTesting(timeMilliseconds: 30000, position: 0.5)
+      await drainMainActor()
+      #expect(player.lateNativeSeekObservation != nil)
+      player._nativeSetTimeOverrideForTesting = { _, _ in
+        if outputDuringSetter {
+          player.nativeSeekMonitor._noteVideoOutputForTesting(timeMilliseconds: 25000, position: 25.0 / 60)
+        }
+        if unprovenSuccess, let staged = player.activeNativeSeek?.command.nativeSeekToken {
+          // Remove the staged reservation before the DEBUG start is supplied:
+          // the setter returns zero but there is no causal start proof.
+          player.nativeSeekMonitor.cancelStagedCommand(staged)
+          return 0
+        }
+        return -1
+      }
+      let successor = try? player.requestSeek(to: .seconds(12))
+      if unprovenSuccess {
+        let successor = try #require(successor)
+        #expect(await successor.outcome == .superseded)
+      } else {
+        #expect(successor == nil)
+      }
+      if !outputDuringSetter {
+        player.nativeSeekMonitor._noteVideoOutputForTesting(timeMilliseconds: 25000, position: 25.0 / 60)
+      }
+      await drainMainActor()
+      #expect(player.currentTime == .seconds(25))
+      #expect(player.activeNativeSeek == nil)
+      #expect(player.lateNativeSeekObservation == nil)
+      #expect(await request.outcome == .timedOut)
+    }
+
+    @Test
+    func `A video seek keeps its output requirement after track deselection`() async throws {
+      let player = makePausedSeekPlayer()
+      player._seekOverridesForTesting.hasSelectedVideo = true
+      player._seekOverridesForTesting.supportsVideoOutputEvidence = true
+      player._nativeSetTimeOverrideForTesting = { _, _ in 0 }
+      player._nativeSeekLandingOverrideForTesting = { (30000, 0.5) }
+      let request = try player.requestSeek(to: .seconds(30))
+      let token = try #require(player.activeNativeSeek?.command.nativeSeekToken)
+      player._seekOverridesForTesting.hasSelectedVideo = false
+      player._expirePendingSeekForTesting()
+      player.nativeSeekMonitor._noteSeekEndedForTesting()
+      await drainMainActor()
+      player.pollPausedNativeSeek(token: token)
+      player.pollPausedNativeSeek(token: token)
+      #expect(player.activeNativeSeek?.requiresVideoOutput == true)
+      #expect(player.nativeSeekMonitor.hasSeekDrainPending)
+      player.nativeSeekMonitor._noteTimeUpdatedForTesting(timeMilliseconds: 30000, position: 0.5)
+      await drainMainActor()
+      #expect(!player.nativeSeekMonitor.hasSeekDrainPending)
       #expect(await request.outcome == .timedOut)
     }
 

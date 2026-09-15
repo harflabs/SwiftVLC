@@ -72,6 +72,7 @@ extension Player {
         resolver.resolve(.superseded)
         return SeekRequest(resolver: resolver)
       }
+      lateNativeSeekObservation = nil
       latestWrapperDispatchExternalSeekEpoch = max(
         latestWrapperDispatchExternalSeekEpoch,
         dispatchedCommand.externalEpoch
@@ -115,11 +116,17 @@ extension Player {
   }
 
   func makeActiveNativeSeek(for command: NativeSeekCommand) -> ActiveNativeSeek {
-    ActiveNativeSeek(
+    // Track selection can change during recovery. Freeze the evidence contract
+    // once for this dispatch so its watcher, fallback and deadline agree.
+    let hasVideo = nativeSeekHasSelectedVideo
+    let requiresVideoOutput = hasVideo && nativeSeekSupportsVideoOutputEvidence
+    let allowsGetter = !requiresVideoOutput && !(hasVideo && nativeSeekSupportsPausedOutputClock)
+    return ActiveNativeSeek(
+      requiresVideoOutput: requiresVideoOutput,
       command: command,
       firstPostEndTimeMilliseconds: nil,
       firstPostEndPosition: nil,
-      allowsPausedFallback: nativeSeekMonitor.commandAllowsPausedFallback(
+      allowsPausedFallback: allowsGetter && nativeSeekMonitor.commandAllowsPausedFallback(
         command.nativeSeekToken
       ),
       isTombstoned: false,
@@ -468,10 +475,9 @@ extension Player {
         nativeHandleGeneration: command.nativeHandleGeneration
       )
     else { return -1 }
-    if nativeSeekSupportsVideoOutputEvidence, nativeSeekHasSelectedVideo {
+    if activeNativeSeek?.requiresVideoOutput == true {
       nativeSeekMonitor.requireVideoOutput(for: command.nativeSeekToken)
     }
-    lateNativeSeekObservation = nil
     return nativeSeekMonitor.withCausalSeekInvocation(token: command.nativeSeekToken) {
       let result: Int32 = switch command.operation {
       case .time(let milliseconds, let fast):
@@ -564,6 +570,7 @@ extension Player {
       )
       return
     }
+    lateNativeSeekObservation = nil
     latestWrapperDispatchExternalSeekEpoch = max(
       latestWrapperDispatchExternalSeekEpoch,
       command.externalEpoch
@@ -650,7 +657,7 @@ extension Player {
     activeNativeSeek.deadlineTask = nil
     // Paused audio may never emit another watched point. Its existing
     // post-end getter proof must remain available after observation expires.
-    if nativeSeekHasSelectedVideo {
+    if activeNativeSeek.requiresVideoOutput {
       activeNativeSeek.pollingTask?.cancel()
       activeNativeSeek.pollingTask = nil
       activeNativeSeek.allowsPausedFallback = false

@@ -27,7 +27,7 @@
 4. **Clock updates mistaken for output.** An ordinary timer point after seek-end
    could produce `.settled` while no new frame was submitted. Native extension 12
    adds an opt-in callback at the successful output-submission boundary. Swift
-   requires this callback for selected video and checks precise absolute targets
+   requires this callback for video selected at dispatch and checks precise absolute targets
    against its media-normalized timestamp. Out-of-bound output returns
    `.inaccurate` and publishes the observed time.
 5. **Presentation-time mapping and preroll.** MP4 edit offsets were conditionally
@@ -67,7 +67,11 @@ The implementation and executable source guards are patch 0050 and
   side of native seek completion, a queued successor, late output without a
   successor, and retirement at external-seek/frame-request boundaries. A clock
   may release an expired lease but cannot produce video `.settled`. Paused
-  audio retains its post-end getter proof after timeout.
+  audio retains its post-end getter proof after timeout. The evidence mode is
+  frozen at dispatch: later track selection cannot remove a clock-only seek's
+  fallback or weaken a video seek's output requirement. Rejected or unproven
+  successors preserve the prior late observation, including output arriving
+  inside the unsuccessful setter call.
 - **Adjacent behavior:** full Swift tests, strict-frame burst/EOF/ordering probes,
   native patch replay, ABI and symbol verification, and mutation-sensitive source
   checks. CI requires the output-oracle suite to execute against the rebuilt

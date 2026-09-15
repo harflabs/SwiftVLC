@@ -111,7 +111,6 @@ final class NativeSeekContext: Sendable {
         !state.seekEndedAwaitingPoint
       else { return false }
       precondition(state.frameGeneration < UInt64.max, "Native frame generation exhausted")
-      Self.retireLateVideoObservation(&state)
       state.reservedTokens.remove(token)
       state.frameGeneration += 1
       state.stagedTokens.append(token)

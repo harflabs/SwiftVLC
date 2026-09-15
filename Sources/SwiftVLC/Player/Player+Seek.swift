@@ -93,6 +93,7 @@ extension Player {
   }
 
   struct ActiveNativeSeek {
+    let requiresVideoOutput: Bool
     var command: NativeSeekCommand
     var firstPostEndTimeMilliseconds: Int64?
     var firstPostEndPosition: Double?
