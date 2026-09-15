@@ -329,7 +329,6 @@ final class NativeSeekContext: Sendable {
         !state.frameQuarantined,
         !state.seekDrainPending
       else { return false }
-      Self.retireLateVideoObservation(&state)
       state.activeFrameRequestID = requestID
       state.frameDispatchRetiredSnapshot = state.retiredFrameRequestIDs
       return true
@@ -372,6 +371,7 @@ final class NativeSeekContext: Sendable {
       guard state.activeFrameRequestID == requestID else { return disposition }
       switch disposition {
       case .accepted:
+        Self.retireLateVideoObservation(&state)
         // Acceptance proves no retired request still owns the native slot.
         // Its late exact event remains harmless because IDs never alias.
         state.retiredFrameRequestIDs.removeAll(keepingCapacity: true)
@@ -456,6 +456,7 @@ final class NativeSeekContext: Sendable {
         emissionSequence: emissionSequence
       )
       if releasedActive {
+        Self.retireLateVideoObservation(&state)
         state.activeFrameRequestID = nil
         state.retiredFrameRequestIDs.removeAll(keepingCapacity: true)
         state.frameDispatchRetiredSnapshot.removeAll(keepingCapacity: true)

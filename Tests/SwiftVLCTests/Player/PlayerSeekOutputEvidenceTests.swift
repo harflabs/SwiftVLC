@@ -207,6 +207,27 @@ extension Integration {
       #expect(await request.outcome == .timedOut)
     }
 
+    @Test(arguments: [NativeFrameRequestDispatch.busy, .unavailable])
+    func `A rejected frame request preserves the prior late output`(disposition: NativeFrameRequestDispatch) async throws {
+      let player = makePausedSeekPlayer()
+      player._nativeSetTimeOverrideForTesting = { _, _ in 0 }
+      let request = try player.requestSeek(to: .seconds(30))
+      let token = try #require(player.activeNativeSeek?.command.nativeSeekToken)
+      player.nativeSeekMonitor.requireVideoOutput(for: token)
+      player._expirePendingSeekForTesting()
+      player.nativeSeekMonitor._noteSeekEndedForTesting()
+      player.nativeSeekMonitor._noteTimeUpdatedForTesting(timeMilliseconds: 30000, position: 0.5)
+      await drainMainActor()
+      _ = player.nativeSeekMonitor._requestFrameStepForTesting(
+        requestID: 42, frameGeneration: player.nativeSeekMonitor.frameGeneration,
+        dispatch: { disposition }
+      )
+      player.nativeSeekMonitor._noteVideoOutputForTesting(timeMilliseconds: 25000, position: 25.0 / 60)
+      await drainMainActor()
+      #expect(player.currentTime == .seconds(25))
+      #expect(await request.outcome == .timedOut)
+    }
+
     private func drainMainActor() async {
       for _ in 0..<20 {
         await Task.yield()
