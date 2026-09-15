@@ -23,7 +23,7 @@ fi
 VLC_SOURCE_ROOT="$(cd "$VLC_SOURCE_ROOT" && pwd)"
 
 SOURCE_CHECKER="$SCRIPT_DIR/patches/validation/audio-media-services-reset-source-check.py"
-EXPECTED_SOURCE_CHECKER_SHA="3687fcc432c7682f69774181d8e50351bffd90302d4fff7aa2b064a0c6107f90"
+EXPECTED_SOURCE_CHECKER_SHA="92afae10c6373f2d25538ef2d1b815ae400a9223a0edc116a5c20f7f3479d86c"
 ACTUAL_SOURCE_CHECKER_SHA="$(shasum -a 256 "$SOURCE_CHECKER" | awk '{print $1}')"
 if [[ "$ACTUAL_SOURCE_CHECKER_SHA" != "$EXPECTED_SOURCE_CHECKER_SHA" ]]; then
     echo "Audio media-services reset validator hash mismatch:" >&2

@@ -728,6 +728,108 @@ final class NativeSeekContext: Sendable {
     }
   }
 
+  func resetForTimelineReplacement(
+    nativeHandleGeneration: UInt64,
+    playbackGeneration: UInt64
+  ) -> (timelineGeneration: UInt64, frameResults: [NativeFrameStepResult]) {
+    state.withLock { state in
+      /* Attachment detachment has completed before this atomic reset. Drain
+       * every exact native terminal reservation admitted before the boundary,
+       * then erase commit IDs whose future callbacks can no longer be observed
+       * through this attachment. Player resolves the returned proofs before
+       * falling back any still-unproven committed waiters. */
+      let frameResults = state.frameResultsAwaitingConsumption.values
+        .sorted { $0.emissionSequence < $1.emissionSequence }
+      state.frameResultsAwaitingConsumption.removeAll(keepingCapacity: true)
+      state.commitOwnedFrameRequestIDs.removeAll(keepingCapacity: true)
+      precondition(state.timelineGeneration < UInt64.max, "Native seek timeline exhausted")
+      state.timelineGeneration += 1
+      state.nativeHandleGeneration = nativeHandleGeneration
+      state.playbackGeneration = playbackGeneration
+      state.reservedTokens.removeAll(keepingCapacity: true)
+      state.videoOutputTokens.removeAll(keepingCapacity: true)
+      state.stagedTokens.removeAll(keepingCapacity: true)
+      state.stagedFrameGenerations.removeAll(keepingCapacity: true)
+      state.cancelledTokens.removeAll(keepingCapacity: true)
+      state.causallyStartedTokens.removeAll(keepingCapacity: true)
+      state.overlappedTokens.removeAll(keepingCapacity: true)
+      state.activeToken = nil
+      state.awaitingUpdateToken = nil
+      state.seekLandingsAwaitingConsumption.removeAll(keepingCapacity: true)
+      state.activeExternalEpoch = nil
+      state.awaitingUpdateExternalEpoch = nil
+      state.externalEpisodeAmbiguous = false
+      precondition(state.frameGeneration < UInt64.max, "Native frame generation exhausted")
+      state.frameGeneration += 1
+      state.activeFrameRequestID = nil
+      state.retiredFrameRequestIDs.removeAll(keepingCapacity: true)
+      state.frameDispatchRetiredSnapshot.removeAll(keepingCapacity: true)
+      state.frameRetryBlockerIDs.removeAll(keepingCapacity: true)
+      state.frameQuarantined = false
+      state.seekDrainPending = false
+      state.seekEndedAwaitingPoint = false
+      emissionAuthority.update(
+        timelineGeneration: state.timelineGeneration,
+        externalEpoch: state.externalSeekEpoch,
+        externalDrainPending: false,
+        externalOverlapAmbiguous: false
+      )
+      return (state.timelineGeneration, frameResults)
+    }
+  }
+
+  func currentTimelineGeneration() -> UInt64 {
+    state.withLock { $0.timelineGeneration }
+  }
+
+  func currentExternalSeekEpoch() -> UInt64 {
+    state.withLock { $0.externalSeekEpoch }
+  }
+
+  func hasSeekDrainPending() -> Bool {
+    state.withLock { $0.seekDrainPending }
+  }
+
+  func setHandler(_ handler: (@Sendable (NativeSeekLanding) -> Void)?) {
+    state.withLock { $0.handler = handler }
+  }
+
+  func setSeekStartedHandler(_ handler: (@Sendable (NativeSeekStart) -> Void)?) {
+    state.withLock { $0.seekStartedHandler = handler }
+  }
+
+  func setExternalSeekLandingHandler(
+    _ handler: (@Sendable (NativeExternalSeekLanding) -> Void)?
+  ) {
+    state.withLock { $0.externalSeekLandingHandler = handler }
+  }
+
+  func setSeekEndedHandler(_ handler: (@Sendable (UInt64) -> Void)?) {
+    state.withLock { $0.seekEndedHandler = handler }
+  }
+
+  func setSeekDrainAvailabilityHandler(_ handler: (@Sendable () -> Void)?) {
+    state.withLock { $0.seekDrainAvailabilityHandler = handler }
+  }
+
+  func setFrameHandler(_ handler: (@Sendable (NativeFrameStepResult) -> Void)?) {
+    state.withLock { $0.frameHandler = handler }
+  }
+
+  func setFrameInvalidationHandler(
+    _ handler: (@Sendable (UInt64) -> Void)?
+  ) {
+    state.withLock { $0.frameInvalidationHandler = handler }
+  }
+
+  func setFrameAvailabilityHandler(_ handler: (@Sendable () -> Void)?) {
+    state.withLock { $0.frameAvailabilityHandler = handler }
+  }
+}
+
+// MARK: - Seek output observations
+
+extension NativeSeekContext {
   func requireVideoOutput(for token: UInt64) {
     _ = state.withLock { $0.videoOutputTokens.insert(token) }
   }
@@ -877,103 +979,5 @@ final class NativeSeekContext: Sendable {
     }
     delivery.2?()
     delivery.3?()
-  }
-
-  func resetForTimelineReplacement(
-    nativeHandleGeneration: UInt64,
-    playbackGeneration: UInt64
-  ) -> (timelineGeneration: UInt64, frameResults: [NativeFrameStepResult]) {
-    state.withLock { state in
-      /* Attachment detachment has completed before this atomic reset. Drain
-       * every exact native terminal reservation admitted before the boundary,
-       * then erase commit IDs whose future callbacks can no longer be observed
-       * through this attachment. Player resolves the returned proofs before
-       * falling back any still-unproven committed waiters. */
-      let frameResults = state.frameResultsAwaitingConsumption.values
-        .sorted { $0.emissionSequence < $1.emissionSequence }
-      state.frameResultsAwaitingConsumption.removeAll(keepingCapacity: true)
-      state.commitOwnedFrameRequestIDs.removeAll(keepingCapacity: true)
-      precondition(state.timelineGeneration < UInt64.max, "Native seek timeline exhausted")
-      state.timelineGeneration += 1
-      state.nativeHandleGeneration = nativeHandleGeneration
-      state.playbackGeneration = playbackGeneration
-      state.reservedTokens.removeAll(keepingCapacity: true)
-      state.videoOutputTokens.removeAll(keepingCapacity: true)
-      state.stagedTokens.removeAll(keepingCapacity: true)
-      state.stagedFrameGenerations.removeAll(keepingCapacity: true)
-      state.cancelledTokens.removeAll(keepingCapacity: true)
-      state.causallyStartedTokens.removeAll(keepingCapacity: true)
-      state.overlappedTokens.removeAll(keepingCapacity: true)
-      state.activeToken = nil
-      state.awaitingUpdateToken = nil
-      state.seekLandingsAwaitingConsumption.removeAll(keepingCapacity: true)
-      state.activeExternalEpoch = nil
-      state.awaitingUpdateExternalEpoch = nil
-      state.externalEpisodeAmbiguous = false
-      precondition(state.frameGeneration < UInt64.max, "Native frame generation exhausted")
-      state.frameGeneration += 1
-      state.activeFrameRequestID = nil
-      state.retiredFrameRequestIDs.removeAll(keepingCapacity: true)
-      state.frameDispatchRetiredSnapshot.removeAll(keepingCapacity: true)
-      state.frameRetryBlockerIDs.removeAll(keepingCapacity: true)
-      state.frameQuarantined = false
-      state.seekDrainPending = false
-      state.seekEndedAwaitingPoint = false
-      emissionAuthority.update(
-        timelineGeneration: state.timelineGeneration,
-        externalEpoch: state.externalSeekEpoch,
-        externalDrainPending: false,
-        externalOverlapAmbiguous: false
-      )
-      return (state.timelineGeneration, frameResults)
-    }
-  }
-
-  func currentTimelineGeneration() -> UInt64 {
-    state.withLock { $0.timelineGeneration }
-  }
-
-  func currentExternalSeekEpoch() -> UInt64 {
-    state.withLock { $0.externalSeekEpoch }
-  }
-
-  func hasSeekDrainPending() -> Bool {
-    state.withLock { $0.seekDrainPending }
-  }
-
-  func setHandler(_ handler: (@Sendable (NativeSeekLanding) -> Void)?) {
-    state.withLock { $0.handler = handler }
-  }
-
-  func setSeekStartedHandler(_ handler: (@Sendable (NativeSeekStart) -> Void)?) {
-    state.withLock { $0.seekStartedHandler = handler }
-  }
-
-  func setExternalSeekLandingHandler(
-    _ handler: (@Sendable (NativeExternalSeekLanding) -> Void)?
-  ) {
-    state.withLock { $0.externalSeekLandingHandler = handler }
-  }
-
-  func setSeekEndedHandler(_ handler: (@Sendable (UInt64) -> Void)?) {
-    state.withLock { $0.seekEndedHandler = handler }
-  }
-
-  func setSeekDrainAvailabilityHandler(_ handler: (@Sendable () -> Void)?) {
-    state.withLock { $0.seekDrainAvailabilityHandler = handler }
-  }
-
-  func setFrameHandler(_ handler: (@Sendable (NativeFrameStepResult) -> Void)?) {
-    state.withLock { $0.frameHandler = handler }
-  }
-
-  func setFrameInvalidationHandler(
-    _ handler: (@Sendable (UInt64) -> Void)?
-  ) {
-    state.withLock { $0.frameInvalidationHandler = handler }
-  }
-
-  func setFrameAvailabilityHandler(_ handler: (@Sendable () -> Void)?) {
-    state.withLock { $0.frameAvailabilityHandler = handler }
   }
 }
