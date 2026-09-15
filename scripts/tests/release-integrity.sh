@@ -2063,14 +2063,14 @@ expected_manifest_tail = [
     "c0a203e6a83d0eed27074095c9a7c4e7a649015e73d00b40fb2d7fb8bbc584b2  0047-restore-live555-compatible-contrib.patch",
     "f1f89c4ef3ae9858d6f47040c23271048fb49bea71ff75224c9c09f853e1a59a  0048-enable-lgpl2-live555-rtsp.patch",
     "a513915440be51e99ce90db2ee878c44a1c7eaf8d4da238060ceaa0dc1efee5c  0049-paused-seek-output-clock.patch",
-    "f5eeb4e96924f134133457b729e00cc46d8ec48c0da2dfdfc8081c43c5e88f57  0050-seek-video-output-contract.patch",
+    "8a9ecdb3ce6e951c7a1b5a4aa8d105e65817ce5064e5f23db1bcfcda6d0ec635  0050-seek-video-output-contract.patch",
 ]
 if manifest_lines[-len(expected_manifest_tail):] != expected_manifest_tail:
     sys.exit(
         "patch manifest must end with frozen 0037 through 0040, native PiP "
         "output identity 0041, adaptive ES recycling 0042, then text-subtitle "
         "callback 0043, deferred-resume correction 0044, playlist policy 0045, "
-        "failure recovery 0046, LGPL2 live555 0047/0048, and paused-seek clock 0049: "
+        "failure recovery 0046, LGPL2 live555 0047/0048, paused-seek clock 0049, and seek video output 0050: "
         f"got {manifest_lines[-len(expected_manifest_tail):]}"
     )
 
