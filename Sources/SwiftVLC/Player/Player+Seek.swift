@@ -66,6 +66,7 @@ extension Player {
   struct DeferredSeekComposition {
     let base: DeferredSeekCompositionBase
     var relativeOffsetsMilliseconds: [Int64]
+    var fast: Bool = false
   }
 
   enum SeekOptimisticPublication {
@@ -373,7 +374,9 @@ extension Player {
   /// Requests a strict relative seek and exposes its authoritative settlement.
   ///
   /// Rapid calls accepted while another native seek owns libVLC's watcher are
-  /// combined as relative intent and dispatched once. Each public request is
+  /// combined with the latest queued absolute, fractional, or strict relative
+  /// intent and dispatched once. Observation timeout does not discard that
+  /// intent. Each public request is
   /// still terminal: an earlier request becomes ``SeekOutcome/superseded``;
   /// the newest request settles normally, or becomes ``SeekOutcome/rejected``
   /// if the aggregate cannot fit VLC's native time domain at dispatch.

@@ -95,6 +95,18 @@
       "name": "`precise pixels`(audio:source:)",
       "skip_reason": "Requires the rebuilt native seek output contract",
       "reason": "Requires extension 12; rebuilt native CI requires the full suite."
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.ResumeTimelinePlaybackTests",
+      "name": "`start time clips but resume seeks preserve the full media timeline`(clipped:)",
+      "skip_reason": "Requires native video output",
+      "reason": "Uses released extension 12 output and delayed HTTP; mandatory in the native job."
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.ResumeTimelinePlaybackTests",
+      "name": "`backward skip composes with a timed out queued scrub`(paused:)",
+      "skip_reason": "Requires native video output",
+      "reason": "Uses released extension 12 output and delayed HTTP; mandatory in the native job."
     }
   ],
   "required_suites": [

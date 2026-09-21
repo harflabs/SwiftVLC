@@ -1,5 +1,31 @@
 # Seek output contract and validation
 
+## Resume and mixed seek commands (beta.14)
+
+Tilfaz's all-platform report exposed two additional timeline problems:
+
+- VLC 4's `:start-time` is a clipping option, not a full-media resume seek.
+  [`ControlSetTime` and `input_GetItemDuration`](https://github.com/videolan/vlc/blob/c833c4be000b426d73ff4324bec574065f00e3df/src/input/input.c)
+  respectively add the start offset to seeks and subtract it from duration.
+  A 60-second fixture with `:start-time=20` reports 40 seconds; seeking to 5
+  displays barcode frame 750 (original-media time 25 seconds). Loading without
+  the option, seeking to 20, then back to 5 displays frame 150 and retains the
+  60-second duration. Applications must use the latter for saved progress.
+- A strict relative request only combined with a queued strict relative
+  request. It discarded queued absolute/fractional scrub intent and instead
+  used the active seek's optimistic clock. Under delayed HTTP, 36 seconds
+  active → 20 seconds queued → back 15 must land at 5. The beta.13 negative
+  control failed in both paused and playing states. Composition now retains
+  the queued base and offsets through observation timeout, resolves fractional
+  bases and clamps at dispatch, and uses the latest precision policy.
+
+`ResumeTimelinePlaybackTests` checks independently encoded pixels for resume
+and delayed mixed commands. `PlayerSeekLeaseTests` covers absolute, strict
+fractional and raw fractional bases, expired/live requests, changing duration,
+repeated offsets and both precision policies. Tilfaz additionally stops
+overwriting engine observations with requested times and uses relative engine
+requests for skip buttons.
+
 ## The defects and their causal evidence
 
 1. **Lost final intent under network delay.** With a 3.5-second delay on HTTP

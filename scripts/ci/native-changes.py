@@ -10,6 +10,7 @@ def needs_build(paths):
         "Tests/SwiftVLCTests/Player/PausedSeekPlaybackTests.swift",
         "Tests/SwiftVLCTests/Player/RemoteMP4SeekTests.swift",
         "Tests/SwiftVLCTests/Player/SeekOutputPlaybackTests.swift",
+        "Tests/SwiftVLCTests/Player/ResumeTimelinePlaybackTests.swift",
         "Tests/SwiftVLCTests/Support/SeekVideoSink.swift",
         "Tests/SwiftVLCTests/Fixtures/paused-seek.mp4",
         "Package.swift", ".github/workflows/test.yml",

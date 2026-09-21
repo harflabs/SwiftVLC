@@ -87,10 +87,16 @@ libVLC's playback is configured through colon-prefixed option strings:
 
 ```swift
 media.addOption(":network-caching=1500")
-media.addOption(":start-time=30")
 ```
 
 Options only affect media that has not yet started playing.
+
+For resume playback, load the full media and call
+`try player.requestSeek(to: .seconds(savedElapsed))` once the player is seekable
+and its duration is known. Observe the request's outcome before treating its
+target as landed. The `:start-time` option creates a clipped timeline: a
+60-second file with `:start-time=20` has a 40-second duration, and seeking to
+5 seconds displays content from 25 seconds into the original file.
 
 For HTTP and HTTPS streams, use the typed initializer when the request needs
 a per-media identity:
