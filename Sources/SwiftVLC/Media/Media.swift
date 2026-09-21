@@ -361,8 +361,11 @@ public final class Media: Sendable {
   ///
   /// Options use libVLC's command-line syntax, with a leading `:` for
   /// input options. For example, `:network-caching=1000` sets a
-  /// one-second network buffer; `:start-time=30` skips the first 30
-  /// seconds. HTTP options such as `:http-user-agent=App/1.0` and
+  /// one-second network buffer. `:start-time=30` clips the timeline:
+  /// reported duration excludes the first 30 seconds and later seeks are
+  /// relative to that offset. To resume within the full media timeline,
+  /// load without this option and request an absolute seek once seekable.
+  /// HTTP options such as `:http-user-agent=App/1.0` and
   /// `:http-referrer=https://example.com` are passed through when
   /// supported by the bundled libVLC build. This does not add arbitrary
   /// HTTP header injection. Call this repeatedly to add multiple

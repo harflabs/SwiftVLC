@@ -45,18 +45,41 @@ extension Player {
       replacement.externalEpoch == previous.externalEpoch
     else { return replacement }
 
-    if
-      case .strictRelative(let replacementIntent) = replacement.operation,
-      case .strictRelative(var previousIntent) = previous.operation {
-      previousIntent.offsetsMilliseconds.append(
-        contentsOf: replacementIntent.offsetsMilliseconds
-      )
-      // The newest strict request owns the public resolver and therefore its
-      // precision policy controls the one aggregate native dispatch.
-      previousIntent.fast = replacementIntent.fast
+    if case .strictRelative(let replacementIntent) = replacement.operation {
       var aggregate = replacement
-      aggregate.operation = .strictRelative(previousIntent)
-      let target = resolveStrictRelativeSeekIntent(previousIntent)
+      let target: Int64?
+      switch previous.operation {
+      case .strictRelative(var previousIntent):
+        previousIntent.offsetsMilliseconds.append(contentsOf: replacementIntent.offsetsMilliseconds)
+        previousIntent.fast = replacementIntent.fast
+        aggregate.operation = .strictRelative(previousIntent)
+        target = resolveStrictRelativeSeekIntent(previousIntent)
+      case .time(let milliseconds, _):
+        let composition = DeferredSeekComposition(
+          base: .absoluteMilliseconds(milliseconds),
+          relativeOffsetsMilliseconds: replacementIntent.offsetsMilliseconds,
+          fast: replacementIntent.fast
+        )
+        aggregate.operation = .composed(composition)
+        target = resolveDeferredSeekComposition(composition)
+      case .position(let position, _):
+        let composition = DeferredSeekComposition(
+          base: .position(position),
+          relativeOffsetsMilliseconds: replacementIntent.offsetsMilliseconds,
+          fast: replacementIntent.fast
+        )
+        aggregate.operation = .composed(composition)
+        target = resolveDeferredSeekComposition(composition)
+      case .composed(var composition):
+        composition.relativeOffsetsMilliseconds.append(contentsOf: replacementIntent.offsetsMilliseconds)
+        composition.fast = replacementIntent.fast
+        aggregate.operation = .composed(composition)
+        target = resolveDeferredSeekComposition(composition)
+      case .relative:
+        return replacement
+      }
+      // A relative command extends the latest undispatched intent, not the
+      // clock of the earlier native seek still occupying the watcher.
       aggregate.evidence = makeComposedSeekEvidence(
         baseline: previous.evidence,
         requestedTimeMilliseconds: target
@@ -121,6 +144,7 @@ extension Player {
 
     case .composed(var composition):
       composition.relativeOffsetsMilliseconds.append(replacementOffset)
+      composition.fast = false
       return makeDeferredSeekComposition(
         composition: composition,
         previous: previous,
@@ -339,7 +363,7 @@ extension Player {
       }
       finalized.operation = .time(
         milliseconds: requestedTimeMilliseconds,
-        fast: false
+        fast: composition.fast
       )
       finalized.evidence = makeSeekSettlementEvidence(
         baseline: baseline,
