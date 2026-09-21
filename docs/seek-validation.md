@@ -201,3 +201,25 @@ supply it safely.
 The symmetric guards pass all eight parameter cases in
 `ResumeTimelinePlaybackTests` using a replacement core object. Full native
 rebuild and Apple video-output qualification remain required for release.
+
+### Review follow-up: paused buffering order and clock domains
+
+In `DecoderThread_ProcessVideo`, the `b_first && b_waiting` branch bypasses
+`DecoderWaitUnblock`; the wait is in its **else** branch. Patch 0053 excludes a
+pending paused seek from that bypass, so its first picture takes the wait.
+`EsOutDecodersStopBuffering` waits for decoder readiness, resets the output clock,
+sets its first PCR, and only then calls `vlc_input_decoder_StopWait`. The picture
+therefore cannot start the output clock before the buffering reset.
+
+Input PCR acquisition and output startup have different responsibilities.
+Patch 0049's `input_clock_Update` preserves real acquisition time for an unpaced
+source. However, `EsOutDecodersStopBuffering` sets `i_current_date` to
+`i_pause_date` whenever ES output is paused, without a pace-control condition.
+It rebases the input clock, resets the output clock, and sets the output's first
+PCR from that frozen date. Decoder startup must follow this output reference,
+not the earlier acquisition timestamp. Both input and output pause handlers
+shift their references by the pause duration on resume. Adding a pace-control
+condition only to decoder startup would recreate the mismatched origins.
+
+The repeated MP4/MKV playback tests exercise this buffering and resume order.
+They do not constitute live DVR or physical-device qualification.
