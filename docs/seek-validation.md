@@ -2,7 +2,7 @@
 
 ## Resume and mixed seek commands (beta.14)
 
-Tilfaz's all-platform report exposed three additional timeline problems:
+Tilfaz's all-platform report exposed additional timeline and decoder problems:
 
 - VLC 4's `:start-time` is a clipping option, not a full-media resume seek.
   [`ControlSetTime` and `input_GetItemDuration`](https://github.com/videolan/vlc/blob/c833c4be000b426d73ff4324bec574065f00e3df/src/input/input.c)
@@ -30,6 +30,43 @@ Tilfaz's all-platform report exposed three additional timeline problems:
   decoder object corrected both video and clock in the synthetic fixture and
   the public Tilfaz demo movie, with audio enabled and disabled. Full rebuilt
   engine and device qualification are still required before release.
+
+- VideoToolbox H.264 open-GOP recovery retained references across seeks to
+  non-IDR recovery pictures. It also submitted leading B pictures whose
+  dependencies preceded the new recovery point. Resetting the first recovery
+  sample and discarding those leading pictures are both necessary (patch 0052).
+  Reset alone removed some corruption but still caused decoder errors and wrong
+  landings. Together they matched independently decoded frames in the public
+  demo and removed its gray first-seek picture in the iOS simulator. The original
+  decoder fails the synthetic whole-image comparison at 3 seconds with mean
+  channel error 21.20; the corrected decoder produces error 0.00. This follows
+  [Apple's documented reset attachment](https://developer.apple.com/documentation/coremedia/kcmsamplebufferattachmentkey_resetdecoderbeforedecoding)
+  and [Chromium's H.264 recovery implementation](https://chromium.googlesource.com/chromium/src/media/+/d42064588059042463282f90df67411c8b88fb24).
+  `VideoToolboxSeekPlaybackTests` verifies both decoder selection and complete
+  reference pixels, and then checks that playback resumes with matching time.
+
+- Paused buffering and output startup used different wall-clock origins.
+  Buffering anchored its PCR to the pause time, but decoder startup and the
+  monotonic fallback used current wall time; a clock reset also discarded the
+  pause origin needed at resume. The open-GOP MP4 exposed frozen output or
+  accelerated playback after repeated paused seeks, including with software
+  decoding. Patch 0053 preserves the pause origin across resets and uses it for
+  both startup and fallback references. Updating startup alone regressed the MKV
+  controls because the first paused picture can establish the fallback before
+  startup. Keeping all three paths consistent passes the combined MP4 and MKV
+  regression cases. A paused seek's first picture also waits for buffering to
+  establish its output clock before submission. Tests compare output pixels with the clock after resuming,
+  including repeated pause/seek/resume cycles and different pause durations.
+
+- VideoToolbox's picture pool can fill while output is paused. The decoder
+  thread then waits for pictures to be released, but that same thread normally
+  applies the output's resume control. The failed audio-disabled regression
+  showed zero pending decodes and 16 allocated fields at its 16-field limit;
+  video stayed at 6 seconds for another 20 seconds while the public clock ran
+  to the end. Patch 0054 resumes an already-paused video output under the decoder
+  FIFO lock in the control caller. This frees pictures so the decoder thread can
+  return and acknowledge the new pause date. Its existing acknowledgement path
+  remains intact. Software decoding and audio-on cases are retained as controls.
 
 `ResumeTimelinePlaybackTests` checks independently encoded pixels for resume
 and delayed mixed commands. `PlayerMixedSeekTests` covers absolute, strict

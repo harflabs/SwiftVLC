@@ -1,0 +1,54 @@
+# Keep buffering, paused presentation, decoder startup, and resume in one clock domain.
+diff --git a/src/clock/clock.c b/src/clock/clock.c
+--- a/src/clock/clock.c
++++ b/src/clock/clock.c
+@@ -395,7 +395,9 @@
+     AvgResetAndFill(&main_clock->coeff_avg, ctx->coeff);
+ 
+     main_clock->wait_sync_ref_priority = UINT_MAX;
+-    main_clock->pause_date = VLC_TICK_INVALID;
++    /* Reset media references without losing the frozen wall-clock origin. */
++    if (!main_clock->paused)
++        main_clock->pause_date = VLC_TICK_INVALID;
+     vlc_cond_broadcast(&main_clock->cond);
+ }
+ 
+@@ -681,6 +683,11 @@
+                               vlc_tick_t now, vlc_tick_t ts, double rate)
+ {
+     vlc_clock_main_t *main_clock = clock->owner;
++
++    /* A paused picture may establish this fallback before decoder startup.
++     * Its reference must use the same frozen origin as PCR and decoder start. */
++    if (main_clock->paused)
++        now = main_clock->pause_date;
+ 
+     if (clock->priority < main_clock->wait_sync_ref_priority
+      && ctx == main_clock->context
+diff --git a/src/input/decoder.c b/src/input/decoder.c
+--- a/src/input/decoder.c
++++ b/src/input/decoder.c
+@@ -1624,7 +1624,11 @@
+             vlc_tracer_TraceEvent(tracer, "DEC", p_owner->psz_id, "stop wait");
+ 
+         vlc_clock_Lock(p_owner->p_clock);
+-        vlc_clock_Start(p_owner->p_clock, vlc_tick_now(), date);
++        /* Buffering anchors a paused seek at pause_date. Keep decoder
++         * startup in the same frozen time domain; resume shifts both once. */
++        vlc_clock_Start(p_owner->p_clock,
++                        p_owner->paused ? p_owner->pause_date : vlc_tick_now(),
++                        date);
+         vlc_clock_Unlock(p_owner->p_clock);
+     }
+ 
+@@ -1964,7 +1968,9 @@
+             return VLC_ENOENT;
+     }
+ 
+-    if( p_owner->b_first && p_owner->b_waiting )
++    /* A paused seek must not submit a picture before buffering resets and
++     * anchors the output clock. DecoderWaitUnblock orders those operations. */
++    if( p_owner->b_first && p_owner->b_waiting && !p_owner->paused_seek_pending )
+     {
+         msg_Dbg( p_dec, "Received first picture" );
+         p_owner->b_first = false;

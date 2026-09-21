@@ -108,15 +108,22 @@ jobs:
           SWIFTVLC_NATIVE_SEEK_TESTS: "1"
         run: |
           python3 -B scripts/ci/use-local-native.py
+          xcrun clang -mmacosx-version-min=15.0 -D__LIBVLC__ \
+            -I "$RUNNER_TEMP/native-root/swiftvlc-libvlc-build/vlc/include" \
+            -c scripts/ci/seek-videotoolbox-test-support.c \
+            -o "$RUNNER_TEMP/seek-videotoolbox-test-support.o"
           ./scripts/ci-run-with-timeouts.py 600 180 \
             xcrun --toolchain "$TOOLCHAINS" swift test --no-parallel \
             --cache-path "$RUNNER_TEMP/native-swift-cache" \
+            -Xswiftc -DSWIFTVLC_NATIVE_VIDEOTOOLBOX_TESTS \
+            -Xlinker "$RUNNER_TEMP/seek-videotoolbox-test-support.o" \
             --xunit-output .build/ci-results/native.xml
           python3 -B scripts/ci/audit-test-results.py \
             --xunit .build/ci-results/native-swift-testing.xml \
             --require-suite SwiftVLCTests.Integration.RemoteMP4SeekTests 2 \
             --require-suite SwiftVLCTests.Integration.SeekOutputPlaybackTests 3 \
             --require-suite SwiftVLCTests.Integration.ResumeTimelinePlaybackTests 3 \
+            --require-suite SwiftVLCTests.Integration.VideoToolboxSeekPlaybackTests 1 \
             --contract scripts/ci/headless-test-contracts.json \
             --test-source-root Tests/SwiftVLCTests \
             --json-output .build/ci-results/native-accounting.json \

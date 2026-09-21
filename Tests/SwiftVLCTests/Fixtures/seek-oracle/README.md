@@ -14,3 +14,12 @@ both the decoded barcode and the independently known container time origin.
 The MKV remux adds a selected SRT cue every second. Its first video PTS is
 0.021333 seconds (AAC mux offset); the pixel barcode still gives content time.
 It reproduces subtitle-driven input advancement after a paused seek.
+
+The second MP4, `open-gop.mp4`, is a 12-second, 320×192 H.264 open-GOP
+sequence with two-second recovery points, three B-frames, AAC, the same barcode,
+and moving color detail below it. Its dimensions are multiples of 16 to avoid
+conflating hardware output cropping with seek recovery. The five `.argb` files
+are independently decoded FFmpeg reference frames at 2, 3, 6, 7, and 9 seconds.
+Whole-image comparison catches corruption that leaves the barcode intact.
+Hardware tests explicitly verify selection of VideoToolbox and reject a software
+fallback; software decoding of the identical fixture is the control.

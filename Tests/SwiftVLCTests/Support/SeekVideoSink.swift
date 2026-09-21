@@ -12,6 +12,13 @@ final class SeekVideoSink: @unchecked Sendable {
     let wall: TimeInterval
   }
 
+  private let capturePixels: Bool
+  let latestPixels = Mutex<Data?>(nil)
+
+  init(capturePixels: Bool = false) {
+    self.capturePixels = capturePixels
+  }
+
   let samples = Mutex<[Sample]>([])
   var latest: Sample? {
     samples.withLock { $0.last }
@@ -31,6 +38,9 @@ final class SeekVideoSink: @unchecked Sendable {
       if sum > 384 {
         frame |= 1 << bit
       }
+    }
+    if capturePixels {
+      latestPixels.withLock { $0 = Data(bytes: surface.pixels, count: pitch * height) }
     }
     samples.withLock { $0.append(Sample(pts: pts, frame: frame, wall: Date.timeIntervalSinceReferenceDate)) }
   }
