@@ -144,3 +144,23 @@ Timeout is intentionally observational: a latest accepted seek may execute after
 its waiter has received `.timedOut`. A new seek or media/lifecycle replacement
 supersedes that intent. Older published engines retain clock-only compatibility;
 they do not acquire the extension-12 output guarantee through the Swift update.
+
+### Review follow-up: subtitle demand ownership
+
+Patch 0051 guards both setting and clearing the shared frame-step data request.
+Only a video decoder owns that request; a subtitle FIFO becoming nonempty must
+not cancel a video decoder's outstanding demand either. The source contract
+checks and mutation-tests both guards.
+
+This does not remove normal paused-seek buffering: `input.c:MainLoop` continues
+calling the demux while `es_out_GetBuffering()` is true even in `PAUSE_S`.
+The SPU flush countdown remains intact so subtitles consume the packets supplied
+by that buffering. With no video output, `ModuleThread_NewSpuBuffer` already
+returns NULL after failing to find a vout, so unbounded frame-step demux cannot
+provide subtitle-only presentation. Adding such presentation requires a separate
+output implementation; keeping the input clock advancing while paused cannot
+supply it safely.
+
+The symmetric guards pass all eight parameter cases in
+`ResumeTimelinePlaybackTests` using a replacement core object. Full native
+rebuild and Apple video-output qualification remain required for release.
