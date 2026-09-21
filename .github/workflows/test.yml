@@ -105,6 +105,8 @@ jobs:
         timeout-minutes: 12
         env:
           CI: "true"
+          # Stream Swift/Foundation output to the idle watchdog even when piped.
+          NSUnbufferedIO: "YES"
           SWIFTVLC_NATIVE_SEEK_TESTS: "1"
         run: |
           python3 -B scripts/ci/use-local-native.py
@@ -693,7 +695,8 @@ jobs:
       #                                  20-minute job ceiling.
       #   idle       = 180s  (3 min)   — swift test emits a line per
       #                                  test / suite; 3 min of silence
-      #                                  means the test process is stuck.
+      #                                  stops the test process. Unbuffered
+      #                                  output below prevents false silence.
       #
       # --no-parallel is load-bearing: `Player` is `@MainActor`, so
       # integration tests that drive libVLC to `.playing` all compete
@@ -709,6 +712,8 @@ jobs:
           # TestCondition.canPlayMedia reads CI to skip playback tests that
           # need video output — CI macOS runners are headless.
           CI: "true"
+          # Buffered test results must not look like an idle native deadlock.
+          NSUnbufferedIO: "YES"
         # `xcrun --toolchain "$TOOLCHAINS" swift test` routes through the
         # Swift 6.3.1 toolchain installed above, while still using the
         # Xcode-provided SDKs/simulators.
