@@ -1,0 +1,16 @@
+# Release paused video output before waiting for a paced decoder to acknowledge resume.
+diff --git a/src/input/decoder.c b/src/input/decoder.c
+--- a/src/input/decoder.c
++++ b/src/input/decoder.c
+@@ -3534,6 +3534,11 @@
+     if (!b_paused)
+         p_owner->paused_seek_pending = false;
+     p_owner->pause_date = i_date;
++    /* A hardware decoder can be blocked waiting for the paused vout to
++     * release pictures. Resume that output here so its decoder thread can
++     * return to the control loop and acknowledge the state change. */
++    if (!b_paused && p_owner->output_paused && p_owner->cat == VIDEO_ES)
++        Decoder_ChangeOutputPause(p_owner, false, i_date);
+     p_owner->frames_countdown = 0;
+     vlc_fifo_Signal( p_owner->p_fifo );
+     vlc_fifo_Unlock( p_owner->p_fifo );

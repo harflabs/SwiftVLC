@@ -1,0 +1,51 @@
+# Reset H.264 reference state and discard leading pictures at seek recovery.
+# See Chromium b3bed80e02950d24bf01d8da69358d3bebc359e5 for Apple reset guidance.
+diff --git a/modules/codec/videotoolbox/decoder.c b/modules/codec/videotoolbox/decoder.c
+--- a/modules/codec/videotoolbox/decoder.c
++++ b/modules/codec/videotoolbox/decoder.c
+@@ -189,6 +189,8 @@
+ {
+     struct hxxx_helper hh;
+     h264_poc_context_t poc;
++    /* Pictures preceding this recovery point still reference the old GOP. */
++    int recovery_poc;
+ };
+ 
+ static void GetxPSH264(uint8_t i_pps_id, void *priv,
+@@ -269,6 +271,12 @@
+ 
+                 enum h264_slice_type_e slicetype = h264_get_slice_type(slice);
+                 p_info->b_keyframe = slicetype == H264_SLICE_TYPE_I;
++                if (p_sys->sync_state == STATE_BITSTREAM_WAITING_RAP
++                 && p_info->b_keyframe)
++                    h264ctx->recovery_poc = p_info->i_poc;
++                p_info->b_leading = p_sys->sync_state == STATE_BITSTREAM_DISCARD_LEADING
++                    && p_info->i_poc < h264ctx->recovery_poc;
++
+                 p_info->b_flush = p_info->b_keyframe || h264_has_mmco5(slice);
+                 p_info->b_field = h264_is_field_pic(slice);
+                 p_info->b_progressive = !h264_using_adaptive_frames(p_sps) &&
+@@ -1942,6 +1950,11 @@
+         }
+     }
+ 
++    /* H.264 recovery-point I pictures need an explicit VideoToolbox reset:
++     * unlike IDR pictures, they do not discard references from the old seek. */
++    const bool reset_decoder = p_dec->fmt_in->i_codec == VLC_CODEC_H264
++        && p_sys->sync_state == STATE_BITSTREAM_WAITING_RAP;
++
+     if (p_sys->sync_state == STATE_BITSTREAM_WAITING_RAP)
+     {
+         if(!p_info->b_keyframe)
+@@ -1970,6 +1983,11 @@
+         free(p_info);
+         goto skip;
+     }
++
++    if (reset_decoder)
++        CMSetAttachment(sampleBuffer,
++                        kCMSampleBufferAttachmentKey_ResetDecoderBeforeDecoding,
++                        kCFBooleanTrue, kCMAttachmentMode_ShouldNotPropagate);
+ 
+     pic_pacer_WaitAllocatableSlot(p_sys->pic_pacer, p_info->b_field);
+ 

@@ -2064,13 +2064,17 @@ expected_manifest_tail = [
     "f1f89c4ef3ae9858d6f47040c23271048fb49bea71ff75224c9c09f853e1a59a  0048-enable-lgpl2-live555-rtsp.patch",
     "a513915440be51e99ce90db2ee878c44a1c7eaf8d4da238060ceaa0dc1efee5c  0049-paused-seek-output-clock.patch",
     "8a9ecdb3ce6e951c7a1b5a4aa8d105e65817ce5064e5f23db1bcfcda6d0ec635  0050-seek-video-output-contract.patch",
+    "3f146f5b576e12ba93f145333f667abbb1da968cfefa4b8e775ac3886f4be6e8  0051-video-only-frame-step-input.patch",
+    "c32b25c893fc15bb105739cb1439a4af253c7394017c20ad81d8b6e3ff77675b  0052-videotoolbox-h264-seek-recovery.patch",
+    "87d4c49db84f6fb85423b324d09b1de17387082fce30137f369b6f2c11adf5f8  0053-paused-seek-clock-origin.patch",
+    "45edc2bbbf5d1680a416feb132d86b55ef455917d87c6271d0cb9d5c158e8f00  0054-resume-blocked-video-output.patch",
 ]
 if manifest_lines[-len(expected_manifest_tail):] != expected_manifest_tail:
     sys.exit(
         "patch manifest must end with frozen 0037 through 0040, native PiP "
         "output identity 0041, adaptive ES recycling 0042, then text-subtitle "
         "callback 0043, deferred-resume correction 0044, playlist policy 0045, "
-        "failure recovery 0046, LGPL2 live555 0047/0048, paused-seek clock 0049, and seek video output 0050: "
+        "failure recovery 0046, LGPL2 live555 0047/0048, paused-seek clock 0049, seek video output 0050, subtitle demand 0051, H264 recovery 0052, clock origin 0053, and resume ordering 0054: "
         f"got {manifest_lines[-len(expected_manifest_tail):]}"
     )
 

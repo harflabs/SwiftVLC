@@ -10,7 +10,7 @@
     "Extension-12 output regressions are mandatory in the rebuilt-engine job. The published-engine job can skip only the three exact identities listed below."
   ],
   "maximum_uncontracted_reported_skips": 175,
-  "maximum_declared_playback_gates": 119,
+  "maximum_declared_playback_gates": 120,
   "reviewed_conditional_skips": [
     {
       "classname": "SwiftVLCTests.Integration.AppleAudioSessionPolicyTests",
@@ -107,6 +107,18 @@
       "name": "`backward skip composes with a timed out queued scrub`(paused:)",
       "skip_reason": "Requires native video output",
       "reason": "Uses released extension 12 output and delayed HTTP; mandatory in the native job."
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.ResumeTimelinePlaybackTests",
+      "name": "`subtitles cannot advance paused input after a seek`(audio:subtitles:)",
+      "skip_reason": "Requires native video output",
+      "reason": "Requires native patch 0051; mandatory in the rebuilt-engine job."
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.VideoToolboxSeekPlaybackTests",
+      "name": "`paused seeks preserve recovery pixels and resume timing`(audio:hardware:)",
+      "skip_reason": "Requires the candidate VideoToolbox test support",
+      "reason": "Requires native patches 0052–0054 and candidate-header test helper; mandatory in rebuilt-engine CI."
     }
   ],
   "required_suites": [

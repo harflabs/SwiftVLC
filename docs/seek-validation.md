@@ -2,7 +2,7 @@
 
 ## Resume and mixed seek commands (beta.14)
 
-Tilfaz's all-platform report exposed two additional timeline problems:
+Tilfaz's all-platform report exposed additional timeline and decoder problems:
 
 - VLC 4's `:start-time` is a clipping option, not a full-media resume seek.
   [`ControlSetTime` and `input_GetItemDuration`](https://github.com/videolan/vlc/blob/c833c4be000b426d73ff4324bec574065f00e3df/src/input/input.c)
@@ -19,8 +19,57 @@ Tilfaz's all-platform report exposed two additional timeline problems:
   the queued base and offsets through observation timeout, resolves fractional
   bases and clamps at dispatch, and uses the latest precision policy.
 
+- Subtitle flushes leave a nonzero `frames_countdown` to permit subtitle output
+  while paused. The empty decoder FIFO path incorrectly treated this as a
+  video frame-step demand. A selected sparse subtitle track repeatedly made
+  the paused input demux ahead, leaving the input wakeup in the future after
+  resume. A five-second pause then caused late-frame drops and a frozen legacy
+  time event stream. The same MKV with subtitles disabled resumed correctly;
+  an original numbered-frame fixture with SRT reproduced the failure. Patch
+  0051 limits frame-step input demand to video decoders. Replacing only this
+  decoder object corrected both video and clock in the synthetic fixture and
+  the public Tilfaz demo movie, with audio enabled and disabled. Full rebuilt
+  engine and device qualification are still required before release.
+
+- VideoToolbox H.264 open-GOP recovery retained references across seeks to
+  non-IDR recovery pictures. It also submitted leading B pictures whose
+  dependencies preceded the new recovery point. Resetting the first recovery
+  sample and discarding those leading pictures are both necessary (patch 0052).
+  Reset alone removed some corruption but still caused decoder errors and wrong
+  landings. Together they matched independently decoded frames in the public
+  demo and removed its gray first-seek picture in the iOS simulator. The original
+  decoder fails the synthetic whole-image comparison at 3 seconds with mean
+  channel error 21.20; the corrected decoder produces error 0.00. This follows
+  [Apple's documented reset attachment](https://developer.apple.com/documentation/coremedia/kcmsamplebufferattachmentkey_resetdecoderbeforedecoding)
+  and [Chromium's H.264 recovery implementation](https://chromium.googlesource.com/chromium/src/media/+/d42064588059042463282f90df67411c8b88fb24).
+  `VideoToolboxSeekPlaybackTests` verifies both decoder selection and complete
+  reference pixels, and then checks that playback resumes with matching time.
+
+- Paused buffering and output startup used different wall-clock origins.
+  Buffering anchored its PCR to the pause time, but decoder startup and the
+  monotonic fallback used current wall time; a clock reset also discarded the
+  pause origin needed at resume. The open-GOP MP4 exposed frozen output or
+  accelerated playback after repeated paused seeks, including with software
+  decoding. Patch 0053 preserves the pause origin across resets and uses it for
+  both startup and fallback references. Updating startup alone regressed the MKV
+  controls because the first paused picture can establish the fallback before
+  startup. Keeping all three paths consistent passes the combined MP4 and MKV
+  regression cases. A paused seek's first picture also waits for buffering to
+  establish its output clock before submission. Tests compare output pixels with the clock after resuming,
+  including repeated pause/seek/resume cycles and different pause durations.
+
+- VideoToolbox's picture pool can fill while output is paused. The decoder
+  thread then waits for pictures to be released, but that same thread normally
+  applies the output's resume control. The failed audio-disabled regression
+  showed zero pending decodes and 16 allocated fields at its 16-field limit;
+  video stayed at 6 seconds for another 20 seconds while the public clock ran
+  to the end. Patch 0054 resumes an already-paused video output under the decoder
+  FIFO lock in the control caller. This frees pictures so the decoder thread can
+  return and acknowledge the new pause date. Its existing acknowledgement path
+  remains intact. Software decoding and audio-on cases are retained as controls.
+
 `ResumeTimelinePlaybackTests` checks independently encoded pixels for resume
-and delayed mixed commands. `PlayerSeekLeaseTests` covers absolute, strict
+and delayed mixed commands. `PlayerMixedSeekTests` covers absolute, strict
 fractional and raw fractional bases, expired/live requests, changing duration,
 repeated offsets and both precision policies. Tilfaz additionally stops
 overwriting engine observations with requested times and uses relative engine
@@ -132,3 +181,45 @@ Timeout is intentionally observational: a latest accepted seek may execute after
 its waiter has received `.timedOut`. A new seek or media/lifecycle replacement
 supersedes that intent. Older published engines retain clock-only compatibility;
 they do not acquire the extension-12 output guarantee through the Swift update.
+
+### Review follow-up: subtitle demand ownership
+
+Patch 0051 guards both setting and clearing the shared frame-step data request.
+Only a video decoder owns that request; a subtitle FIFO becoming nonempty must
+not cancel a video decoder's outstanding demand either. The source contract
+checks and mutation-tests both guards.
+
+This does not remove normal paused-seek buffering: `input.c:MainLoop` continues
+calling the demux while `es_out_GetBuffering()` is true even in `PAUSE_S`.
+The SPU flush countdown remains intact so subtitles consume the packets supplied
+by that buffering. With no video output, `ModuleThread_NewSpuBuffer` already
+returns NULL after failing to find a vout, so unbounded frame-step demux cannot
+provide subtitle-only presentation. Adding such presentation requires a separate
+output implementation; keeping the input clock advancing while paused cannot
+supply it safely.
+
+The symmetric guards pass all eight parameter cases in
+`ResumeTimelinePlaybackTests` using a replacement core object. Full native
+rebuild and Apple video-output qualification remain required for release.
+
+### Review follow-up: paused buffering order and clock domains
+
+In `DecoderThread_ProcessVideo`, the `b_first && b_waiting` branch bypasses
+`DecoderWaitUnblock`; the wait is in its **else** branch. Patch 0053 excludes a
+pending paused seek from that bypass, so its first picture takes the wait.
+`EsOutDecodersStopBuffering` waits for decoder readiness, resets the output clock,
+sets its first PCR, and only then calls `vlc_input_decoder_StopWait`. The picture
+therefore cannot start the output clock before the buffering reset.
+
+Input PCR acquisition and output startup have different responsibilities.
+Patch 0049's `input_clock_Update` preserves real acquisition time for an unpaced
+source. However, `EsOutDecodersStopBuffering` sets `i_current_date` to
+`i_pause_date` whenever ES output is paused, without a pace-control condition.
+It rebases the input clock, resets the output clock, and sets the output's first
+PCR from that frozen date. Decoder startup must follow this output reference,
+not the earlier acquisition timestamp. Both input and output pause handlers
+shift their references by the pause duration on resume. Adding a pace-control
+condition only to decoder startup would recreate the mismatched origins.
+
+The repeated MP4/MKV playback tests exercise this buffering and resume order.
+They do not constitute live DVR or physical-device qualification.

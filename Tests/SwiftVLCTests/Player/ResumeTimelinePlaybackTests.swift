@@ -7,6 +7,48 @@ import Testing
 extension Integration {
   @Suite(.serialized, .timeLimit(.minutes(2)), .enabled(if: ProcessInfo.processInfo.environment["SWIFTVLC_NATIVE_SEEK_TESTS"] == "1", "Requires native video output"))
   @MainActor struct ResumeTimelinePlaybackTests {
+    @Test(arguments: [false, true], [false, true])
+    func `subtitles cannot advance paused input after a seek`(audio: Bool, subtitles: Bool) async throws {
+      let instance = try VLCInstance(arguments: VLCInstance.defaultArguments + [
+        "--aout=dummy", "--no-hw-dec", "--quiet",
+        audio ? "--audio" : "--no-audio", subtitles ? "--spu" : "--no-spu"
+      ])
+      let player = Player(instance: instance)
+      let sink = SeekVideoSink()
+      do {
+        let url = try #require(Bundle.module.url(forResource: "frame-subtitle", withExtension: "mkv", subdirectory: "Fixtures/seek-oracle"))
+        try player.load(Media(url: url))
+        try installSeekVideoSink(sink, on: player)
+        try player.play()
+        try #require(await poll(every: .milliseconds(50), timeout: .seconds(10)) {
+          player.isSeekable && sink.count > 20
+            && (!subtitles || player.subtitleTracks.contains(where: \.isSelected))
+        })
+        for target in [30, 15] {
+          player.pause()
+          try #require(await poll(every: .milliseconds(50), timeout: .seconds(3)) { player.state == .paused })
+          let request = try player.requestSeek(to: .seconds(target))
+          try #require(await request.outcome == .settled)
+          #expect(sink.latest?.frame == target * 30)
+          // Sparse subtitle packets used to keep requesting video frame-step
+          // input, demuxing ahead for the entire paused interval.
+          try await Task.sleep(for: .seconds(3))
+          #expect(sink.latest?.frame == target * 30)
+          #expect(abs((Double(player.currentTime.milliseconds) / 1000) - Double(target)) < 0.1)
+          player.resume()
+          try await Task.sleep(for: .seconds(2))
+          let frame = try #require(sink.latest?.frame)
+          let outputTime = Double(frame) / 30
+          #expect(outputTime >= Double(target) + 1)
+          #expect(outputTime <= Double(target) + 3)
+          #expect(abs((Double(player.currentTime.milliseconds) / 1000) - outputTime) < 0.6)
+          #expect(abs(Double(libvlc_media_player_get_time(player.pointer)) / 1000 - outputTime) < 0.6)
+        }
+      } catch { await player.shutdown(); throw error }
+      await player.shutdown()
+      withExtendedLifetime(sink) {}
+    }
+
     @Test(arguments: [false, true])
     func `start time clips but resume seeks preserve the full media timeline`(clipped: Bool) async throws {
       let instance = try VLCInstance(arguments: VLCInstance.defaultArguments + ["--aout=dummy", "--no-hw-dec", "--quiet"])
