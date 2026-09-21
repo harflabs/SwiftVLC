@@ -107,6 +107,12 @@
       "name": "`backward skip composes with a timed out queued scrub`(paused:)",
       "skip_reason": "Requires native video output",
       "reason": "Uses released extension 12 output and delayed HTTP; mandatory in the native job."
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.ResumeTimelinePlaybackTests",
+      "name": "`subtitles cannot advance paused input after a seek`(audio:subtitles:)",
+      "skip_reason": "Requires native video output",
+      "reason": "Requires native patch 0051; mandatory in the rebuilt-engine job."
     }
   ],
   "required_suites": [

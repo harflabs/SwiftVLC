@@ -116,7 +116,7 @@ jobs:
             --xunit .build/ci-results/native-swift-testing.xml \
             --require-suite SwiftVLCTests.Integration.RemoteMP4SeekTests 2 \
             --require-suite SwiftVLCTests.Integration.SeekOutputPlaybackTests 3 \
-            --require-suite SwiftVLCTests.Integration.ResumeTimelinePlaybackTests 2 \
+            --require-suite SwiftVLCTests.Integration.ResumeTimelinePlaybackTests 3 \
             --contract scripts/ci/headless-test-contracts.json \
             --test-source-root Tests/SwiftVLCTests \
             --json-output .build/ci-results/native-accounting.json \

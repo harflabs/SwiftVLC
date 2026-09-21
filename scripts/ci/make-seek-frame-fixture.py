@@ -27,19 +27,35 @@ if '--verify-only' not in sys.argv:
         '-hls_playlist_type', 'vod', '-y', str(hls / 'index.m3u8')
     ], check=True)
 
+# A subtitle every second is intentional: one cue spanning the whole seek
+# might never be submitted after demux preroll and would miss paused input demand.
+subtitles = root / 'seek-caption.srt'
+subtitled = root / 'frame-subtitle.mkv'
+if '--verify-only' not in sys.argv:
+    subtitles.write_text(''.join(
+        f'{i + 1}\n00:00:{i:02},000 --> 00:00:{i:02},900\nSubtitle {i}\n\n'
+        for i in range(60)
+    ))
+    subprocess.run([
+        'ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin',
+        '-i', str(mp4), '-i', str(subtitles), '-map', '0', '-map', '1',
+        '-c', 'copy', '-disposition:s:0', 'default', '-y', str(subtitled)
+    ], check=True)
+
 # Verify actual decoded pixel values, independently of VLC's timestamps.
 indices = [0, 30, 359, 360, 705, 1000, 1799]
 selection = '+'.join(f'eq(n\\,{n})' for n in indices)
-data = subprocess.check_output([
-    'ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin', '-i', str(mp4),
-    '-vf', 'select=' + selection, '-fps_mode', 'passthrough',
-    '-pix_fmt', 'gray', '-f', 'rawvideo', '-'
-])
-frame_size = 320 * 180
-assert len(data) == frame_size * len(indices)
-for slot, expected in enumerate(indices):
-    frame = data[slot * frame_size:(slot + 1) * frame_size]
-    decoded = sum((1 << bit) for bit in range(16) if frame[32 * 320 + bit * 20 + 10] > 128)
-    assert decoded == expected, (decoded, expected)
-    print(f'FFMPEG_ORACLE frame={expected} decoded_barcode={decoded}')
-print('MP4_SHA256=' + hashlib.sha256(mp4.read_bytes()).hexdigest())
+for source in [mp4, subtitled]:
+    data = subprocess.check_output([
+        'ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin', '-i', str(source),
+        '-vf', 'select=' + selection, '-fps_mode', 'passthrough',
+        '-pix_fmt', 'gray', '-f', 'rawvideo', '-'
+    ])
+    frame_size = 320 * 180
+    assert len(data) == frame_size * len(indices)
+    for slot, expected in enumerate(indices):
+        frame = data[slot * frame_size:(slot + 1) * frame_size]
+        decoded = sum((1 << bit) for bit in range(16) if frame[32 * 320 + bit * 20 + 10] > 128)
+        assert decoded == expected, (decoded, expected)
+        print(f'FFMPEG_ORACLE frame={expected} decoded_barcode={decoded}')
+    print(source.name + '_SHA256=' + hashlib.sha256(source.read_bytes()).hexdigest())

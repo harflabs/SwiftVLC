@@ -1,0 +1,18 @@
+# Subtitle flushes must not drive video frame-step input demand.
+# Native playback regression: ResumeTimelinePlaybackTests with embedded SRT.
+diff --git a/src/input/decoder.c b/src/input/decoder.c
+--- a/src/input/decoder.c
++++ b/src/input/decoder.c
+@@ -2620,7 +2620,11 @@
+                 p_owner->b_idle = true;
+                 vlc_cond_signal( &p_owner->wait_acknowledge );
+ 
+-                if (p_owner->frames_countdown > 0 || p_owner->paused_seek_pending)
++                /* Subtitle flushes also use frames_countdown, but only video
++                 * owns the frame-step input request. A sparse subtitle FIFO
++                 * must not make a paused input demux past the seek target. */
++                if (p_owner->cat == VIDEO_ES
++                 && (p_owner->frames_countdown > 0 || p_owner->paused_seek_pending))
+                 {
+                     /* next-frames are requested but the FIFO is empty, ask for
+                      * more buffering */

@@ -10,3 +10,7 @@ Regenerate: `python3 scripts/ci/make-seek-frame-fixture.py Tests/SwiftVLCTests/F
 Verify pixels with FFmpeg: add `--verify-only`. Encoder versions can change bytes.
 The checked-in assets are bound by SHA256SUMS. VLC timestamps are checked against
 both the decoded barcode and the independently known container time origin.
+
+The MKV remux adds a selected SRT cue every second. Its first video PTS is
+0.021333 seconds (AAC mux offset); the pixel barcode still gives content time.
+It reproduces subtitle-driven input advancement after a paused seek.

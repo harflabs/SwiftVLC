@@ -2,7 +2,7 @@
 
 ## Resume and mixed seek commands (beta.14)
 
-Tilfaz's all-platform report exposed two additional timeline problems:
+Tilfaz's all-platform report exposed three additional timeline problems:
 
 - VLC 4's `:start-time` is a clipping option, not a full-media resume seek.
   [`ControlSetTime` and `input_GetItemDuration`](https://github.com/videolan/vlc/blob/c833c4be000b426d73ff4324bec574065f00e3df/src/input/input.c)
@@ -19,8 +19,20 @@ Tilfaz's all-platform report exposed two additional timeline problems:
   the queued base and offsets through observation timeout, resolves fractional
   bases and clamps at dispatch, and uses the latest precision policy.
 
+- Subtitle flushes leave a nonzero `frames_countdown` to permit subtitle output
+  while paused. The empty decoder FIFO path incorrectly treated this as a
+  video frame-step demand. A selected sparse subtitle track repeatedly made
+  the paused input demux ahead, leaving the input wakeup in the future after
+  resume. A five-second pause then caused late-frame drops and a frozen legacy
+  time event stream. The same MKV with subtitles disabled resumed correctly;
+  an original numbered-frame fixture with SRT reproduced the failure. Patch
+  0051 limits frame-step input demand to video decoders. Replacing only this
+  decoder object corrected both video and clock in the synthetic fixture and
+  the public Tilfaz demo movie, with audio enabled and disabled. Full rebuilt
+  engine and device qualification are still required before release.
+
 `ResumeTimelinePlaybackTests` checks independently encoded pixels for resume
-and delayed mixed commands. `PlayerSeekLeaseTests` covers absolute, strict
+and delayed mixed commands. `PlayerMixedSeekTests` covers absolute, strict
 fractional and raw fractional bases, expired/live requests, changing duration,
 repeated offsets and both precision policies. Tilfaz additionally stops
 overwriting engine observations with requested times and uses relative engine
