@@ -175,8 +175,12 @@ extension Player {
 
   /// The currently selected audio track, or `nil` if none is selected.
   ///
-  /// Setting to `nil` deselects the active audio track. Output stays
-  /// silent until another track is chosen.
+  /// Setting a track selects it for the rest of the playback session, and
+  /// setting `nil` deselects audio until another track is chosen; audio
+  /// tracks the stream adds later do not override either choice. Writes
+  /// apply in order, and the getter catches up once libVLC reports the
+  /// change. A track of another ``TrackType`` is ignored. A stop, replay,
+  /// or new media starts again from the stream's default selection.
   public var selectedAudioTrack: Track? {
     get {
       access(keyPath: \.selectedAudioTrack)
@@ -184,6 +188,7 @@ extension Player {
       return audioTracks.first(where: \.isSelected)
     }
     set {
+      guard newValue.map({ $0.type == .audio }) ?? true else { return }
       guard
         let identity = beginNativeControlMutation(
           revision: \PlayerIntentRevisions.audioTrackSelection,
@@ -202,7 +207,12 @@ extension Player {
 
   /// The currently selected subtitle track, or `nil` if subtitles are off.
   ///
-  /// Setting to `nil` deselects the active subtitle track.
+  /// Setting a track selects it for the rest of the playback session, and
+  /// setting `nil` turns subtitles off until another track is chosen;
+  /// subtitle tracks the stream adds later do not override either choice.
+  /// Writes apply in order, and the getter catches up once libVLC reports
+  /// the change. A track of another ``TrackType`` is ignored. A stop,
+  /// replay, or new media starts again from the stream's default selection.
   public var selectedSubtitleTrack: Track? {
     get {
       access(keyPath: \.selectedSubtitleTrack)
@@ -210,6 +220,7 @@ extension Player {
       return subtitleTracks.first(where: \.isSelected)
     }
     set {
+      guard newValue.map({ $0.type == .subtitle }) ?? true else { return }
       guard
         let identity = beginNativeControlMutation(
           revision: \PlayerIntentRevisions.subtitleTrackSelection,

@@ -499,6 +499,8 @@ extension Player {
           ) else { return }
       }
       guard sourceIsCurrent() else { return }
+      selectLoadedExternalTracks()
+      guard sourceIsCurrent() else { return }
       // Adaptive streams can switch resolution mid-stream without any
       // dedicated size event; libVLC reports the change through the
       // track list (ES selection/update), so re-signal the decoded

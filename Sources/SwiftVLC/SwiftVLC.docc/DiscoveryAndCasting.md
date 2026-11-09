@@ -100,9 +100,11 @@ playing sessions are replaced and restarted. A paused session is restarted and
 does not settle until its pause is acknowledged.
 
 Position and track restoration are local wrapper guarantees, not receiver
-acknowledgements. Track ids are preferred exactly; metadata fallback is used
-only when language/name identifies one unique candidate, so discovery order can
-never choose between ambiguous renditions. A `.settled` result means SwiftVLC's
+acknowledgements. Stable track ids are preferred exactly; an adaptive stream's
+per-session ids (``Track/isIDStable`` is `false`) are never trusted across
+sessions. Metadata fallback considers only tracks of the same type and codec and
+is used only when language/name identifies one unique candidate, so discovery
+order can never choose between ambiguous renditions. A `.settled` result means SwiftVLC's
 replacement transaction completed. It does **not** prove that a physical
 receiver rendered audio/video or acknowledged a command; qualify that behavior
 with the real-device release checklist.

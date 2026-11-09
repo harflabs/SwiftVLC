@@ -81,6 +81,12 @@ try player.addExternalTrack(
 )
 ```
 
+libVLC loads the file in the background; with `select: true` the new
+track replaces the selected track of that type as soon as it appears.
+The file stays attached to the media, so it loads again whenever that
+media plays, and adding the same URL again does not create a second
+copy.
+
 ## Options
 
 libVLC's playback is configured through colon-prefixed option strings:

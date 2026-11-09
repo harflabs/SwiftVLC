@@ -181,6 +181,9 @@ public final class Player {
   @ObservationIgnored var _volume: Float = 1.0
   @ObservationIgnored var _isMuted: Bool = false
   @ObservationIgnored var _aspectRatio: AspectRatio = .default
+  /// `addExternalTrack(select: true)` requests waiting for their track.
+  @ObservationIgnored
+  var pendingExternalTrackSelections: [TrackType: PendingExternalTrackSelection] = [:]
   enum PauseTransition {
     case pausing
     case resuming
