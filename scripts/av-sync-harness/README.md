@@ -30,7 +30,8 @@ AVH=$(./prepare.sh /tmp/avh [engine.xcframework])   # default engine: Vendor/lib
 Scenarios (`--scenario`): `pauses`, `run`, `pause_at_frames` (pause just before
 given frames, e.g. timestamp discontinuities), `pseek_resume`, `resume_seek`,
 `miniaturize`, `orderout`, `occlude`, `pause_hidden`, `hidden_pause`,
-`reattach`, `pip` (open/close macOS PiP while playing and paused), `audiodev`,
+`reattach`, `pip` (open/close macOS PiP while playing and paused), `seeks`
+(absolute seeks to each `--pauses` value), `audiodev`,
 `rate`, and `inject` (enqueue far-future samples into VLC's renderer).
 `--attach-delay S` starts playback S seconds before the view exists.
 Discontinuity fixtures are cut from `av30.mp4` with

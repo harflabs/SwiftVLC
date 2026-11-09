@@ -674,6 +674,14 @@ final class Sampler: @unchecked Sendable {
                           "ready_after": renderer.isReadyForMoreMediaData])
         await sleep(config.hiddenSecs + config.after)
       }
+    case "seeks":
+      // Absolute seeks to each --pauses value (seconds), e.g. across HLS discontinuity sequences.
+      for target in config.pauses {
+        mark("seek", ["to": Int(target * 1000)]); engine.seek(ms: Int64(target * 1000))
+        await sleep(config.after)
+        mark("seek_settled", ["to": Int(target * 1000), "time": libvlc_media_player_get_time(engine.mp),
+                              "frame": latestFrame.value])
+      }
     case "pip":
       // Open and close macOS PiP while playing, then while paused.
       for c in 0..<config.cycles {

@@ -81,6 +81,36 @@ every new input instead of silently resetting to zero. Each is covered by
 real-libVLC tests in `PlayerTrackSelectionTests` against the multitrack
 fixtures in `Tests/SwiftVLCTests/Fixtures/tracks`.
 
+**HLS `EXT-X-DISCONTINUITY` (patch 0063).** At a discontinuity the adaptive
+demuxer resets the PCR, which flushes the decoders. It did so as soon as its own
+queue reached the discontinuity, while the decoders still held up to the caching
+delay of the previous timeline, so the last ~1.1 s before every discontinuity was
+never displayed. It also mapped the new sequence's timestamps through the
+previous sequence's synchronization reference, so after the first discontinuity
+the player time stayed clamped to the duration or near zero for the rest of
+playback. The demuxer now drains the output before the reset (non-blocking,
+`ES_OUT_DRAIN` then `ES_OUT_IS_EMPTY`) and anchors each new sequence at the
+playlist time where it begins. On a 20 s-per-sequence fixture: frames never
+shown per discontinuity 34–35 → 0–2, picture hold at the boundary 620–853 ms →
+289–350 ms, and the player time follows the playlist (21.1 s after the 20 s
+boundary instead of 321 s or 1.1 s). Pauses around discontinuities stay clean.
+`HLSDiscontinuityPlaybackTests` (vmem, required in the native CI job) fails on
+the previous engine (frames 90–119 and 210–239 dropped, wrong time) and passes.
+
+**Rate changes (patch 0064).** CoreAudio's `play` never blocked, so the whole
+caching delay of audio, already time-stretched at the current rate, sat in its
+output queue, and it reported timing to the clock once a second. A rate change
+became audible 1.5–2 s later, and the audio-master clock, extrapolating the old
+rate until the next report, then stepped back and stalled video 0.3–1 s on every
+slow-down. The output queue is now bounded at 300 ms once rendering runs (the
+rest stays in the decoder) and timing is reported every 100 ms. Over 12 rate
+changes (1.5×, 2×, 0.5× and back): the new rate applies after 0.4–0.5 s, no stall
+over 150 ms (before: 4), the longest frame hold is 37–115 ms, and no underruns.
+The faster timing reports also fix the A/V offset after an audio output device
+switch: right after each of six switches it was +226 to +293 ms on beta.14 and
+is now −2 to −17 ms.
+`RateChangePlaybackTests` (real audio output, local) fails before and passes.
+
 **Upstream backports (0058–0062).** avcC/hvcC without parameter sets (no video
 on avc3/hev1 streams), SRT arrows surrounded by tabs, SPU cache invalidation,
 deselecting finished MP4 tracks, and audio output delay correctness.
@@ -96,13 +126,15 @@ replay on the pinned VLC source with mutation-checked source contracts.
 
 ## Known limits (not fixed here)
 
-- HLS `EXT-X-DISCONTINUITY`: about 1.1 s of video before each discontinuity is
-  never displayed, and the reported time can clamp to the duration or restart
-  near 0 afterwards (adaptive demuxer; reproduced with and without the 0050
-  adaptive changes).
-- Rate changes take about 2 s to apply, and slowing down stalls video for
-  0.3–1 s (also with `avsamplebuffer` and the 0062 audio fixes).
-- An audio output device switch freezes the audio clock for 1–2 s and offsets
-  A/V by up to 0.8 s before recovering. Bluetooth/AirPlay latency is unmeasured.
+- Seeking HLS across `EXT-X-DISCONTINUITY` sequences: the adaptive demuxer
+  refuses seeks while a discontinuity drains through its queue (most of each
+  sequence when it is far ahead of playback), and a seek into a sequence that
+  has not played yet has no timestamp reference and lands imprecisely. Same on
+  the previous engine; not changed by 0063.
+- The picture holds about 0.3 s at each HLS discontinuity while the demuxer
+  rebuffers after its PCR reset.
+- `--aout=avsamplebuffer` still applies rate changes late; 0064 covers the
+  default CoreAudio outputs (`auhal`, iOS `audiounit_ios`).
+- Bluetooth/AirPlay output latency and device switches to them are unmeasured.
 - Measured on macOS only (Apple silicon, 60 Hz display). iOS/tvOS devices,
   display/system sleep and 120 Hz displays are untested.

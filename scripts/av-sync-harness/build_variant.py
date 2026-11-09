@@ -8,6 +8,7 @@ xcframework. The build tree itself is never modified, so a no-op patch makes
 the control for every A/B comparison.
 
 Usage: build_variant.py VLC_TREE HEADERS_XCFRAMEWORK OUT.xcframework PATCH [PATCH ...]
+       (REBUILD=src.cpp,... COPYDIRS=dir,... for patches that change a header)
 
 VLC_TREE is the patched VLC checkout that build-libvlc.sh built (it contains
 build-macosx-arm64/). Each PATCH is a unified diff with a/ b/ prefixes relative
@@ -41,6 +42,9 @@ def units(inst):
             "modules", "video_output/apple/libsamplebufferdisplay_plugin_la-VLCSampleBufferDisplay.lo",
             plugin + "video_output/libsamplebufferdisplay_plugin.a",
             "libsamplebufferdisplay_plugin_la-VLCSampleBufferDisplay.o"),
+        "modules/audio_output/apple/coreaudio_common.c": (
+            "modules", "audio_output/apple/coreaudio_common.lo",
+            plugin + "audio_output/libauhal_plugin.a", "coreaudio_common.o"),
         "modules/codec/videotoolbox/decoder.c": (
             "modules", "codec/videotoolbox/libvideotoolbox_plugin_la-decoder.lo",
             plugin + "codec/libvideotoolbox_plugin.a", "libvideotoolbox_plugin_la-decoder.o"),
@@ -50,11 +54,19 @@ def units(inst):
         "modules/demux/adaptive/plumbing/FakeESOut.cpp": (
             "modules", "demux/adaptive/plumbing/libvlc_adaptive_la-FakeESOut.lo",
             plugin + "demux/libadaptive_plugin.a", "libvlc_adaptive_la-FakeESOut.o"),
+        "modules/demux/adaptive/adaptive.cpp": (
+            "modules", "demux/adaptive/libadaptive_plugin_la-adaptive.lo",
+            plugin + "demux/libadaptive_plugin.a", "libadaptive_plugin_la-adaptive.o"),
         "modules/demux/subtitle.c": (
             "modules", "demux/subtitle.lo", plugin + "demux/libsubtitle_plugin.a", "subtitle.o"),
         "modules/demux/mp4/mp4.c": (
             "modules", "demux/mp4/mp4.lo", plugin + "demux/libmp4_plugin.a", "mp4.o"),
     }
+    for sub_, name in (("adaptive", "Streams"), ("hls", "HLSManager"),
+                       ("dash", "DASHManager"), ("smooth", "SmoothManager")):
+        table["modules/demux/%s/%s.cpp" % (sub_, name)] = (
+            "modules", "demux/%s/libvlc_adaptive_la-%s.lo" % (sub_, name),
+            plugin + "demux/libadaptive_plugin.a", "libvlc_adaptive_la-%s.o" % name)
     # input.c and timer.c have duplicate archive members and are not listed.
     for name in ("audio_output/dec.c", "audio_output/output.c", "clock/clock.c",
                  "input/decoder.c", "input/es_out.c", "input/es_out_timeshift.c",
@@ -79,12 +91,26 @@ def main():
 
     work = tempfile.mkdtemp(prefix="vlc-variant-")
     src_root = os.path.join(work, "src")
-    touched = sorted({m.group(1) for p in patches for m in re.finditer(r"(?m)^\+\+\+ b/(\S+)", open(p).read())})
+    touched = {m.group(1) for p in patches for m in re.finditer(r"(?m)^\+\+\+ b/(\S+)", open(p).read())}
+    for rel in sorted(touched):
+        os.makedirs(os.path.dirname(os.path.join(src_root, rel)), exist_ok=True)
+        shutil.copy2(os.path.join(tree, rel), os.path.join(src_root, rel))
+    # A patched header changes every source that includes it: list those in
+    # REBUILD (comma-separated tree-relative paths) to recompile them too, and
+    # their directories in COPYDIRS so relative includes reach the patched copy.
+    for d in filter(None, os.environ.get("COPYDIRS", "").split(",")):
+        shutil.copytree(os.path.join(tree, d), os.path.join(src_root, d), dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns("*.o", "*.lo", ".deps", ".libs"))
+    rebuild = set(filter(None, os.environ.get("REBUILD", "").split(",")))
+    # Headers are rebuilt through REBUILD; iOS-only sources are not in this engine.
+    touched = sorted({t for t in touched | rebuild if not t.endswith((".h", ".hpp"))}
+                     - {"modules/audio_output/apple/audiounit_ios.m"})
     for rel in touched:
         if rel not in table:
             raise SystemExit("no build recipe for %s" % rel)
-        os.makedirs(os.path.dirname(os.path.join(src_root, rel)), exist_ok=True)
-        shutil.copy2(os.path.join(tree, rel), os.path.join(src_root, rel))
+        if not os.path.exists(os.path.join(src_root, rel)):
+            os.makedirs(os.path.dirname(os.path.join(src_root, rel)), exist_ok=True)
+            shutil.copy2(os.path.join(tree, rel), os.path.join(src_root, rel))
     for patch in patches:
         sh(["patch", "-p1", "-s", "-d", src_root, "-i", patch])
 
