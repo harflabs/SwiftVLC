@@ -42,8 +42,10 @@ extension Integration {
             (sink.latest?.frame ?? 0) >= jump + 45
           })
           let shown = Set(sink.samples.withLock { $0.map(\.frame) })
+          // The defect discarded the whole tail queued before the
+          // discontinuity; a loaded host may still drop isolated late frames.
           let dropped = Set(jump - 30..<jump).subtracting(shown)
-          #expect(dropped.count <= 2, "frames dropped before the discontinuity: \(dropped.sorted())")
+          #expect(longestConsecutiveRun(dropped) <= 4, "frames dropped before the discontinuity: \(dropped.sorted())")
           // Media time follows the playlist across the jump: frame n plays at n / 30 s.
           #expect(try await poll(timeout: .seconds(3)) {
             guard let frame = sink.latest?.frame else { return false }

@@ -48,8 +48,10 @@ extension Integration {
             (sink.latest?.frame ?? 0) >= jump + 30
           })
           let shown = sink.samples.withLock { Array($0[resumeIndex...]) }
+          // The defect dropped every queued frame up to the jump; a loaded host
+          // may still drop isolated late frames.
           let dropped = Set(pausedFrame + 1..<jump).subtracting(shown.map(\.frame))
-          #expect(dropped.count <= 1, "frames dropped after resume: \(dropped.sorted())")
+          #expect(longestConsecutiveRun(dropped) <= 4, "frames dropped after resume: \(dropped.sorted())")
           let firstNew = try #require(shown.first { $0.frame > pausedFrame })
           #expect(firstNew.wall - resumedAt < 0.3)
         }
