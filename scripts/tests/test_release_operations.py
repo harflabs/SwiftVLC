@@ -206,6 +206,9 @@ class ReleaseOperationsTests(unittest.TestCase):
             swift = root / "Sources/SwiftVLC/Test.swift"
             swift.parent.mkdir(parents=True)
             swift.write_text("// Swift-only change")
+            harness = root / "scripts/av-sync-harness/analyze.py"
+            harness.parent.mkdir(parents=True)
+            harness.write_text("# measurement tooling, not a build input")
             git("add", "."); git("commit", "-qm", "Swift")
             self.assertEqual(reuse.verify(root, base), base)
             for name in ("Sources/CLibVLC/shim.c", "scripts/patches/0001.patch", "unknown-build-input"):

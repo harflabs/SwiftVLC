@@ -118,8 +118,12 @@ def frames_shown(t_from, t_to):
 report = {"file": path, "samples": len(samples), "duration_s": round(rel(samples[-1]["t"]), 2),
           "stalls": stalls, "resumes": [], "shows": []}
 
+# Rate and audio device scenarios mark each change as a resume_req, so every
+# request ends the phase before it.
+CHANGES = ("pause_req", "hide_req", "resume_req", "show_req")
+
 ready = next((m for m in marks if m["n"] == "playing_ready"), None)
-first_req = next((m for m in marks if m["n"] in ("pause_req", "hide_req")), None)
+first_req = next((m for m in marks if m["n"] in CHANGES), None)
 if ready:
     end = first_req["t"] if first_req else samples[-1]["t"]
     report["baseline"] = summarize(offsets(ready["t"] + 1_000_000, end))
@@ -129,7 +133,7 @@ for i, m in enumerate(marks):
     if m["n"] not in ("resume_req", "show_req"):
         continue
     pause = next((p for p in reversed(marks[:i]) if p["n"] in ("pause_req", "hide_req")), None)
-    nxt = next((p for p in marks[i + 1:] if p["n"] in ("pause_req", "hide_req", "done")), None)
+    nxt = next((p for p in marks[i + 1:] if p["n"] in CHANGES + ("done",)), None)
     t_end = nxt["t"] if nxt else samples[-1]["t"]
     pre = summarize(offsets(pause["t"] - 3_000_000, pause["t"])) if pause else None
     # First frame change after resume.
