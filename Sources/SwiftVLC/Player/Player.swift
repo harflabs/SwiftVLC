@@ -526,6 +526,9 @@ public final class Player {
 
   @ObservationIgnored var retainedDrawablesUntilNativePlayerRelease: [AnyObject] = []
   @ObservationIgnored var selectedRenderer: RendererItem?
+  /// Armed by playback start and drawable changes; the next playback-time
+  /// update consumes it to detect a video output libVLC abandoned.
+  @ObservationIgnored var abandonedVideoOutputCheckPending = false
   @ObservationIgnored var nativePlaybackStartWasObserved = false
   /// Monotonic exact-handle start history. The local bit remains as a DEBUG-
   /// friendly seam, while EventBridge is authoritative for list-driven and

@@ -320,7 +320,9 @@ extension Player {
       case .idle, .stopping:
         supersedeSeekWorkForTerminalBoundary()
         cancelPendingFrameSteps()
-      case .opening, .buffering, .playing, .paused:
+      case .playing:
+        abandonedVideoOutputCheckPending = true
+      case .opening, .buffering, .paused:
         break
       }
       guard sourceIsCurrent() else { return }
@@ -421,6 +423,7 @@ extension Player {
           ) else { return }
       }
       performDeferredPauseCommandIfNeeded()
+      recoverAbandonedVideoOutputIfNeeded()
 
     case .positionChanged(let pos):
       guard

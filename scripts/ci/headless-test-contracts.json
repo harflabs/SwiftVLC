@@ -7,7 +7,8 @@
     "The source floor is a lexical inventory of @Test declarations in every Swift file under Tests/SwiftVLCTests, including declarations behind platform conditionals; it is not an executed-test count.",
     "The uncontracted skip ceiling excludes only the exact conditional identities below. CI is transitioning from the released extension-version-9 artifact to the rebuilt extension-version-10 artifact, so the five version-10 text-subtitle scenarios receive allowances only before that upgrade. The retained version-8 boundary contracts remain mutually exclusive: four audio-session scenarios apply before version 8, while the reciprocal pre-version-8 rejection applies on version 8 or newer, preserving the same general skip-debt ceiling across that historical artifact boundary.",
     "The paused HTTP seek regression requires native patch 0049, which the published engine lacks. Only its exact identity and skip reason receive an allowance in the published-engine job. The rebuilt-engine job enables SWIFTVLC_NATIVE_SEEK_TESTS and requires both RemoteMP4SeekTests tests to pass through --require-suite; a skip there fails accounting.",
-    "Extension-12 output regressions are mandatory in the rebuilt-engine job. The published-engine job can skip only the three exact identities listed below."
+    "Extension-12 output regressions are mandatory in the rebuilt-engine job. The published-engine job can skip only the three exact identities listed below.",
+    "The abandoned video output regression requires native patch 0057, which the published engine lacks, and a window server, which neither CI lane has. Only its exact identity and engine skip reason receive an allowance; it runs locally against a rebuilt engine."
   ],
   "maximum_uncontracted_reported_skips": 175,
   "maximum_declared_playback_gates": 120,
@@ -71,6 +72,12 @@
       "name": "`Positioned TTML decoder still reports automatic placement`()",
       "skip_reason": "Requires the patched libVLC text-subtitle snapshot ABI",
       "reason": "requires the rebuilt libVLC extension-version-10 text-subtitle snapshot ABI"
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.AbandonedVideoOutputPlaybackTests",
+      "name": "`video output opens when the view arrives after playback started`()",
+      "skip_reason": "Requires the rebuilt release XCFramework",
+      "reason": "requires native patch 0057 and a window server; run locally against a rebuilt engine"
     },
     {
       "classname": "SwiftVLCTests.Integration.RemoteMP4SeekTests",

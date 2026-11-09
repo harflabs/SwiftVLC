@@ -443,7 +443,7 @@ final class MacPrivatePiPPresenter {
 
     onActiveChanged?(false)
     onActiveChanged = nil
-    playerToRecover?.reopenVideoOutputAfterDrawableWindowMove()
+    playerToRecover?.reopenVideoOutput()
   }
 
   private func restoreDrawableBeforeWindowTeardown() {
