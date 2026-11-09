@@ -76,7 +76,7 @@
     {
       "classname": "SwiftVLCTests.Integration.AbandonedVideoOutputPlaybackTests",
       "name": "`video output opens when the view arrives after playback started`()",
-      "skip_reason": "Requires the rebuilt release XCFramework",
+      "skip_reason": "Requires the rebuilt release XCFramework and a window server",
       "reason": "requires native patch 0057 and a window server; run locally against a rebuilt engine"
     },
     {

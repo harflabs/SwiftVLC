@@ -304,10 +304,10 @@ extension Integration {
   @MainActor struct AbandonedVideoOutputPlaybackTests {
     @Test(
       .enabled(
-        if: ProcessInfo.processInfo.environment["SWIFTVLC_NATIVE_SEEK_TESTS"] == "1",
-        "Requires the rebuilt release XCFramework"
+        if: ProcessInfo.processInfo.environment["SWIFTVLC_NATIVE_SEEK_TESTS"] == "1"
+          && TestCondition.canPlayMedia,
+        "Requires the rebuilt release XCFramework and a window server"
       ),
-      .enabled(if: TestCondition.canPlayMedia, "Requires a window server"),
       .timeLimit(.minutes(1))
     )
     func `video output opens when the view arrives after playback started`() async throws {
