@@ -80,14 +80,8 @@ public final class VLCInstance: Sendable {
   var usesPiPSafeDarwinDisplay: Bool {
     #if os(macOS)
     guard !Self.containsOption(named: "no-video", in: arguments) else { return false }
-    let forcesLegacyDisplay = Self.containsOption(
-      named: "force-darwin-legacy-display",
-      in: arguments
-    )
-    guard let vout = Self.lastOptionValue(named: "vout", in: arguments) else {
-      return !forcesLegacyDisplay
-    }
-    return ["macosx", "vout_macosx"].contains(vout)
+    return usesSampleBufferDisplay
+      || ["macosx", "vout_macosx"].contains(Self.lastOptionValue(named: "vout", in: arguments))
     #elseif os(iOS)
     // iOS native PiP only attaches when libVLC selects its Apple
     // sample-buffer video output (`samplebufferdisplay`, the default).
@@ -106,6 +100,19 @@ public final class VLCInstance: Sendable {
     true
     #endif
   }
+
+  #if os(macOS)
+  /// Whether video renders through libVLC's default `samplebufferdisplay`,
+  /// whose layer survives its drawable moving between windows. The legacy
+  /// OpenGL displays lose their context's surface instead.
+  var usesSampleBufferDisplay: Bool {
+    guard !Self.containsOption(named: "force-darwin-legacy-display", in: arguments) else {
+      return false
+    }
+    let vout = Self.lastOptionValue(named: "vout", in: arguments)
+    return vout == nil || vout == "samplebufferdisplay"
+  }
+  #endif
 
   var supportsDynamicDeinterlaceChanges: Bool {
     #if os(macOS)

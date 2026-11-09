@@ -423,7 +423,11 @@ final class MacPrivatePiPPresenter {
   private func finish() {
     guard pictureInPictureViewController != nil || isClosing else { return }
 
-    let playerToRecover = didPresentDrawable ? player : nil
+    // Only the OpenGL display needs rebuilding after its drawable leaves the
+    // PiP window; re-selecting the track under `samplebufferdisplay` would
+    // blank the picture until the next keyframe, and for good while paused.
+    let playerToRecover = didPresentDrawable
+      && player?.instance.usesSampleBufferDisplay == false ? player : nil
 
     // `pipWillClose:` normally restores the drawable while the floating
     // window's graphics context is still alive. Keep this call as an

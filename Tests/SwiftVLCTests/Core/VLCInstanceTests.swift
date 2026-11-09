@@ -171,6 +171,28 @@ extension Integration {
     }
 
     @Test
+    func `Custom instance with explicit sample-buffer vout is PiP safe on macOS`() throws {
+      let instance = try VLCInstance(arguments: ["--no-video-title-show", "--vout=samplebufferdisplay"])
+      #expect(instance.usesPiPSafeDarwinDisplay)
+    }
+
+    @Test(arguments: [
+      ([], true),
+      (["--vout=samplebufferdisplay"], true),
+      (["--vout", "samplebufferdisplay"], true),
+      (["--vout=macosx"], false),
+      (["--force-darwin-legacy-display"], false),
+      (["--force-darwin-legacy-display", "--vout=samplebufferdisplay"], false)
+    ])
+    func `Sample-buffer display detection follows the selected vout`(
+      arguments: [String], usesSampleBufferDisplay: Bool
+    )
+      throws {
+      let instance = try VLCInstance(arguments: ["--no-video-title-show"] + arguments)
+      #expect(instance.usesSampleBufferDisplay == usesSampleBufferDisplay)
+    }
+
+    @Test
     func `Default macOS instance does not support dynamic deinterlace changes`() throws {
       let instance = try VLCInstance(arguments: VLCInstance.defaultArguments)
       #expect(!instance.supportsDynamicDeinterlaceChanges)
