@@ -255,6 +255,28 @@ extension Integration {
       await player.shutdown()
     }
 
+    @Test
+    func `Retrying an external file that failed to load selects it`() async throws {
+      let player = try await playMultitrackMKV()
+      let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("\(UUID().uuidString).wav")
+      defer { try? FileManager.default.removeItem(at: url) }
+      try player.addExternalTrack(from: url, type: .audio, select: true)
+      // libVLC applies the add before this later selection, and records the
+      // file on the media only if it loads.
+      try await drainSelectionQueue(of: player, switching: .subtitle)
+      try #require(player.currentMedia?.slaves.contains { $0.uri == url.absoluteString } == false)
+
+      try FileManager.default.copyItem(at: TestMedia.silenceURL, to: url)
+      try player.addExternalTrack(from: url, type: .audio, select: true)
+
+      let prefix = Player.externalTrackIDPrefix(forURI: url.absoluteString)
+      #expect(try await poll(timeout: .seconds(10)) {
+        player.selectedAudioTrack?.id.hasPrefix(prefix) == true
+      })
+      await player.shutdown()
+    }
+
     // MARK: - Delays (T4)
 
     @Test
