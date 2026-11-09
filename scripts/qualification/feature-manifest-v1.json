@@ -865,7 +865,7 @@
     }
   ],
   "upstreamRiskReview": {
-    "reviewedOn": "2026-09-01",
+    "reviewedOn": "2026-11-09",
     "maximumAgeDays": 45,
     "policy": "Open issues and closed regressions remain explicit release obligations until candidate-bound behavior or artifact evidence proves the affected feature; upstream issue state alone is never accepted as proof.",
     "risks": [
