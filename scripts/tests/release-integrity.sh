@@ -2068,13 +2068,22 @@ expected_manifest_tail = [
     "c32b25c893fc15bb105739cb1439a4af253c7394017c20ad81d8b6e3ff77675b  0052-videotoolbox-h264-seek-recovery.patch",
     "87d4c49db84f6fb85423b324d09b1de17387082fce30137f369b6f2c11adf5f8  0053-paused-seek-clock-origin.patch",
     "45edc2bbbf5d1680a416feb132d86b55ef455917d87c6271d0cb9d5c158e8f00  0054-resume-blocked-video-output.patch",
+    "205957d15a39c4e3ab20e6ecba72ecadd965adacafd133425480f0a5cf778368  0055-clock-resume-all-contexts.patch",
+    "fe5914668a2b46f91a2878a88022f42921bdc8360c8b09603e1a1c6c2f8a08d5  0056-samplebuffer-renderer-stall-flush.patch",
+    "4cbfebfa7e42939add6b953d69f50a66043abfe53ae152d333b6bae2380da0f4  0057-free-vout-drawable-change.patch",
+    "cd5255f2d226d3547d5052a0e9a4e122b0917e0c32d7c9e1ba79c8c3e98aa5c3  0058-videotoolbox-parameter-set-extradata.patch",
+    "3af00a7700c577e932b1e77bd5cac5f648a70730681a1146624a556ae97b0903  0059-subtitle-srt-tab-arrows.patch",
+    "dd9a82682477fee83f6d731783ef74bc50dd4334b2fd131a9b2142b7c871dcdf  0060-spu-cache-invalidation.patch",
+    "914236918f42a5df180c687af9453f87087b9c68b19d5022eed728ffc761c7b8  0061-mp4-deselect-finished-tracks.patch",
+    "15a9145c5d1862e314f251f94e2e58604e290068ce76e9cc42e414a5de4abf89  0062-aout-delay-correctness.patch",
 ]
 if manifest_lines[-len(expected_manifest_tail):] != expected_manifest_tail:
     sys.exit(
         "patch manifest must end with frozen 0037 through 0040, native PiP "
         "output identity 0041, adaptive ES recycling 0042, then text-subtitle "
         "callback 0043, deferred-resume correction 0044, playlist policy 0045, "
-        "failure recovery 0046, LGPL2 live555 0047/0048, paused-seek clock 0049, seek video output 0050, subtitle demand 0051, H264 recovery 0052, clock origin 0053, and resume ordering 0054: "
+        "failure recovery 0046, LGPL2 live555 0047/0048, paused-seek clock 0049, seek video output 0050, subtitle demand 0051, H264 recovery 0052, clock origin 0053, resume ordering 0054, "
+        "then playback reliability 0055 through 0062: "
         f"got {manifest_lines[-len(expected_manifest_tail):]}"
     )
 
@@ -2098,6 +2107,7 @@ required_validator_assets = (
     "scripts/patches/validation/pip-playback-snapshot-probe.c",
     "scripts/patches/validation/pip_extension_version.py",
     "scripts/patches/validation/playback-recovery-eos-probe.c",
+    "scripts/patches/validation/playback-reliability-source-check.py",
     "scripts/patches/validation/playlist-mode-handoff-probe.c",
     "scripts/patches/validation/sample-buffer-renderer-snapshot-abi.c",
     "scripts/patches/validation/sample-buffer-renderer-snapshot-abi.cpp",
