@@ -57,8 +57,23 @@ def valid(s):
 # A stall is a run of Playing samples that show one frame while the audio clock
 # advances. Runs split at frame changes and at playback-state transitions, so a
 # pause is never counted and a freeze after resume starts at the resume.
+# The audio clock advances at the playback rate, which reaches it only once the
+# audio rendered at the previous rate has played, so either rate may apply for
+# RATE_SETTLE_US after a change.
+RATE_SETTLE_US = 2_000_000
+rate_changes = [(m["t"], m["rate"]) for m in marks if m.get("how") == "rate"]
 stalls = []
 run = []
+
+
+def slowest_rate(t):
+    rate = slowest = 1.0
+    for at, new in rate_changes:
+        if at > t:
+            break
+        slowest = min(rate, new) if t - at < RATE_SETTLE_US else new
+        rate = new
+    return slowest
 
 
 def close_run(open_ended=False):
@@ -67,7 +82,8 @@ def close_run(open_ended=False):
     first, last = run[0], run[-1]
     dur = (last["t"] - first["t"]) / 1000.0
     adv = last["a"] - first["a"]
-    if dur > STALL_MS and adv > STALL_MS * 0.8:
+    rate = min(slowest_rate(first["t"]), slowest_rate(last["t"]))
+    if dur > STALL_MS and adv > STALL_MS * 0.8 * rate:
         stall = {"start": rel(first["t"]), "dur_ms": round(dur), "audio_adv_ms": adv, "frame": first["f"]}
         if open_ended:
             stall["open_ended"] = True
