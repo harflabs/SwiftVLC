@@ -13,7 +13,8 @@ default. Its track ids are stable (`video/1`, `audio/2`, `audio/3`, `spu/4`,
 AUDIO renditions (eng, ara), and one WebVTT SUBTITLES rendition (en), all in
 2 s segments except the single subtitle file. The adaptive demuxer gives every
 track an unstable `<category>/auto/<n>` id and recreates a selected track under
-a new id after a selection change or a seek.
+a new id after every seek. Selecting an alternate rendition recreates it only
+once the demuxer has parked it, a few tens of milliseconds after start.
 
 Regenerate: `scripts/ci/make-track-fixtures.sh` (needs FFmpeg with libx264; set
 `FFMPEG` to pick a binary). The checked-in assets are bound by SHA256SUMS;

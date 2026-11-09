@@ -86,14 +86,18 @@ extension Integration {
     @Test
     func `A subtitle captured before its id was recreated still selects`() async throws {
       let player = try await playMultitrackHLS()
-      let captured = try #require(player.subtitleTracks.first)
+      player.selectedSubtitleTrack = player.subtitleTracks.first
+      try #require(await poll(timeout: .seconds(10)) { player.selectedSubtitleTrack != nil })
+      let captured = try #require(player.selectedSubtitleTrack)
 
-      player.selectedSubtitleTrack = captured
+      // Selecting a rendition the demuxer has not parked yet keeps its id;
+      // a seek recreates the selected track either way.
+      try player.seek(to: .seconds(1))
       try #require(
         await poll(timeout: .seconds(10)) {
           player.selectedSubtitleTrack.map { $0.id != captured.id } == true
         },
-        "selecting an adaptive track recreates it under a new id"
+        "a seek recreates the selected adaptive track under a new id"
       )
       player.selectedSubtitleTrack = nil
       try #require(await poll(timeout: .seconds(10)) { player.selectedSubtitleTrack == nil })
