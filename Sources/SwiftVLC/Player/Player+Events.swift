@@ -320,10 +320,12 @@ extension Player {
       case .idle, .stopping:
         supersedeSeekWorkForTerminalBoundary()
         cancelPendingFrameSteps()
-      case .playing:
-        abandonedVideoOutputCheckPending = true
-      case .opening, .buffering, .paused:
-        break
+      case .opening, .buffering, .playing, .paused:
+        // Covers inputs no `play()` created, such as a list advance.
+        applyRequestedDelays(to: pointer)
+        if newState == .playing {
+          abandonedVideoOutputCheckPending = true
+        }
       }
       guard sourceIsCurrent() else { return }
       updatePauseTransition(for: newState)
@@ -501,6 +503,8 @@ extension Player {
             lifecycleControlEpoch: sourceLifecycleControlEpoch
           ) else { return }
       }
+      guard sourceIsCurrent() else { return }
+      selectLoadedExternalTracks()
       guard sourceIsCurrent() else { return }
       // Adaptive streams can switch resolution mid-stream without any
       // dedicated size event; libVLC reports the change through the

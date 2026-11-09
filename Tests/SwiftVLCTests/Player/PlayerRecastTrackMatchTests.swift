@@ -10,14 +10,18 @@ extension Integration {
   @MainActor struct PlayerRecastTrackMatchTests {
     private func track(
       id: String,
+      type: TrackType = .subtitle,
       name: String = "Track",
-      language: String? = nil
+      language: String? = nil,
+      codec: Int = 0,
+      isIDStable: Bool = true
     ) -> Track {
       Track(
         id: id,
-        type: .subtitle,
+        isIDStable: isIDStable,
+        type: type,
         name: name,
-        codec: 0,
+        codec: codec,
         language: language,
         trackDescription: nil,
         isSelected: false,
@@ -30,6 +34,37 @@ extension Integration {
         frameRateRatio: nil,
         encoding: nil
       )
+    }
+
+    @Test
+    func `an unstable id is not trusted to name the same track`() {
+      let prior = track(id: "spu/auto/4", name: "English", language: "en", isIDStable: false)
+      let candidates = [
+        track(id: "spu/auto/4", name: "French", language: "fr", isIDStable: false),
+        track(id: "spu/auto/9", name: "English", language: "en", isIDStable: false)
+      ]
+      #expect(Player.matchingTrack(for: prior, in: candidates)?.id == "spu/auto/9")
+    }
+
+    @Test
+    func `a different codec or type is never a match`() {
+      let aac = 0x6134_706D // 'mp4a'
+      let ac3 = 0x2033_6361 // 'ac3 '
+      let prior = track(id: "audio/auto/0", type: .audio, name: "English", language: "en", codec: aac)
+      let candidates = [
+        track(id: "audio/auto/5", type: .audio, name: "English", language: "en", codec: ac3),
+        track(id: "spu/auto/6", type: .subtitle, name: "English", language: "en", codec: aac)
+      ]
+      #expect(Player.matchingTrack(for: prior, in: candidates) == nil)
+    }
+
+    @Test
+    func `an unknown codec does not prevent a match`() {
+      let prior = track(id: "audio/auto/0", type: .audio, name: "English", language: "en", codec: 0)
+      let candidates = [
+        track(id: "audio/auto/5", type: .audio, name: "English", language: "en", codec: 0x6134_706D)
+      ]
+      #expect(Player.matchingTrack(for: prior, in: candidates)?.id == "audio/auto/5")
     }
 
     @Test

@@ -175,8 +175,12 @@ extension Player {
 
   /// The currently selected audio track, or `nil` if none is selected.
   ///
-  /// Setting to `nil` deselects the active audio track. Output stays
-  /// silent until another track is chosen.
+  /// Setting a track selects it for the rest of the playback session, and
+  /// setting `nil` deselects audio until another track is chosen; audio
+  /// tracks the stream adds later do not override either choice. Writes
+  /// apply in order, and the getter catches up once libVLC reports the
+  /// change. A track of another ``TrackType`` is ignored. A stop, replay,
+  /// or new media starts again from the stream's default selection.
   public var selectedAudioTrack: Track? {
     get {
       access(keyPath: \.selectedAudioTrack)
@@ -184,6 +188,7 @@ extension Player {
       return audioTracks.first(where: \.isSelected)
     }
     set {
+      guard newValue.map({ $0.type == .audio }) ?? true else { return }
       guard
         let identity = beginNativeControlMutation(
           revision: \PlayerIntentRevisions.audioTrackSelection,
@@ -202,7 +207,12 @@ extension Player {
 
   /// The currently selected subtitle track, or `nil` if subtitles are off.
   ///
-  /// Setting to `nil` deselects the active subtitle track.
+  /// Setting a track selects it for the rest of the playback session, and
+  /// setting `nil` turns subtitles off until another track is chosen;
+  /// subtitle tracks the stream adds later do not override either choice.
+  /// Writes apply in order, and the getter catches up once libVLC reports
+  /// the change. A track of another ``TrackType`` is ignored. A stop,
+  /// replay, or new media starts again from the stream's default selection.
   public var selectedSubtitleTrack: Track? {
     get {
       access(keyPath: \.selectedSubtitleTrack)
@@ -210,6 +220,7 @@ extension Player {
       return subtitleTracks.first(where: \.isSelected)
     }
     set {
+      guard newValue.map({ $0.type == .subtitle }) ?? true else { return }
       guard
         let identity = beginNativeControlMutation(
           revision: \PlayerIntentRevisions.subtitleTrackSelection,
@@ -254,18 +265,22 @@ extension Player {
 
   /// Audio delay relative to video. Positive values delay audio (make it play later).
   ///
-  /// Use ``setAudioDelay(_:)`` to mutate this value with checked duration
-  /// conversion.
+  /// This is the delay last set with ``setAudioDelay(_:)``, which checks
+  /// the duration conversion. It is a player setting, so it holds while
+  /// nothing is playing.
   public var audioDelay: Duration {
     access(keyPath: \.audioDelay)
-    return .microseconds(libvlc_audio_get_delay(pointer))
+    return .microseconds(_audioDelayMicroseconds)
   }
 
   /// Sets the audio delay relative to video.
   ///
+  /// The delay applies to the current playback and to every later one —
+  /// after ``stop()``, on replay, and for the next media — until you set it
+  /// again. Set while stopped, it takes effect when playback starts.
+  ///
   /// - Throws: ``VLCError/invalidInput(_:)`` if the duration cannot be
-  ///   represented in libVLC's microsecond unit, or
-  ///   ``VLCError/operationFailed(_:)`` if libVLC rejects the update.
+  ///   represented in libVLC's microsecond unit.
   public func setAudioDelay(_ newDelay: Duration) throws(VLCError) {
     let microseconds = try newDelay.checkedMicroseconds(parameter: "audioDelay")
     guard
@@ -273,38 +288,39 @@ extension Player {
         revision: \PlayerIntentRevisions.audioDelay
       )
     else { return }
-    guard
-      let rc = performNativeControlMutation(
-        keyPath: \.audioDelay,
-        identity: identity,
-        revision: \PlayerIntentRevisions.audioDelay,
-        mutation: { pointer in
-          #if DEBUG
-          recordObservableControlNativeDispatch(.audioDelay(newDelay), pointer: pointer)
-          #endif
-          return libvlc_audio_set_delay(pointer, microseconds)
-        }
-      )
-    else { return }
-    if rc != 0 {
-      throw .operationFailed("Set audio delay")
+    performNativeControlMutation(
+      keyPath: \.audioDelay,
+      identity: identity,
+      revision: \PlayerIntentRevisions.audioDelay
+    ) { pointer in
+      _audioDelayMicroseconds = microseconds
+      #if DEBUG
+      recordObservableControlNativeDispatch(.audioDelay(newDelay), pointer: pointer)
+      #endif
+      // Dropped when no input exists; `applyRequestedDelays(to:)` carries
+      // the shadow into the next one.
+      _ = libvlc_audio_set_delay(pointer, microseconds)
     }
   }
 
   /// Subtitle delay relative to video. Positive values delay subtitles (make them appear later).
   ///
-  /// Use ``setSubtitleDelay(_:)`` to mutate this value with checked
-  /// duration conversion.
+  /// This is the delay last set with ``setSubtitleDelay(_:)``, which checks
+  /// the duration conversion. It is a player setting, so it holds while
+  /// nothing is playing.
   public var subtitleDelay: Duration {
     access(keyPath: \.subtitleDelay)
-    return .microseconds(libvlc_video_get_spu_delay(pointer))
+    return .microseconds(_subtitleDelayMicroseconds)
   }
 
   /// Sets the subtitle delay relative to video.
   ///
+  /// The delay applies to the current playback and to every later one —
+  /// after ``stop()``, on replay, and for the next media — until you set it
+  /// again. Set while stopped, it takes effect when playback starts.
+  ///
   /// - Throws: ``VLCError/invalidInput(_:)`` if the duration cannot be
-  ///   represented in libVLC's microsecond unit, or
-  ///   ``VLCError/operationFailed(_:)`` if libVLC rejects the update.
+  ///   represented in libVLC's microsecond unit.
   public func setSubtitleDelay(_ newDelay: Duration) throws(VLCError) {
     let microseconds = try newDelay.checkedMicroseconds(parameter: "subtitleDelay")
     guard
@@ -312,21 +328,32 @@ extension Player {
         revision: \PlayerIntentRevisions.subtitleDelay
       )
     else { return }
-    guard
-      let rc = performNativeControlMutation(
-        keyPath: \.subtitleDelay,
-        identity: identity,
-        revision: \PlayerIntentRevisions.subtitleDelay,
-        mutation: { pointer in
-          #if DEBUG
-          recordObservableControlNativeDispatch(.subtitleDelay(newDelay), pointer: pointer)
-          #endif
-          return libvlc_video_set_spu_delay(pointer, microseconds)
-        }
-      )
-    else { return }
-    if rc != 0 {
-      throw .operationFailed("Set subtitle delay")
+    performNativeControlMutation(
+      keyPath: \.subtitleDelay,
+      identity: identity,
+      revision: \PlayerIntentRevisions.subtitleDelay
+    ) { pointer in
+      _subtitleDelayMicroseconds = microseconds
+      #if DEBUG
+      recordObservableControlNativeDispatch(.subtitleDelay(newDelay), pointer: pointer)
+      #endif
+      _ = libvlc_video_set_spu_delay(pointer, microseconds)
+    }
+  }
+
+  /// Applies the requested audio and subtitle delays to the input on
+  /// `pointer`.
+  ///
+  /// libVLC keeps both delays on the current input only: it drops a
+  /// request made while no input exists, and every new input — a replay,
+  /// the next media, a replacement handle — starts from zero. Called
+  /// wherever a new input can appear; a no-op once the input carries them.
+  func applyRequestedDelays(to pointer: OpaquePointer) {
+    if libvlc_audio_get_delay(pointer) != _audioDelayMicroseconds {
+      _ = libvlc_audio_set_delay(pointer, _audioDelayMicroseconds)
+    }
+    if libvlc_video_get_spu_delay(pointer) != _subtitleDelayMicroseconds {
+      _ = libvlc_video_set_spu_delay(pointer, _subtitleDelayMicroseconds)
     }
   }
 

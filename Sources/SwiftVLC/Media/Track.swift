@@ -2,7 +2,7 @@ import CLibVLC
 
 /// A media track (audio, video, or subtitle).
 ///
-/// Each track has a stable string ``id`` and type-specific properties
+/// Each track has a string ``id`` and type-specific properties
 /// (e.g. ``channels`` for audio, ``width``/``height`` for video).
 ///
 /// ```swift
@@ -11,8 +11,25 @@ import CLibVLC
 /// }
 /// ```
 public struct Track: Sendable, Identifiable, Hashable {
-  /// Stable string identifier from libVLC.
+  /// String identifier from libVLC, such as `"audio/2"` or `"spu/auto/3"`.
+  ///
+  /// The id names one elementary stream of the current playback session.
+  /// Whether it also survives demuxer restarts and later sessions is
+  /// reported by ``isIDStable``.
   public let id: String
+
+  /// Whether ``id`` names the same track for as long as the media plays,
+  /// including across seeks, selection changes, and later sessions.
+  ///
+  /// Container formats (MP4, MKV, MPEG-TS) and external tracks have stable
+  /// ids. Adaptive streams (HLS, DASH) do not: libVLC numbers their tracks
+  /// per session (`"audio/auto/4"`), and the demuxer recreates a selected
+  /// track under a new id after a seek or a selection change. Selecting a
+  /// track whose unstable id is gone resolves to the current track with the
+  /// same type, language, name, and codec, so a captured ``Track`` keeps
+  /// working; compare those fields rather than ``id`` to recognize such a
+  /// track across list refreshes.
+  public internal(set) var isIDStable = true // `var` keeps a memberwise default
 
   /// Track type: audio, video, or subtitle.
   public let type: TrackType
@@ -132,6 +149,7 @@ extension Track {
     let t = cTrack.pointee
 
     id = t.psz_id.map { String(cString: $0) } ?? "\(t.i_id)"
+    isIDStable = t.id_stable
     type = TrackType(from: t.i_type)
     name = t.psz_name.map { String(cString: $0) }
       ?? t.psz_description.map { String(cString: $0) }

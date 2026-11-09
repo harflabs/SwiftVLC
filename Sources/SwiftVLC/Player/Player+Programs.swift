@@ -706,11 +706,18 @@ extension Player {
   }
 
   /// Finds the track in `candidates` that best corresponds to `track` from a
-  /// previous session. Ambiguous metadata never chooses whichever rendition
-  /// happened to arrive first.
+  /// previous session, or from before its unstable id was recreated.
+  /// Ambiguous metadata never chooses whichever rendition happened to arrive
+  /// first.
   static func matchingTrack(for track: Track, in candidates: [Track]) -> Track? {
-    if let exact = candidates.first(where: { $0.id == track.id }) {
+    // An unstable id is a per-session counter: the same string can name a
+    // different rendition in another session.
+    if track.isIDStable, let exact = candidates.first(where: { $0.id == track.id }) {
       return exact
+    }
+    let candidates = candidates.filter {
+      $0.type == track.type
+        && ($0.codec == track.codec || $0.codec == 0 || track.codec == 0)
     }
     let language = track.language?.lowercased()
     if let language, !language.isEmpty {
