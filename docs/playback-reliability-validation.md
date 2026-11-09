@@ -39,8 +39,10 @@ date while audio continues. The readiness gate then rejected each picture as
 discontinuity pauses: 16 s frozen). `samplebufferdisplay` now flushes a queue
 that would present out of order, or that accepted nothing for 300 ms.
 
-- Across 98 pauses around HLS discontinuities with 0055–0056: no stall over
-  150 ms, and the first new frame after resume in 51–265 ms in 97 of them. The
+- Across 98 pauses around HLS discontinuities with 0055–0056: no freeze after
+  any resume, the first new frame after resume in 51–265 ms in 97 of them, and
+  no hold over 150 ms during playback except at the discontinuity boundaries
+  themselves (154–271 ms on 4 crossings; see 0063). The
   flush fired 12 times, each on a picture queued 0.52–0.75 s ahead, the class
   of mis-dating behind the original freeze. The remaining resume, paused three
   frames after a discontinuity while VLC rebuilt the decoder, took 0.77 s;
@@ -97,19 +99,21 @@ boundary instead of 321 s or 1.1 s). Pauses around discontinuities stay clean.
 `HLSDiscontinuityPlaybackTests` (vmem, required in the native CI job) fails on
 the previous engine (frames 90–119 and 210–239 dropped, wrong time) and passes.
 
-**Rate changes (patch 0064).** CoreAudio's `play` never blocked, so the whole
-caching delay of audio, already time-stretched at the current rate, sat in its
-output queue, and it reported timing to the clock once a second. A rate change
-became audible 1.5–2 s later, and the audio-master clock, extrapolating the old
-rate until the next report, then stepped back and stalled video 0.3–1 s on every
-slow-down. The output queue is now bounded at 300 ms once rendering runs (the
-rest stays in the decoder) and timing is reported every 100 ms. Over 12 rate
-changes (1.5×, 2×, 0.5× and back): the new rate applies after 0.4–0.5 s, no stall
-over 150 ms (before: 4), the longest frame hold is 37–115 ms, and no underruns.
-The faster timing reports also fix the A/V offset after an audio output device
-switch: right after each of six switches it was +226 to +293 ms on beta.14 and
-is now −2 to −17 ms.
-`RateChangePlaybackTests` (real audio output, local) fails before and passes.
+**Rate changes and audio device switches (patch 0064).** CoreAudio reported
+its timing to the clock once a second. A rate change becomes audible only once
+the audio already rendered at the previous rate has played (the caching delay,
+1–1.5 s here); the audio-master clock then kept extrapolating the previous rate
+until the next report and stepped back, stalling video 0.3–1 s on every
+slow-down. Timing is now reported every 100 ms. Over 12 rate changes (1.5×, 2×,
+0.5× and back): no stall over 150 ms (before: 4), longest frame hold 38–102 ms,
+and the new rate settles about 1.2 s after the call (before: 1.5–2 s). The A/V
+offset right after an audio output device switch drops from +226–293 ms to
+12–48 ms. Five minutes of TS playback at 1× show the same picture holds with
+and without it (none over 60 ms outside the timestamp discontinuity, ~190 ms
+at it on both). `RateChangePlaybackTests` (real audio output, local) fails before and
+passes. Bounding CoreAudio's output queue to apply rates sooner was tried and
+rejected: VLC paces local inputs by decoder queue length, so blocking the audio
+decoder starved video at every GOP boundary.
 
 **Upstream backports (0058–0062).** avcC/hvcC without parameter sets (no video
 on avc3/hev1 streams), SRT arrows surrounded by tabs, SPU cache invalidation,
@@ -121,7 +125,7 @@ With 0055–0056 (the same harness): plain pause/resume of 0.3–10 s on local
 and HLS VOD, window miniaturize and occlusion, pause while hidden, PiP view
 re-attach and paused seek/resume showed no stalls and first frames within
 13–173 ms, matching beta.14. The full Swift suite passes against the rebuilt
-engine and against the published beta.14 engine, and all 62 native patches
+engine and against the published beta.14 engine, and all 64 native patches
 replay on the pinned VLC source with mutation-checked source contracts.
 
 ## Known limits (not fixed here)
@@ -133,8 +137,9 @@ replay on the pinned VLC source with mutation-checked source contracts.
   the previous engine; not changed by 0063.
 - The picture holds about 0.3 s at each HLS discontinuity while the demuxer
   rebuffers after its PCR reset.
-- `--aout=avsamplebuffer` still applies rate changes late; 0064 covers the
-  default CoreAudio outputs (`auhal`, iOS `audiounit_ios`).
+- A rate change still takes effect only after the caching delay of audio
+  already rendered at the previous rate (about 1.2 s here). `--aout=avsamplebuffer`
+  keeps the previous one-second timing reports.
 - Bluetooth/AirPlay output latency and device switches to them are unmeasured.
 - Measured on macOS only (Apple silicon, 60 Hz display). iOS/tvOS devices,
   display/system sleep and 120 Hz displays are untested.

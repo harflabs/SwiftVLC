@@ -44,13 +44,6 @@ CHECKS = (
     ('modules/demux/adaptive/Streams.cpp', '0063 a new sequence gets its own synchronization reference',
      r'fakeEsOut\(\)->setSegmentStartTimes\(currentTimeContext\);\s*fakeEsOut\(\)->setSynchronizationReference\(\s*'
      r'SynchronizationReference\(currentSequence, Times\(\)\)\);'),
-    ('modules/audio_output/apple/coreaudio_common.c', '0064 play waits while the rendered queue is long',
-     r'p_sys->started && !p_sys->b_paused && p_sys->i_out_size > max_queued\s*'
-     r'&& waited < CA_MAX_QUEUE_WAIT_TICKS;'),
-    ('modules/audio_output/apple/coreaudio_common.c', '0064 auhal plays through the bounded queue',
-     r'p_aout->play = ca_PlayQueued;'),
-    ('modules/audio_output/apple/audiounit_ios.m', '0064 iOS waits for the queue outside its lifecycle lock',
-     r'ca_WaitOutputQueue\(p_aout\);[^\n]*\n\s*vlc_mutex_lock\(&p_sys->lifecycle_lock\);'),
     ('modules/audio_output/apple/coreaudio_common.c', '0064 timing is reported every 100 ms',
      r'#define TIMING_REPORT_DELAY_TICKS VLC_TICK_FROM_MS\(100\)'),
     ('src/audio_output/dec.c', '0062 stream delay uses the output position at rate != 1',

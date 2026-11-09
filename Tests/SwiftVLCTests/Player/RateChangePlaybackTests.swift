@@ -5,10 +5,10 @@ import Synchronization
 import Testing
 
 extension Integration {
-  /// CoreAudio used to queue the whole caching delay of audio already
-  /// time-stretched at the previous rate and to report its timing once a
-  /// second, so a rate change took one to two seconds to apply and the audio
-  /// clock then stepped back, stalling video (patch 0064).
+  /// CoreAudio reported its timing to the clock once a second. After a rate
+  /// change became audible, the audio master clock kept extrapolating the
+  /// previous rate until the next report, then stepped back and stalled video
+  /// for up to a second on every slow-down (patch 0064).
   @Suite(.serialized, .timeLimit(.minutes(2)))
   @MainActor struct RateChangePlaybackTests {
     @Test(
@@ -18,7 +18,7 @@ extension Integration {
         "Requires the rebuilt release XCFramework and an audio device"
       )
     )
-    func `rate changes apply promptly without stalling video`() async throws {
+    func `rate changes do not stall video`() async throws {
       // The real audio output is under test; keep it nearly silent.
       let instance = try VLCInstance(arguments: VLCInstance.defaultArguments + [
         "--no-hw-dec", "--quiet", "--gain=0.01"
@@ -36,10 +36,11 @@ extension Integration {
         for rate: Float in [2, 1, 0.5, 1] {
           let start = Date.timeIntervalSinceReferenceDate
           try player.setPlaybackRate(PlaybackRate(rate))
-          try await Task.sleep(for: .seconds(1.6))
+          // Audio already rendered at the previous rate plays out first.
+          try await Task.sleep(for: .seconds(3))
           let shown = sink.samples.withLock { $0.filter { $0.wall >= start } }
           // The barcode advances at 30 frames per second of content.
-          let settled = shown.filter { $0.wall >= start + 0.8 }
+          let settled = shown.filter { $0.wall >= start + 2 }
           let first = try #require(settled.first)
           let last = try #require(settled.last)
           let speed = Double(last.frame - first.frame) / 30 / (last.wall - first.wall)

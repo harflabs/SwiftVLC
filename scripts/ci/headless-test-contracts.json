@@ -82,7 +82,7 @@
     },
     {
       "classname": "SwiftVLCTests.Integration.RateChangePlaybackTests",
-      "name": "`rate changes apply promptly without stalling video`()",
+      "name": "`rate changes do not stall video`()",
       "skip_reason": "Requires the rebuilt release XCFramework and an audio device",
       "reason": "requires native CoreAudio patch 0064 and a real audio output; run locally against a rebuilt engine"
     },
