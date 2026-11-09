@@ -54,29 +54,34 @@ def valid(s):
 
 
 # --- stalls -----------------------------------------------------------------
+# A stall is a run of Playing samples that show one frame while the audio clock
+# advances. Runs split at frame changes and at playback-state transitions, so a
+# pause is never counted and a freeze after resume starts at the resume.
 stalls = []
-run_start = None
-prev = None
+run = []
+
+
+def close_run(open_ended=False):
+    if len(run) < 2:
+        return
+    first, last = run[0], run[-1]
+    dur = (last["t"] - first["t"]) / 1000.0
+    adv = last["a"] - first["a"]
+    if dur > STALL_MS and adv > STALL_MS * 0.8:
+        stall = {"start": rel(first["t"]), "dur_ms": round(dur), "audio_adv_ms": adv, "frame": first["f"]}
+        if open_ended:
+            stall["open_ended"] = True
+        stalls.append(stall)
+
+
 for s in samples:
-    if not valid(s):
-        prev = None
-        run_start = None
-        continue
-    if prev is None or s["f"] != prev["f"]:
-        if run_start is not None and prev is not None:
-            dur = (prev["t"] - run_start["t"]) / 1000.0
-            adv = prev["a"] - run_start["a"]
-            if dur > STALL_MS and adv > STALL_MS * 0.8 and run_start["st"] == PLAYING:
-                stalls.append({"start": rel(run_start["t"]), "dur_ms": round(dur), "audio_adv_ms": adv,
-                               "frame": run_start["f"]})
-        run_start = s
-    prev = s
-if run_start is not None and prev is not None:
-    dur = (prev["t"] - run_start["t"]) / 1000.0
-    adv = prev["a"] - run_start["a"]
-    if dur > STALL_MS and adv > STALL_MS * 0.8 and run_start["st"] == PLAYING:
-        stalls.append({"start": rel(run_start["t"]), "dur_ms": round(dur), "audio_adv_ms": adv,
-                       "frame": run_start["f"], "open_ended": True})
+    playing = valid(s) and s["st"] == PLAYING
+    if run and (not playing or s["f"] != run[-1]["f"]):
+        close_run()
+        run = []
+    if playing:
+        run.append(s)
+close_run(open_ended=True)
 
 
 # --- offsets per phase ---------------------------------------------------------

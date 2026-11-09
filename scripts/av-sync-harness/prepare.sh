@@ -25,5 +25,6 @@ text = re.sub(r',\s*\.testTarget\(.*?\n    \)\n', '\n', text, flags=re.S)
 open(sys.argv[2], "w").write(text)
 PY
 rsync -a --delete --exclude .build "$HERE/harness/" "$WORK/harness/"
-(cd "$WORK/harness" && swift build 2>&1 | grep -E 'error|Build complete')
+# Build output goes to stderr: stdout is only the executable path, for AVH=$(...).
+(cd "$WORK/harness" && swift build) >&2
 echo "$WORK/harness/.build/debug/avh"
