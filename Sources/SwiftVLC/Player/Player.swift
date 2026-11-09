@@ -181,6 +181,10 @@ public final class Player {
   @ObservationIgnored var _volume: Float = 1.0
   @ObservationIgnored var _isMuted: Bool = false
   @ObservationIgnored var _aspectRatio: AspectRatio = .default
+  /// Requested delays. libVLC forgets them with every input, so these are
+  /// authoritative; see ``applyRequestedDelays(to:)``.
+  @ObservationIgnored var _audioDelayMicroseconds: Int64 = 0
+  @ObservationIgnored var _subtitleDelayMicroseconds: Int64 = 0
   /// `addExternalTrack(select: true)` requests waiting for their track.
   @ObservationIgnored
   var pendingExternalTrackSelections: [TrackType: PendingExternalTrackSelection] = [:]

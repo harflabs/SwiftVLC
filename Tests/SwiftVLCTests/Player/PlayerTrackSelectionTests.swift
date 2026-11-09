@@ -1,8 +1,9 @@
 @testable import SwiftVLC
+import CLibVLC
 import Foundation
 import Testing
 
-/// Audio and subtitle selection and external tracks against real
+/// Audio and subtitle selection, external tracks, and delays against real
 /// libVLC playback of `Fixtures/tracks`.
 ///
 /// The instance uses dummy outputs with software decoding, so the suite runs
@@ -217,7 +218,82 @@ extension Integration {
       await player.shutdown()
     }
 
+    // MARK: - Delays (T4)
+
+    @Test
+    func `Delays survive stop and replay`() async throws {
+      let player = try await playMultitrackMKV()
+      try player.setAudioDelay(.milliseconds(-250))
+      try player.setSubtitleDelay(.milliseconds(400))
+      #expect(nativeDelays(of: player) == Delays(audio: -250_000, subtitle: 400_000))
+
+      await player.stopAndWait()
+      #expect(player.audioDelay == .milliseconds(-250))
+      #expect(player.subtitleDelay == .milliseconds(400))
+
+      try player.setSubtitleDelay(.milliseconds(300))
+      #expect(player.subtitleDelay == .milliseconds(300))
+
+      try player.play()
+      try #require(await poll(timeout: .seconds(10)) { player.state == .playing })
+      #expect(try await poll(timeout: .seconds(5)) {
+        nativeDelays(of: player) == Delays(audio: -250_000, subtitle: 300_000)
+      })
+      #expect(player.audioDelay == .milliseconds(-250))
+      #expect(player.subtitleDelay == .milliseconds(300))
+      await player.shutdown()
+    }
+
+    @Test
+    func `Delays set during playback carry into the next media`() async throws {
+      let player = try await playMultitrackMKV()
+      try player.setAudioDelay(.milliseconds(120))
+      try player.setSubtitleDelay(.milliseconds(-80))
+
+      try player.play(Media(url: TestMedia.multitrackHLSURL))
+      try #require(await poll(timeout: .seconds(10)) {
+        player.state == .playing && !player.audioTracks.isEmpty
+      })
+
+      #expect(try await poll(timeout: .seconds(5)) {
+        nativeDelays(of: player) == Delays(audio: 120_000, subtitle: -80000)
+      })
+      await player.shutdown()
+    }
+
+    @Test
+    func `Delays set while stopped carry into the next media`() async throws {
+      let player = try await playMultitrackMKV()
+      await player.stopAndWait()
+      try player.setAudioDelay(.milliseconds(120))
+      try player.setSubtitleDelay(.milliseconds(-80))
+
+      try player.play(Media(url: TestMedia.multitrackHLSURL))
+      try #require(await poll(timeout: .seconds(10)) {
+        player.state == .playing && !player.audioTracks.isEmpty
+      })
+
+      #expect(try await poll(timeout: .seconds(5)) {
+        nativeDelays(of: player) == Delays(audio: 120_000, subtitle: -80000)
+      })
+      #expect(player.audioDelay == .milliseconds(120))
+      #expect(player.subtitleDelay == .milliseconds(-80))
+      await player.shutdown()
+    }
+
     // MARK: - Helpers
+
+    private struct Delays: Equatable {
+      let audio: Int64
+      let subtitle: Int64
+    }
+
+    private func nativeDelays(of player: Player) -> Delays {
+      Delays(
+        audio: libvlc_audio_get_delay(player.pointer),
+        subtitle: libvlc_video_get_spu_delay(player.pointer)
+      )
+    }
 
     /// Dummy outputs and software decoding: no window server, audio device,
     /// or hardware decoder is needed, and subtitle decoders get the video

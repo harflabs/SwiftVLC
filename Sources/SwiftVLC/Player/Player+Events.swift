@@ -321,7 +321,8 @@ extension Player {
         supersedeSeekWorkForTerminalBoundary()
         cancelPendingFrameSteps()
       case .opening, .buffering, .playing, .paused:
-        break
+        // Covers inputs no `play()` created, such as a list advance.
+        applyRequestedDelays(to: pointer)
       }
       guard sourceIsCurrent() else { return }
       updatePauseTransition(for: newState)
