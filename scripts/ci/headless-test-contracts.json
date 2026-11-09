@@ -80,6 +80,12 @@
       "reason": "requires native patch 0057 and a window server; run locally against a rebuilt engine"
     },
     {
+      "classname": "SwiftVLCTests.Integration.TimestampJumpResumePlaybackTests",
+      "name": "`resume before a timestamp jump presents every queued frame`(audio:)",
+      "skip_reason": "Requires native video output",
+      "reason": "requires native clock patch 0055; mandatory in the native job."
+    },
+    {
       "classname": "SwiftVLCTests.Integration.RemoteMP4SeekTests",
       "name": "`Paused HTTP seeks settle at the output and retain that clock`(fast:audio:)",
       "skip_reason": "Requires the rebuilt release XCFramework",

@@ -42,6 +42,22 @@ if '--verify-only' not in sys.argv:
         '-c', 'copy', '-disposition:s:0', 'default', '-y', str(subtitled)
     ], check=True)
 
+# Three 4-second MPEG-TS runs of the oracle whose timestamps jump by +3000 s and
+# back, concatenated byte for byte like a broadcast PCR reset. Pausing just
+# before a jump leaves pictures of the old timeline queued behind a newer clock.
+jump = root / 'timestamp-jump.ts'
+if '--verify-only' not in sys.argv:
+    runs = []
+    for k in range(3):
+        runs.append(subprocess.check_output([
+            'ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin',
+            '-ss', str(k * 4), '-t', '4', '-i', str(mp4),
+            '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-g', '30', '-bf', '0',
+            '-c:a', 'aac', '-b:a', '64k', '-output_ts_offset', '3100' if k % 2 else '100',
+            '-f', 'mpegts', '-'
+        ]))
+    jump.write_bytes(b''.join(runs))
+
 # Open-GOP H.264 needs both recovery-point decoder reset and rejection of
 # leading pictures that still reference the previous GOP. Use moving colored
 # content: a barcode alone can survive while the rest of the frame is corrupt.
