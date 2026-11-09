@@ -222,6 +222,39 @@ extension Integration {
       await player.shutdown()
     }
 
+    @Test
+    func `An external audio track added with select replaces an explicit selection`() async throws {
+      let player = try await playMultitrackMKV()
+      let embeddedIDs = Set(player.audioTracks.map(\.id))
+      let arabic = try #require(player.audioTracks.first { $0.language == "ara" })
+      player.selectedAudioTrack = arabic
+      try #require(await poll(timeout: .seconds(10)) {
+        player.selectedAudioTrack?.id == arabic.id
+      })
+
+      try player.addExternalTrack(from: TestMedia.silenceURL, type: .audio, select: true)
+
+      #expect(try await poll(timeout: .seconds(10)) {
+        player.selectedAudioTrack.map { !embeddedIDs.contains($0.id) } == true
+      })
+      await player.shutdown()
+    }
+
+    @Test
+    func `A pending external select outlasts unrelated track changes`() async throws {
+      let player = try await playMultitrackMKV()
+      let missing = FileManager.default.temporaryDirectory
+        .appendingPathComponent("\(UUID().uuidString).wav")
+      try player.addExternalTrack(from: missing, type: .audio, select: true)
+
+      // The file never loads, so this subtitle change is a track change
+      // that arrives while the audio select is still waiting for its track.
+      try await drainSelectionQueue(of: player, switching: .subtitle)
+
+      #expect(player.pendingExternalTrackSelections[.audio] != nil)
+      await player.shutdown()
+    }
+
     // MARK: - Delays (T4)
 
     @Test
