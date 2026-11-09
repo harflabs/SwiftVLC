@@ -2076,6 +2076,8 @@ expected_manifest_tail = [
     "dd9a82682477fee83f6d731783ef74bc50dd4334b2fd131a9b2142b7c871dcdf  0060-spu-cache-invalidation.patch",
     "914236918f42a5df180c687af9453f87087b9c68b19d5022eed728ffc761c7b8  0061-mp4-deselect-finished-tracks.patch",
     "15a9145c5d1862e314f251f94e2e58604e290068ce76e9cc42e414a5de4abf89  0062-aout-delay-correctness.patch",
+    "5f46ff439a86888f2988411d4e7d3656fb491e3f645e96deb70e7e6274efc40d  0063-adaptive-discontinuity-drain-and-timeline.patch",
+    "0513e44bbf4e8bf4ea8ff4df5fe11942d1eac47fdf0efc3714c169f22679a3fd  0064-coreaudio-bounded-output-queue.patch",
 ]
 if manifest_lines[-len(expected_manifest_tail):] != expected_manifest_tail:
     sys.exit(
@@ -2083,7 +2085,7 @@ if manifest_lines[-len(expected_manifest_tail):] != expected_manifest_tail:
         "output identity 0041, adaptive ES recycling 0042, then text-subtitle "
         "callback 0043, deferred-resume correction 0044, playlist policy 0045, "
         "failure recovery 0046, LGPL2 live555 0047/0048, paused-seek clock 0049, seek video output 0050, subtitle demand 0051, H264 recovery 0052, clock origin 0053, resume ordering 0054, "
-        "then playback reliability 0055 through 0062: "
+        "then playback reliability 0055 through 0064: "
         f"got {manifest_lines[-len(expected_manifest_tail):]}"
     )
 

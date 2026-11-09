@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the playback-reliability patches 0055-0062 in a patched VLC tree.
+"""Check the playback-reliability patches 0055-0064 in a patched VLC tree.
 
 Each guard is one connected code fragment and is mutation-checked, so a patch
 that is dropped, reverted or only partly applied cannot pass silently.
@@ -35,6 +35,24 @@ CHECKS = (
      r'pos->key\.original_width == subpic->i_original_picture_width &&'),
     ('modules/demux/mp4/mp4.c', '0061 finished MP4 tracks can be deselected',
      r'bool b = true;\s*if\( !tk->b_ok \|\| MP4_isMetadata\( tk \) \)\s*\{\s*continue;'),
+    ('modules/demux/adaptive/PlaylistManager.cpp', '0063 a discontinuity drains before its PCR reset',
+     r'demux\.discontinuity_draining =\s*es_out_Control\(p_demux->out, ES_OUT_DRAIN\) == VLC_SUCCESS;\s*'
+     r'if\(!demux\.discontinuity_draining\)\s*es_out_Control\(p_demux->out, ES_OUT_RESET_PCR\);'),
+    ('modules/demux/adaptive/PlaylistManager.cpp', '0063 the deferred PCR reset waits for an empty output',
+     r'es_out_Control\(p_demux->out, ES_OUT_IS_EMPTY, &b_empty\);\s*if\(!b_empty\)\s*\{[^}]*\}\s*'
+     r'demux\.discontinuity_draining = false;\s*es_out_Control\(p_demux->out, ES_OUT_RESET_PCR\);'),
+    ('modules/demux/adaptive/Streams.cpp', '0063 a new sequence gets its own synchronization reference',
+     r'fakeEsOut\(\)->setSegmentStartTimes\(currentTimeContext\);\s*fakeEsOut\(\)->setSynchronizationReference\(\s*'
+     r'SynchronizationReference\(currentSequence, Times\(\)\)\);'),
+    ('modules/audio_output/apple/coreaudio_common.c', '0064 play waits while the rendered queue is long',
+     r'p_sys->started && !p_sys->b_paused && p_sys->i_out_size > max_queued\s*'
+     r'&& waited < CA_MAX_QUEUE_WAIT_TICKS;'),
+    ('modules/audio_output/apple/coreaudio_common.c', '0064 auhal plays through the bounded queue',
+     r'p_aout->play = ca_PlayQueued;'),
+    ('modules/audio_output/apple/audiounit_ios.m', '0064 iOS waits for the queue outside its lifecycle lock',
+     r'ca_WaitOutputQueue\(p_aout\);[^\n]*\n\s*vlc_mutex_lock\(&p_sys->lifecycle_lock\);'),
+    ('modules/audio_output/apple/coreaudio_common.c', '0064 timing is reported every 100 ms',
+     r'#define TIMING_REPORT_DELAY_TICKS VLC_TICK_FROM_MS\(100\)'),
     ('src/audio_output/dec.c', '0062 stream delay uses the output position at rate != 1',
      r'clock_audio_ts = rate_audio_ts \+ \(system_ts - rate_system_ts\)\s*\* stream->timing\.rate;'),
 )

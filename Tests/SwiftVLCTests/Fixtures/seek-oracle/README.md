@@ -19,6 +19,9 @@ It reproduces subtitle-driven input advancement after a paused seek.
 MPEG-TS runs whose timestamps jump by +3000 seconds at frame 120 and back at
 frame 240, concatenated like a broadcast PCR reset. It reproduces frames
 dropped after resuming a pause taken just before a jump (patch 0055).
+`hls-discontinuity/` lists the same three runs as HLS segments separated by
+`EXT-X-DISCONTINUITY`: the frames before each discontinuity must be displayed
+and the player time must follow the playlist across it (patch 0063).
 
 The second MP4, `open-gop.mp4`, is a 12-second, 320×192 H.264 open-GOP
 sequence with two-second recovery points, three B-frames, AAC, the same barcode,
