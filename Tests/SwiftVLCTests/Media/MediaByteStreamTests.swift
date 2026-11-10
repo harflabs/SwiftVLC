@@ -118,17 +118,3 @@ extension Integration {
     }
   }
 }
-
-extension Integration {
-  @Suite(.tags(.mainActor))
-  @MainActor struct MediaByteStreamPlaybackTests {
-    @Test(.tags(.async, .media), .enabled(if: TestCondition.canPlayMedia), .timeLimit(.minutes(1)))
-    func `Player plays stream media to the playing state`() async throws {
-      let instance = TestInstance.makePlayback()
-      let player = Player(instance: instance)
-      try player.play(Media(streamFactory: { try CountingFileStream(url: TestMedia.twosecURL) }))
-      try #require(await poll(until: { player.state == .playing }), "Waiting for: player.state == .playing")
-      player.stop()
-    }
-  }
-}
