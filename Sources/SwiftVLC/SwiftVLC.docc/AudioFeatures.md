@@ -14,6 +14,11 @@ Volume is normalized, so `0.0 ... 1.0` covers the useful range; values
 above `1.0` software-amplify beyond normal (capped at 2.0 / 200%) and
 can distort on quietly-mastered content.
 
+The audio delay (like ``Player/setSubtitleDelay(_:)``) is a player
+setting: it holds across ``Player/stop()``, replay, and the next media
+until you set it again, and one set while stopped applies when playback
+starts.
+
 ## Output modules and devices
 
 List available output modules (CoreAudio, auhal, etc.) for the running

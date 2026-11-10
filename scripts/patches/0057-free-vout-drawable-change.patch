@@ -1,0 +1,41 @@
+# A free vout keeps the window it was created with. One created before the
+# application set its drawable has a dummy window no display can use, so
+# reusing it kept video failing after the view arrived. Recreate it instead.
+diff --git a/src/input/resource.c b/src/input/resource.c
+--- a/src/input/resource.c
++++ b/src/input/resource.c
+@@ -50,6 +50,8 @@ struct vout_resource
+     enum vlc_vout_order order;
+     bool started;
+     char *psz_prev_title;
++    /* Drawable the vout window was created for */
++    void *drawable;
+ 
+     struct vlc_list node;
+ };
+@@ -112,6 +114,7 @@ vout_resource_Create(vout_thread_t *vout)
+     vout_rsc->started = false;
+     vout_rsc->vout = vout;
+     vout_rsc->psz_prev_title = NULL;
++    vout_rsc->drawable = var_InheritAddress(vout, "drawable-nsobject");
+     return vout_rsc;
+ }
+ 
+@@ -448,6 +451,17 @@ RequestVoutRsc(input_resource_t *p_resource)
+ {
+     struct vout_resource *vout_rsc = NULL;
+ 
++    /* The window of a free vout targets the drawable it was created for. One
++     * created before the drawable was set has a dummy window that no display
++     * can use, and reusing it would keep the video output failing forever. */
++    if( p_resource->vout_rsc_free != NULL &&
++        p_resource->vout_rsc_free->drawable !=
++            var_InheritAddress(p_resource->p_parent, "drawable-nsobject") )
++    {
++        msg_Dbg(p_resource->p_parent, "destroying free vout of another drawable");
++        DestroyVout(p_resource);
++    }
++
+     if( p_resource->vout_rsc_free != NULL )
+     {
+         /* The free vout is always the first one */

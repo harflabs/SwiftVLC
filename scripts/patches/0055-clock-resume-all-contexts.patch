@@ -1,0 +1,106 @@
+# Resume must shift every clock context, not only the newest one (backport of
+# upstream !10644: 89d58ef097 + 65e4977528, and b59b1c3753). Pictures still
+# queued from a timeline before a timestamp discontinuity otherwise convert late
+# by the whole pause, are dropped as too late, and freeze the picture (#30180).
+diff --git a/src/clock/clock.c b/src/clock/clock.c
+--- a/src/clock/clock.c
++++ b/src/clock/clock.c
+@@ -278,6 +278,29 @@ static vlc_tick_t context_stream_to_system(const struct vlc_clock_context *ctx,
+             + ctx->start_time.system;
+ }
+ 
++/* Backport of upstream !10644 (89d58ef097 + 65e4977528): shift every clock
++ * context, and the last conversion of the clocks using it, when resuming. */
++static void context_resume(struct vlc_clock_context *ctx, vlc_tick_t delay)
++{
++    vlc_clock_t *clock;
++    vlc_list_foreach(clock, &ctx->using_clocks, node)
++        if (clock->last_conversion != VLC_TICK_INVALID)
++            clock->last_conversion += delay;
++
++    /* Only apply a delay if the clock has a reference point to avoid
++     * messing up the timings if the stream was paused then seeked */
++    if (ctx->last.system != VLC_TICK_INVALID)
++    {
++        ctx->last.system += delay;
++        if (ctx->start_time.system == VLC_TICK_INVALID)
++            ctx->offset += delay;
++    }
++    if (ctx->start_time.system != VLC_TICK_INVALID)
++        ctx->start_time.system += delay;
++    if (ctx->wait_sync_ref.system != VLC_TICK_INVALID)
++        ctx->wait_sync_ref.system += delay;
++}
++
+ static void
+ vlc_clock_remove_current_context(vlc_clock_t *clock)
+ {
+@@ -1084,24 +1107,15 @@ void vlc_clock_main_ChangePause(vlc_clock_main_t *main_clock, vlc_tick_t now,
+     if (main_clock->pause_date == VLC_TICK_INVALID)
+         return;
+ 
+-    struct vlc_clock_context *ctx = main_clock->context;
+-    /**
+-     * Only apply a delay if the clock has a reference point to avoid
+-     * messing up the timings if the stream was paused then seeked
+-     */
+     const vlc_tick_t delay = now - main_clock->pause_date;
+-    if (ctx->last.system != VLC_TICK_INVALID)
+-    {
+-        ctx->last.system += delay;
+-        if (ctx->start_time.system == VLC_TICK_INVALID)
+-            ctx->offset += delay;
+-    }
++
++    struct vlc_clock_context *ctx;
++    vlc_list_foreach(ctx, &main_clock->prev_contexts, node)
++        context_resume(ctx, delay);
++    context_resume(main_clock->context, delay);
++
+     if (main_clock->first_pcr.system != VLC_TICK_INVALID)
+         main_clock->first_pcr.system += delay;
+-    if (ctx->start_time.system != VLC_TICK_INVALID)
+-        ctx->start_time.system += delay;
+-    if (ctx->wait_sync_ref.system != VLC_TICK_INVALID)
+-        ctx->wait_sync_ref.system += delay;
+     main_clock->pause_date = VLC_TICK_INVALID;
+     vlc_cond_broadcast(&main_clock->cond);
+ }
+diff --git a/src/input/es_out.c b/src/input/es_out.c
+--- a/src/input/es_out.c
++++ b/src/input/es_out.c
+@@ -1426,13 +1426,33 @@ static void EsOutProgramChangePause(es_out_sys_t *p_sys, bool b_paused, vlc_tick
+ {
+     es_out_pgrm_t *pgrm;
+ 
++    /* We need to pause the input clock, then the vlc_clock, and only
++     * unpause in the reverse order, so that the following operation are
++     * properly ordered:
++     *  - input clock is paused, the date is registered
++     *  - vlc_clock is paused, the date is registered
++     *  - ...
++     *  - vlc_clock is unpaused, the proper offsets are applied
++     *  - input_clock in unpaused, a new point is emitted right after
++     *
++     * Without this ordering for unpausing, the pause duration is accounted
++     * twice by the vlc_clock since the input clock point is registered while
++     * pause is in place in the vlc_clock, so it also gets the offset.
++     *
++     * Technically, pausing the input clock after has no harmful
++     * consequences currently, but is still semantically more correct.
++     * */
+     vlc_list_foreach(pgrm, &p_sys->programs, node)
+     {
+-        input_clock_ChangePause(pgrm->p_input_clock, b_paused, i_date);
++        if (b_paused)
++            input_clock_ChangePause(pgrm->p_input_clock, b_paused, i_date);
+ 
+         vlc_clock_main_Lock(pgrm->clocks.main);
+         vlc_clock_main_ChangePause(pgrm->clocks.main, i_date, b_paused);
+         vlc_clock_main_Unlock(pgrm->clocks.main);
++
++        if (!b_paused)
++            input_clock_ChangePause(pgrm->p_input_clock, b_paused, i_date);
+     }
+ }
+ 

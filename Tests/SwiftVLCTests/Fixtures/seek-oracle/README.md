@@ -15,6 +15,14 @@ The MKV remux adds a selected SRT cue every second. Its first video PTS is
 0.021333 seconds (AAC mux offset); the pixel barcode still gives content time.
 It reproduces subtitle-driven input advancement after a paused seek.
 
+`timestamp-jump.ts` re-encodes frames 0–359 of the MP4 as three 4-second
+MPEG-TS runs whose timestamps jump by +3000 seconds at frame 120 and back at
+frame 240, concatenated like a broadcast PCR reset. It reproduces frames
+dropped after resuming a pause taken just before a jump (patch 0055).
+`hls-discontinuity/` lists the same three runs as HLS segments separated by
+`EXT-X-DISCONTINUITY`: the frames before each discontinuity must be displayed
+and the player time must follow the playlist across it (patch 0063).
+
 The second MP4, `open-gop.mp4`, is a 12-second, 320×192 H.264 open-GOP
 sequence with two-second recovery points, three B-frames, AAC, the same barcode,
 and moving color detail below it. Its dimensions are multiples of 16 to avoid

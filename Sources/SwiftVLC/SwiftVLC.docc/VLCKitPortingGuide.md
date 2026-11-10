@@ -140,9 +140,9 @@ VLCKit selected tracks by array index, with `-1` as the "off"
 sentinel (`currentAudioTrackIndex = -1`). Indexes are positional and
 shift as tracks appear, which made live-stream track UIs fragile.
 
-SwiftVLC selects by stable identity. Each ``Track`` carries a
-`String` `id` that is stable for the session, and selection is an
-optional property write:
+SwiftVLC selects by identity. Each ``Track`` carries a `String` `id`
+that names one track of the current playback session, and selection is
+an optional property write:
 
 ```swift
 // VLCKit
@@ -155,7 +155,19 @@ player.selectedSubtitleTrack = subtitleTracks[0] // on, by identity
 
 ``Player/selectedAudioTrack`` and ``Player/selectedSubtitleTrack``
 read back the engine's actual selection, and setting either to `nil`
-deselects — there is no sentinel value to remember.
+deselects — there is no sentinel value to remember. A write holds for
+the rest of the playback session: tracks the stream adds later do not
+override it.
+
+Container formats (MP4, MKV, MPEG-TS) and external files have ids that
+stay the same for as long as the media plays. Adaptive streams (HLS,
+DASH) do not: libVLC numbers their tracks per session
+(`"audio/auto/4"`), and the demuxer recreates a selected track under a
+new id after a seek or a selection change. ``Track/isIDStable`` tells the
+two apart. Selecting a ``Track`` whose unstable id has gone stale still
+works — SwiftVLC resolves it to the current track with the same type,
+language, name, and codec — but to recognize the same rendition across
+list refreshes, compare those fields instead of `id`.
 
 ## Rebuffering spinners
 
@@ -364,8 +376,8 @@ Two ways to get "off unless the user asks":
   This suppresses language/index/file-driven selection, but a stream that
   flags a *forced* or *default* subtitle can still auto-select it.
 
-- **Deselect per media (authoritative).** When the subtitle tracks first
-  appear for a media, clear the selection unless the user has chosen one:
+- **Deselect per playback (authoritative).** When the subtitle tracks
+  appear, clear the selection unless the user has chosen one:
 
   ```swift
   for await event in player.events {
@@ -375,8 +387,12 @@ Two ways to get "off unless the user asks":
   }
   ```
 
-  This is the only way to guarantee "off" regardless of stream flags;
-  set ``Player/selectedSubtitleTrack`` again when the user opts in.
+  This is the only way to guarantee "off" regardless of stream flags.
+  Setting `nil` keeps subtitles off for the rest of that playback
+  session, including tracks the stream adds later; a new media, a replay,
+  or a recast starts again from the stream's defaults, which is why the
+  loop runs for every track change. Set ``Player/selectedSubtitleTrack``
+  again when the user opts in.
 
 ## Topics
 

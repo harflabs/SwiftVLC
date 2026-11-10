@@ -125,6 +125,8 @@ jobs:
             --require-suite SwiftVLCTests.Integration.RemoteMP4SeekTests 2 \
             --require-suite SwiftVLCTests.Integration.SeekOutputPlaybackTests 3 \
             --require-suite SwiftVLCTests.Integration.ResumeTimelinePlaybackTests 3 \
+            --require-suite SwiftVLCTests.Integration.TimestampJumpResumePlaybackTests 1 \
+            --require-suite SwiftVLCTests.Integration.HLSDiscontinuityPlaybackTests 1 \
             --require-suite SwiftVLCTests.Integration.VideoToolboxSeekPlaybackTests 1 \
             --contract scripts/ci/headless-test-contracts.json \
             --test-source-root Tests/SwiftVLCTests \
