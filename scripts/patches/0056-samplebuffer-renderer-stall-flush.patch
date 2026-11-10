@@ -1,0 +1,133 @@
+# A sample-buffer renderer queue holding a picture dated after the next one, or
+# accepting nothing for several frames, froze the video while audio played and
+# hid the freeze by rejecting every later picture as not ready. Flush it.
+diff --git a/modules/video_output/apple/VLCSampleBufferDisplay.m b/modules/video_output/apple/VLCSampleBufferDisplay.m
+--- a/modules/video_output/apple/VLCSampleBufferDisplay.m
++++ b/modules/video_output/apple/VLCSampleBufferDisplay.m
+@@ -97,6 +97,13 @@ typedef NS_ENUM(NSUInteger, VLCSampleBufferRendererGateResult) {
+     VLCSampleBufferRendererGateResultStale,
+ };
+ 
++/* Seconds a queued picture may be dated after the next one before the queue is
++ * flushed: clock rate adjustments move a redisplayed picture by less. */
++#define SAMPLE_REORDER_TOLERANCE 0.020
++/* Seconds the renderer may refuse every picture before it is treated as stuck:
++ * several frames at common frame rates, well below a perceptible freeze. */
++#define RENDERER_STALL_LIMIT 0.300
++
+ static atomic_uint_fast64_t rendererGenerationSource = ATOMIC_VAR_INIT(1);
+ 
+ typedef NS_ENUM(NSUInteger, VLCSampleBufferPixelRotation) {
+@@ -915,6 +922,10 @@ shouldInheritContentsScale:(CGFloat)newScale
+     bool rendererEnqueueInProgress;
+     bool rendererRecoveryCheckDeferred;
+     int lastPictureSubmissionStatus;
++    /* Latest host presentation time queued on the current renderer, and the
++     * host time its current not-ready episode started (0 when none). */
++    CFTimeInterval rendererQueuedHostTime;
++    CFTimeInterval rendererNotReadySince;
+     vlc_samplebuffer_format_description_cache formatDescriptionCache;
+ }
+     @property (nonatomic, readonly, weak) VLCView *window;
+@@ -963,6 +974,8 @@ shouldInheritContentsScale:(CGFloat)newScale
+     - (void)recoverRendererLocked:(AVSampleBufferVideoRenderer *)renderer
+                        generation:(uint64_t)generation
+                           context:(const char *)context;
++    - (BOOL)acceptsPictureLocked:(AVSampleBufferVideoRenderer *)renderer
++                        hostTime:(CFTimeInterval)hostTime;
+     - (void)placeVideo:(vout_display_place_t)newPlace;
+     - (void)refreshOverlayCompositionEnabled:(bool)enabled
+                                     snapshot:
+@@ -1094,6 +1107,7 @@ CopyImmediateRecoverySampleBuffer(CMSampleBufferRef source)
+         } @finally {
+             rendererFlushInProgress = false;
+         }
++        rendererQueuedHostTime = 0;
+         rendererRecoveryCheckDeferred = false;
+ 
+         /* A resource revoke can race the status read. Bracket it with two
+@@ -1202,6 +1216,10 @@ CopyImmediateRecoverySampleBuffer(CMSampleBufferRef source)
+          * exact attempt was not invalidated by a flush or failed status. */
+         vlc_samplebuffer_renderer_increment(
+             &rendererSuccessfulSubmissionCount);
++        const CMTime pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
++        if (CMTIME_IS_NUMERIC(pts))
++            rendererQueuedHostTime =
++                fmax(rendererQueuedHostTime, CMTimeGetSeconds(pts));
+         if (rememberForRecovery)
+         {
+             CMSampleBufferRef retained =
+@@ -1250,6 +1268,45 @@ CopyImmediateRecoverySampleBuffer(CMSampleBufferRef source)
+     CFRelease(immediate);
+ }
+ 
++/* AVSampleBufferVideoRenderer presents in timestamp order and stops accepting
++ * samples once its queue is full. A queued sample dated after a new picture
++ * holds that picture, and every later one, until its date: after a clock remap
++ * (resume across a discontinuity, rate change) the video freezes while audio
++ * plays on, and rejecting each picture as not ready hides the freeze. Flush a
++ * queue that would present out of order, and one that made no progress for
++ * several frames, so the picture always reaches the screen. */
++- (BOOL)acceptsPictureLocked:(AVSampleBufferVideoRenderer *)renderer
++                    hostTime:(CFTimeInterval)hostTime
++{
++    const CFTimeInterval now = CACurrentMediaTime();
++    const char *stale = NULL;
++    if (rendererQueuedHostTime > now &&
++        hostTime < rendererQueuedHostTime - SAMPLE_REORDER_TOLERANCE)
++        stale = "queued picture dated after the next one";
++    else if (renderer.isReadyForMoreMediaData)
++        rendererNotReadySince = 0;
++    else if (rendererNotReadySince == 0)
++        rendererNotReadySince = now;
++    else if (now - rendererNotReadySince >= RENDERER_STALL_LIMIT)
++        stale = "renderer made no progress";
++
++    if (stale != NULL)
++    {
++        msg_Warn(_vd, "Flushing stalled sample-buffer renderer: %s "
++                 "(queued %.3f s ahead)", stale, rendererQueuedHostTime - now);
++        rendererFlushInProgress = true;
++        @try {
++            [renderer flush];
++        } @finally {
++            rendererFlushInProgress = false;
++        }
++        rendererQueuedHostTime = 0;
++        rendererNotReadySince = 0;
++        rendererRecoveryCheckDeferred = false;
++    }
++    return renderer.isReadyForMoreMediaData;
++}
++
+ - (void)installObserversForRendererLocked:
+         (AVSampleBufferVideoRenderer *)renderer
+ {
+@@ -1258,6 +1315,8 @@ CopyImmediateRecoverySampleBuffer(CMSampleBufferRef source)
+              _applicationActiveObserver == nil,
+              @"sample-buffer renderer observers installed twice");
+ 
++    rendererQueuedHostTime = 0;
++    rendererNotReadySince = 0;
+     rendererGeneration = atomic_fetch_add_explicit(
+         &rendererGenerationSource, 1, memory_order_relaxed);
+     if (rendererGeneration == 0)
+@@ -1900,7 +1959,9 @@ static int RenderPicture(vout_display_t *vd, picture_t *pic, vlc_tick_t date,
+                 return -ECANCELED;
+             if (gate != VLCSampleBufferRendererGateResultReady)
+                 return -EAGAIN;
+-            if (!renderer.isReadyForMoreMediaData)
++            const CFTimeInterval hostTime = CACurrentMediaTime() +
++                secf_from_vlc_tick(date - vlc_tick_now());
++            if (![sys acceptsPictureLocked:renderer hostTime:hostTime])
+                 return -EAGAIN;
+         }
+     }
+@@ -2507,6 +2568,7 @@ static void PurgePictureSubmissions(vout_display_t *vd, bool discontinuity)
+                 } @finally {
+                     sys->rendererFlushInProgress = false;
+                 }
++                sys->rendererQueuedHostTime = 0;
+             }
+             sys->rendererRecoveryCheckDeferred = false;
+             vlc_samplebuffer_renderer_reset_boundary(&sys->rendererRecovery);

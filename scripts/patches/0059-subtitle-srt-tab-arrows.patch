@@ -1,0 +1,30 @@
+# Backport of upstream 39ae7f63fb: SRT files with tabs around the arrow dropped every cue.
+diff --git a/modules/demux/subtitle.c b/modules/demux/subtitle.c
+--- a/modules/demux/subtitle.c
++++ b/modules/demux/subtitle.c
+@@ -1177,7 +1177,7 @@ success:
+ static int subtitle_ParseSubRipTiming( subtitle_t *p_subtitle,
+                                        const char *s )
+ {
+-    const char *delimiter = strstr(s, " --> ");
++    const char *delimiter = strstr(s, "-->");
+     if (delimiter == NULL || delimiter == s)
+         return VLC_EGENERIC;
+ 
+@@ -1185,7 +1185,7 @@ static int subtitle_ParseSubRipTiming( subtitle_t *p_subtitle,
+     if (ret != VLC_SUCCESS)
+         return ret;
+ 
+-    const char *right = delimiter + strlen(" --> ");
++    const char *right = delimiter + strlen("-->");
+     return subtitle_ParseSubRipTimingValue(&p_subtitle->i_stop, right, strlen(right));
+ }
+ 
+@@ -2644,6 +2644,7 @@ static void test_subtitle_ParseSubRipTiming(void)
+         { "0:0:0,0 --> 0:0:0,0",        VLC_TICK_0,     VLC_TICK_0 },
+         { "0:0:0.0 --> 0:0:0.0",        VLC_TICK_0,     VLC_TICK_0 },
+         { "0:0:0   --> 0:0:0",          VLC_TICK_0,     VLC_TICK_0 },
++        { "0:0:0.0\t-->\t0:0:0",        VLC_TICK_0,     VLC_TICK_0 },
+     };
+ 
+     static const char *timing_values_fail[] =

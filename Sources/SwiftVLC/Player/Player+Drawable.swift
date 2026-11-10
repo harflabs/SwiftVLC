@@ -3,8 +3,12 @@ import Dispatch
 
 #if canImport(UIKit)
 import UIKit
+
+private typealias DrawableView = UIView
 #elseif canImport(AppKit)
 import AppKit
+
+private typealias DrawableView = NSView
 #endif
 
 #if os(iOS)
@@ -48,9 +52,8 @@ extension Player {
 }
 #endif
 
-#if os(macOS)
 @MainActor
-struct MacVideoOutputRecovery {
+struct VideoOutputRecovery {
   let expectedTrackID: String
   let maximumDeselectionPolls: Int
   let playbackIsCurrent: @MainActor () -> Bool
@@ -101,7 +104,7 @@ struct MacVideoOutputRecovery {
 }
 
 @MainActor
-struct MacVideoOutputRecoveryNativeOperations {
+struct VideoOutputRecoveryNativeOperations {
   let selectedTrackID: @MainActor (OpaquePointer) -> String?
   let unselectVideoTrack: @MainActor (OpaquePointer) -> Void
   let reselectVideoTrack: @MainActor (OpaquePointer, String) -> Void
@@ -134,7 +137,6 @@ func nativeTrackID(adopting track: UnsafeMutablePointer<libvlc_media_track_t>) -
   defer { libvlc_media_track_release(track) }
   return track.pointee.psz_id.map(String.init(cString:))
 }
-#endif
 
 /// Platform-drawable attachment and the lazy native-handle replacement
 /// it requires after stopped drawable-hosted playback.
@@ -218,6 +220,7 @@ extension Player {
       retainedDrawablesUntilNativePlayerRelease.append(previous)
     }
     drawable = newDrawable
+    abandonedVideoOutputCheckPending = newDrawable != nil
     guard nativeHandleRepresentsCurrentMedia else {
       // `load(B)` can publish B while A is still attached and draining. The
       // drawable is successor configuration in that interval; writing A's
@@ -310,15 +313,17 @@ extension Player {
     needsDrawableRebindForPlayback = false
   }
 
-  #if os(macOS)
-  /// Reopens the active video output after its AppKit drawable moves between
-  /// windows. `VLCOpenGLVideoView` owns an `NSOpenGLContext` whose window
-  /// surface can become invalid when macOS destroys the old PiP window even
-  /// though decoding and audio continue. Re-selecting the same video track
-  /// rebuilds only that output against the drawable's new inline window.
+  /// Rebuilds the active video output against the current drawable by
+  /// re-selecting its track; decoding and audio continue throughout.
+  ///
+  /// Needed when an output can no longer present into its drawable: on macOS
+  /// `VLCOpenGLVideoView` owns an `NSOpenGLContext` whose window surface can
+  /// become invalid when the old PiP window is destroyed, and libVLC abandons
+  /// an output it opened before the drawable could host it (see
+  /// ``recoverAbandonedVideoOutputIfNeeded(using:)``).
   @discardableResult
-  func reopenVideoOutputAfterDrawableWindowMove(
-    using native: MacVideoOutputRecoveryNativeOperations = .live
+  func reopenVideoOutput(
+    using native: VideoOutputRecoveryNativeOperations = .live
   ) -> Task<Void, Never>? {
     guard
       let media = currentMedia,
@@ -336,7 +341,7 @@ extension Player {
       // into a no-op that leaves the invalid OpenGL surface alive. Some VLC
       // inputs keep their vout allocated while no video track is selected, so
       // the selected-track state is the reliable acknowledgement here.
-      await MacVideoOutputRecovery(
+      await VideoOutputRecovery(
         expectedTrackID: trackID,
         playbackIsCurrent: { [weak self, weak media] in
           guard let self, let media else { return false }
@@ -353,7 +358,31 @@ extension Player {
       ).run()
     }
   }
-  #endif
+
+  /// Reopens a video output libVLC abandoned because playback started before
+  /// the drawable could host it.
+  ///
+  /// libVLC then unloads every video decoder and keeps playing audio without
+  /// reporting an error, and attaching or showing the view later never opens a
+  /// new output. Playback start and drawable changes arm one check, consumed
+  /// by the first playback-time update while the drawable is in a window. A
+  /// selected video track normally has its output by then; one whose stream
+  /// has not delivered video yet is merely re-selected, which is harmless.
+  @discardableResult
+  func recoverAbandonedVideoOutputIfNeeded(
+    using native: VideoOutputRecoveryNativeOperations = .live
+  ) -> Task<Void, Never>? {
+    guard
+      abandonedVideoOutputCheckPending,
+      state == .playing,
+      (drawable as? DrawableView)?.window != nil
+    else { return nil }
+    abandonedVideoOutputCheckPending = false
+    // `libvlc_media_player_has_vout` still counts the abandoned output; only
+    // the started-output events behind `activeVideoOutputs` exclude it.
+    guard selectedRenderer == nil, activeVideoOutputs == 0 else { return nil }
+    return reopenVideoOutput(using: native)
+  }
 
   /// Swaps in a fresh native handle, carrying the current per-player state
   /// across.

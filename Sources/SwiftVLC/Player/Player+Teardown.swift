@@ -517,6 +517,8 @@ extension Player {
 
     libvlc_audio_set_stereomode(newPointer, libvlc_audio_get_stereomode(oldPointer))
     libvlc_audio_set_mixmode(newPointer, libvlc_audio_get_mixmode(oldPointer))
+    // The outgoing handle reports zero delays once its input has stopped.
+    applyRequestedDelays(to: newPointer)
 
     if let _teletextPage {
       libvlc_video_set_teletext(newPointer, _teletextPage)

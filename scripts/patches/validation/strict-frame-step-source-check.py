@@ -1524,7 +1524,16 @@ def main() -> int:
     forbid(apple, "pendingSampleBuffer")
     require(apple_render,
             "return -EAGAIN;",
-            "if (!renderer.isReadyForMoreMediaData)")
+            "if (![sys acceptsPictureLocked:renderer hostTime:hostTime])")
+    # A not-ready renderer still rejects the picture, but one stuck behind an
+    # out-of-order or stalled queue is flushed instead of freezing the video.
+    accepts = function_body(apple, "- (BOOL)acceptsPictureLocked:")
+    ordered(accepts,
+            "hostTime < rendererQueuedHostTime - SAMPLE_REORDER_TOLERANCE",
+            "now - rendererNotReadySince >= RENDERER_STALL_LIMIT",
+            "[renderer flush];",
+            "rendererQueuedHostTime = 0;",
+            "return renderer.isReadyForMoreMediaData;")
     apple_purge = function_body(apple, "static void PurgePictureSubmissions(")
     require(apple_purge,
             "@synchronized(sys.displayLayerLock)",

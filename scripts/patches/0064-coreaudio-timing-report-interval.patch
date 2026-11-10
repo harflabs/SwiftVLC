@@ -1,0 +1,29 @@
+# CoreAudio reported its timing to the clock once a second. After a rate change
+# became audible, the audio master clock kept extrapolating the previous rate
+# until the next report, then stepped back and stalled video; an output device
+# change left the clock offset as long. Report every 100 ms.
+diff --git a/modules/audio_output/apple/coreaudio_common.c b/modules/audio_output/apple/coreaudio_common.c
+--- a/modules/audio_output/apple/coreaudio_common.c
++++ b/modules/audio_output/apple/coreaudio_common.c
+@@ -27,7 +27,11 @@
+ #include <vlc_apple_audio_session.h>
+ #include <CoreAudio/CoreAudioTypes.h>
+ 
+-#define TIMING_REPORT_DELAY_TICKS VLC_TICK_FROM_MS(1000)
++/* Interval between timing reports to the clock. At one second, the audio
++ * master clock kept extrapolating the previous rate for up to a second after a
++ * rate change became audible, then stepped back and stalled video; an output
++ * device change left the clock offset just as long. */
++#define TIMING_REPORT_DELAY_TICKS VLC_TICK_FROM_MS(100)
+ 
+ static inline uint64_t
+ BytesToFrames(struct aout_sys_common *p_sys, size_t i_bytes)
+@@ -271,7 +275,7 @@ ca_Render(audio_output_t *p_aout, uint64_t host_time,
+     {
+         p_sys->timing_report_last_written_bytes = 0;
+ 
+-        /* From now on, fetch the timestamp every 1 seconds */
++        /* From now on, report the timing periodically */
+         p_sys->timing_report_delay_bytes =
+             TicksToBytes(p_sys, TIMING_REPORT_DELAY_TICKS);
+ 

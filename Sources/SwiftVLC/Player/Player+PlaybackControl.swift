@@ -222,6 +222,9 @@ extension Player {
       let reason = libvlc_errmsg().map { String(cString: $0) } ?? "unknown"
       throw .playbackFailed(reason: reason)
     }
+    // Usually the input this Play just created: queued now, the delays
+    // apply before its first sample.
+    applyRequestedDelays(to: playPointer)
     // A Play command becomes post-reset permission only after libVLC accepts
     // it. Rejected preparation or start attempts must leave the quarantine in
     // place so a late native callback cannot impersonate a successful retry.

@@ -1,0 +1,105 @@
+# An HLS EXT-X-DISCONTINUITY reset the PCR while the decoders still held up to
+# the caching delay of the previous timeline, so about a second of video was
+# never displayed; drain the output first. The new sequence was also mapped
+# through the previous sequence's synchronization reference, which left the
+# player time clamped to the duration or near zero; anchor it at its own
+# playlist time.
+diff --git a/modules/demux/adaptive/PlaylistManager.cpp b/modules/demux/adaptive/PlaylistManager.cpp
+--- a/modules/demux/adaptive/PlaylistManager.cpp
++++ b/modules/demux/adaptive/PlaylistManager.cpp
+@@ -74,6 +74,7 @@ PlaylistManager::PlaylistManager( demux_t *p_demux_,
+     b_preparsing = false;
+     nextPlaylistupdate = 0;
+     demux.pcr_syncpoint = TimestampSynchronizationPoint::RandomAccess;
++    demux.discontinuity_draining = false;
+     vlc_mutex_init(&demux.lock);
+     vlc_cond_init(&demux.cond);
+     vlc_mutex_init(&cached.lock);
+@@ -457,6 +458,19 @@ int PlaylistManager::demux_callback(demux_t *p_demux)
+ int PlaylistManager::doDemux(vlc_tick_t increment)
+ {
+     vlc_mutex_lock(&demux.lock);
++    if(demux.discontinuity_draining)
++    {
++        bool b_empty = true;
++        es_out_Control(p_demux->out, ES_OUT_IS_EMPTY, &b_empty);
++        if(!b_empty)
++        {
++            vlc_cond_timedwait(&demux.cond, &demux.lock, vlc_tick_now() + VLC_TICK_FROM_MS(20));
++            vlc_mutex_unlock(&demux.lock);
++            return VLC_DEMUXER_SUCCESS;
++        }
++        demux.discontinuity_draining = false;
++        es_out_Control(p_demux->out, ES_OUT_RESET_PCR);
++    }
+     if(demux.times.continuous == VLC_TICK_INVALID)
+     {
+         bool b_dead = true;
+@@ -524,8 +538,19 @@ int PlaylistManager::doDemux(vlc_tick_t increment)
+         demux.times = Times();
+         demux.firsttimes = Times();
+         demux.pcr_syncpoint = TimestampSynchronizationPoint::Discontinuity;
+-        es_out_Control(p_demux->out, ES_OUT_RESET_PCR);
++        /* Resetting the PCR flushes the decoders, which still hold up to the
++         * caching delay of the previous timeline: present it first. */
++        demux.discontinuity_draining =
++            es_out_Control(p_demux->out, ES_OUT_DRAIN) == VLC_SUCCESS;
++        if(!demux.discontinuity_draining)
++            es_out_Control(p_demux->out, ES_OUT_RESET_PCR);
+         vlc_mutex_unlock(&demux.lock);
++        {
++            /* the new timeline needs a new normal time */
++            vlc_mutex_locker locker(&cached.lock);
++            cached.lastupdate = 0;
++            cached.i_normaltime = VLC_TICK_INVALID;
++        }
+         break;
+     case AbstractStream::Status::Demuxed:
+         vlc_mutex_lock(&demux.lock);
+@@ -654,6 +679,7 @@ int PlaylistManager::doControl(int i_query, va_list args)
+             }
+ 
+             demux.pcr_syncpoint = TimestampSynchronizationPoint::RandomAccess;
++            demux.discontinuity_draining = false;
+             demux.times = Times();
+             demux.firsttimes = Times();
+             cached.lastupdate = 0;
+@@ -677,6 +703,7 @@ int PlaylistManager::doControl(int i_query, va_list args)
+ 
+             vlc_mutex_locker locker(&cached.lock);
+             demux.pcr_syncpoint = TimestampSynchronizationPoint::RandomAccess;
++            demux.discontinuity_draining = false;
+             demux.times = Times();
+             demux.firsttimes = Times();
+             cached.lastupdate = 0;
+diff --git a/modules/demux/adaptive/PlaylistManager.h b/modules/demux/adaptive/PlaylistManager.h
+--- a/modules/demux/adaptive/PlaylistManager.h
++++ b/modules/demux/adaptive/PlaylistManager.h
+@@ -125,6 +125,9 @@ namespace adaptive
+             {
+                 TimestampSynchronizationPoint pcr_syncpoint;
+                 Times times, firsttimes;
++                /* the PCR reset of a discontinuity waits for the output to
++                 * present the previous timeline */
++                bool discontinuity_draining;
+                 mutable vlc_mutex_t lock;
+                 vlc_cond_t  cond;
+             } demux;
+diff --git a/modules/demux/adaptive/Streams.cpp b/modules/demux/adaptive/Streams.cpp
+--- a/modules/demux/adaptive/Streams.cpp
++++ b/modules/demux/adaptive/Streams.cpp
+@@ -511,8 +511,12 @@ AbstractStream::BufferingStatus AbstractStream::doBufferize(Times deadline,
+                 {
+                     msg_Dbg(p_realdemux, "Draining on discontinuity");
+                     fakeEsOut()->commandsQueue()->setDraining();
+-                    fakeEsOut()->setSegmentStartTimes(startTimeContext);
+-                    assert(startTimeContext.media);
++                    /* The sequence restarts timestamps: anchor its first one
++                     * at the playlist time where it begins, instead of
++                     * extrapolating the previous sequence's reference. */
++                    fakeEsOut()->setSegmentStartTimes(currentTimeContext);
++                    fakeEsOut()->setSynchronizationReference(
++                        SynchronizationReference(currentSequence, Times()));
+                 }
+                 assert(startTimeContext.media);
+                 if(!fakeEsOut()->hasSegmentStartTimes())

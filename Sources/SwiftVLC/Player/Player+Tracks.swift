@@ -1,4 +1,5 @@
 import CLibVLC
+import CryptoKit
 import Foundation
 
 extension Player {
@@ -6,10 +7,17 @@ extension Player {
 
   /// Adds an external subtitle or audio file to the player.
   ///
+  /// libVLC loads the file asynchronously and records it on the current
+  /// ``Media``, which loads it again whenever that media plays — after
+  /// ``stop()``, on replay, and after ``recast(to:)``. Adding a URL that is
+  /// already attached does not load a second copy.
+  ///
   /// - Parameters:
   ///   - url: URL of the external track file (must use a valid scheme like `file://`).
   ///   - type: Whether this is a subtitle or audio track.
-  ///   - select: If `true`, the track is selected immediately when loaded.
+  ///   - select: If `true`, the track is selected once libVLC has loaded
+  ///     it, replacing the selected track of that type. Selecting another
+  ///     track of that type before the file loads cancels this.
   /// - Throws: ``VLCError/invalidState(_:)`` if the current media is awaiting
   ///   its native handle, or ``VLCError/operationFailed(_:)`` if the track
   ///   cannot be added.
@@ -18,18 +26,93 @@ extension Player {
       throw .invalidState("addExternalTrack requires a native handle for the current media")
     }
     let uri = url.absoluteString
-    #if DEBUG
-    _mediaSpecificNativeDispatchHookForTesting?(.addExternalTrack)
-    #endif
-    guard libvlc_media_player_add_slave(pointer, type.cValue, uri, select) == 0 else {
-      throw .operationFailed("Add external \(type) track")
+    let trackType: TrackType = type == .subtitle ? .subtitle : .audio
+    // libVLC ids an external track "<MD5 of its URI>/<category>/<n>". A
+    // second copy of an attached file would repeat those ids exactly,
+    // leaving one copy unselectable and duplicating list identities.
+    let idPrefix = Self.externalTrackIDPrefix(forURI: uri)
+    let loadedTrack = fetchTracks(type: trackType).first { $0.id.hasPrefix(idPrefix) }
+    let isAttached = loadedTrack != nil
+      || currentMedia?.slaves.contains { $0.uri == uri } == true
+    if !isAttached {
+      #if DEBUG
+      _mediaSpecificNativeDispatchHookForTesting?(.addExternalTrack)
+      #endif
+      guard libvlc_media_player_add_slave(pointer, type.cValue, uri, select) == 0 else {
+        throw .operationFailed("Add external \(type) track")
+      }
     }
     guard select else { return }
-    switch type {
+    if let loadedTrack {
+      setSelectedTrack(loadedTrack, type: trackType)
+      return
+    }
+    // libVLC's own `select` flag only prefers the file over default
+    // tracks; it never replaces a track the user selected. Select the
+    // track explicitly once it loads, unless a newer selection of this
+    // type supersedes the request first.
+    let revision: UInt64
+    switch trackType {
     case .audio:
       intentRevisions.audioTrackSelection &+= 1
-    case .subtitle:
+      revision = intentRevisions.audioTrackSelection
+    default:
       intentRevisions.subtitleTrackSelection &+= 1
+      revision = intentRevisions.subtitleTrackSelection
+    }
+    pendingExternalTrackSelections[trackType] = PendingExternalTrackSelection(
+      idPrefix: idPrefix,
+      revision: revision,
+      playbackGeneration: sessionGeneration,
+      nativeHandleGeneration: eventBridge.currentNativeHandleGeneration
+    )
+  }
+
+  /// An external track to select once it loads, valid only while the
+  /// selection intent, playback, and native handle it was made for remain
+  /// current.
+  struct PendingExternalTrackSelection {
+    let idPrefix: String
+    let revision: UInt64
+    let playbackGeneration: UInt64
+    let nativeHandleGeneration: UInt64
+  }
+
+  static func externalTrackIDPrefix(forURI uri: String) -> String {
+    let digest = Insecure.MD5.hash(data: Data(uri.utf8))
+    return digest.map { String(format: "%02x", $0) }.joined() + "/"
+  }
+
+  /// Completes ``addExternalTrack(from:type:select:)`` requests whose track
+  /// has appeared in the refreshed lists.
+  func selectLoadedExternalTracks() {
+    for type in [TrackType.audio, .subtitle] {
+      guard let pending = pendingExternalTrackSelections[type] else { continue }
+      let revision = type == .audio
+        ? intentRevisions.audioTrackSelection
+        : intentRevisions.subtitleTrackSelection
+      guard
+        pending.revision == revision,
+        pending.playbackGeneration == sessionGeneration,
+        pending.nativeHandleGeneration == eventBridge.currentNativeHandleGeneration
+      else {
+        pendingExternalTrackSelections[type] = nil
+        continue
+      }
+      let tracks = type == .audio ? audioTracks : subtitleTracks
+      guard let track = tracks.first(where: { $0.id.hasPrefix(pending.idPrefix) }) else {
+        continue
+      }
+      pendingExternalTrackSelections[type] = nil
+      setSelectedTrack(track, type: type)
+    }
+  }
+
+  private func setSelectedTrack(_ track: Track, type: TrackType) {
+    if type == .audio {
+      selectedAudioTrack = track
+    } else {
+      selectedSubtitleTrack = track
     }
   }
 
@@ -37,20 +120,26 @@ extension Player {
 
   func selectTrack(_ track: Track?, type: TrackType, on pointer: OpaquePointer) {
     guard nativeHandleRepresentsCurrentMedia else { return }
+    // `select_tracks_by_ids` queues behind earlier selection commands and
+    // pins the choice for the rest of the session: tracks the input adds
+    // later of this type stay unselected, and an empty list is a lasting
+    // "off". The one-shot `select_track` cannot override libVLC's own
+    // preference for an external track, and `unselect_track_type` only
+    // reaches tracks the player has already mirrored as selected, so a
+    // selection still queued survived it.
+    let ids: String
     if let track {
-      guard let cTrack = libvlc_media_player_get_track_from_id(pointer, track.id) else {
-        return
-      }
+      guard let current = currentTrack(matching: track) else { return }
+      ids = current.id
       #if DEBUG
       recordObservableControlNativeDispatch(
-        type == .audio ? .audioTrack(track.id) : .subtitleTrack(track.id),
+        type == .audio ? .audioTrack(ids) : .subtitleTrack(ids),
         pointer: pointer
       )
       _mediaSpecificNativeDispatchHookForTesting?(.selectTrack)
       #endif
-      libvlc_media_player_select_track(pointer, cTrack)
-      libvlc_media_track_release(cTrack)
     } else {
+      ids = ""
       #if DEBUG
       recordObservableControlNativeDispatch(
         type == .audio ? .audioTrack(nil) : .subtitleTrack(nil),
@@ -58,13 +147,27 @@ extension Player {
       )
       _mediaSpecificNativeDispatchHookForTesting?(.unselectTrack)
       #endif
-      libvlc_media_player_unselect_track_type(pointer, type.cValue)
     }
+    libvlc_media_player_select_tracks_by_ids(pointer, type.cValue, ids)
     // No eager refresh here. libVLC emits `ESSelected` / `ESUpdated`
     // once the new selection settles (typically <10ms), and the event
     // handler's `refreshTracks()` is the single source of truth. An
     // eager refresh would race libVLC's internal state and briefly
     // show stale `isSelected` flags.
+  }
+
+  /// The track of the current session that `track` describes.
+  ///
+  /// An unstable (adaptive) id goes stale whenever the demuxer recreates
+  /// the stream — after every seek and selection change — so a ``Track``
+  /// captured earlier is resolved by its description instead.
+  func currentTrack(matching track: Track) -> Track? {
+    let candidates = fetchTracks(type: track.type)
+    if let exact = candidates.first(where: { $0.id == track.id }) {
+      return exact
+    }
+    guard !track.isIDStable else { return nil }
+    return Self.matchingTrack(for: track, in: candidates)
   }
 
   // MARK: - Video

@@ -94,6 +94,19 @@ func seekVideoDisplay(_ opaque: UnsafeMutableRawPointer?, _ picture: UnsafeMutab
   return 0
 }
 
+/// The longest run of consecutive frame numbers in `frames`. Discarded queued
+/// pictures leave a contiguous gap; a slow host drops isolated late frames.
+func longestConsecutiveRun(_ frames: Set<Int>) -> Int {
+  frames.reduce(0) { longest, first in
+    guard !frames.contains(first - 1) else { return longest }
+    var last = first
+    while frames.contains(last + 1) {
+      last += 1
+    }
+    return max(longest, last - first + 1)
+  }
+}
+
 @MainActor
 func installSeekVideoSink(_ sink: SeekVideoSink, on player: Player) throws {
   let raw = Unmanaged.passUnretained(sink).toOpaque()

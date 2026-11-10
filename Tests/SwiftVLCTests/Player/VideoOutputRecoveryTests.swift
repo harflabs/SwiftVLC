@@ -1,18 +1,20 @@
 #if os(macOS)
 @testable import SwiftVLC
+import AppKit
 import CLibVLC
 import CustomDump
+import Foundation
 import Testing
 
 extension Logic {
   @Suite(.tags(.mainActor, .async))
-  @MainActor struct MacVideoOutputRecoveryTests {
+  @MainActor struct VideoOutputRecoveryTests {
     @Test
     func `waits for deselection before restoring the expected track`() async {
       var selections: [String?] = ["video", nil, nil]
       var events: [String] = []
 
-      await MacVideoOutputRecovery(
+      await VideoOutputRecovery(
         expectedTrackID: "video",
         playbackIsCurrent: {
           events.append("current")
@@ -57,7 +59,7 @@ extension Logic {
       var selectedTrack: String? = "video"
       var reselectedTracks: [String] = []
 
-      await MacVideoOutputRecovery(
+      await VideoOutputRecovery(
         expectedTrackID: "video",
         playbackIsCurrent: { isCurrent },
         playbackState: { .playing },
@@ -83,7 +85,7 @@ extension Logic {
     func `does not restore video for terminal playback states`(state: PlayerState) async {
       var reselectedTracks: [String] = []
 
-      await MacVideoOutputRecovery(
+      await VideoOutputRecovery(
         expectedTrackID: "video",
         playbackIsCurrent: { true },
         playbackState: { state },
@@ -100,7 +102,7 @@ extension Logic {
       var selections: [String?] = [nil, "replacement"]
       var reselectedTracks: [String] = []
 
-      await MacVideoOutputRecovery(
+      await VideoOutputRecovery(
         expectedTrackID: "video",
         playbackIsCurrent: { true },
         playbackState: { .paused },
@@ -117,7 +119,7 @@ extension Logic {
       var pollCount = 0
       var reselectedTracks: [String] = []
 
-      await MacVideoOutputRecovery(
+      await VideoOutputRecovery(
         expectedTrackID: "video",
         maximumDeselectionPolls: 2,
         playbackIsCurrent: { true },
@@ -135,7 +137,7 @@ extension Logic {
 
 extension Integration {
   @Suite(.tags(.mainActor, .async))
-  @MainActor struct MacVideoOutputRecoveryIntegrationTests {
+  @MainActor struct VideoOutputRecoveryIntegrationTests {
     @Test
     func `player wrapper performs recovery through controlled native operations`() async throws {
       let player = Player(instance: TestInstance.shared)
@@ -143,7 +145,7 @@ extension Integration {
       player._setStateForTesting(state: .playing)
       var selections: [String?] = ["video", "video", nil, nil]
       var events: [String] = []
-      let native = MacVideoOutputRecoveryNativeOperations(
+      let native = VideoOutputRecoveryNativeOperations(
         selectedTrackID: { _ in
           let selection = selections.removeFirst()
           events.append("selected:\(selection ?? "none")")
@@ -161,7 +163,7 @@ extension Integration {
       )
 
       let recovery = try #require(
-        player.reopenVideoOutputAfterDrawableWindowMove(using: native)
+        player.reopenVideoOutput(using: native)
       )
       await recovery.value
 
@@ -184,7 +186,7 @@ extension Integration {
       let player = Player(instance: TestInstance.shared)
       try player.load(Media(url: TestMedia.twosecURL))
       var events: [String] = []
-      let native = MacVideoOutputRecoveryNativeOperations(
+      let native = VideoOutputRecoveryNativeOperations(
         selectedTrackID: { _ in
           events.append("selected:none")
           return nil
@@ -194,7 +196,7 @@ extension Integration {
         waitForDeselection: { events.append("wait") }
       )
 
-      let recovery = player.reopenVideoOutputAfterDrawableWindowMove(using: native)
+      let recovery = player.reopenVideoOutput(using: native)
 
       if recovery != nil {
         Issue.record("Expected recovery not to start without a selected video track")
@@ -203,11 +205,62 @@ extension Integration {
     }
 
     @Test
+    func `abandoned output is reopened once the drawable is in a window`() async throws {
+      let player = Player(instance: TestInstance.shared)
+      try player.load(Media(url: TestMedia.twosecURL))
+      let output = RecordingVideoOutput()
+      let view = NSView(frame: NSRect(x: 0, y: 0, width: 64, height: 64))
+      player.setDrawable(view)
+      player._setStateForTesting(state: .playing)
+
+      // Not hostable yet: the check stays armed instead of being consumed.
+      #expect(player.recoverAbandonedVideoOutputIfNeeded(using: output.operations) == nil)
+      #expect(player.abandonedVideoOutputCheckPending)
+
+      let window = NSWindow(
+        contentRect: view.frame, styleMask: .borderless, backing: .buffered, defer: true
+      )
+      window.contentView?.addSubview(view)
+      let recovery = try #require(player.recoverAbandonedVideoOutputIfNeeded(using: output.operations))
+      await recovery.value
+      expectNoDifference(output.events, ["unselect", "reselect:video"])
+
+      // One check per arming: a later time update does not reopen again.
+      #expect(player.recoverAbandonedVideoOutputIfNeeded(using: output.operations) == nil)
+
+      // A live output consumes a new arming without touching the track.
+      player.activeVideoOutputs = 1
+      player.setDrawable(view)
+      #expect(player.recoverAbandonedVideoOutputIfNeeded(using: output.operations) == nil)
+      #expect(!player.abandonedVideoOutputCheckPending)
+      expectNoDifference(output.events, ["unselect", "reselect:video"])
+    }
+
+    @Test
+    func `abandoned output check waits for playback`() throws {
+      let player = Player(instance: TestInstance.shared)
+      try player.load(Media(url: TestMedia.twosecURL))
+      let output = RecordingVideoOutput()
+      let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 64, height: 64),
+        styleMask: .borderless, backing: .buffered, defer: true
+      )
+      let view = NSView(frame: window.contentLayoutRect)
+      window.contentView?.addSubview(view)
+      player.setDrawable(view)
+      player._setStateForTesting(state: .paused)
+
+      #expect(player.recoverAbandonedVideoOutputIfNeeded(using: output.operations) == nil)
+      #expect(player.abandonedVideoOutputCheckPending)
+      expectNoDifference(output.events, [])
+    }
+
+    @Test
     func `live player wrapper exits safely without an active video output`() throws {
       let player = Player(instance: TestInstance.shared)
       try player.load(Media(url: TestMedia.twosecURL))
 
-      let recovery = player.reopenVideoOutputAfterDrawableWindowMove()
+      let recovery = player.reopenVideoOutput()
 
       if recovery != nil {
         Issue.record("Expected recovery not to start without an active video output")
@@ -217,7 +270,7 @@ extension Integration {
     @Test
     func `live native recovery operations are safe for an inactive player`() async {
       let player = Player(instance: TestInstance.shared)
-      let native = MacVideoOutputRecoveryNativeOperations.live
+      let native = VideoOutputRecoveryNativeOperations.live
 
       #expect(native.selectedTrackID(player.pointer) == nil)
       native.unselectVideoTrack(player.pointer)
@@ -241,6 +294,74 @@ extension Integration {
 
       #expect(nativeTrackID(adopting: ownedTrack) == expectedID)
     }
+  }
+}
+
+extension Integration {
+  /// Playback started before any view could host video: libVLC fails to open
+  /// a display, unloads every video decoder and keeps playing audio only.
+  @Suite(.tags(.mainActor, .async, .media))
+  @MainActor struct AbandonedVideoOutputPlaybackTests {
+    @Test(
+      .enabled(
+        if: ProcessInfo.processInfo.environment["SWIFTVLC_NATIVE_SEEK_TESTS"] == "1"
+          && TestCondition.canPlayMedia,
+        "Requires the rebuilt release XCFramework and a window server"
+      ),
+      .timeLimit(.minutes(1))
+    )
+    func `video output opens when the view arrives after playback started`() async throws {
+      let fixtureURL = try #require(Bundle.module.url(
+        forResource: "paused-seek", withExtension: "mp4", subdirectory: "Fixtures"
+      ))
+      let instance = try VLCInstance(
+        arguments: VLCInstance.defaultArguments + ["--aout=dummy", "--quiet"]
+      )
+      let player = Player(instance: instance)
+      defer { player.stop() }
+      try player.play(url: fixtureURL)
+      #expect(try await poll(timeout: .seconds(5)) {
+        player.state == .playing && player.currentTime > .milliseconds(500)
+      })
+      try #require(
+        player.activeVideoOutputs == 0,
+        "precondition: libVLC must have abandoned the output without a drawable"
+      )
+
+      let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 160, height: 90),
+        styleMask: .borderless, backing: .buffered, defer: false
+      )
+      let surface = VideoSurface(frame: window.contentLayoutRect)
+      window.contentView?.addSubview(surface)
+      surface.attach(to: player)
+
+      #expect(try await poll(timeout: .seconds(3)) { player.activeVideoOutputs > 0 })
+      surface.detach()
+    }
+  }
+}
+
+/// A video track whose output libVLC has abandoned, observed through the
+/// native operations the recovery uses.
+@MainActor
+private final class RecordingVideoOutput {
+  var selectedTrackID: String? = "video"
+  var events: [String] = []
+
+  var operations: VideoOutputRecoveryNativeOperations {
+    VideoOutputRecoveryNativeOperations(
+      selectedTrackID: { [unowned self] _ in selectedTrackID },
+      unselectVideoTrack: { [unowned self] _ in
+        events.append("unselect")
+        selectedTrackID = nil
+      },
+      reselectVideoTrack: { [unowned self] _, trackID in
+        events.append("reselect:\(trackID)")
+        selectedTrackID = trackID
+      },
+      waitForDeselection: {}
+    )
   }
 }
 #endif
