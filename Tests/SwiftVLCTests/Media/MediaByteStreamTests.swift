@@ -127,6 +127,22 @@ extension Integration {
     }
 
     @Test
+    func `Removing one of two duplicate list entries keeps the registration`() throws {
+      let list = MediaList()
+      let key: UInt
+      do {
+        let media = try Media(streamFactory: { throw POSIXError(.EIO) })
+        key = try #require(media.streamRegistration?.key)
+        try list.append(media)
+        try list.append(media)
+      }
+      try list.remove(at: 0)
+      #expect(MediaStreamRegistration.factory(forKey: key) != nil)
+      let item = try #require(list.media(at: 0))
+      #expect(item.streamRegistration?.key == key)
+    }
+
+    @Test
     func `Wrap of a native pointer keeps the registration after the original is dropped`() throws {
       let key: UInt
       let wrapped: Media
