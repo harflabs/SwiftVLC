@@ -197,3 +197,26 @@ extension Integration {
     }
   }
 }
+
+extension Integration {
+  @Suite(.tags(.mainActor))
+  @MainActor struct MediaByteStreamListPlaybackTests {
+    @Test
+    func `Removing a list entry while its item starts keeps the registration`() throws {
+      let list = MediaList()
+      let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+      listPlayer.mediaPlayer = Player(instance: TestInstance.shared)
+      listPlayer.mediaList = list
+      let key: UInt
+      do {
+        let media = try Media(streamFactory: { throw POSIXError(.EIO) })
+        key = try #require(media.streamRegistration?.key)
+        try list.append(media)
+      }
+      try listPlayer.play(at: 0)
+      try list.remove(at: 0)
+      #expect(MediaStreamRegistration.factory(forKey: key) != nil)
+      listPlayer.stop()
+    }
+  }
+}

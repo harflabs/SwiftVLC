@@ -50,6 +50,10 @@ public final class MediaListPlayer {
   /// native list-player handle that owns that retain.
   private var nativePlayerBindingLease: NativePlayerHandleLease?
   private var _mediaList: MediaList?
+  /// The item most recently handed to libVLC. Holding it keeps a stream-backed
+  /// item's factory registered while libVLC starts it, even if its list entry
+  /// is removed meanwhile. Released on stop.
+  private var playbackMedia: Media?
   private var _playbackMode: PlaybackMode = .default
   private let instance: VLCInstance
   #if DEBUG
@@ -316,12 +320,14 @@ public final class MediaListPlayer {
     guard let reservation = reservePlaybackStart() else {
       throw .invalidState("The attached Player changed before playback dispatch")
     }
+    playbackMedia = _mediaList?.media(at: requestedIndex)
     let result = dispatchNativeTransport(
       .playAt(index),
       on: reservation.nativeListPlayer
     )
     settlePlaybackStart(reservation, accepted: result == 0)
     guard result == 0 else {
+      playbackMedia = nil
       throw .operationFailed("Play item at index \(index)")
     }
   }
@@ -339,12 +345,14 @@ public final class MediaListPlayer {
     guard let reservation = reservePlaybackStart() else {
       throw .invalidState("The attached Player changed before playback dispatch")
     }
+    playbackMedia = copy media
     let result = dispatchNativeTransport(
       .playMedia(media.pointer),
       on: reservation.nativeListPlayer
     )
     settlePlaybackStart(reservation, accepted: result == 0)
     guard result == 0 else {
+      playbackMedia = nil
       throw .operationFailed("Play media item")
     }
   }
@@ -352,6 +360,7 @@ public final class MediaListPlayer {
   /// Stops playback asynchronously.
   public func stop() {
     guard attachedPlayerHandleIsCurrent else { return }
+    defer { playbackMedia = nil }
     let nativeListPlayer = pointer
     if let mediaPlayer = _mediaPlayer {
       guard
