@@ -52,7 +52,9 @@ public final class MediaListPlayer {
   private var _mediaList: MediaList?
   /// Snapshot of the list taken before each start or navigation command. Holding
   /// it keeps every stream-backed item's factory registered while libVLC may
-  /// start one of them, even if its list entry is removed meanwhile. Released on stop.
+  /// start one of them, even if its list entry is removed meanwhile. Kept after
+  /// stop, because libVLC may still open a stream until playback has stopped;
+  /// replaced by the next start and released with this list player.
   private var playbackItems: [Media] = []
   private var _playbackMode: PlaybackMode = .default
   private let instance: VLCInstance
@@ -370,7 +372,6 @@ public final class MediaListPlayer {
   /// Stops playback asynchronously.
   public func stop() {
     guard attachedPlayerHandleIsCurrent else { return }
-    defer { playbackItems = [] }
     let nativeListPlayer = pointer
     if let mediaPlayer = _mediaPlayer {
       guard
