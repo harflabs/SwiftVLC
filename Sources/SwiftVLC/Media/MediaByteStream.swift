@@ -59,6 +59,7 @@ final class MediaStreamRegistration: Sendable {
   private struct Table {
     var nextKey: UInt = 1
     var factories: [UInt: Factory] = [:]
+    var addresses: [UInt: UInt] = [:]
   }
 
   private static let table = Mutex(Table())
@@ -75,7 +76,15 @@ final class MediaStreamRegistration: Sendable {
   }
 
   deinit {
-    _ = Self.table.withLock { $0.factories.removeValue(forKey: key) }
+    let address = Self.table.withLock { table -> UInt? in
+      table.factories[key] = nil
+      return table.addresses.removeValue(forKey: key)
+    }
+    guard let address else { return }
+    // A newer registration may already own this address; only clear a dead entry.
+    Self.registeredMedia.withLock { index in
+      if index[address]?.registration == nil { index[address] = nil }
+    }
   }
 
   static func factory(forKey key: UInt) -> Factory? {
@@ -91,10 +100,8 @@ final class MediaStreamRegistration: Sendable {
   /// Records that `media` was created with this registration.
   func attach(to media: OpaquePointer) {
     let address = UInt(bitPattern: media)
-    Self.registeredMedia.withLock {
-      $0 = $0.filter { $0.value.registration != nil }
-      $0[address] = WeakRegistration(self)
-    }
+    Self.table.withLock { $0.addresses[key] = address }
+    Self.registeredMedia.withLock { $0[address] = WeakRegistration(self) }
   }
 
   /// The registration of a stream-backed native media, if it is still alive.

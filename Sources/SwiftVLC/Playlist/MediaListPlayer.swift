@@ -50,10 +50,10 @@ public final class MediaListPlayer {
   /// native list-player handle that owns that retain.
   private var nativePlayerBindingLease: NativePlayerHandleLease?
   private var _mediaList: MediaList?
-  /// The item most recently handed to libVLC. Holding it keeps a stream-backed
-  /// item's factory registered while libVLC starts it, even if its list entry
-  /// is removed meanwhile. Released on stop.
-  private var playbackMedia: Media?
+  /// Snapshot of the list taken before each start or navigation command. Holding
+  /// it keeps every stream-backed item's factory registered while libVLC may
+  /// start one of them, even if its list entry is removed meanwhile. Released on stop.
+  private var playbackItems: [Media] = []
   private var _playbackMode: PlaybackMode = .default
   private let instance: VLCInstance
   #if DEBUG
@@ -209,6 +209,13 @@ public final class MediaListPlayer {
     }
   }
 
+  /// Holds every item of the attached list until playback stops.
+  private func retainPlaybackItems() {
+    playbackItems = _mediaList?.withLocked { view in
+      (0..<view.count).compactMap { view.media(at: $0) }
+    } ?? []
+  }
+
   /// Starts playing the media list from the beginning.
   public func play() {
     guard (try? prepareAttachedPlayerForPlayback()) == true else { return }
@@ -217,7 +224,9 @@ public final class MediaListPlayer {
       let reservation = reservePlaybackStart()
     else { return }
     let hasPlayableItem = _mediaList?.isEmpty == false
+    retainPlaybackItems()
     let result = dispatchNativeTransport(.play, on: reservation.nativeListPlayer)
+    if result != 0 { playbackItems = [] }
     settlePlaybackStart(
       reservation,
       accepted: result == 0 && hasPlayableItem
@@ -320,14 +329,14 @@ public final class MediaListPlayer {
     guard let reservation = reservePlaybackStart() else {
       throw .invalidState("The attached Player changed before playback dispatch")
     }
-    playbackMedia = _mediaList?.media(at: requestedIndex)
+    retainPlaybackItems()
     let result = dispatchNativeTransport(
       .playAt(index),
       on: reservation.nativeListPlayer
     )
     settlePlaybackStart(reservation, accepted: result == 0)
     guard result == 0 else {
-      playbackMedia = nil
+      playbackItems = []
       throw .operationFailed("Play item at index \(index)")
     }
   }
@@ -345,14 +354,15 @@ public final class MediaListPlayer {
     guard let reservation = reservePlaybackStart() else {
       throw .invalidState("The attached Player changed before playback dispatch")
     }
-    playbackMedia = copy media
+    retainPlaybackItems()
+    playbackItems.append(copy media)
     let result = dispatchNativeTransport(
       .playMedia(media.pointer),
       on: reservation.nativeListPlayer
     )
     settlePlaybackStart(reservation, accepted: result == 0)
     guard result == 0 else {
-      playbackMedia = nil
+      playbackItems = []
       throw .operationFailed("Play media item")
     }
   }
@@ -360,7 +370,7 @@ public final class MediaListPlayer {
   /// Stops playback asynchronously.
   public func stop() {
     guard attachedPlayerHandleIsCurrent else { return }
-    defer { playbackMedia = nil }
+    defer { playbackItems = [] }
     let nativeListPlayer = pointer
     if let mediaPlayer = _mediaPlayer {
       guard
@@ -388,9 +398,11 @@ public final class MediaListPlayer {
     guard let reservation = reservePlaybackStart() else {
       throw .invalidState("The attached Player changed before playback dispatch")
     }
+    retainPlaybackItems()
     let result = dispatchNativeTransport(.next, on: reservation.nativeListPlayer)
     settlePlaybackStart(reservation, accepted: result == 0)
     guard result == 0 else {
+      playbackItems = []
       throw .operationFailed("Advance to next item")
     }
   }
@@ -404,9 +416,11 @@ public final class MediaListPlayer {
     guard let reservation = reservePlaybackStart() else {
       throw .invalidState("The attached Player changed before playback dispatch")
     }
+    retainPlaybackItems()
     let result = dispatchNativeTransport(.previous, on: reservation.nativeListPlayer)
     settlePlaybackStart(reservation, accepted: result == 0)
     guard result == 0 else {
+      playbackItems = []
       throw .operationFailed("Go to previous item")
     }
   }
