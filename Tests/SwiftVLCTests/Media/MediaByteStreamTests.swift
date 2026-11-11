@@ -220,6 +220,23 @@ extension Integration {
     }
 
     @Test
+    func `Stopping without a player keeps the registration until the next start`() throws {
+      let list = MediaList()
+      let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+      listPlayer.mediaList = list
+      let key: UInt
+      do {
+        let media = try Media(streamFactory: { throw POSIXError(.EIO) })
+        key = try #require(media.streamRegistration?.key)
+        try list.append(media)
+      }
+      try listPlayer.play(at: 0)
+      try list.remove(at: 0)
+      listPlayer.stop()
+      #expect(MediaStreamRegistration.factory(forKey: key) != nil)
+    }
+
+    @Test
     func `Starting with play() keeps the registration after the list entry is removed`() throws {
       let list = MediaList()
       let listPlayer = MediaListPlayer(instance: TestInstance.shared)

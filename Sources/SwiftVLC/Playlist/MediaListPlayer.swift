@@ -53,8 +53,8 @@ public final class MediaListPlayer {
   /// Snapshot of the list taken before each start or navigation command. Holding
   /// it keeps every stream-backed item's factory registered while libVLC may
   /// start one of them, even if its list entry is removed meanwhile. Released
-  /// when the attached player reaches `.stopped`, because libVLC may still open
-  /// a stream until then.
+  /// when the attached player stops after that start, because libVLC may still
+  /// open a stream until then.
   private var playbackItems: [Media] = []
   /// Increments with every snapshot, so a late `.stopped` cannot release a newer one.
   private var playbackGeneration = 0
@@ -214,7 +214,7 @@ public final class MediaListPlayer {
     }
   }
 
-  /// Holds every item of the attached list until playback reaches `.stopped`.
+  /// Holds every item of the attached list until this start's playback stops.
   private func retainPlaybackItems() {
     playbackGeneration &+= 1
     stoppedObserver?.cancel()
@@ -222,19 +222,30 @@ public final class MediaListPlayer {
     playbackItems = _mediaList?.withLocked { view in
       (0..<view.count).compactMap { view.media(at: $0) }
     } ?? []
+    observeStoppedBoundary()
   }
 
-  /// Releases the snapshot once the attached player reports `.stopped`.
-  private func releaseSnapshotAtStop() {
-    guard let player = _mediaPlayer else {
-      playbackItems = []
-      return
-    }
+  /// Releases the snapshot when the attached player stops after this start,
+  /// through `stop()` or by reaching the end. A `.stopped` only counts after the
+  /// start became active, so a late one from an earlier stop cannot release it.
+  /// Without a player there is nothing to observe; the snapshot then stays until
+  /// the next start or until this list player is released.
+  private func observeStoppedBoundary() {
+    guard let player = _mediaPlayer else { return }
     let generation = playbackGeneration
-    stoppedObserver?.cancel()
     stoppedObserver = Task { [weak self, weak player] in
       guard let player else { return }
-      for await state in player.stateTransitions where state == .stopped { break }
+      var started = false
+      waiting: for await state in player.stateTransitions {
+        switch state {
+        case .opening, .buffering, .playing, .paused:
+          started = true
+        case .stopped where started:
+          break waiting
+        default:
+          continue
+        }
+      }
       guard !Task.isCancelled, let self, self.playbackGeneration == generation else { return }
       self.playbackItems = []
       self.stoppedObserver = nil
@@ -395,7 +406,6 @@ public final class MediaListPlayer {
   /// Stops playback asynchronously.
   public func stop() {
     guard attachedPlayerHandleIsCurrent else { return }
-    releaseSnapshotAtStop()
     let nativeListPlayer = pointer
     if let mediaPlayer = _mediaPlayer {
       guard
