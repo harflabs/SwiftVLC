@@ -1,4 +1,5 @@
 @testable import SwiftVLC
+import CLibVLC
 import Foundation
 import Synchronization
 import Testing
@@ -123,6 +124,20 @@ extension Integration {
       #expect(MediaStreamRegistration.factory(forKey: key) != nil)
       let item = try #require(list.media(at: 0))
       #expect(item.streamRegistration?.key == key)
+    }
+
+    @Test
+    func `Wrap of a native pointer keeps the registration after the original is dropped`() throws {
+      let key: UInt
+      let wrapped: Media
+      do {
+        let media = try Media(streamFactory: { throw POSIXError(.EIO) })
+        key = try #require(media.streamRegistration?.key)
+        libvlc_media_retain(media.pointer)
+        wrapped = Media(retaining: media.pointer)
+      }
+      #expect(wrapped.streamRegistration?.key == key)
+      #expect(MediaStreamRegistration.factory(forKey: key) != nil)
     }
 
     @Test

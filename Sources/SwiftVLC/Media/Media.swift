@@ -344,9 +344,13 @@ public final class Media: Sendable {
   ///
   /// The caller must have already called `libvlc_media_retain` or obtained
   /// the pointer from an API that returns a retained reference.
-  /// `Media` will call `libvlc_media_release` on deinit.
+  /// `Media` will call `libvlc_media_release` on deinit. A stream-backed
+  /// media keeps its stream factory registered through the new wrapper.
   convenience init(retaining ptr: OpaquePointer) {
-    self.init(retaining: ptr, streamRegistration: nil)
+    self.init(
+      retaining: ptr,
+      streamRegistration: MediaStreamRegistration.registration(forMedia: ptr)
+    )
   }
 
   /// Wraps a retained pointer of media created from a ``MediaByteStream``,

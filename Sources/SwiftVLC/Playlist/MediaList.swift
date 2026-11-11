@@ -104,6 +104,10 @@ public final class MediaList: Sendable {
       throw .invalidInput("index must be in 0..<\(count)")
     }
     let index = try checkedInt32(index, parameter: "index")
+    if let item = libvlc_media_list_item_at_index(pointer, index) {
+      streamRegistrations[item] = nil
+      libvlc_media_release(item)
+    }
     guard libvlc_media_list_remove_index(pointer, index) == 0 else {
       throw .operationFailed("Remove media at index \(index)")
     }
@@ -137,7 +141,7 @@ public final class MediaList: Sendable {
     guard let mediaPtr = libvlc_media_list_item_at_index(pointer, index) else {
       return nil
     }
-    return Media(retaining: mediaPtr, streamRegistration: streamRegistrations[mediaPtr])
+    return Media(retaining: mediaPtr)
   }
 
   // MARK: - Scoped Access (~Copyable, ~Escapable)
@@ -171,12 +175,10 @@ public final class MediaList: Sendable {
   /// via `~Copyable` and `~Escapable`.
   public struct LockedView: ~Copyable, ~Escapable {
     private let pointer: OpaquePointer
-    private let list: MediaList
 
     @_lifetime(borrow list)
     init(list: borrowing MediaList) {
       pointer = list.pointer
-      self.list = copy list
     }
 
     /// Number of items in the list (no additional lock needed).
@@ -201,7 +203,7 @@ public final class MediaList: Sendable {
       guard let ptr = libvlc_media_list_item_at_index(pointer, index) else {
         return nil
       }
-      return Media(retaining: ptr, streamRegistration: list.streamRegistrations[ptr])
+      return Media(retaining: ptr)
     }
 
     /// Subscript access to media at the given index.
