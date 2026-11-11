@@ -52,10 +52,13 @@ public final class MediaListPlayer {
   private var _mediaList: MediaList?
   /// Snapshot of the list taken before each start or navigation command. Holding
   /// it keeps every stream-backed item's factory registered while libVLC may
-  /// start one of them, even if its list entry is removed meanwhile. Kept after
-  /// stop, because libVLC may still open a stream until playback has stopped;
-  /// replaced by the next start and released with this list player.
+  /// start one of them, even if its list entry is removed meanwhile. Released
+  /// when the attached player reaches `.stopped`, because libVLC may still open
+  /// a stream until then.
   private var playbackItems: [Media] = []
+  /// Increments with every snapshot, so a late `.stopped` cannot release a newer one.
+  private var playbackGeneration = 0
+  private var stoppedObserver: Task<Void, Never>?
   private var _playbackMode: PlaybackMode = .default
   private let instance: VLCInstance
   #if DEBUG
@@ -211,11 +214,31 @@ public final class MediaListPlayer {
     }
   }
 
-  /// Holds every item of the attached list until playback stops.
+  /// Holds every item of the attached list until playback reaches `.stopped`.
   private func retainPlaybackItems() {
+    playbackGeneration &+= 1
+    stoppedObserver?.cancel()
+    stoppedObserver = nil
     playbackItems = _mediaList?.withLocked { view in
       (0..<view.count).compactMap { view.media(at: $0) }
     } ?? []
+  }
+
+  /// Releases the snapshot once the attached player reports `.stopped`.
+  private func releaseSnapshotAtStop() {
+    guard let player = _mediaPlayer else {
+      playbackItems = []
+      return
+    }
+    let generation = playbackGeneration
+    stoppedObserver?.cancel()
+    stoppedObserver = Task { [weak self, weak player] in
+      guard let player else { return }
+      for await state in player.stateTransitions where state == .stopped { break }
+      guard !Task.isCancelled, let self, self.playbackGeneration == generation else { return }
+      self.playbackItems = []
+      self.stoppedObserver = nil
+    }
   }
 
   /// Starts playing the media list from the beginning.
@@ -372,6 +395,7 @@ public final class MediaListPlayer {
   /// Stops playback asynchronously.
   public func stop() {
     guard attachedPlayerHandleIsCurrent else { return }
+    releaseSnapshotAtStop()
     let nativeListPlayer = pointer
     if let mediaPlayer = _mediaPlayer {
       guard
