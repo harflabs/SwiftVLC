@@ -150,7 +150,13 @@ private func mediaStreamRead(
   guard length > 0 else { return 0 }
   let opened = Unmanaged<OpenedStream>.fromOpaque(opaque).takeUnretainedValue()
   do {
-    return try opened.stream.read(into: UnsafeMutableRawBufferPointer(start: buffer, count: length))
+    let count = try opened.stream.read(
+      into: UnsafeMutableRawBufferPointer(start: buffer, count: length)
+    )
+    // libVLC trusts the count, so a stream that reports more than it was asked
+    // for would make libVLC read or write past its buffer.
+    guard (0...length).contains(count) else { return -1 }
+    return count
   } catch {
     return -1
   }

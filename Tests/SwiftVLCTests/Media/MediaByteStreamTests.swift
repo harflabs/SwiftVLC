@@ -42,6 +42,17 @@ private final class CountingFileStream: MediaByteStream, @unchecked Sendable {
   }
 }
 
+/// A stream that reports more bytes than libVLC asked for.
+private final class OverreadingStream: MediaByteStream, @unchecked Sendable {
+  let length: UInt64? = nil
+
+  func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
+    buffer.count + 1
+  }
+
+  func seek(to offset: UInt64) throws {}
+}
+
 extension Integration {
   struct MediaByteStreamTests {
     @Test
@@ -140,6 +151,29 @@ extension Integration {
       #expect(MediaStreamRegistration.factory(forKey: key) != nil)
       let item = try #require(list.media(at: 0))
       #expect(item.streamRegistration?.key == key)
+    }
+
+    @Test
+    func `Removing the last of two duplicate list entries drops the registration`() throws {
+      let list = MediaList()
+      let key: UInt
+      do {
+        let media = try Media(streamFactory: { throw POSIXError(.EIO) })
+        key = try #require(media.streamRegistration?.key)
+        try list.append(media)
+        try list.append(media)
+      }
+      try list.remove(at: 0)
+      try list.remove(at: 0)
+      #expect(MediaStreamRegistration.factory(forKey: key) == nil)
+    }
+
+    @Test
+    func `Read count beyond the requested size fails the parse`() async throws {
+      let media = try Media(streamFactory: { OverreadingStream() })
+      await #expect(throws: (any Error).self) {
+        _ = try await media.parse()
+      }
     }
 
     @Test

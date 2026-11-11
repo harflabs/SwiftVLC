@@ -117,13 +117,12 @@ public final class MediaList: Sendable {
       throw .invalidInput("index must be in 0..<\(count)")
     }
     let index = try checkedInt32(index, parameter: "index")
-    if let item = libvlc_media_list_item_at_index(pointer, index) {
-      releaseStreamRegistration(of: item)
-      libvlc_media_release(item)
-    }
+    let item = libvlc_media_list_item_at_index(pointer, index)
+    defer { if let item { libvlc_media_release(item) } }
     guard libvlc_media_list_remove_index(pointer, index) == 0 else {
       throw .operationFailed("Remove media at index \(index)")
     }
+    if let item { releaseStreamRegistration(of: item) }
   }
 
   /// Whether the list is empty.
