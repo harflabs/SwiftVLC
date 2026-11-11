@@ -112,6 +112,20 @@ extension Integration {
     }
 
     @Test
+    func `List keeps the registration of a stream item after the caller drops it`() throws {
+      let list = MediaList()
+      let key: UInt
+      do {
+        let media = try Media(streamFactory: { throw POSIXError(.EIO) })
+        key = try #require(media.streamRegistration?.key)
+        try list.append(media)
+      }
+      #expect(MediaStreamRegistration.factory(forKey: key) != nil)
+      let item = try #require(list.media(at: 0))
+      #expect(item.streamRegistration?.key == key)
+    }
+
+    @Test
     func `URL media carries no stream registration`() throws {
       let media = try Media(url: TestMedia.testMP4URL)
       #expect(media.streamRegistration == nil)

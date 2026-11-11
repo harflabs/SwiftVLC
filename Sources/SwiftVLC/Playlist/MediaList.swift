@@ -15,6 +15,10 @@ import CLibVLC
 /// Pair with a ``MediaListPlayer`` to play the items in sequence.
 public final class MediaList: Sendable {
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_media_list_t*
+  /// Stream factories of stream-backed items, keyed by their libvlc media.
+  /// The list keeps them alive because libVLC holds the native items after the
+  /// caller drops its `Media`. Guarded by the libVLC list lock.
+  nonisolated(unsafe) var streamRegistrations: [OpaquePointer: MediaStreamRegistration] = [:]
 
   /// Creates an empty media list.
   public init() {
@@ -63,6 +67,7 @@ public final class MediaList: Sendable {
     guard libvlc_media_list_add_media(pointer, media.pointer) == 0 else {
       throw .operationFailed("Append media to list")
     }
+    keepStreamRegistration(of: media)
   }
 
   /// Inserts a media item at the specified index.
@@ -79,6 +84,13 @@ public final class MediaList: Sendable {
     guard libvlc_media_list_insert_media(pointer, media.pointer, index) == 0 else {
       throw .operationFailed("Insert media at index \(index)")
     }
+    keepStreamRegistration(of: media)
+  }
+
+  /// Records the item's stream factory, or clears a stale entry when the
+  /// address is reused by a non-stream item. Call with the libVLC lock held.
+  private func keepStreamRegistration(of media: borrowing Media) {
+    streamRegistrations[media.pointer] = media.streamRegistration
   }
 
   /// Removes the media item at the specified index.
@@ -125,7 +137,7 @@ public final class MediaList: Sendable {
     guard let mediaPtr = libvlc_media_list_item_at_index(pointer, index) else {
       return nil
     }
-    return Media(retaining: mediaPtr)
+    return Media(retaining: mediaPtr, streamRegistration: streamRegistrations[mediaPtr])
   }
 
   // MARK: - Scoped Access (~Copyable, ~Escapable)
@@ -159,10 +171,12 @@ public final class MediaList: Sendable {
   /// via `~Copyable` and `~Escapable`.
   public struct LockedView: ~Copyable, ~Escapable {
     private let pointer: OpaquePointer
+    private let list: MediaList
 
     @_lifetime(borrow list)
     init(list: borrowing MediaList) {
       pointer = list.pointer
+      self.list = copy list
     }
 
     /// Number of items in the list (no additional lock needed).
@@ -187,7 +201,7 @@ public final class MediaList: Sendable {
       guard let ptr = libvlc_media_list_item_at_index(pointer, index) else {
         return nil
       }
-      return Media(retaining: ptr)
+      return Media(retaining: ptr, streamRegistration: list.streamRegistrations[ptr])
     }
 
     /// Subscript access to media at the given index.
