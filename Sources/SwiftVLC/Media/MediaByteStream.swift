@@ -83,7 +83,9 @@ final class MediaStreamRegistration: Sendable {
     guard let address else { return }
     // A newer registration may already own this address; only clear a dead entry.
     Self.registeredMedia.withLock { index in
-      if index[address]?.registration == nil { index[address] = nil }
+      if index[address]?.registration == nil {
+        index[address] = nil
+      }
     }
   }
 

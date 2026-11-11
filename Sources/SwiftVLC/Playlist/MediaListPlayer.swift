@@ -246,9 +246,9 @@ public final class MediaListPlayer {
           continue
         }
       }
-      guard !Task.isCancelled, let self, self.playbackGeneration == generation else { return }
-      self.playbackItems = []
-      self.stoppedObserver = nil
+      guard !Task.isCancelled, let self, playbackGeneration == generation else { return }
+      playbackItems = []
+      stoppedObserver = nil
     }
   }
 
@@ -262,7 +262,9 @@ public final class MediaListPlayer {
     let hasPlayableItem = _mediaList?.isEmpty == false
     retainPlaybackItems()
     let result = dispatchNativeTransport(.play, on: reservation.nativeListPlayer)
-    if result != 0 { playbackItems = [] }
+    if result != 0 {
+      playbackItems = []
+    }
     settlePlaybackStart(
       reservation,
       accepted: result == 0 && hasPlayableItem
