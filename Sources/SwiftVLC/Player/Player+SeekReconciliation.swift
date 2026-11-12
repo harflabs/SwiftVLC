@@ -471,6 +471,12 @@ extension Player {
       return override
     }
     #endif
+    // A selected video track proves nothing by itself. With no local output
+    // (no drawable was ever usable, or a renderer owns presentation) libVLC
+    // unloads the video decoder and no picture is ever submitted, so a seek
+    // that waited for one would time out on every request and, while paused,
+    // hold the single-flight lane until playback resumed.
+    guard activeVideoOutputs > 0 else { return false }
     guard let track = libvlc_media_player_get_selected_track(pointer, libvlc_track_video) else {
       return false
     }
