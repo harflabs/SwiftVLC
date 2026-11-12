@@ -99,14 +99,15 @@
  
 --- a/src/clock/clock.c
 +++ b/src/clock/clock.c
-@@ -711,6 +711,10 @@
+@@ -707,6 +707,11 @@
+ {
+     vlc_clock_main_t *main_clock = clock->owner;
+ 
++    /* A paused render still in flight when the clock resumed carries the
++     * forced-point marker, not a date. */
++    if (unlikely(now == VLC_TICK_MAX) && !main_clock->paused)
++        now = vlc_tick_now();
++
+     /* A paused picture may establish this fallback before decoder startup.
       * Its reference must use the same frozen origin as PCR and decoder start. */
      if (main_clock->paused)
-         now = main_clock->pause_date;
-+    else if (unlikely(now == VLC_TICK_MAX))
-+        /* A paused render still in flight when the clock resumed carries the
-+         * forced-point marker, not a date. */
-+        now = vlc_tick_now();
- 
-     if (clock->priority < main_clock->wait_sync_ref_priority
-      && ctx == main_clock->context

@@ -121,6 +121,15 @@ int main(void) {
     CHECK(vlc_player_input_CurrentFailure(&tracker) == VLC_PLAYER_ERROR_DEMUX);
     vlc_player_input_RecoverFailure(&tracker, VLC_INPUT_FAILURE_DEMUX);
     CHECK(vlc_player_input_CurrentFailure(&tracker) == VLC_PLAYER_ERROR_DEMUX);
+    /* A terminal input error is attributed to the access or demux failure
+     * that caused it, not to a stream that failed earlier. */
+    tracker = (struct vlc_player_input_failures) {0};
+    CHECK(vlc_player_input_TerminalFailure(&tracker) == VLC_PLAYER_ERROR_NONE);
+    vlc_player_input_RecordFailure(&tracker, VLC_INPUT_FAILURE_RENDERER);
+    CHECK(vlc_player_input_TerminalFailure(&tracker) == VLC_PLAYER_ERROR_RENDERER);
+    vlc_player_input_RecordFailure(&tracker, VLC_INPUT_FAILURE_SOURCE);
+    CHECK(vlc_player_input_CurrentFailure(&tracker) == VLC_PLAYER_ERROR_RENDERER);
+    CHECK(vlc_player_input_TerminalFailure(&tracker) == VLC_PLAYER_ERROR_SOURCE);
     puts("PASS retry de-duplication, independent decoders, recovery, and unrecovered attribution");
     return 0;
 }

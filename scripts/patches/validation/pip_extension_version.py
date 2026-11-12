@@ -364,7 +364,8 @@ VERSION_GROUPS = (
                 "video_output",
                 "paused picture fixed clock point",
                 r"render_type\s*==\s*RENDER_PICTURE_NEXT\s*\|\|\s*"
-                r"sys\s*->\s*pause\.is_on",
+                r"\(\s*sys\s*->\s*pause\.is_on\s*&&\s*"
+                r"sys\s*->\s*paused_point_pending\s*\)",
             ),
             Marker(
                 "video_output",

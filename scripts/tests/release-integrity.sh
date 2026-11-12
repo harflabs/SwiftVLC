@@ -2079,7 +2079,7 @@ expected_manifest_tail = [
     "5f46ff439a86888f2988411d4e7d3656fb491e3f645e96deb70e7e6274efc40d  0063-adaptive-discontinuity-drain-and-timeline.patch",
     "537310a19cc6bcade9c18f4fd23062149d3797d2433450fe888f7461441ca5a3  0064-coreaudio-timing-report-interval.patch",
     "ece47d1d5a58a1fbfd31ca62cd4ee4a7b1ae98ec96425aaaef11cbcc49effe0e  0065-natural-end-after-presentation.patch",
-    "65e915f1fccbe06938ee5d2438e495bf6c802363d22e852446674b9b36646ccc  0066-paused-time-reporting.patch",
+    "ea7001b272b0beb44cdb80256563213ca363eb41883af20aea3ef11abf58f061  0066-paused-time-reporting.patch",
     "8a8f0f7fe1bc3355d6377c0a087f57030e53c096c34a10a83373f452b3693563  0067-vmem-extended-aspect.patch",
     "0b9ddb08ca72b57a97f0ab4c72586c3942eb386dcbf5820fa7e5c9786310b077  0068-stale-paused-frame-demand.patch",
     "fae00091141c13451e358279ebc997f9085533fbbfed6bde515ef25dba8e123a  0069-vout-restart-keeps-output-state.patch",

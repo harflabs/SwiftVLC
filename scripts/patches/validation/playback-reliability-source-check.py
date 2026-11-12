@@ -63,7 +63,7 @@ CHECKS = (
     ('src/video_output/video_output.c', '0066 only the first paused render after a flush is a forced point',
      r'\|\| \(sys->pause\.is_on && sys->paused_point_pending\)\)\s*system_now = VLC_TICK_MAX;'),
     ('src/clock/clock.c', '0066 a forced-point marker is never used as a date',
-     r'else if \(unlikely\(now == VLC_TICK_MAX\)\)\s*now = vlc_tick_now\(\);'),
+     r'if \(unlikely\(now == VLC_TICK_MAX\) && !main_clock->paused\)\s*now = vlc_tick_now\(\);'),
     ('modules/video_output/vmem.c', '0067 the extended output accepts the nearest pixel',
      r'return 2 \* width_error <= \(source_num > source_den \? source_num : source_den\);'),
     ('modules/video_output/vmem.c', '0067 aspect and crop changes never ask for a picture reset',
