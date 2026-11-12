@@ -73,6 +73,9 @@ public struct Track: Sendable, Identifiable, Hashable {
   /// Video height in pixels (`nil` for non-video tracks).
   public let height: Int?
 
+  /// Rotation and mirroring needed to display encoded video pixels upright.
+  public internal(set) var orientation: VideoOrientation? = nil
+
   /// Video frame rate in frames per second (`nil` for non-video tracks).
   public let frameRate: Double?
 
@@ -171,6 +174,7 @@ extension Track {
       let v = t.video.pointee
       width = Int(v.i_width)
       height = Int(v.i_height)
+      orientation = VideoOrientation(from: v.i_orientation)
       frameRateRatio = FrameRateRatio(
         numerator: v.i_frame_rate_num,
         denominator: v.i_frame_rate_den
