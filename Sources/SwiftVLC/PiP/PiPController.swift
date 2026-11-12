@@ -83,6 +83,11 @@ public final class PiPController: NSObject {
     /// for why the interval AVKit requested is preserved instead of being
     /// converted into a target.
     let skip: @MainActor (CMTime) -> SkipRequest
+    /// Starts playback that has ended or never began, which no resume can do.
+    /// Returns `nil` when the player is in a session a resume applies to,
+    /// otherwise whether playback was started. A driver without one treats
+    /// every Play as a resume.
+    var startStoppedPlayback: (@MainActor () -> Bool?)?
 
     static func live(player: Player) -> Self {
       Self(
@@ -114,7 +119,11 @@ public final class PiPController: NSObject {
           )
         },
         shouldResume: { player.shouldResumeForExternalPlayRequest },
-        skip: { PiPController.performSkip(on: player, by: $0) }
+        skip: { PiPController.performSkip(on: player, by: $0) },
+        startStoppedPlayback: {
+          guard player.state == .idle || player.state == .stopped else { return nil }
+          return (try? player.play()) != nil
+        }
       )
     }
   }
@@ -1033,6 +1042,20 @@ public final class PiPController: NSObject {
 
     if playing {
       playbackDriver.cancelPendingPause(nil, nil, .resume)
+      if let started = playbackDriver.startStoppedPlayback?() {
+        // Play in the PiP window after the media ended, or before it ever
+        // started. There is nothing to resume, and publishing intent alone
+        // left the window showing "playing" over stopped media. A PiP-issued
+        // pause belonged to the session that is over.
+        clearIssuedPauseFlag()
+        if !started {
+          pendingPiPPlaybackState = nil
+          pipPlaybackActive = player.isPlaybackRequestedActive
+        }
+        syncTimebase(playing: player.isActive)
+        invalidatePictureInPicturePlaybackState()
+        return
+      }
       let resumeRequest = requestResumeIfNeeded(force: requiresFreshPlaybackIntent)
       if resumeRequest.needed, !resumeRequest.accepted {
         pendingPiPPlaybackState = nil
