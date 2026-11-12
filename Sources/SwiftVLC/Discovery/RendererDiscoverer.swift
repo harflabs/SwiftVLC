@@ -33,6 +33,11 @@ import CLibVLC
 ///     }
 /// }
 /// ```
+///
+/// Casting to a Chromecast additionally requires a ``DialogHandler`` that
+/// accepts libVLC's certificate-trust question
+/// (``QuestionRequest/isCertificateTrustQuestion``); without one the
+/// connection is refused. See <doc:DiscoveryAndCasting>.
 public final class RendererDiscoverer: Sendable {
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_renderer_discoverer_t*
   private let instance: VLCInstance

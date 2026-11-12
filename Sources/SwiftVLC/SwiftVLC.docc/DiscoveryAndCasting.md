@@ -109,6 +109,71 @@ replacement transaction completed. It does **not** prove that a physical
 receiver rendered audio/video or acknowledged a command; qualify that behavior
 with the real-device release checklist.
 
+## Answering the Chromecast trust question
+
+A cast does not connect until your app answers a question from libVLC. A
+Chromecast authenticates its control connection with a device certificate that
+no public certificate authority signs, so libVLC's TLS layer cannot validate it
+and asks, through ``DialogHandler``, whether to continue. With no handler
+registered, or with the question dismissed, the connection is refused: the
+session ends in ``PlayerState/error`` and ``Player/recastAndWaitForOutcome(to:)``
+returns ``RecastOutcome/failed``.
+
+Register one ``DialogHandler`` for the instance before casting and accept the
+question while your own cast is connecting.
+``QuestionRequest/isCertificateTrustQuestion`` recognises it:
+
+```swift
+@MainActor
+final class CastTrust {
+    private let handler = DialogHandler(instance: .shared)
+    private var task: Task<Void, Never>?
+    /// Set this around your own cast attempts only.
+    var isConnectingToCastDevice = false
+
+    func start() {
+        let dialogs = handler.dialogs
+        task = Task { [weak self] in
+            for await event in dialogs {
+                guard let question = event.question else { continue }
+                if
+                    question.isCertificateTrustQuestion,
+                    self?.isConnectingToCastDevice == true {
+                    question.post(action: 1)
+                } else {
+                    question.dismiss()
+                }
+            }
+        }
+    }
+}
+
+let trust = CastTrust()
+trust.start()
+
+trust.isConnectingToCastDevice = true
+let outcome = try await player.recastAndWaitForOutcome(to: renderer)
+trust.isConnectingToCastDevice = false
+```
+
+Three things to know:
+
+- libVLC blocks the connection until the question is answered, so always
+  answer or dismiss every question you receive.
+- The same question is raised for *any* TLS peer libVLC cannot validate,
+  including an HTTPS stream with a self-signed certificate. SwiftVLC never
+  accepts it on your behalf; scope acceptance to your cast flow as above, or
+  show it to the user.
+- The acceptance is remembered only for that one connection. The question
+  comes back on every cast, including a recast to the same device.
+
+libVLC can also ask a "Performance warning" question before it converts media
+for a renderer. ``VLCInstance/defaultArguments`` turns that question off. It
+only reaches your handler if you build an instance from a custom argument list
+without `--sout-renderer-show-perf-warning=0`; in that case answer it with
+action `1`, because libVLC leaves a declined cast unloaded while the player
+still reports ``PlayerState/playing``.
+
 ## Inspecting a renderer
 
 ``RendererItem`` exposes the device's display name, type, and

@@ -351,6 +351,46 @@ public struct QuestionRequest: Sendable {
   }
 }
 
+extension QuestionRequest {
+  /// Whether libVLC is asking to trust a TLS certificate it could not
+  /// validate.
+  ///
+  /// libVLC raises this question whenever a TLS peer presents a certificate
+  /// the system trust store rejects. Every Chromecast does: a receiver
+  /// authenticates its control connection with a device certificate no public
+  /// certificate authority signs, so the question arrives once per connection
+  /// to a cast device, and the connection fails unless it is answered with
+  /// action `1`. See <doc:DiscoveryAndCasting> for the complete flow.
+  ///
+  /// The same question is raised for any other TLS connection libVLC cannot
+  /// validate, such as an HTTPS stream with a self-signed or expired
+  /// certificate. This property identifies the *kind* of question, not who is
+  /// asking: accept it only while your own cast is connecting, and dismiss it
+  /// otherwise.
+  ///
+  /// ```swift
+  /// for await event in handler.dialogs {
+  ///     guard let question = event.question else { continue }
+  ///     if question.isCertificateTrustQuestion, isConnectingToCastDevice {
+  ///         question.post(action: 1)
+  ///     } else {
+  ///         question.dismiss()
+  ///     }
+  /// }
+  /// ```
+  ///
+  /// The match is against the fixed strings libVLC's Apple TLS backend uses.
+  /// The bundled libVLC is built without message translation, so they do not
+  /// vary with the user's locale.
+  public var isCertificateTrustQuestion: Bool {
+    title == Self.certificateTrustTitle && action1Text == Self.certificateTrustAcceptAction
+  }
+
+  /// `modules/misc/securetransport.c` `st_validateServerCertificate`.
+  static let certificateTrustTitle = "Insecure site"
+  static let certificateTrustAcceptAction = "Accept certificate temporarily"
+}
+
 // MARK: - Progress Info
 
 /// A progress dialog from VLC (e.g. downloading a resource).
