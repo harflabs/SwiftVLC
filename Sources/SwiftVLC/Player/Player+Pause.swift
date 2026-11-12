@@ -487,6 +487,17 @@ extension Player {
           issuesExplicitNativeResumeCommand,
           issuesNativeResumeCommand: true
         )
+        if issuesExplicitNativeResumeCommand, pauseTransition == .pausing {
+          // The native resume above is queued behind the pause it answers.
+          // libVLC defers a pause requested while it is buffering and reports
+          // nothing when a resume cancels it, so waiting for `.paused` here
+          // would leave the transition open for the rest of the media and
+          // turn every later pause into a deferred command that never runs.
+          // The deferred resume stays recorded: if the pause did apply, its
+          // `.paused` event finds this resume still owed instead of
+          // publishing an inactive intent between the two native events.
+          pauseTransition = nil
+        }
         publishPlaybackIntent(true)
         prepareForPlaybackResumeBoundary()
         return true
@@ -711,6 +722,43 @@ extension Player {
     disablePendingPausedSeekFallback()
     cancelPendingFrameSteps()
     nativeSeekMonitor.clearFrameQuarantineForCausalBoundary()
+  }
+
+  /// How long an issued pause may stay unacknowledged while playback visibly
+  /// continues before it is treated as lost.
+  nonisolated static var pauseAcknowledgementTimeout: Duration {
+    .seconds(1)
+  }
+
+  /// Retires a `.pausing` transition libVLC is never going to acknowledge.
+  ///
+  /// A pause produces a `.paused` event only when libVLC applies it. One that
+  /// is dropped (the input refused it, or left the playing state first) or
+  /// deferred behind buffering and then cancelled produces none, and an open
+  /// transition makes every later pause a deferred command that waits on it.
+  /// Called from playback-time updates: a clock that is still being reported
+  /// while the native player says it is playing, this long after the pause was
+  /// issued, is the evidence that no acknowledgement is coming. The latest
+  /// intent is then re-issued, so a pause the user still wants is sent again
+  /// (a repeat is harmless if libVLC is merely still buffering) and a resume
+  /// recorded meanwhile simply completes.
+  func retireUnacknowledgedPauseIfPlaybackContinues(
+    now: ContinuousClock.Instant = .now
+  ) {
+    guard
+      pauseTransition == .pausing,
+      let playbackGeneration = pauseTransitionPlaybackGeneration,
+      playbackGeneration == sessionGeneration,
+      playbackGeneration == eventBridge.currentPlaybackGeneration,
+      let beganAt = pauseTransitionBeganAt,
+      beganAt.duration(to: now) >= Self.pauseAcknowledgementTimeout,
+      nativePlaybackState == .playing
+    else { return }
+    pauseTransition = nil
+    if deferredPauseCommand == nil {
+      setDeferredPauseCommand(.pause, playbackGeneration: playbackGeneration)
+    }
+    performDeferredPauseCommandIfNeeded()
   }
 
   /// A resume observed while the successor is still opening is not complete:

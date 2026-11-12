@@ -400,11 +400,17 @@ public final class Player {
       pauseTransitionPlaybackGeneration = pauseTransition == nil
         ? nil
         : eventBridge.currentPlaybackGeneration
+      pauseTransitionBeganAt = pauseTransition == nil ? nil : ContinuousClock.now
     }
   }
 
   /// Native playback generation the in-flight transition was issued against.
   @ObservationIgnored var pauseTransitionPlaybackGeneration: UInt64?
+  /// When the in-flight transition was issued. libVLC acknowledges a pause
+  /// with a state event only when it actually applies one, so age is the only
+  /// evidence that an unacknowledged `.pausing` will never be answered. See
+  /// ``retireUnacknowledgedPauseIfPlaybackContinues()``.
+  @ObservationIgnored var pauseTransitionBeganAt: ContinuousClock.Instant?
   @ObservationIgnored var deferredPauseCommand: DeferredPauseCommand? {
     didSet {
       deferredPauseCommandPlaybackGeneration = deferredPauseCommand == nil

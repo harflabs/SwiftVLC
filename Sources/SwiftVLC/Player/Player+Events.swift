@@ -424,6 +424,7 @@ extension Player {
             lifecycleControlEpoch: sourceLifecycleControlEpoch
           ) else { return }
       }
+      retireUnacknowledgedPauseIfPlaybackContinues()
       performDeferredPauseCommandIfNeeded()
       recoverAbandonedVideoOutputIfNeeded()
 
