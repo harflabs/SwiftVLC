@@ -908,6 +908,12 @@ public final class PiPController: NSObject {
       guard activePublicationRevision == revision else { return }
       renderer.setPresentationCopyRequired(isActive)
       callbackRegistration?.setPresentationCopyRequired(isActive)
+      if !isActive {
+        // AVKit reports a render size for the PiP window only and never
+        // reports the inline size back when the window closes. Left in place,
+        // the last PiP size kept every later inline frame scaled down to it.
+        renderer.setRenderSize(nil)
+      }
       _isActive = isActive
       didCommit = true
     }
