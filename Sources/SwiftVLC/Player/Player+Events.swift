@@ -523,6 +523,7 @@ extension Player {
       withMutation(keyPath: \.hasVideoOutput) {}
 
     case .mediaChanged:
+      let stateBeforeMediaChange = state
       guard
         publishExternalMediaReplacementBoundaryIfNeeded(
           successorPlaybackGeneration: sourcePlaybackGeneration,
@@ -608,11 +609,19 @@ extension Player {
           timelineRevision: expectedTimelineRevision,
           lifecycleControlEpoch: sourceLifecycleControlEpoch
         ) else { return }
-      _ = notifyMediaDependentObservables(
-        ifPlaybackGeneration: sessionGeneration,
-        nativeHandleGeneration: sourceNativeHandleGeneration,
-        lifecycleControlEpoch: sourceLifecycleControlEpoch
-      )
+      guard
+        notifyMediaDependentObservables(
+          ifPlaybackGeneration: sessionGeneration,
+          nativeHandleGeneration: sourceNativeHandleGeneration,
+          lifecycleControlEpoch: sourceLifecycleControlEpoch
+        ) else { return }
+      if adoptedExternalGeneration {
+        publishNativeStateElidedByMediaChange(
+          stateBeforeMediaChange: stateBeforeMediaChange,
+          nativeHandleGeneration: sourceNativeHandleGeneration,
+          lifecycleControlEpoch: sourceLifecycleControlEpoch
+        )
+      }
 
     case .encounteredError:
       guard
@@ -784,6 +793,54 @@ extension Player {
     case .corked, .uncorked,
          .recordingChanged, .titleListChanged, .snapshotTaken,
          .mediaStopping:
+      break
+    }
+  }
+
+  /// Publishes the successor's native state after an externally adopted media
+  /// change that libVLC will not follow with state events.
+  ///
+  /// libVLC reports a new input's `Opening` and `Playing` only when they
+  /// change its player-wide state. When the input is swapped under a player
+  /// that never left an active state (a list skip, or a `play()` that
+  /// overtakes the stop it follows) the successor inherits that state silently:
+  /// `MediaChanged` is the last lifecycle event of the transition. The
+  /// boundary published for the outgoing session would then stand as the
+  /// successor's state for as long as it plays.
+  ///
+  /// Only an outgoing mirror that was still active identifies that case. Had
+  /// libVLC announced the outgoing stop, its `Stopping` would have been
+  /// mirrored before this media change and the successor's own events follow.
+  /// A paused predecessor is announced too: the successor's `Opening` differs
+  /// from the player-wide paused state.
+  private func publishNativeStateElidedByMediaChange(
+    stateBeforeMediaChange: PlayerState,
+    nativeHandleGeneration sourceNativeHandleGeneration: UInt64?,
+    lifecycleControlEpoch sourceLifecycleControlEpoch: UInt64?
+  ) {
+    guard
+      stateBeforeMediaChange.isActive,
+      nativeHandleRepresentsCurrentMedia,
+      sourcedEventIdentityIsCurrent(
+        nativeHandleGeneration: sourceNativeHandleGeneration,
+        playbackGeneration: sessionGeneration
+      ),
+      sourceLifecycleControlEpoch.map({ $0 == eventBridge.currentLifecycleControlEpoch }) ?? true,
+      // A Stop accepted since this callback entered owns the generation; the
+      // same quarantine drops the real active-state events it supersedes.
+      !eventBridge.hasExplicitStopBarrier(playbackGeneration: sessionGeneration)
+    else { return }
+    let nativeState = nativeHandlePlaybackState
+    switch nativeState {
+    case .opening, .playing:
+      guard state != nativeState else { return }
+      handleEvent(
+        .stateChanged(nativeState),
+        sourcePlaybackGeneration: sessionGeneration,
+        sourceNativeHandleGeneration: sourceNativeHandleGeneration,
+        sourceLifecycleControlEpoch: sourceLifecycleControlEpoch
+      )
+    case .idle, .buffering, .paused, .stopped, .stopping, .error:
       break
     }
   }
