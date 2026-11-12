@@ -500,11 +500,16 @@ extension Player {
     libvlc_video_set_spu_text_scale(newPointer, subtitleScale)
     libvlc_media_player_set_equalizer(newPointer, _equalizer?.pointer)
     let preparedNativeSurface = makeNativeVideoSurface(for: target, lifetime: newLifetime)
-    let nativeTarget: AnyObject? = preparedNativeSurface ?? target
-    libvlc_media_player_set_nsobject(
-      newPointer,
-      nativeTarget.map { Unmanaged.passUnretained($0).toOpaque() }
-    )
+    // Only a real drawable is installed. libVLC's setter also forces the
+    // player's `vout`, `window` and `dec-dev` choices back to automatic, so
+    // calling it to "clear" a handle that never had a drawable would discard
+    // the instance's own `--vout` for every session after the first.
+    if let nativeTarget = preparedNativeSurface ?? target {
+      libvlc_media_player_set_nsobject(
+        newPointer,
+        Unmanaged.passUnretained(nativeTarget).toOpaque()
+      )
+    }
 
     carryOverPerPlayerState(from: oldPointer, to: newPointer)
 
