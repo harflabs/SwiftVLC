@@ -107,7 +107,8 @@ extension Integration {
     private static func expectStaysDeselected(
       _ player: Player,
       type: TrackType
-    ) async throws {
+    )
+      async throws {
       func tracks() -> [Track] {
         type == .audio ? player.audioTracks : player.subtitleTracks
       }

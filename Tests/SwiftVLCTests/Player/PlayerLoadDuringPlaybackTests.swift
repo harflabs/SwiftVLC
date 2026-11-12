@@ -64,7 +64,7 @@ extension Integration {
       let player = try Player(instance: VLCInstance(arguments: ["--no-video", "--aout=dummy", "--quiet"]))
       do {
         try player.play(url: fixtureURL)
-        player.load(try Media(url: fixtureURL))
+        try player.load(Media(url: fixtureURL))
 
         try await Task.sleep(for: .seconds(2))
         #expect(player.state == .idle, "loaded media reached \(player.state) without play()")

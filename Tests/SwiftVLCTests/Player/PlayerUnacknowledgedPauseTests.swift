@@ -79,7 +79,9 @@ extension Integration {
       let player = try makePlayerWithIssuedPause()
       var nativePauses = 0
       player._pauseProbeHookForTesting = { stage in
-        if stage == .nativePause { nativePauses += 1 }
+        if stage == .nativePause {
+          nativePauses += 1
+        }
       }
       let issuedAt = try #require(player.pauseTransitionBeganAt)
 

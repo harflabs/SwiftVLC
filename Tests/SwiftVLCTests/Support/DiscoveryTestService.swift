@@ -18,7 +18,8 @@ enum DiscoveryTestService {
   /// does not wake on Darwin, so `stop()` never returns.
   static func startable(
     sourceLocation: SourceLocation = #_sourceLocation
-  ) throws -> DiscoveryService {
+  )
+    throws -> DiscoveryService {
     try #require(
       MediaDiscoverer
         .availableServices(category: .lan, instance: TestInstance.shared)

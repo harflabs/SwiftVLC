@@ -68,7 +68,8 @@ extension Integration {
       in events: AsyncStream<RendererEvent>,
       within timeout: Duration,
       where matches: @escaping @Sendable (RendererItem) -> Bool
-    ) async -> RendererItem? {
+    )
+      async -> RendererItem? {
       await withTaskGroup(of: RendererItem?.self) { group in
         group.addTask {
           for await event in events {
