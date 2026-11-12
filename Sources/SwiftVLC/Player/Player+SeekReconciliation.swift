@@ -181,9 +181,19 @@ extension Player {
     }
     guard precise, let target = command.evidence.requestedTimeMilliseconds else { return true }
     let delta = Double(landing.timeMilliseconds) - Double(target)
-    let frameMilliseconds = max(1, Double(landing.frameDurationMicroseconds) / 1000)
+    // libVLC reports zero when the decoded format carries no frame rate.
+    // That is "unknown", not "shorter than a millisecond": bounding by it
+    // would call every correct first-picture-after-target landing inaccurate.
+    let frameMilliseconds = landing.frameDurationMicroseconds > 0
+      ? max(1, Double(landing.frameDurationMicroseconds) / 1000)
+      : Self.unknownFrameDurationSeekBoundMilliseconds
     return delta >= -1 && delta <= frameMilliseconds + 1
   }
+
+  /// Precise-seek bound used when libVLC cannot report a frame duration.
+  /// One frame at 10 fps: wide enough for any ordinary cadence, far tighter
+  /// than a keyframe-distance miss.
+  static let unknownFrameDurationSeekBoundMilliseconds: Double = 100
 
   /// A start with no matching staged token was issued outside SwiftVLC. It
   /// establishes a new external epoch synchronously in the monitor; commands

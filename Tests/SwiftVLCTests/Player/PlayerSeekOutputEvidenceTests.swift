@@ -30,6 +30,32 @@ extension Integration {
       #expect(!player.nativeSeekMonitor.hasSeekDrainPending)
     }
 
+    /// libVLC reports a zero frame duration when the decoded format carries no
+    /// frame rate. That says nothing about the landing, so it must not shrink
+    /// the precise bound to the timestamp rounding allowance.
+    @Test(arguments: [29900, 30000, 30020, 30100, 30200] as [Int64])
+    func `Video evidence with an unknown frame duration keeps a usable precise bound`(
+      landedMilliseconds: Int64
+    ) async throws {
+      let player = makePausedSeekPlayer()
+      player._nativeSetTimeOverrideForTesting = { _, _ in 0 }
+      player._nativeSeekLandingOverrideForTesting = { (30000, 0.5) }
+      let request = try player.requestSeek(to: .seconds(30))
+      let token = try #require(player.activeNativeSeek?.command.nativeSeekToken)
+      player.nativeSeekMonitor.requireVideoOutput(for: token)
+      player.nativeSeekMonitor._noteSeekStartedForTesting()
+      player.nativeSeekMonitor._noteSeekEndedForTesting()
+      player.nativeSeekMonitor._noteVideoOutputForTesting(
+        timeMilliseconds: landedMilliseconds,
+        position: Double(landedMilliseconds) / 60000,
+        frameDurationMicroseconds: 0
+      )
+      await drainMainActor()
+      #expect(await request.outcome == ((30000...30101).contains(landedMilliseconds) ? .settled : .inaccurate))
+      #expect(player.currentTime == .milliseconds(landedMilliseconds))
+      #expect(player.activeNativeSeek == nil)
+    }
+
     @Test(arguments: [false, true])
     func `Late video corrects a timed out seek without resolving it again`(timeoutBeforeEnd: Bool) async throws {
       let player = makePausedSeekPlayer()

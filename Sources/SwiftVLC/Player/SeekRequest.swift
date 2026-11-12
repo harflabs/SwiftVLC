@@ -25,7 +25,8 @@ public enum SeekOutcome: Hashable, Sendable {
   /// The dispatched seek ended and its observed landing reached the mirror.
   /// With native extension v12, video selected at dispatch requires a successful output
   /// submission. Precise absolute video seeks with a known target also require a landing within one
-  /// reported frame duration after the target (1ms timestamp rounding allowed).
+  /// reported frame duration after the target (1ms timestamp rounding allowed);
+  /// when the engine cannot report a frame duration the bound is 100ms.
   /// Older engines retain their clock-only compatibility behavior.
   case settled
   /// Video was submitted, but its timestamp did not satisfy the precise
