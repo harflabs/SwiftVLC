@@ -61,6 +61,8 @@ extension Media {
     instance: VLCInstance = .shared
   )
     async throws(VLCError) -> Data {
+    let inputLease = inputResource.withLock { $0 }
+    defer { withExtendedLifetime(inputLease) {} }
     let (timeMs, timeoutMs) = try checkedThumbnailRequestMilliseconds(
       time: time,
       timeout: timeout

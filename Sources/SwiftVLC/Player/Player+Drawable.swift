@@ -1,4 +1,5 @@
 import CLibVLC
+import Synchronization
 import Dispatch
 
 #if canImport(UIKit)
@@ -489,6 +490,9 @@ extension Player {
     }
     #endif
     if let incoming = replacementMedia {
+      if let resource = incoming.inputResource.withLock({ $0 }) {
+        newLifetime.whenReleased { withExtendedLifetime(resource) {} }
+      }
       libvlc_media_player_set_media(newPointer, incoming.pointer)
     }
     _ = libvlc_audio_set_volume(newPointer, Int32(_volume * 100))

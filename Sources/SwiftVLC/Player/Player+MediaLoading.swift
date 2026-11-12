@@ -1,4 +1,5 @@
 import CLibVLC
+import Synchronization
 
 extension Player {
   // MARK: - Media Loading
@@ -14,6 +15,9 @@ extension Player {
     // retiring handle's inert replacement and publish a `currentMedia` the
     // player can never play.
     guard !isShutdown else { return }
+    if let resource = media.inputResource.withLock({ $0 }) {
+      nativeHandleLifetime.whenReleased { withExtendedLifetime(resource) {} }
+    }
     subtitleTextBridge.reset(
       awaitingNativeClear: hasLiveNativeOutputForTextSubtitleReset
     )

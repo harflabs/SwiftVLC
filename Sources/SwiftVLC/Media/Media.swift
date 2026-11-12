@@ -99,6 +99,7 @@ public struct MediaSlave: Sendable, Hashable {
 /// `@MainActor` ``Player`` via `player.load(media)`.
 public final class Media: Sendable {
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_media_t*
+  let inputResource = Mutex<MediaInputResource?>(nil)
   let thumbnailCoordinator: ThumbnailCoordinator
 
   /// Creates media from a URL.
@@ -173,6 +174,8 @@ public final class Media: Sendable {
     instance: VLCInstance = .shared
   )
     async throws(VLCError) -> Metadata {
+    let inputLease = inputResource.withLock { $0 }
+    defer { withExtendedLifetime(inputLease) {} }
     let timeoutMs = try timeout.checkedNonnegativeInt32Milliseconds(parameter: "timeout")
     let media = pointer
     let em = libvlc_media_event_manager(media)!
@@ -221,6 +224,7 @@ public final class Media: Sendable {
 
         let flags = libvlc_media_parse_flag_t(
           rawValue: libvlc_media_parse_local.rawValue | libvlc_media_parse_network.rawValue
+            | (inputLease == nil ? 0 : libvlc_media_parse_forced.rawValue)
         )
         let rc = libvlc_media_parse_request(instancePtr, media, flags, timeoutMs)
         if rc != 0 {
@@ -339,6 +343,7 @@ public final class Media: Sendable {
   /// `Media` will call `libvlc_media_release` on deinit.
   init(retaining ptr: OpaquePointer) {
     pointer = ptr
+    inputResource.withLock { $0 = MediaInputResources.resource(for: ptr) }
     thumbnailCoordinator = ThumbnailCoordinator.shared(for: ptr)
   }
 

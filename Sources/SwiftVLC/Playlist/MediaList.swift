@@ -1,4 +1,5 @@
 import CLibVLC
+import Synchronization
 
 /// A thread-safe playlist of media items.
 ///
@@ -14,6 +15,7 @@ import CLibVLC
 ///
 /// Pair with a ``MediaListPlayer`` to play the items in sequence.
 public final class MediaList: Sendable {
+  let inputResources = Mutex<[MediaInputResource]>([])
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_media_list_t*
 
   /// Creates an empty media list.
@@ -63,6 +65,7 @@ public final class MediaList: Sendable {
     guard libvlc_media_list_add_media(pointer, media.pointer) == 0 else {
       throw .operationFailed("Append media to list")
     }
+    if let resource = media.inputResource.withLock({ $0 }) { inputResources.withLock { $0.append(resource) } }
   }
 
   /// Inserts a media item at the specified index.
@@ -79,6 +82,7 @@ public final class MediaList: Sendable {
     guard libvlc_media_list_insert_media(pointer, media.pointer, index) == 0 else {
       throw .operationFailed("Insert media at index \(index)")
     }
+    if let resource = media.inputResource.withLock({ $0 }) { inputResources.withLock { $0.append(resource) } }
   }
 
   /// Removes the media item at the specified index.

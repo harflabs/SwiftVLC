@@ -50,6 +50,7 @@ public final class MediaListPlayer {
   /// native list-player handle that owns that retain.
   private var nativePlayerBindingLease: NativePlayerHandleLease?
   private var _mediaList: MediaList?
+  private var retainedInputLists: [MediaList] = []
   private var _playbackMode: PlaybackMode = .default
   private let instance: VLCInstance
   #if DEBUG
@@ -80,9 +81,11 @@ public final class MediaListPlayer {
     // waiting for VLC's internal threads, stalling all async work.
     nonisolated(unsafe) let p = pointer
     let bindingLease = nativePlayerBindingLease
+    let inputListLease = retainedInputLists
     DispatchQueue.global(qos: .utility).async {
       libvlc_media_list_player_stop_async(p)
       libvlc_media_list_player_release(p)
+      withExtendedLifetime(inputListLease) {}
       bindingLease?.endAfterNativeOwnerRelease()
     }
   }
@@ -117,6 +120,7 @@ public final class MediaListPlayer {
 
       let previous = _mediaPlayer
       if let newValue {
+        if let list = _mediaList { newValue.nativeHandleLifetime.whenReleased { withExtendedLifetime(list) {} } }
         let replacementLease = newValue.nativeHandleLifetime.acquireNativeOwnerLease()
         let previousLease = nativePlayerBindingLease
         libvlc_media_list_player_set_media_player(pointer, newValue.pointer)
@@ -170,6 +174,7 @@ public final class MediaListPlayer {
   /// without it the list player keeps driving the released handle.
   func rebindMediaPlayerHandle() {
     guard let player = _mediaPlayer else { return }
+    if let list = _mediaList { player.nativeHandleLifetime.whenReleased { withExtendedLifetime(list) {} } }
     let replacementLease = player.nativeHandleLifetime.acquireNativeOwnerLease()
     let previousLease = nativePlayerBindingLease
     libvlc_media_list_player_set_media_player(pointer, player.pointer)
@@ -187,6 +192,8 @@ public final class MediaListPlayer {
     set {
       _mediaList = newValue
       if let newValue {
+        retainedInputLists.append(newValue)
+        _mediaPlayer?.nativeHandleLifetime.whenReleased { withExtendedLifetime(newValue) {} }
         libvlc_media_list_player_set_media_list(pointer, newValue.pointer)
       } else {
         // The successor retains and adopts the same media-player handle. The
@@ -558,6 +565,8 @@ public final class MediaListPlayer {
       libvlc_media_list_player_set_media_list(replacement, mediaList.pointer)
     }
 
+    let previousInputLists = retainedInputLists
+    retainedInputLists = _mediaList.map { [$0] } ?? []
     let previous = pointer
     let previousLease = nativePlayerBindingLease
     if let previousLease {
@@ -583,6 +592,7 @@ public final class MediaListPlayer {
     DispatchQueue.global(qos: .utility).async {
       libvlc_media_list_player_stop_async(oldPointer)
       libvlc_media_list_player_release(oldPointer)
+      withExtendedLifetime(previousInputLists) {}
     }
   }
 
