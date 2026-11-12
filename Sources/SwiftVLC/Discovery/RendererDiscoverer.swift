@@ -6,13 +6,16 @@ import CLibVLC
 /// come and go. Cast to a discovered renderer by passing its
 /// ``RendererItem`` to ``Player/setRenderer(_:)``.
 ///
+/// The bundled libVLC ships two services. `Bonjour_renderer` finds Chromecast
+/// devices; `upnp_renderer`, which ``availableServices(instance:)`` lists
+/// first, finds UPnP/DLNA renderers and never a Chromecast. Select the one you
+/// need by name.
+///
 /// ```swift
-/// let services = RendererDiscoverer.availableServices()
-/// guard let service = services.first else { return }
 /// let player = Player()
 /// try player.play(url: mediaURL)
 ///
-/// let discoverer = try RendererDiscoverer(name: service.name)
+/// let discoverer = try RendererDiscoverer(name: "Bonjour_renderer")
 /// let events = discoverer.events
 /// try discoverer.start()
 ///

@@ -36,16 +36,41 @@ Categories:
 ## Casting to a renderer
 
 ``RendererDiscoverer`` discovers renderer devices exposed by libVLC's
-renderer-discovery plugins. It emits events through an `AsyncStream`, so
-apps can react as soon as a renderer appears or disappears:
+renderer-discovery plugins. The bundled libVLC ships two services, and they
+find different kinds of device, so choose one by name rather than taking the
+first entry of ``RendererDiscoverer/availableServices(instance:)``:
+
+| Service name | Finds | Plays through |
+|---|---|---|
+| `Bonjour_renderer` | Chromecast and other Google Cast devices | libVLC's Chromecast output |
+| `upnp_renderer` | UPnP/DLNA media renderers (many TVs and AV receivers) | libVLC's DLNA output |
+
+`upnp_renderer` is listed first and never finds a Chromecast. The DLNA output
+is present in the bundled libVLC, but SwiftVLC's cast qualification covers
+Chromecast only; treat DLNA devices as unverified.
+
+Bonjour discovery on iOS, tvOS, and visionOS needs two `Info.plist` entries.
+Without them the system refuses the browse and discovery stays empty without
+an error:
+
+```xml
+<key>NSLocalNetworkUsageDescription</key>
+<string>Finds Chromecast devices on your network.</string>
+<key>NSBonjourServices</key>
+<array>
+    <string>_googlecast._tcp</string>
+</array>
+```
+
+The discoverer emits events through an `AsyncStream`, so apps can react as
+soon as a renderer appears or disappears:
 
 ```swift
-let services = RendererDiscoverer.availableServices()
-guard let service = services.first else { return }
 let player = Player()
 try player.play(url: mediaURL)
 
-let discoverer = try RendererDiscoverer(name: service.name)
+// Chromecast devices are found by the Bonjour service only.
+let discoverer = try RendererDiscoverer(name: "Bonjour_renderer")
 let events = discoverer.events
 try discoverer.start()
 
