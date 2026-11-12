@@ -25,7 +25,9 @@ import CLibVLC
 public final class MediaDiscoverer: Sendable {
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_media_discoverer_t*
   private let instance: VLCInstance
-  /// Accessed only on `DiscoveryLifecycle`'s serial queue.
+  /// Where this service's native start, stop, and release must run.
+  private let lane: DiscoveryLifecycle.Lane
+  /// Accessed only on ``lane``.
   private nonisolated(unsafe) var isStarted = false
 
   /// Creates a media discoverer by service name.
@@ -43,6 +45,7 @@ public final class MediaDiscoverer: Sendable {
       throw .instanceCreationFailed
     }
     pointer = p
+    lane = DiscoveryLifecycle.lane(forServiceNamed: name)
     // Retain the instance so it outlives the discoverer. Otherwise a
     // caller that drops their only `VLCInstance` reference while the
     // discoverer is still alive would free the libVLC instance out
@@ -57,7 +60,7 @@ public final class MediaDiscoverer: Sendable {
     // SwiftUI view.
     nonisolated(unsafe) let discoverer = pointer
     let instance = self.instance
-    DiscoveryLifecycle.async {
+    DiscoveryLifecycle.async(on: lane) {
       libvlc_media_discoverer_release(discoverer)
       _ = instance
     }
@@ -72,7 +75,7 @@ public final class MediaDiscoverer: Sendable {
       case alreadyStarted
       case failed
     }
-    let result = DiscoveryLifecycle.sync { () -> StartResult in
+    let result = DiscoveryLifecycle.sync(on: lane) { () -> StartResult in
       // libVLC overwrites its module pointer on every start, so a second
       // start would leak the running module and leave it unreachable.
       guard !isStarted else { return .alreadyStarted }
@@ -95,7 +98,7 @@ public final class MediaDiscoverer: Sendable {
   /// Does nothing when discovery is not running, including before the first
   /// ``start()``, after a ``start()`` that threw, and when called twice.
   public func stop() {
-    DiscoveryLifecycle.sync {
+    DiscoveryLifecycle.sync(on: lane) {
       // libvlc_media_discoverer_stop dereferences the discovery module
       // without checking that one exists.
       guard isStarted else { return }
@@ -106,7 +109,7 @@ public final class MediaDiscoverer: Sendable {
 
   /// Whether discovery is currently running.
   public var isRunning: Bool {
-    DiscoveryLifecycle.sync {
+    DiscoveryLifecycle.sync(on: lane) {
       libvlc_media_discoverer_is_running(pointer)
     }
   }
@@ -115,7 +118,7 @@ public final class MediaDiscoverer: Sendable {
   ///
   /// Discovered items are added/removed from this list dynamically.
   public var mediaList: MediaList? {
-    DiscoveryLifecycle.sync {
+    DiscoveryLifecycle.sync(on: lane) {
       Self.adoptMediaList(libvlc_media_discoverer_media_list(pointer))
     }
   }

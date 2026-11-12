@@ -46,7 +46,9 @@ public final class RendererDiscoverer: Sendable {
   private let instance: VLCInstance
   private let eventHub: CurrentInventoryEventHub<RendererItem, UInt, RendererEvent>
   private nonisolated(unsafe) let opaque: UnsafeMutableRawPointer
-  /// Accessed only on `DiscoveryLifecycle`'s serial queue.
+  /// Where this service's native start, stop, and release must run.
+  private let lane: DiscoveryLifecycle.Lane
+  /// Accessed only on ``lane``.
   private nonisolated(unsafe) var isStarted = false
 
   /// Stream of renderer discovery events. A new independent stream is returned
@@ -108,6 +110,7 @@ public final class RendererDiscoverer: Sendable {
     }
 
     pointer = p
+    lane = DiscoveryLifecycle.lane(forServiceNamed: name)
     // Retain the instance so it outlives the discoverer. See the
     // matching note in `MediaDiscoverer`.
     self.instance = instance
@@ -125,7 +128,7 @@ public final class RendererDiscoverer: Sendable {
     nonisolated(unsafe) let box = opaque
     let instance = self.instance
     let eventHub = self.eventHub
-    DiscoveryLifecycle.async {
+    DiscoveryLifecycle.async(on: lane) {
       let em = libvlc_renderer_discoverer_event_manager(discoverer)!
       for eventType in RendererEventAttachment.eventTypes {
         libvlc_event_detach(em, eventType, rendererCallback, box)
@@ -139,6 +142,10 @@ public final class RendererDiscoverer: Sendable {
   }
 
   /// Starts renderer discovery.
+  ///
+  /// Safe to call from any thread or task. Bonjour-backed discovery is
+  /// started on a run-loop thread SwiftVLC owns, because the system delivers
+  /// its results through the run loop of the thread that started it.
   /// - Throws: `VLCError.operationFailed` if discovery cannot start, or
   ///   `VLCError.invalidState` if this discoverer is already running.
   public func start() throws(VLCError) {
@@ -147,7 +154,7 @@ public final class RendererDiscoverer: Sendable {
       case alreadyStarted
       case failed
     }
-    let result = DiscoveryLifecycle.sync { () -> StartResult in
+    let result = DiscoveryLifecycle.sync(on: lane) { () -> StartResult in
       guard !isStarted else { return .alreadyStarted }
       guard libvlc_renderer_discoverer_start(pointer) == 0 else {
         // A module can announce an item synchronously and still fail its open.
@@ -174,7 +181,7 @@ public final class RendererDiscoverer: Sendable {
   /// each currently known renderer. The streams remain open and can observe a
   /// later ``start()`` on this discoverer.
   public func stop() {
-    DiscoveryLifecycle.sync {
+    DiscoveryLifecycle.sync(on: lane) {
       if isStarted {
         libvlc_renderer_discoverer_stop(pointer)
         isStarted = false
