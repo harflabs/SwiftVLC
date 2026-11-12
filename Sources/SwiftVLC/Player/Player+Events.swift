@@ -451,7 +451,12 @@ extension Player {
             nativeHandleGeneration: sourceNativeHandleGeneration,
             lifecycleControlEpoch: sourceLifecycleControlEpoch,
             mutation: {
-              storeDurationWithoutNestedObservation(length)
+              // libVLC reports an unknown length as zero and, with a start
+              // offset on an unknown-length input, as a negative value. Both
+              // mean "not known", matching the poll in
+              // `refreshNativeStateIfNeeded`; stored as a duration they clamp
+              // every relative seek to the start of the media.
+              storeDurationWithoutNestedObservation(length > .zero ? length : nil)
             }
           ) else { return }
       }
