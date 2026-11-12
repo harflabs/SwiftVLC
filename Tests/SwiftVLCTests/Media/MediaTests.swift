@@ -273,7 +273,9 @@ extension Integration {
         }
         var errors: [VLCError] = []
         for await error in group {
-          if let error { errors.append(error) }
+          if let error {
+            errors.append(error)
+          }
         }
         return errors
       }

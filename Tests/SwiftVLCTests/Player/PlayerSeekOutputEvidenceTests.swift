@@ -36,7 +36,8 @@ extension Integration {
     @Test(arguments: [29900, 30000, 30020, 30100, 30200] as [Int64])
     func `Video evidence with an unknown frame duration keeps a usable precise bound`(
       landedMilliseconds: Int64
-    ) async throws {
+    )
+      async throws {
       let player = makePausedSeekPlayer()
       player._nativeSetTimeOverrideForTesting = { _, _ in 0 }
       player._nativeSeekLandingOverrideForTesting = { (30000, 0.5) }
@@ -289,7 +290,8 @@ extension Integration {
     @Test(arguments: [2000, 1981] as [Int64])
     func `A paused clock that stays stale settles on the target and frees the lane`(
       staleMilliseconds: Int64
-    ) async throws {
+    )
+      async throws {
       let player = makePausedSeekPlayer()
       var dispatchedTargets: [Int64] = []
       player._nativeSetTimeOverrideForTesting = { milliseconds, _ in
@@ -328,7 +330,8 @@ extension Integration {
     func `An honest paused landing settles on the observed time`(
       targetMilliseconds: Int64,
       landedMilliseconds: Int64
-    ) async throws {
+    )
+      async throws {
       let player = makePausedSeekPlayer()
       player._nativeSetTimeOverrideForTesting = { _, _ in 0 }
       player._seekOverridesForTesting.hasSelectedVideo = false
