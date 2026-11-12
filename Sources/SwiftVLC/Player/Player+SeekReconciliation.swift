@@ -454,13 +454,73 @@ extension Player {
         updatedPending.firstPostEndTimeMilliseconds
       pendingSeekSettlement?.firstPostEndPosition = updatedPending.firstPostEndPosition
     }
-    guard isAuthoritative else { return }
+    guard isAuthoritative else {
+      settlePausedSeekOnTargetIfClockStaysStale(token: token, pending: updatedPending)
+      return
+    }
     let position = coherentPausedFallbackPosition(point, pending: updatedPending)
     let candidate = NativeSeekLanding(
       token: token,
       timeMilliseconds: point.timeMilliseconds,
       position: position
     )
+    guard let claimed = nativeSeekMonitor.claimPausedFallback(candidate) else { return }
+    processNativeSeekLanding(claimed)
+  }
+
+  /// Pause jitter between the pre-dispatch getter and a stale post-end
+  /// getter. Before a paused seek's first output, libVLC can answer from the
+  /// input's last reported time instead of the frozen output clock; the two
+  /// describe the same pre-seek position but differ by up to a report interval.
+  static let pausedSeekStaleClockJitterMilliseconds: Int64 = 500
+
+  /// How long a paused getter may stay unproven after native seek-end before
+  /// the lane stops waiting for it.
+  static let pausedSeekStaleClockBound: Duration = .milliseconds(500)
+
+  /// Without an output a paused input publishes no watched point until
+  /// playback resumes, and an engine whose paused getter keeps answering with
+  /// the pre-seek position can never supply the fallback proof either. The
+  /// native seek has ended, so the request is not in flight; holding the
+  /// single-flight lane until resume would leave every later paused seek
+  /// undispatched. Settle on the requested target, which is already the
+  /// published optimistic value, and release the lane. The raw clock corrects
+  /// the mirror from the first real point after resume.
+  func settlePausedSeekOnTargetIfClockStaysStale(
+    token: UInt64,
+    pending: PendingSeekSettlement
+  ) {
+    guard
+      let activeNativeSeek,
+      activeNativeSeek.command.nativeSeekToken == token,
+      nativeSeekMonitor.seekEndedAwaitingPointToken == token
+    else { return }
+    let now = ContinuousClock.now
+    guard let staleSince = activeNativeSeek.pausedClockStaleSince else {
+      self.activeNativeSeek?.pausedClockStaleSince = now
+      return
+    }
+    guard now - staleSince >= Self.pausedSeekStaleClockBound else { return }
+
+    let candidate: NativeSeekLanding
+    if let requestedTimeMilliseconds = pending.requestedTimeMilliseconds {
+      candidate = NativeSeekLanding(
+        token: token,
+        timeMilliseconds: requestedTimeMilliseconds,
+        position: pending.requestedPosition ?? -.infinity
+      )
+    } else if
+      case .position = activeNativeSeek.command.operation,
+      let requestedPosition = pending.requestedPosition {
+      candidate = NativeSeekLanding(
+        token: token,
+        timeMilliseconds: -1,
+        position: requestedPosition
+      )
+    } else {
+      // A relative request without a known target has nothing to settle on.
+      return
+    }
     guard let claimed = nativeSeekMonitor.claimPausedFallback(candidate) else { return }
     processNativeSeekLanding(claimed)
   }
@@ -632,8 +692,16 @@ extension Player {
     // overlap. Two identical post-end reads prove a stable native landing,
     // including a legitimate off-target/keyframe landing, but only when that
     // stable pair is observably different from the pre-dispatch baseline.
-    let timeDiffersFromBaseline = pending.baselineTimeMilliseconds.map {
-      firstTime != $0
+    let timeDiffersFromBaseline = pending.baselineTimeMilliseconds.map { baseline in
+      guard firstTime != baseline else { return false }
+      // A stable read just beside the baseline is the pre-seek position read
+      // back through pause jitter, not a landing, unless the request itself
+      // aimed that close. Accepting it would settle a far seek at the old time.
+      guard
+        let requested = pending.requestedTimeMilliseconds,
+        abs(requested - baseline) > Self.pausedSeekStaleClockJitterMilliseconds
+      else { return true }
+      return abs(firstTime - baseline) > Self.pausedSeekStaleClockJitterMilliseconds
     } ?? false
     let positionDiffersFromBaseline: Bool = if
       let firstPosition = pending.firstPostEndPosition,

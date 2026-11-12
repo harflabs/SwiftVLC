@@ -102,6 +102,9 @@ extension Player {
     var isTombstoned: Bool
     var deadlineTask: Task<Void, Never>?
     var pollingTask: Task<Void, Never>?
+    /// First post-end paused getter read that proved nothing. Bounds how long
+    /// a clock that cannot move without an output may hold the seek lane.
+    var pausedClockStaleSince: ContinuousClock.Instant?
   }
 
   struct QuarantinedSeekTimeline {
