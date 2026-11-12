@@ -100,6 +100,23 @@ public final class Player {
   /// ``PlayerEvent/endReached-enum.case`` for what counts as a natural end.
   public internal(set) var didReachEnd: Bool = false
 
+  /// Why the most recent playback session failed, or `nil` if it did not.
+  ///
+  /// libVLC opens media asynchronously: ``play()`` returns as soon as the
+  /// request is accepted, so an unreachable host, a missing file, or media no
+  /// decoder can handle fails afterwards rather than by throwing. ``state``
+  /// only passes through ``PlayerState/error`` on its way to
+  /// ``PlayerState/stopped``, usually within the same frame, which leaves a
+  /// view observing `state` unable to tell a failure from a stop. This value
+  /// stays set after the session has stopped.
+  ///
+  /// Set when the session ends in ``PlaybackTerminalCause/failure(_:)``;
+  /// reset by the next ``load(_:)``, ``play(_:)``, or ``play()``. A stop the
+  /// app requested, a media replacement, and a natural end leave it `nil`.
+  /// ``terminalOutcomes`` carries the same result, together with the final
+  /// timeline, for consumers that prefer a stream.
+  public internal(set) var failure: PlaybackFailureKind?
+
   /// Available audio tracks.
   public internal(set) var audioTracks: [Track] = []
 
@@ -276,6 +293,10 @@ public final class Player {
 
   func storeDidReachEndWithoutNestedObservation(_ value: Bool) {
     _didReachEnd = value
+  }
+
+  func storeFailureWithoutNestedObservation(_ value: PlaybackFailureKind?) {
+    _failure = value
   }
 
   func removeAllAudioTrackStorageWithoutNestedObservation() {

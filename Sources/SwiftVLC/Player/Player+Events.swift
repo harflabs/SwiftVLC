@@ -624,6 +624,28 @@ extension Player {
       }
 
     case .encounteredError:
+      // The callback froze this generation's terminal cause before the event
+      // was broadcast. It is not always a failure: a stop or replacement that
+      // claimed the generation first keeps its own cause. Published ahead of
+      // `.error` so anything reacting to that state already finds the reason.
+      // No intent check as for `didReachEnd`: the intent is still active when
+      // a failure arrives, and a `play()` that superseded this event advanced
+      // the control epoch the mutation is conditioned on.
+      if
+        case .failure(let kind) = eventBridge.terminalCause(
+          for: sourcePlaybackGeneration ?? sessionGeneration
+        ) {
+        guard
+          performObservableMutation(
+            keyPath: \.failure,
+            ifPlaybackGeneration: sourcePlaybackGeneration,
+            nativeHandleGeneration: sourceNativeHandleGeneration,
+            lifecycleControlEpoch: sourceLifecycleControlEpoch,
+            mutation: {
+              storeFailureWithoutNestedObservation(kind)
+            }
+          ) else { return }
+      }
       guard
         publishPlaybackState(
           .error,

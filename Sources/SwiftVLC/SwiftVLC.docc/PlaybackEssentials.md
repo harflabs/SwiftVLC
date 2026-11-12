@@ -32,6 +32,7 @@ binds to them directly, without a publisher or Combine adapter.
 |---|---|---|
 | ``Player/state`` | ``PlayerState`` | `.idle`, `.opening`, `.buffering`, `.playing`, `.paused`, `.stopped`, `.stopping`, `.error` |
 | ``Player/nativePlaybackState`` | ``PlayerState`` | Synchronous native snapshot for transport decisions; not observable |
+| ``Player/failure`` | ``PlaybackFailureKind``? | Why the most recent session failed; stays set after `state` settles at `.stopped` |
 | ``Player/isPlaying`` | `Bool` | User-facing playback signal for Play/Pause controls while libVLC state transitions settle |
 | ``Player/isPlaybackRequestedActive`` | `Bool` | Lower-level playback intent mirrored by PiP and external transport controls |
 | ``Player/bufferFill`` | `Float` | Continuously-updated cache level (`0.0…1.0`), independent of `state` |
@@ -284,6 +285,7 @@ See <doc:ConcurrencyModel> for the full isolation story.
 
 ### Reading state
 - ``Player/state``
+- ``Player/failure``
 - ``Player/playbackHealth``
 - ``Player/playbackHealthSnapshots``
 - ``Player/playbackHealthEvents``
