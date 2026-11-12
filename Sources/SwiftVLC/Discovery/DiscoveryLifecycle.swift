@@ -111,11 +111,18 @@ private final class DiscoveryRunLoopThread: Sendable {
       return operation()
     }
     return withoutActuallyEscaping(operation) { operation in
-      nonisolated(unsafe) let operation = operation
+      // The run loop keeps its block alive for a moment after the block has
+      // signalled, and the caller may leave this scope in that moment. The
+      // block therefore reaches the operation only through `work`, and drops
+      // it before signalling: nothing of the non-escaping closure can still
+      // be referenced when the scope ends.
+      let work = Slot<() -> T>()
+      work.value = operation
       let result = Slot<T>()
       let finished = DispatchSemaphore(value: 0)
       async {
-        result.value = operation()
+        result.value = work.value?()
+        work.value = nil
         finished.signal()
       }
       finished.wait()

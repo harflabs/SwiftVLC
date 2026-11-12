@@ -56,6 +56,30 @@ extension Integration {
 
     /// A stop issued from inside a discovery callback is already on the
     /// run-loop thread and must not wait for itself.
+    /// The run loop still holds its block for a moment after the block has
+    /// signalled the waiting caller. If the block kept the caller's
+    /// non-escaping closure alive through that moment, the runtime trapped
+    /// with "closure argument was escaped".
+    @Test(.timeLimit(.minutes(1)))
+    func `Synchronous run-loop lane work never outlives its caller`() async {
+      await withTaskGroup(of: Int.self) { group in
+        for worker in 0..<8 {
+          group.addTask {
+            var sum = 0
+            for value in 0..<5000 {
+              sum &+= DiscoveryLifecycle.sync(on: .runLoopThread) { value &+ worker }
+            }
+            return sum
+          }
+        }
+        var total = 0
+        for await sum in group {
+          total &+= sum
+        }
+        #expect(total == 8 * (0..<5000).reduce(0, +) + 5000 * (0..<8).reduce(0, +))
+      }
+    }
+
     @Test
     func `Run-loop lane work can re-enter synchronously`() {
       let value = DiscoveryLifecycle.sync(on: .runLoopThread) {
