@@ -125,7 +125,8 @@ playing sessions are replaced and restarted. A paused session is restarted and
 does not settle until its pause is acknowledged.
 
 Position and track restoration are local wrapper guarantees, not receiver
-acknowledgements. Stable track ids are preferred exactly; an adaptive stream's
+acknowledgements. A track type that was turned off stays off on the new
+session. Stable track ids are preferred exactly; an adaptive stream's
 per-session ids (``Track/isIDStable`` is `false`) are never trusted across
 sessions. Metadata fallback considers only tracks of the same type and codec and
 is used only when language/name identifies one unique candidate, so discovery
@@ -198,6 +199,41 @@ only reaches your handler if you build an instance from a custom argument list
 without `--sout-renderer-show-perf-warning=0`; in that case answer it with
 action `1`, because libVLC leaves a declined cast unloaded while the player
 still reports ``PlayerState/playing``.
+
+## Known limits while casting
+
+These describe libVLC's Chromecast output as bundled. They were measured
+against a scripted Cast receiver, not inferred, and none of them surfaces as an
+error on its own.
+
+- **A receiver that cannot load fails slowly.** libVLC waits 30 seconds for a
+  receiver to acknowledge each load, then retries, first as-is and then with
+  video and audio conversion. A receiver that accepts the connection but never
+  answers kept the player in ``PlayerState/playing`` with a frozen
+  ``Player/currentTime`` for about two minutes before the session failed; one
+  that rejects the load outright fails in under a second. Because
+  ``Player/recastAndWaitForOutcome(to:)`` settles when libVLC starts the
+  session, it can return ``RecastOutcome/settled`` before any of this. Treat a
+  cast whose time has not advanced a few seconds after it settled as not yet
+  playing.
+- **A pause made on the receiver is not a state change.** When someone pauses
+  with the TV remote or another Cast controller, ``Player/state`` stays
+  ``PlayerState/playing`` and ``Player/currentTime`` stops advancing. The only
+  signal is ``PlayerEvent/corked-enum.case``, followed by
+  ``PlayerEvent/uncorked-enum.case`` when the receiver resumes. libVLC raises
+  the same events for your own pause and resume, and after a seek made while
+  paused it can leave the session corked with no matching uncork, so use them
+  as a hint to re-read the transport rather than as a strict pair.
+- **Volume and mute do not reach the receiver.** libVLC has no local audio
+  output during a cast and does not forward volume to the device.
+  ``Player/setAudioVolume(_:)`` throws ``VLCError/operationFailed(_:)`` while
+  casting, and setting ``Player/isMuted`` changes the property without
+  silencing anything. Leave volume to the receiver.
+- **Choose the renderer before loading media.** ``Player/setRenderer(_:)``
+  followed by ``Player/load(_:)`` or ``Player/play(url:)`` starts the cast
+  directly. In the other order (load, then `setRenderer`, then play) libVLC
+  opens the local audio and video outputs first and switches to the renderer
+  a moment later. ``Player/recastAndWaitForOutcome(to:)`` is not affected.
 
 ## Inspecting a renderer
 
