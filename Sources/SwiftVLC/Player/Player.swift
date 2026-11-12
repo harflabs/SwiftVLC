@@ -369,6 +369,7 @@ public final class Player {
 
   @ObservationIgnored var _pauseProbeHookForTesting: ((PauseProbeStage) -> Void)?
   @ObservationIgnored var _nativePlaybackStateOverrideForTesting: PlayerState?
+  @ObservationIgnored var _videoDisplaySizeOverrideForTesting: CGSize?
   @ObservationIgnored var _nativeLengthOverrideForTesting: Int64?
   @ObservationIgnored var _nativeSeekableOverrideForTesting: Bool?
   @ObservationIgnored var _nativeVolumeOverrideForTesting: Int32?
