@@ -79,12 +79,24 @@ extension Integration {
     }
 
     @Test
-    func `invalid crop orientation and inexact PAR fail closed`() {
+    func `invalid crop and orientation fail closed`() {
       let outOfBoundsCrop = PixelBufferSourceGeometry(
         geometry(codedWidth: 727, visibleWidth: 720, xOffset: 8)
       )
       let unknownOrientation = PixelBufferSourceGeometry(geometry(orientation: 8))
-      let inexactPAR = PixelBufferSourceGeometry(
+
+      #expect(!outOfBoundsCrop.isValid)
+      #expect(outOfBoundsCrop.squarePixelDeliveryDimensions == nil)
+      #expect(!unknownOrientation.isValid)
+      #expect(unknownOrientation.squarePixelDeliveryDimensions == nil)
+    }
+
+    /// Used to fail closed. A sample aspect with no integer square-pixel size
+    /// is ordinary in real material, and refusing it left audio playing over a
+    /// picture that never appeared (issue 250).
+    @Test
+    func `inexact PAR rounds the expanded axis to the nearest pixel`() {
+      let widthExpanding = PixelBufferSourceGeometry(
         geometry(
           codedWidth: 5,
           codedHeight: 7,
@@ -96,13 +108,117 @@ extension Integration {
           sarDenominator: 2
         )
       )
+      let heightExpanding = PixelBufferSourceGeometry(
+        geometry(
+          codedWidth: 7,
+          codedHeight: 5,
+          visibleWidth: 7,
+          visibleHeight: 5,
+          xOffset: 0,
+          yOffset: 0,
+          sarNumerator: 2,
+          sarDenominator: 3
+        )
+      )
 
-      #expect(!outOfBoundsCrop.isValid)
-      #expect(outOfBoundsCrop.squarePixelDeliveryDimensions == nil)
-      #expect(!unknownOrientation.isValid)
-      #expect(unknownOrientation.squarePixelDeliveryDimensions == nil)
-      #expect(inexactPAR.isValid)
-      #expect(inexactPAR.squarePixelDeliveryDimensions == nil)
+      // 5 * 3 / 2 = 7.5, and the half rounds up.
+      #expect(widthExpanding.squarePixelDeliveryDimensions?.width == 8)
+      #expect(widthExpanding.squarePixelDeliveryDimensions?.height == 7)
+      #expect(heightExpanding.squarePixelDeliveryDimensions?.width == 7)
+      #expect(heightExpanding.squarePixelDeliveryDimensions?.height == 8)
+    }
+
+    struct DeliveryCase: Sendable, CustomTestStringConvertible {
+      let visibleWidth: UInt32
+      let visibleHeight: UInt32
+      let sarNumerator: UInt32
+      let sarDenominator: UInt32
+      let width: UInt32
+      let height: UInt32
+
+      var testDescription: String {
+        "\(visibleWidth)x\(visibleHeight) SAR \(sarNumerator):\(sarDenominator)"
+      }
+    }
+
+    /// Geometries seen in real streams and rips. Every delivery size has to
+    /// pass the tolerance the vmem output applies to it, or libVLC refuses the
+    /// output and the picture never appears.
+    static let deliveryCases: [DeliveryCase] = [
+      // Issue 250: no integer size exists below 4085x1734.
+      DeliveryCase(visibleWidth: 1920, visibleHeight: 816, sarNumerator: 817, sarDenominator: 816, width: 1922, height: 816),
+      // Loose-anamorphic rips with mod-2 rounding.
+      DeliveryCase(visibleWidth: 1916, visibleHeight: 796, sarNumerator: 2304, sarDenominator: 2299, width: 1920, height: 796),
+      DeliveryCase(visibleWidth: 854, visibleHeight: 480, sarNumerator: 1279, sarDenominator: 1280, width: 854, height: 480),
+      DeliveryCase(visibleWidth: 1280, visibleHeight: 534, sarNumerator: 2136, sarDenominator: 2135, width: 1281, height: 534),
+      // PAL and NTSC DVD, 4:3 and 16:9.
+      DeliveryCase(visibleWidth: 720, visibleHeight: 576, sarNumerator: 16, sarDenominator: 15, width: 768, height: 576),
+      DeliveryCase(visibleWidth: 720, visibleHeight: 576, sarNumerator: 64, sarDenominator: 45, width: 1024, height: 576),
+      DeliveryCase(visibleWidth: 720, visibleHeight: 480, sarNumerator: 8, sarDenominator: 9, width: 720, height: 540),
+      DeliveryCase(visibleWidth: 720, visibleHeight: 480, sarNumerator: 32, sarDenominator: 27, width: 720, height: 405),
+      DeliveryCase(visibleWidth: 720, visibleHeight: 576, sarNumerator: 12, sarDenominator: 11, width: 720, height: 528),
+      DeliveryCase(visibleWidth: 704, visibleHeight: 480, sarNumerator: 10, sarDenominator: 11, width: 704, height: 528),
+      // HDV, and 853x480 stored as 720x480.
+      DeliveryCase(visibleWidth: 1440, visibleHeight: 1080, sarNumerator: 4, sarDenominator: 3, width: 1920, height: 1080),
+      DeliveryCase(visibleWidth: 720, visibleHeight: 480, sarNumerator: 853, sarDenominator: 720, width: 853, height: 480),
+      // Square pixels are delivered untouched.
+      DeliveryCase(visibleWidth: 1920, visibleHeight: 1080, sarNumerator: 1, sarDenominator: 1, width: 1920, height: 1080)
+    ]
+
+    @Test(arguments: deliveryCases)
+    func `delivery size stays within the vmem square-pixel tolerance`(
+      testCase: DeliveryCase
+    )
+      throws {
+      let source = PixelBufferSourceGeometry(
+        geometry(
+          codedWidth: testCase.visibleWidth,
+          codedHeight: testCase.visibleHeight,
+          visibleWidth: testCase.visibleWidth,
+          visibleHeight: testCase.visibleHeight,
+          xOffset: 0,
+          yOffset: 0,
+          sarNumerator: testCase.sarNumerator,
+          sarDenominator: testCase.sarDenominator
+        )
+      )
+
+      let delivery = try #require(source.squarePixelDeliveryDimensions)
+
+      #expect(delivery.width == testCase.width)
+      #expect(delivery.height == testCase.height)
+      #expect(
+        source.isWithinSquarePixelTolerance(
+          width: delivery.width,
+          height: delivery.height
+        ),
+        "libVLC's vmem output would refuse this size"
+      )
+    }
+
+    /// The tolerance has to stay a real bound: delivering the visible size of
+    /// an anamorphic source unchanged is what it exists to refuse.
+    @Test
+    func `tolerance refuses a size more than half a pixel off`() {
+      let issue250 = PixelBufferSourceGeometry(
+        geometry(
+          codedWidth: 1920,
+          codedHeight: 816,
+          visibleWidth: 1920,
+          visibleHeight: 816,
+          xOffset: 0,
+          yOffset: 0,
+          sarNumerator: 817,
+          sarDenominator: 816
+        )
+      )
+      let dvd = PixelBufferSourceGeometry(geometry())
+
+      #expect(issue250.isWithinSquarePixelTolerance(width: 1922, height: 816))
+      #expect(!issue250.isWithinSquarePixelTolerance(width: 1920, height: 816))
+      #expect(dvd.isWithinSquarePixelTolerance(width: 768, height: 480))
+      #expect(!dvd.isWithinSquarePixelTolerance(width: 720, height: 480))
+      #expect(!dvd.isWithinSquarePixelTolerance(width: 0, height: 480))
     }
 
     @Test

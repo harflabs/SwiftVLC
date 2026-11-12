@@ -35,8 +35,8 @@ func pixelBufferFormatCallback(
 }
 
 /// Geometry-aware callback used by the patched pinned libVLC. It copies the
-/// single C geometry snapshot immediately, chooses an exact square-pixel
-/// output, and rejects formats that cannot be normalized without approximation.
+/// single C geometry snapshot immediately and chooses the square-pixel output:
+/// exact where an integer size exists, otherwise the nearest pixel.
 func pixelBufferFormatCallbackEx(
   opaque: UnsafeMutablePointer<UnsafeMutableRawPointer?>?,
   chroma: UnsafeMutablePointer<CChar>?,

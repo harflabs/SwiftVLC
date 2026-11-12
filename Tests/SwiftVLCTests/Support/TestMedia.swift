@@ -29,6 +29,12 @@ enum TestMedia {
     url(for: "sparse", ext: "mp4")
   }
 
+  /// 6s 64x48 test pattern, video-only, sample aspect ratio 817:816 — a ratio
+  /// with no integer square-pixel size (issue 250).
+  static var inexactSARURL: URL {
+    url(for: "inexact-sar", ext: "mp4")
+  }
+
   /// Minimal SRT subtitle file.
   static var subtitleURL: URL {
     url(for: "test", ext: "srt")
