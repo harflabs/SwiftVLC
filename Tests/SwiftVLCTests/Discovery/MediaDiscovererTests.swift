@@ -56,16 +56,9 @@ extension Integration {
     }
 
     @Test
-    func `Init with valid service name`() {
-      // Get an actual service name from the system
-      let services = MediaDiscoverer.availableServices(category: .localDirectories)
-      guard let service = services.first else { return }
-      do {
-        let discoverer = try MediaDiscoverer(name: service.name)
-        _ = discoverer
-      } catch {
-        // Some services may not be available
-      }
+    func `Init with valid service name`() throws {
+      let service = try DiscoveryTestService.startable()
+      _ = try MediaDiscoverer(name: service.name)
     }
 
     @Test
@@ -94,41 +87,27 @@ extension Integration {
     }
 
     @Test
-    func `Start and stop`() {
-      let services = MediaDiscoverer.availableServices(category: .localDirectories)
-      guard let service = services.first else { return }
-      do {
-        let discoverer = try MediaDiscoverer(name: service.name)
-        try discoverer.start()
-        #expect(discoverer.isRunning)
-        discoverer.stop()
-      } catch {
-        // Some services may fail to start
-      }
+    func `Start and stop`() throws {
+      let service = try DiscoveryTestService.startable()
+      let discoverer = try MediaDiscoverer(name: service.name)
+      try discoverer.start()
+      #expect(discoverer.isRunning)
+      discoverer.stop()
+      #expect(discoverer.isRunning == false)
     }
 
     @Test
-    func `isRunning before start`() {
-      let services = MediaDiscoverer.availableServices(category: .localDirectories)
-      guard let service = services.first else { return }
-      do {
-        let discoverer = try MediaDiscoverer(name: service.name)
-        #expect(discoverer.isRunning == false)
-      } catch {
-        // Ignore
-      }
+    func `isRunning before start`() throws {
+      let service = try DiscoveryTestService.startable()
+      let discoverer = try MediaDiscoverer(name: service.name)
+      #expect(discoverer.isRunning == false)
     }
 
     @Test
-    func `Media list accessible`() {
-      let services = MediaDiscoverer.availableServices(category: .localDirectories)
-      guard let service = services.first else { return }
-      do {
-        let discoverer = try MediaDiscoverer(name: service.name)
-        _ = discoverer.mediaList
-      } catch {
-        // Ignore
-      }
+    func `Media list accessible`() throws {
+      let service = try DiscoveryTestService.startable()
+      let discoverer = try MediaDiscoverer(name: service.name)
+      #expect(discoverer.mediaList != nil)
     }
 
     @Test
@@ -149,63 +128,40 @@ extension Integration {
     }
 
     @Test
-    func `Deinit safety`() {
-      let services = MediaDiscoverer.availableServices(category: .localDirectories)
-      guard let service = services.first else { return }
-      do {
-        var discoverer: MediaDiscoverer? = try MediaDiscoverer(name: service.name)
-        try discoverer?.start()
-        discoverer = nil
-        // No crash = success
-      } catch {
-        // Ignore
-      }
+    func `Deinit safety`() throws {
+      let service = try DiscoveryTestService.startable()
+      var discoverer: MediaDiscoverer? = try MediaDiscoverer(name: service.name)
+      try discoverer?.start()
+      discoverer = nil
     }
 
     @Test
-    func `Media list non-nil after start`() {
-      let services = MediaDiscoverer.availableServices(category: .localDirectories)
-      guard let service = services.first else { return }
-      do {
-        let discoverer = try MediaDiscoverer(name: service.name)
-        try discoverer.start()
-        // After starting, mediaList should be accessible
-        let list = discoverer.mediaList
-        #expect(list != nil)
-        discoverer.stop()
-      } catch {
-        // Some services may fail
-      }
+    func `Media list non-nil after start`() throws {
+      let service = try DiscoveryTestService.startable()
+      let discoverer = try MediaDiscoverer(name: service.name)
+      try discoverer.start()
+      #expect(discoverer.mediaList != nil)
+      discoverer.stop()
     }
 
     @Test
-    func `Stop without start doesn't crash`() {
-      let services = MediaDiscoverer.availableServices(category: .localDirectories)
-      guard let service = services.first else { return }
-      do {
-        let discoverer = try MediaDiscoverer(name: service.name)
-        discoverer.stop()
-        // No crash = success
-      } catch {
-        // Ignore
-      }
+    func `Stop without start doesn't crash`() throws {
+      let service = try DiscoveryTestService.startable()
+      let discoverer = try MediaDiscoverer(name: service.name)
+      discoverer.stop()
+      #expect(discoverer.isRunning == false)
     }
 
     @Test
-    func `Multiple starts and stops`() {
-      let services = MediaDiscoverer.availableServices(category: .localDirectories)
-      guard let service = services.first else { return }
-      do {
-        let discoverer = try MediaDiscoverer(name: service.name)
-        try discoverer.start()
-        discoverer.stop()
-        // Second start/stop cycle
-        try discoverer.start()
-        #expect(discoverer.isRunning)
-        discoverer.stop()
-      } catch {
-        // Ignore
-      }
+    func `Multiple starts and stops`() throws {
+      let service = try DiscoveryTestService.startable()
+      let discoverer = try MediaDiscoverer(name: service.name)
+      try discoverer.start()
+      discoverer.stop()
+      // Second start/stop cycle
+      try discoverer.start()
+      #expect(discoverer.isRunning)
+      discoverer.stop()
     }
   }
 }

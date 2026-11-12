@@ -25,6 +25,8 @@ import CLibVLC
 public final class MediaDiscoverer: Sendable {
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_media_discoverer_t*
   private let instance: VLCInstance
+  /// Accessed only on `DiscoveryLifecycle`'s serial queue.
+  private nonisolated(unsafe) var isStarted = false
 
   /// Creates a media discoverer by service name.
   ///
@@ -62,20 +64,43 @@ public final class MediaDiscoverer: Sendable {
   }
 
   /// Starts discovery.
-  /// - Throws: `VLCError.operationFailed` if discovery cannot start.
+  /// - Throws: `VLCError.operationFailed` if discovery cannot start, or
+  ///   `VLCError.invalidState` if this discoverer is already running.
   public func start() throws(VLCError) {
-    let result = DiscoveryLifecycle.sync {
-      libvlc_media_discoverer_start(pointer)
+    enum StartResult {
+      case started
+      case alreadyStarted
+      case failed
     }
-    if result != 0 {
+    let result = DiscoveryLifecycle.sync { () -> StartResult in
+      // libVLC overwrites its module pointer on every start, so a second
+      // start would leak the running module and leave it unreachable.
+      guard !isStarted else { return .alreadyStarted }
+      guard libvlc_media_discoverer_start(pointer) == 0 else { return .failed }
+      isStarted = true
+      return .started
+    }
+    switch result {
+    case .started:
+      break
+    case .alreadyStarted:
+      throw .invalidState("Media discovery is already running")
+    case .failed:
       throw .operationFailed("Start media discovery")
     }
   }
 
   /// Stops discovery.
+  ///
+  /// Does nothing when discovery is not running, including before the first
+  /// ``start()``, after a ``start()`` that threw, and when called twice.
   public func stop() {
     DiscoveryLifecycle.sync {
+      // libvlc_media_discoverer_stop dereferences the discovery module
+      // without checking that one exists.
+      guard isStarted else { return }
       libvlc_media_discoverer_stop(pointer)
+      isStarted = false
     }
   }
 
