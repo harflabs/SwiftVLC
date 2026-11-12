@@ -216,6 +216,12 @@ sample-buffer path may reflect system support but is not the recommended
 production path because it can crop video incorrectly on supported macOS
 releases.
 
+The direct path always delivers the source picture at its own aspect.
+``Player/aspectRatio`` keeps a forced ``AspectRatio/ratio(_:_:)`` as you set
+it, but the ratio is not applied while a directly constructed
+``PiPController`` renders the player; it takes effect again once that
+controller is released and the player renders into a view.
+
 The direct renderer asks libVLC for 8-bit BGRA frames and uses an SDR RGB
 conversion path when AVKit requests resized output. It does not preserve
 HDR or wide-color metadata; use it only when that limitation is acceptable.

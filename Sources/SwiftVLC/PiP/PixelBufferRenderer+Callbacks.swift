@@ -327,6 +327,14 @@ final class DirectPiPVideoCallbackSlot {
     return true
   }
 
+  /// Whether a vmem output of this handle is open, or can still open with the
+  /// published callbacks. An output keeps its callback copy after the
+  /// media-player variables are cleared, so a dormant slot still counts while
+  /// one of its outputs is open.
+  var hostsVideoOutput: Bool {
+    installedABI != nil || context.hasOpenVout
+  }
+
   var callbacksInstalledForTesting: Bool {
     installedABI != nil
   }
@@ -551,8 +559,12 @@ final class PixelBufferRendererCallbackContext: Sendable {
     )
   }
 
-  var hasOpenVoutForTesting: Bool {
+  var hasOpenVout: Bool {
     state.withLock { $0.openVoutCount > 0 }
+  }
+
+  var hasOpenVoutForTesting: Bool {
+    hasOpenVout
   }
 
   var voutGenerationSequence: PixelBufferVoutGenerationCounter {

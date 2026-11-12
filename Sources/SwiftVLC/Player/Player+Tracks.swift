@@ -176,8 +176,25 @@ extension Player {
     applyAspectRatio(_aspectRatio, to: pointer)
   }
 
+  /// Whether a forced aspect ratio may be handed to libVLC.
+  ///
+  /// The direct Picture in Picture path renders through geometry-negotiated
+  /// vmem callbacks, whose output is always the source's square-pixel picture
+  /// and cannot be re-shaped once open. Pinned libVLC engines answer the
+  /// request by resetting a display that has no reset operation: a null call
+  /// that takes the process down. The ratio is therefore withheld for as long
+  /// as this handle can host such an output. ``aspectRatio`` keeps what the app
+  /// set, and it reaches libVLC again once the output is gone.
+  var forwardsAspectRatioOverride: Bool {
+    #if os(iOS) || os(macOS)
+    directPiPVideoCallbackSlot?.hostsVideoOutput != true
+    #else
+    true
+    #endif
+  }
+
   func applyAspectRatio(_ aspectRatio: AspectRatio, to pointer: OpaquePointer) {
-    if let ratioString = aspectRatio.vlcString {
+    if forwardsAspectRatioOverride, let ratioString = aspectRatio.vlcString {
       ratioString.withCString { cstr in
         libvlc_video_set_aspect_ratio(pointer, cstr)
       }
