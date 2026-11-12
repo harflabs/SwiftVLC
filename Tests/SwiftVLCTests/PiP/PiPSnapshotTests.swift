@@ -388,6 +388,28 @@ extension Integration {
       )
     }
 
+    /// AVKit reports the PiP window's size and nothing when the window
+    /// closes. The size used to outlive the window, so inline video stayed
+    /// scaled down to the last PiP size for the rest of the controller's life.
+    @Test
+    func `Stopping PiP clears the PiP render size`() {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      let controller = PiPController(player: player)
+
+      controller.updatePiPActive(true)
+      controller.handleRenderSizeTransition(
+        CMVideoDimensions(width: 320, height: 180)
+      )
+      #expect(controller.renderer.state.withLock { $0.renderSize } != nil)
+
+      controller.updatePiPActive(false)
+
+      #expect(
+        controller.renderer.state.withLock { $0.renderSize } == nil,
+        "inline frames are still converted to the closed PiP window's size"
+      )
+    }
+
     /// Both flags travel in one value. Published from a single funnel they
     /// could otherwise describe a pair that was never simultaneously true.
     @Test

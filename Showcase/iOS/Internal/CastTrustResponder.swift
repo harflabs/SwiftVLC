@@ -29,7 +29,7 @@ final class CastTrustResponder {
     task = Task.detached {
       for await event in dialogs {
         guard case .question(let request) = event else { continue }
-        if request.isCertificateTrust || request.isCastPerformanceWarning {
+        if request.isCertificateTrustQuestion || request.isCastPerformanceWarning {
           request.post(action: 1)
         }
       }
@@ -38,13 +38,9 @@ final class CastTrustResponder {
 }
 
 extension QuestionRequest {
-  fileprivate var isCertificateTrust: Bool {
-    action1Text?.localizedCaseInsensitiveContains("certificate") == true
-      || title.localizedCaseInsensitiveContains("insecure")
-  }
-
   /// libVLC warns before casting a stream it must transcode (burning in a
-  /// subtitle forces this). Accepting it lets the cast proceed.
+  /// subtitle forces this). `VLCInstance.defaultArguments` turns the warning
+  /// off; this only matters for an instance built from custom arguments.
   fileprivate var isCastPerformanceWarning: Bool {
     title.localizedCaseInsensitiveContains("performance")
   }

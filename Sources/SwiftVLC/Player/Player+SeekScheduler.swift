@@ -459,8 +459,27 @@ extension Player {
   /// request no longer has permission to hide the engine's latest raw clock.
   /// Releasing it updates observable truth without changing the request's
   /// already terminal `.timedOut` outcome.
+  ///
+  /// That holds only once the native episode has drained. While it is still
+  /// in flight (a stalled range request, a long precise preroll) the retained
+  /// sample was stamped before the engine reached the target: it is the
+  /// pre-seek or preroll position, and replaying it snaps the published time
+  /// back until the late landing arrives. A request that published a target
+  /// keeps the quarantine with its tombstone instead;
+  /// `nativeSeekDrainDidClear` retires both together. A request that published
+  /// none has only the raw clock to show, so it is released as before.
   func releaseQuarantinedSeekTimelineIfNoSuccessor() {
     guard queuedNativeSeek == nil, let quarantinedSeekTimeline else { return }
+    if
+      let activeNativeSeek,
+      activeNativeSeek.isTombstoned,
+      activeNativeSeek.command.nativeSeekToken == quarantinedSeekTimeline.nativeSeekToken,
+      nativeSeekMonitor.hasSeekDrainPending {
+      switch activeNativeSeek.command.publication {
+      case .time, .position: return
+      case .revisionOnly: break
+      }
+    }
     self.quarantinedSeekTimeline = nil
     applyQuarantinedSeekTimeline(quarantinedSeekTimeline)
   }

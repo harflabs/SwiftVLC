@@ -2,6 +2,16 @@
 import Foundation
 import Testing
 
+/// libVLC core's `var_Inherit`. `vlc_value_t` is a pointer-sized union, so an
+/// integer variable is read through an `Int64`.
+@_silgen_name("var_Inherit")
+private func inheritNativeVariableForTesting(
+  _ object: OpaquePointer,
+  _ name: UnsafePointer<CChar>,
+  _ type: Int32,
+  _ value: UnsafeMutablePointer<Int64>
+) -> Int32
+
 extension Integration {
   struct VLCInstanceTests {
     @Test
@@ -120,15 +130,51 @@ extension Integration {
     @Test
     func `Default arguments contains expected values`() {
       let args = VLCInstance.defaultArguments
-      #expect(args.count == 2)
+      #expect(args.count == 3)
       #expect(!args.contains("--force-darwin-legacy-display"))
       #expect(!args.contains("--vout=macosx"))
       #expect(args.contains("--no-video-title-show"))
       #expect(args.contains("--no-snapshot-preview"))
+      #expect(args.contains("--sout-renderer-show-perf-warning=0"))
       #expect(!args.contains("--text-renderer=freetype"))
       // --no-stats is intentionally absent: it would zero every stats
       // counter every app ever reads. Opt in by passing it explicitly.
       #expect(!args.contains("--no-stats"))
+    }
+
+    /// The renderer outputs read this setting by inheritance from the libVLC
+    /// instance, so asserting it there proves both that the bundled libVLC
+    /// accepts the option name (an unknown option fails `libvlc_new`) and
+    /// that the default actually reaches the value the cast path consults.
+    @Test
+    func `Default arguments turn the renderer conversion question off`() throws {
+      let withDefaults = try VLCInstance(arguments: VLCInstance.defaultArguments + ["--quiet"])
+      let withoutDefaults = try VLCInstance(arguments: ["--quiet"])
+      let optedBackIn = try VLCInstance(
+        arguments: VLCInstance.defaultArguments + ["--sout-renderer-show-perf-warning=1", "--quiet"]
+      )
+
+      #expect(Self.rendererConversionQuestionSetting(of: withDefaults) == 0)
+      #expect(Self.rendererConversionQuestionSetting(of: withoutDefaults) == 1)
+      #expect(Self.rendererConversionQuestionSetting(of: optedBackIn) == 1)
+    }
+
+    private static func rendererConversionQuestionSetting(of instance: VLCInstance) -> Int64? {
+      // `libvlc_instance_t` begins with its `libvlc_int_t *`, the root object
+      // every stream output inherits configuration from.
+      let root = UnsafeRawPointer(instance.pointer).load(as: OpaquePointer?.self)
+      var value: Int64 = -1
+      let integerVariable: Int32 = 0x0030 // VLC_VAR_INTEGER
+      guard
+        let root,
+        inheritNativeVariableForTesting(
+          root,
+          "sout-renderer-show-perf-warning",
+          integerVariable,
+          &value
+        ) == 0
+      else { return nil }
+      return value
     }
 
     #if os(macOS)

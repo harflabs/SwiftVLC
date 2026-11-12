@@ -60,9 +60,22 @@ public final class VLCInstance: Sendable {
   /// ``init(arguments:applicationName:httpUserAgent:appleAudioSessionPolicy:)``
   /// if you need that mode
   /// (embedded contexts with tight memory budgets, CLI tools).
+  ///
+  /// `--sout-renderer-show-perf-warning=0` stops libVLC from asking a
+  /// "Performance warning" question before it transcodes for a renderer
+  /// (a Chromecast or DLNA device that cannot play the video codec, or any
+  /// cast with a subtitle track selected). libVLC treats an unanswered or
+  /// declined question as a refusal it cannot recover from: the renderer is
+  /// never loaded while the player keeps reporting `.playing`. With the
+  /// question off, the conversion simply starts. An instance created from a
+  /// custom argument list that omits this option gets the question back and
+  /// must answer it through ``DialogHandler``; pass
+  /// `--sout-renderer-show-perf-warning=1` after these defaults to opt in
+  /// deliberately.
   public static let defaultArguments: [String] = [
     "--no-video-title-show",
-    "--no-snapshot-preview"
+    "--no-snapshot-preview",
+    "--sout-renderer-show-perf-warning=0"
   ]
 
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_instance_t*

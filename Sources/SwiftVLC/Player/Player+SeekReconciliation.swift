@@ -181,9 +181,19 @@ extension Player {
     }
     guard precise, let target = command.evidence.requestedTimeMilliseconds else { return true }
     let delta = Double(landing.timeMilliseconds) - Double(target)
-    let frameMilliseconds = max(1, Double(landing.frameDurationMicroseconds) / 1000)
+    // libVLC reports zero when the decoded format carries no frame rate.
+    // That is "unknown", not "shorter than a millisecond": bounding by it
+    // would call every correct first-picture-after-target landing inaccurate.
+    let frameMilliseconds = landing.frameDurationMicroseconds > 0
+      ? max(1, Double(landing.frameDurationMicroseconds) / 1000)
+      : Self.unknownFrameDurationSeekBoundMilliseconds
     return delta >= -1 && delta <= frameMilliseconds + 1
   }
+
+  /// Precise-seek bound used when libVLC cannot report a frame duration.
+  /// One frame at 10 fps: wide enough for any ordinary cadence, far tighter
+  /// than a keyframe-distance miss.
+  static let unknownFrameDurationSeekBoundMilliseconds: Double = 100
 
   /// A start with no matching staged token was issued outside SwiftVLC. It
   /// establishes a new external epoch synchronously in the monitor; commands
@@ -363,11 +373,17 @@ extension Player {
   func nativeSeekDrainDidClear() {
     reconcileCommittedNativeSeekProgress()
     guard !isShutdown, !nativeSeekMonitor.hasSeekDrainPending else { return }
-    if activeNativeSeek?.isTombstoned == true {
-      activeNativeSeek?.deadlineTask?.cancel()
-      activeNativeSeek?.pollingTask?.cancel()
-      lateNativeSeekObservation = activeNativeSeek
+    if let tombstone = activeNativeSeek, tombstone.isTombstoned {
+      tombstone.deadlineTask?.cancel()
+      tombstone.pollingTask?.cancel()
+      lateNativeSeekObservation = tombstone
       activeNativeSeek = nil
+      // Samples retained through the timeout were stamped while the episode
+      // was in flight and cannot be ordered against its native end. The lane
+      // is open again, so the next raw sample is authoritative on its own.
+      discardQuarantinedSeekTimeline(
+        nativeSeekToken: tombstone.command.nativeSeekToken
+      )
     }
     dispatchQueuedNativeSeekIfPossible()
     dispatchNextPendingFrameStepIfNeeded()
@@ -454,7 +470,10 @@ extension Player {
         updatedPending.firstPostEndTimeMilliseconds
       pendingSeekSettlement?.firstPostEndPosition = updatedPending.firstPostEndPosition
     }
-    guard isAuthoritative else { return }
+    guard isAuthoritative else {
+      settlePausedSeekOnTargetIfClockStaysStale(token: token, pending: updatedPending)
+      return
+    }
     let position = coherentPausedFallbackPosition(point, pending: updatedPending)
     let candidate = NativeSeekLanding(
       token: token,
@@ -465,12 +484,75 @@ extension Player {
     processNativeSeekLanding(claimed)
   }
 
+  /// Pause jitter between the pre-dispatch getter and a stale post-end
+  /// getter. Before a paused seek's first output, libVLC can answer from the
+  /// input's last reported time instead of the frozen output clock; the two
+  /// describe the same pre-seek position but differ by up to a report interval.
+  static let pausedSeekStaleClockJitterMilliseconds: Int64 = 500
+
+  /// How long a paused getter may stay unproven after native seek-end before
+  /// the lane stops waiting for it.
+  static let pausedSeekStaleClockBound: Duration = .milliseconds(500)
+
+  /// Without an output a paused input publishes no watched point until
+  /// playback resumes, and an engine whose paused getter keeps answering with
+  /// the pre-seek position can never supply the fallback proof either. The
+  /// native seek has ended, so the request is not in flight; holding the
+  /// single-flight lane until resume would leave every later paused seek
+  /// undispatched. Settle on the requested target, which is already the
+  /// published optimistic value, and release the lane. The raw clock corrects
+  /// the mirror from the first real point after resume.
+  func settlePausedSeekOnTargetIfClockStaysStale(
+    token: UInt64,
+    pending: PendingSeekSettlement
+  ) {
+    guard
+      let activeNativeSeek,
+      activeNativeSeek.command.nativeSeekToken == token,
+      nativeSeekMonitor.seekEndedAwaitingPointToken == token
+    else { return }
+    let now = ContinuousClock.now
+    guard let staleSince = activeNativeSeek.pausedClockStaleSince else {
+      self.activeNativeSeek?.pausedClockStaleSince = now
+      return
+    }
+    guard now - staleSince >= Self.pausedSeekStaleClockBound else { return }
+
+    let candidate: NativeSeekLanding
+    if let requestedTimeMilliseconds = pending.requestedTimeMilliseconds {
+      candidate = NativeSeekLanding(
+        token: token,
+        timeMilliseconds: requestedTimeMilliseconds,
+        position: pending.requestedPosition ?? -.infinity
+      )
+    } else if
+      case .position = activeNativeSeek.command.operation,
+      let requestedPosition = pending.requestedPosition {
+      candidate = NativeSeekLanding(
+        token: token,
+        timeMilliseconds: -1,
+        position: requestedPosition
+      )
+    } else {
+      // A relative request without a known target has nothing to settle on.
+      return
+    }
+    guard let claimed = nativeSeekMonitor.claimPausedFallback(candidate) else { return }
+    processNativeSeekLanding(claimed)
+  }
+
   var nativeSeekHasSelectedVideo: Bool {
     #if DEBUG
     if let override = _seekOverridesForTesting.hasSelectedVideo {
       return override
     }
     #endif
+    // A selected video track proves nothing by itself. With no local output
+    // (no drawable was ever usable, or a renderer owns presentation) libVLC
+    // unloads the video decoder and no picture is ever submitted, so a seek
+    // that waited for one would time out on every request and, while paused,
+    // hold the single-flight lane until playback resumed.
+    guard activeVideoOutputs > 0 else { return false }
     guard let track = libvlc_media_player_get_selected_track(pointer, libvlc_track_video) else {
       return false
     }
@@ -626,8 +708,16 @@ extension Player {
     // overlap. Two identical post-end reads prove a stable native landing,
     // including a legitimate off-target/keyframe landing, but only when that
     // stable pair is observably different from the pre-dispatch baseline.
-    let timeDiffersFromBaseline = pending.baselineTimeMilliseconds.map {
-      firstTime != $0
+    let timeDiffersFromBaseline = pending.baselineTimeMilliseconds.map { baseline in
+      guard firstTime != baseline else { return false }
+      // A stable read just beside the baseline is the pre-seek position read
+      // back through pause jitter, not a landing, unless the request itself
+      // aimed that close. Accepting it would settle a far seek at the old time.
+      guard
+        let requested = pending.requestedTimeMilliseconds,
+        abs(requested - baseline) > Self.pausedSeekStaleClockJitterMilliseconds
+      else { return true }
+      return abs(firstTime - baseline) > Self.pausedSeekStaleClockJitterMilliseconds
     } ?? false
     let positionDiffersFromBaseline: Bool = if
       let firstPosition = pending.firstPostEndPosition,

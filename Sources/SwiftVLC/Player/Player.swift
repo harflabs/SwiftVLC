@@ -100,6 +100,23 @@ public final class Player {
   /// ``PlayerEvent/endReached-enum.case`` for what counts as a natural end.
   public internal(set) var didReachEnd: Bool = false
 
+  /// Why the most recent playback session failed, or `nil` if it did not.
+  ///
+  /// libVLC opens media asynchronously: ``play()`` returns as soon as the
+  /// request is accepted, so an unreachable host, a missing file, or media no
+  /// decoder can handle fails afterwards rather than by throwing. ``state``
+  /// only passes through ``PlayerState/error`` on its way to
+  /// ``PlayerState/stopped``, usually within the same frame, which leaves a
+  /// view observing `state` unable to tell a failure from a stop. This value
+  /// stays set after the session has stopped.
+  ///
+  /// Set when the session ends in ``PlaybackTerminalCause/failure(_:)``;
+  /// reset by the next ``load(_:)``, ``play(_:)``, or ``play()``. A stop the
+  /// app requested, a media replacement, and a natural end leave it `nil`.
+  /// ``terminalOutcomes`` carries the same result, together with the final
+  /// timeline, for consumers that prefer a stream.
+  public internal(set) var failure: PlaybackFailureKind?
+
   /// Available audio tracks.
   public internal(set) var audioTracks: [Track] = []
 
@@ -278,6 +295,10 @@ public final class Player {
     _didReachEnd = value
   }
 
+  func storeFailureWithoutNestedObservation(_ value: PlaybackFailureKind?) {
+    _failure = value
+  }
+
   func removeAllAudioTrackStorageWithoutNestedObservation() {
     _audioTracks.removeAll(keepingCapacity: false)
   }
@@ -369,6 +390,7 @@ public final class Player {
 
   @ObservationIgnored var _pauseProbeHookForTesting: ((PauseProbeStage) -> Void)?
   @ObservationIgnored var _nativePlaybackStateOverrideForTesting: PlayerState?
+  @ObservationIgnored var _videoDisplaySizeOverrideForTesting: CGSize?
   @ObservationIgnored var _nativeLengthOverrideForTesting: Int64?
   @ObservationIgnored var _nativeSeekableOverrideForTesting: Bool?
   @ObservationIgnored var _nativeVolumeOverrideForTesting: Int32?
@@ -399,11 +421,17 @@ public final class Player {
       pauseTransitionPlaybackGeneration = pauseTransition == nil
         ? nil
         : eventBridge.currentPlaybackGeneration
+      pauseTransitionBeganAt = pauseTransition == nil ? nil : ContinuousClock.now
     }
   }
 
   /// Native playback generation the in-flight transition was issued against.
   @ObservationIgnored var pauseTransitionPlaybackGeneration: UInt64?
+  /// When the in-flight transition was issued. libVLC acknowledges a pause
+  /// with a state event only when it actually applies one, so age is the only
+  /// evidence that an unacknowledged `.pausing` will never be answered. See
+  /// ``retireUnacknowledgedPauseIfPlaybackContinues()``.
+  @ObservationIgnored var pauseTransitionBeganAt: ContinuousClock.Instant?
   @ObservationIgnored var deferredPauseCommand: DeferredPauseCommand? {
     didSet {
       deferredPauseCommandPlaybackGeneration = deferredPauseCommand == nil

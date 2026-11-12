@@ -1,0 +1,54 @@
+# Keep the extended vmem output alive across aspect changes and inexact ratios.
+#
+# The extended format path refused VOUT_DISPLAY_CHANGE_SOURCE_ASPECT and
+# VOUT_DISPLAY_CHANGE_SOURCE_CROP. The core answers a refusal by resetting the
+# pictures, an operation this display does not implement, and calls it through
+# a null pointer in release builds: setting an aspect ratio on a player with
+# extended vmem callbacks crashed the process.
+#
+# The output must have square pixels and a whole number of them, so it can
+# only approximate a display aspect ratio that is not a ratio of small
+# integers (1920x816 with a 817:816 sample aspect ratio). Requiring the exact
+# fraction rejected such streams on every attempt: audio played with a black
+# picture and no error. The nearest pixel on either axis is accepted.
+--- a/modules/video_output/vmem.c
++++ b/modules/video_output/vmem.c
+@@ -132,12 +132,15 @@
+                      0))
+         return false;
+ 
+-    unsigned output_num, output_den;
+-    if (!vlc_ureduce(&output_num, &output_den,
+-                     output_width, output_height, 0))
+-        return false;
+-
+-    return source_num == output_num && source_den == output_den;
++    /* The output is a whole number of pixels, so it can only approximate a
++     * display aspect ratio that is not a ratio of small integers (a 1920x816
++     * picture with a 817:816 sample aspect ratio, for example). Accept the
++     * nearest pixel on either axis: half a pixel of error at most. */
++    const uint64_t width_error =
++        (uint64_t)output_width * source_den > (uint64_t)output_height * source_num
++        ? (uint64_t)output_width * source_den - (uint64_t)output_height * source_num
++        : (uint64_t)output_height * source_num - (uint64_t)output_width * source_den;
++    return 2 * width_error <= (source_num > source_den ? source_num : source_den);
+ }
+ 
+ static void           Prepare(vout_display_t *, picture_t *, const struct vlc_render_subpicture *, vlc_tick_t);
+@@ -442,12 +445,14 @@
+ 
+ static int Control(vout_display_t *vd, int query)
+ {
+-    vout_display_sys_t *sys = vd->sys;
++    (void) vd;
+ 
+     switch (query) {
+         case VOUT_DISPLAY_CHANGE_SOURCE_ASPECT:
+         case VOUT_DISPLAY_CHANGE_SOURCE_CROP:
+-            return sys->extended_format ? VLC_EGENERIC : VLC_SUCCESS;
++            /* Refusing asks the core to reset the pictures, which this
++             * display cannot do: the core then calls a null operation. The
++             * extended output keeps the geometry negotiated when it opened. */
+         case VOUT_DISPLAY_CHANGE_SOURCE_PLACE:
+             return VLC_SUCCESS;
+     }

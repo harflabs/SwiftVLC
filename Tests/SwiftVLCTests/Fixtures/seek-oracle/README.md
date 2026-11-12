@@ -22,6 +22,10 @@ dropped after resuming a pause taken just before a jump (patch 0055).
 `hls-discontinuity/` lists the same three runs as HLS segments separated by
 `EXT-X-DISCONTINUITY`: the frames before each discontinuity must be displayed
 and the player time must follow the playlist across it (patch 0063).
+`hls-subtitle-discontinuity/` plays one 12-second, 64×36 sequence twice
+across an `EXT-X-DISCONTINUITY`, with a WebVTT rendition that has the same
+discontinuity. A subtitle stream cannot anchor the new sequence itself and
+must not hold the other streams back while it waits for them (patch 0070).
 
 The second MP4, `open-gop.mp4`, is a 12-second, 320×192 H.264 open-GOP
 sequence with two-second recovery points, three B-frames, AAC, the same barcode,

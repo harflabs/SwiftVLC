@@ -119,6 +119,79 @@ decoder starved video at every GOP boundary.
 on avc3/hev1 streams), SRT arrows surrounded by tabs, SPU cache invalidation,
 deselecting finished MP4 tracks, and audio output delay correctness.
 
+## Final review before 1.1.0 (patches 0065–0071)
+
+A second pass ran real libVLC through the flows an app uses every day and
+compared what the player reports with what actually happened. Each item below
+was reproduced on the beta.15 engine first, then fixed, and has a real-libVLC
+test that fails on that engine.
+
+**A non-fatal failure no longer breaks the session or its end (patch 0065).**
+libVLC recorded the first failure of any stream and from then on reported
+`Error` as its state, although the input kept playing. Starting playback before
+a view existed, a selected track without a decoder, or an external subtitle
+file that was missing was enough. `resume()` and `togglePlayPause()` then did
+nothing after a pause, and the clean end of the file arrived as
+`encounteredError` with `didReachEnd == false`. A video file played with no
+view at all ran to its last sample and ended as `.failure(.renderer)`. Now a
+recorded failure is an error only once it ends the input, an input that
+presented anything ends naturally, and one that presented nothing fails. Data
+in which no demuxer finds a stream used to "play" and end as a natural end at
+time zero; it ends as `.failure(.demux)`.
+
+**The time reported while paused (patch 0066).** Every redisplay of a paused
+picture republished that picture's timestamp as the playback time. With a
+picture older than the audio position (the video track of
+`early-video-end.mp4` ends four seconds before its audio) pausing at 5.1 s made
+libVLC report 1.8 s, which relative seeks then started from. With a real audio
+output, a paused seek on audio-only playback (or on video without an output)
+published no point until playback resumed: the first seek "settled" at the
+position before the seek and the published time snapped back to it, and every
+later paused seek timed out behind it. `--aout=dummy`, which the headless
+suite uses, hid this. Paused getters now return the pending seek target, and
+those seeks settle at once.
+
+**Seeks without a video output (Swift).** A selected video track whose output
+libVLC abandoned never submits a picture, so every seek waited two seconds for
+one with the published time frozen. Output evidence is required only while a
+local video output is running: such seeks settle in 70–270 ms.
+
+**The extended vmem output (patch 0067).** Setting an aspect ratio on a player
+rendered through a directly constructed `PiPController` crashed the process
+(the core called a null picture-reset operation), and a sample aspect ratio
+that no whole number of square pixels can express exactly (1920x816 at
+817:816) was rejected on every attempt: audio with a black picture, no error
+(issue #250).
+
+**Rate across a resolution switch (patch 0069).** A format change restarts
+the display in place and reset it to rate 1. On a video-only stream that
+changes resolution after two seconds, played at 2x, the pictures after the
+switch ran at 1.00x; they run at 2.00x.
+
+**HLS with a selected subtitle rendition (patch 0070).** Patch 0063 cleared
+every stream's synchronization reference at a discontinuity. A WebVTT stream
+cannot anchor the new sequence itself; it waited for the video stream's
+reference while holding back the demux deadline the video stream needed to
+publish one. Audio and video stopped for good just before the discontinuity
+with the state still playing. Muxed HLS without subtitles was unaffected,
+which is what the 0063 fixture covered.
+
+**Memory over long playback (patch 0071).** The video output thread has no
+autorelease pool, and `AVSampleBufferVideoRenderer` autoreleases an object on
+every readiness query, enqueue and flush: about 160 bytes per picture, tens of
+megabytes per hour, until the output closes.
+
+**Patch 0068** drops a paused frame demand that can be processed after its
+resume and would make the next pause demux at full speed. It was found by
+reading the control ordering; 144 pause, seek and immediate-resume cycles did
+not reproduce it.
+
+Scrubbing, repeated skips and long media needed no change: a 60 Hz drag over
+three seconds followed by a precise seek shows the target frame within one
+frame of the request, fifteen 2-second skips in 0.7 s land exactly 30 s on,
+and precise seeks on a 12-hour file land on the requested frame at every
+position tried, including the last half second.
+
 ## Regression checks
 
 With 0055–0056 (the same harness): plain pause/resume of 0.3–10 s on local
@@ -129,6 +202,19 @@ engine and against the published beta.14 engine, and all 64 native patches
 replay on the pinned VLC source with mutation-checked source contracts.
 
 ## Known limits (not fixed here)
+
+- HLS with a separate audio rendition (`EXT-X-MEDIA:TYPE=AUDIO`) and
+  `EXT-X-DISCONTINUITY`: the streams reach the discontinuity in different
+  demux rounds, so the drain and reset of 0063 never run. Playback stalls at
+  the discontinuity when timestamps jump, or skips the rest when they restart.
+  Same on every earlier engine; 0063 and 0070 cover muxed streams.
+- A connection the server closes mid-stream without an error ends as a
+  natural end, as does a truncated file at its last readable sample. Compare
+  the terminal outcome's final time with the duration.
+- The interval of the audio timing reports of 0064 applies to CoreAudio
+  (`auhal`, `audiounit_ios`). `avsamplebuffer`, the default audio output on
+  iOS, tvOS and visionOS, still reports once a second, so the clock step after
+  a rate change described above is unchanged there.
 
 - Seeking HLS across `EXT-X-DISCONTINUITY` sequences: the adaptive demuxer
   refuses seeks while a discontinuity drains through its queue (most of each

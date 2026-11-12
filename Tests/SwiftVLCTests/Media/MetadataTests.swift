@@ -73,8 +73,8 @@ extension Integration {
 
     @Test
     func `Metadata is Equatable`() async throws {
-      // Use two separate media objects since libVLC rejects
-      // a second parse on the same media object.
+      // Two separate media objects, so the comparison is between two
+      // independent parses rather than one parse read twice.
       let media1 = try Media(url: TestMedia.testMP4URL)
       let media2 = try Media(url: TestMedia.testMP4URL)
       let meta1 = try await media1.parse()

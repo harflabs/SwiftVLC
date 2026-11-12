@@ -296,6 +296,50 @@ extension Integration {
       #expect(abs(player.position - 0.14) < 0.000_001)
     }
 
+    /// A sample stamped after dispatch but before the engine reached the
+    /// target is the pre-seek position. Replaying it when observation expires
+    /// snapped a stalled seek's published time back until its late landing.
+    @Test
+    func `A timed out seek keeps its published target until the native episode drains`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      player._setStateForTesting(
+        state: .playing,
+        isPlaybackRequestedActive: true,
+        currentTime: .seconds(10),
+        duration: .seconds(100),
+        position: 0.1,
+        isSeekable: true
+      )
+      player._nativeSetTimeOverrideForTesting = { _, _ in 0 }
+
+      let request = try player.requestSeek(to: .seconds(40))
+      player.eventBridge._broadcastForTesting(
+        .timeChanged(.seconds(11)),
+        nativeHandleGeneration: player.eventBridge.currentNativeHandleGeneration,
+        playbackGeneration: player.sessionGeneration
+      )
+      await drainMainActor()
+      #expect(player.currentTime == .seconds(40))
+      player._expirePendingSeekForTesting()
+
+      #expect(await request.outcome == .timedOut)
+      #expect(player.currentTime == .seconds(40))
+      #expect(player.activeNativeSeek?.isTombstoned == true)
+
+      // The late landing still corrects the mirror and frees the lane.
+      player.nativeSeekMonitor._noteSeekEndedForTesting()
+      player.nativeSeekMonitor._noteTimeUpdatedForTesting(
+        timeMilliseconds: 39000,
+        position: 0.39
+      )
+      await drainMainActor()
+      #expect(player.currentTime == .seconds(39))
+      #expect(player.activeNativeSeek == nil)
+      #expect(player.quarantinedSeekTimeline == nil)
+      #expect(!player.nativeSeekMonitor.hasSeekDrainPending)
+      #expect(await request.outcome == .timedOut)
+    }
+
     /// Media replacement establishes a new generation and makes the outgoing
     /// request explicitly superseded, even if its old event arrives later.
     @Test

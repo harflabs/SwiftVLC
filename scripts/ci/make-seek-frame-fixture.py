@@ -69,6 +69,44 @@ if '--verify-only' not in sys.argv:
         + '#EXT-X-DISCONTINUITY\n'.join(f'#EXTINF:4.000000,\nseg{k}.ts\n' for k in range(3))
         + '#EXT-X-ENDLIST\n')
 
+# A 12-second HLS sequence played twice across an EXT-X-DISCONTINUITY, with a
+# WebVTT rendition that has the same discontinuity. A subtitle stream cannot
+# anchor a new sequence itself: it takes the reference the video stream
+# publishes. The sequences are longer than the demuxer buffers ahead, so the
+# subtitle stream reaches the discontinuity first.
+hls_subtitle = root / 'hls-subtitle-discontinuity'
+if '--verify-only' not in sys.argv:
+    hls_subtitle.mkdir(exist_ok=True)
+    subprocess.run([
+        'ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin',
+        '-f', 'lavfi', '-i', 'testsrc=size=64x36:rate=10:duration=12',
+        '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=16000:duration=12',
+        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '36', '-bf', '0',
+        '-g', '20', '-keyint_min', '20', '-sc_threshold', '0', '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac', '-b:a', '16k', '-ac', '1', '-map_metadata', '-1',
+        '-fflags', '+bitexact', '-flags:v', '+bitexact', '-flags:a', '+bitexact',
+        '-f', 'hls', '-hls_time', '2', '-hls_list_size', '0',
+        '-hls_segment_filename', str(hls_subtitle / 'a%d.ts'), '-y', str(hls_subtitle / 'a.m3u8')
+    ], check=True)
+    (hls_subtitle / 'a.m3u8').unlink()
+    header = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:{}\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n'
+    segments = ''.join(f'#EXTINF:2.000000,\na{k}.ts\n' for k in range(6))
+    (hls_subtitle / 'video.m3u8').write_text(
+        header.format(2) + segments + '#EXT-X-DISCONTINUITY\n' + segments + '#EXT-X-ENDLIST\n')
+    for k in range(2):
+        (hls_subtitle / f'sub{k}.vtt').write_text(
+            'WEBVTT\nX-TIMESTAMP-MAP=MPEGTS:131760,LOCAL:00:00:00.000\n\n' + ''.join(
+                f'00:00:{6 * k + 1 + 2 * n:02d}.000 --> 00:00:{6 * k + 2 + 2 * n:02d}.500\ncue {3 * k + n + 1}\n\n'
+                for n in range(3)))
+    cues = ''.join(f'#EXTINF:6.000000,\nsub{k}.vtt\n' for k in range(2))
+    (hls_subtitle / 'subs.m3u8').write_text(
+        header.format(6) + cues + '#EXT-X-DISCONTINUITY\n' + cues + '#EXT-X-ENDLIST\n')
+    (hls_subtitle / 'master.m3u8').write_text(
+        '#EXTM3U\n#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="English",LANGUAGE="en",'
+        'DEFAULT=YES,AUTOSELECT=YES,URI="subs.m3u8"\n'
+        '#EXT-X-STREAM-INF:BANDWIDTH=100000,CODECS="avc1.64000a,mp4a.40.2",SUBTITLES="subs"\n'
+        'video.m3u8\n')
+
 # Open-GOP H.264 needs both recovery-point decoder reset and rejection of
 # leading pictures that still reference the previous GOP. Use moving colored
 # content: a barcode alone can survive while the rest of the frame is corrupt.

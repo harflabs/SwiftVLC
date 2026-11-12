@@ -1,4 +1,5 @@
 @testable import SwiftVLC
+import CLibVLC
 import Foundation
 import Testing
 
@@ -136,8 +137,8 @@ extension Integration {
 
     @Test(.tags(.async, .media))
     func `Multiple media objects parse independently`() async throws {
-      // libVLC rejects a second parse on the same media object,
-      // so verify two separate media objects parse independently.
+      // A second parse of one media object only returns the first result,
+      // so independence needs two separate media objects.
       let media1 = try Media(url: TestMedia.testMP4URL)
       let media2 = try Media(url: TestMedia.testMP4URL)
       let meta1 = try await media1.parse()
@@ -224,17 +225,63 @@ extension Integration {
       }
     }
 
+    /// libVLC rejects a parse request for media it has already parsed. The
+    /// metadata is there to return, so a repeated call must not surface that
+    /// rejection as a failure.
     @Test(.tags(.async, .media))
-    func `Parse same media twice fails`() async throws {
+    func `Parsing already parsed media returns its metadata`() async throws {
       let media = try Media(url: TestMedia.testMP4URL)
-      _ = try await media.parse()
-      // Second parse on same media should fail (libVLC rejects it)
-      do {
-        _ = try await media.parse()
-        Issue.record("Expected second parse to fail")
-      } catch {
-        // Expected: "parse request rejected"
-        _ = error // Expected VLCError
+      let first = try await media.parse()
+      let second = try await media.parse()
+      #expect(second == first)
+      #expect(second.title == "Test")
+    }
+
+    /// Opening media for playback marks it parsed without any parse request.
+    @Test(.tags(.async, .media, .mainActor), .enabled(if: TestCondition.canPlayMedia))
+    @MainActor func `Parsing media a player has opened returns its metadata`() async throws {
+      let player = Player(instance: TestInstance.makePlayback())
+      try player.play(Media(url: TestMedia.twosecURL))
+      try #require(await poll(timeout: .seconds(10)) { player.state == .playing })
+      let media = try #require(player.currentMedia)
+      try #require(
+        await poll(timeout: .seconds(5)) {
+          libvlc_media_get_parsed_status(media.pointer) == libvlc_media_parsed_status_done
+        },
+        "precondition: playback must have marked the media parsed"
+      )
+      let metadata = try await media.parse(instance: TestInstance.shared)
+      #expect(metadata.duration != nil)
+      await player.shutdown()
+    }
+
+    /// One parse per media at a time is libVLC's rule and stays visible: the
+    /// call that loses is rejected rather than joined to the one in flight.
+    @Test(.tags(.async, .media))
+    func `A parse started while another is in flight is rejected`() async throws {
+      let media = try Media(url: TestMedia.testMP4URL)
+      let errors = await withTaskGroup(of: VLCError?.self) { group in
+        for _ in 0..<2 {
+          group.addTask {
+            do throws(VLCError) {
+              _ = try await media.parse()
+              return nil
+            } catch {
+              return error
+            }
+          }
+        }
+        var errors: [VLCError] = []
+        for await error in group {
+          if let error {
+            errors.append(error)
+          }
+        }
+        return errors
+      }
+      #expect(errors.count <= 1, "at least one of the two parses must succeed")
+      for error in errors {
+        #expect(error == .parseFailed(reason: "parse request rejected"))
       }
     }
 

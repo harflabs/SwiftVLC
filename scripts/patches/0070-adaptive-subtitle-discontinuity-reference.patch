@@ -1,0 +1,32 @@
+# Let a subtitle rendition cross an HLS discontinuity.
+#
+# Patch 0063 cleared the synchronization reference of every stream at a
+# discontinuity so that the new sequence is anchored at its playlist time. A
+# stream that cannot anchor itself (a WebVTT rendition) takes that reference
+# from the other streams. With its own reference cleared it waited for one
+# while reporting that it was still buffering, which held back the demux
+# deadline the video stream needed to reach the discontinuity and publish it:
+# audio and video stopped for good just before the discontinuity, with the
+# state still playing. Only self-anchoring streams reset their reference.
+#
+# HLSDiscontinuityPlaybackTests covers a selected WebVTT rendition across a
+# discontinuity: it never reached the end on the previous engine.
+--- a/modules/demux/adaptive/Streams.cpp
++++ b/modules/demux/adaptive/Streams.cpp
+@@ -515,8 +515,14 @@
+                      * at the playlist time where it begins, instead of
+                      * extrapolating the previous sequence's reference. */
+                     fakeEsOut()->setSegmentStartTimes(currentTimeContext);
+-                    fakeEsOut()->setSynchronizationReference(
+-                        SynchronizationReference(currentSequence, Times()));
++                    /* A stream that cannot anchor itself (WebVTT) takes the
++                     * new sequence's reference from the other streams in
++                     * doBufferize(). Clearing its reference here would make
++                     * it wait for one they can only publish once it lets
++                     * the demux deadline advance. */
++                    if(contiguous)
++                        fakeEsOut()->setSynchronizationReference(
++                            SynchronizationReference(currentSequence, Times()));
+                 }
+                 assert(startTimeContext.media);
+                 if(!fakeEsOut()->hasSegmentStartTimes())

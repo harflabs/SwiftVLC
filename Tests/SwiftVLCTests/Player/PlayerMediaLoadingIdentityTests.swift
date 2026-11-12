@@ -679,8 +679,13 @@ extension Integration {
       #expect(nativeMediaAddress(on: player) != successorAddress)
     }
 
+    /// Previously pinned the opposite: an active handle with no drawable kept
+    /// its pointer and took the new media directly. libVLC starts media
+    /// assigned to a running player by itself, so that path played what
+    /// `load(_:)` had only loaded. An active handle now waits for `play()`
+    /// on a fresh handle whether or not it hosts a drawable.
     @Test
-    func `An active audio-only handle preserves direct loading compatibility`() async throws {
+    func `An active audio-only handle defers loaded media to a fresh handle`() throws {
       let player = Player(instance: TestInstance.makeAudioOnly())
       try player.load(Media(url: TestMedia.silenceURL))
       let originalPointer = player.pointer
@@ -691,12 +696,26 @@ extension Integration {
       player.load(successor)
 
       #expect(player.pointer == originalPointer)
+      #expect(player.nativePlayerNeedsReplacementBeforePlayback)
+      #expect(!player.nativeHandleRepresentsCurrentMedia)
+      #expect(player.currentMedia === successor)
+      #expect(player.state == .idle)
+      #expect(nativeMediaAddress(on: player) != successorAddress)
+    }
+
+    @Test
+    func `An audio-only handle at rest takes loaded media directly`() async throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      try player.load(Media(url: TestMedia.silenceURL))
+      let originalPointer = player.pointer
+      let successor = try Media(url: TestMedia.twosecURL)
+      let successorAddress = UInt(bitPattern: successor.pointer)
+
+      player.load(successor)
+
+      #expect(player.pointer == originalPointer)
       #expect(!player.nativePlayerNeedsReplacementBeforePlayback)
       #expect(player.currentMedia === successor)
-      // VLC queues the new input behind asynchronous destruction of the old
-      // one. The handle is intentionally preserved on this audio-only path,
-      // so wait for the authoritative native MediaChanged boundary instead
-      // of assuming set_media replaced player->media synchronously.
       try await awaitNativeMediaSwitch(on: player, to: successor)
       #expect(nativeMediaAddress(on: player) == successorAddress)
     }

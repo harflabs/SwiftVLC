@@ -109,7 +109,7 @@ Foundation types shared across all modules.
 | `Signposts.swift` | `enum Signposts` | Process-wide `OSSignposter` for `org.swiftvlc` subsystem. Hot paths (`Broadcaster.broadcast`, `Player.handleEvent`, `EventBridge.callback`, `PixelBufferRenderer.outputPixelBuffer`) emit signposts visible in Instruments. Zero cost when no profiler is attached. |
 | `Duration+Extensions.swift` | Extensions on `Duration` | `milliseconds`, `microseconds` properties and `formatted` display string |
 
-**Default VLC arguments:** `["--no-video-title-show", "--no-snapshot-preview"]`. `--no-stats` is *not* in the defaults — leaving it on would silently zero every `Media.statistics()` read, which is almost never what a caller wants. On macOS the default keeps VLC's Apple sample-buffer display available for inline playback, including its paired subtitle layer. The private native-drawable PiP backend is present for explicitly opted-in non-App-Store builds, but it is SPI and disabled by default.
+**Default VLC arguments:** `["--no-video-title-show", "--no-snapshot-preview", "--sout-renderer-show-perf-warning=0"]`. The last one disables libVLC's "Performance warning" question before a renderer transcode; an unanswered or declined question otherwise leaves the cast unloaded while the player still reports `.playing`. `--no-stats` is *not* in the defaults — leaving it on would silently zero every `Media.statistics()` read, which is almost never what a caller wants. On macOS the default keeps VLC's Apple sample-buffer display available for inline playback, including its paired subtitle layer. The private native-drawable PiP backend is present for explicitly opted-in non-App-Store builds, but it is SPI and disabled by default.
 
 ### Player
 

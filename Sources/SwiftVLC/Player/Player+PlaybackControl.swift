@@ -186,6 +186,16 @@ extension Player {
         }
       ) else { return }
     guard stillOwnsPlaybackStart() else { return }
+    guard
+      performObservableMutation(
+        keyPath: \.failure,
+        ifPlaybackGeneration: playPlaybackGeneration,
+        nativeHandleGeneration: playNativeHandleGeneration,
+        mutation: {
+          storeFailureWithoutNestedObservation(nil)
+        }
+      ) else { return }
+    guard stillOwnsPlaybackStart() else { return }
     let playbackStartAttempt = eventBridge.beginPlaybackStartAttempt(
       playbackGeneration: playPlaybackGeneration
     )

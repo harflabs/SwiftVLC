@@ -257,7 +257,8 @@ def make_sources(version: int, leases: bool = False) -> Dict[str, str]:
         video_output = "\n".join([
             "bool is_late_dropped = sys->is_late_dropped && !frame_by_frame",
             "    && !sys->pause.is_on;",
-            "if (render_type == RENDER_PICTURE_NEXT || sys->pause.is_on)",
+            "if (render_type == RENDER_PICTURE_NEXT",
+            "    || (sys->pause.is_on && sys->paused_point_pending))",
             "    system_now = VLC_TICK_MAX;",
             "bool render_now = sys->displayed.current->b_force || sys->pause.is_on;",
         ]) + "\n"

@@ -183,7 +183,9 @@ extension Player {
   /// are unobservable; use ``stopAndWait()`` for the explicit-stop path.
   ///
   /// If libVLC rejects the renderer the call throws with the prior
-  /// renderer and local playback left intact. The audio and subtitle
+  /// renderer and local playback left intact. A track type that was turned
+  /// off (`nil` selected while the session had tracks of that type) is
+  /// turned off again on the new session. The audio and subtitle
   /// selection carry over best-effort — exact ids win; session-scoped ids
   /// fall back only to unique language/name metadata, and an unmatched or
   /// ambiguous track stays at the new session's default. A-B loop bounds, chapter/title
@@ -286,6 +288,11 @@ extension Player {
     let priorAudio = selectedAudioTrack
     let priorAudioRevision = intentRevisions.audioTrackSelection
     let priorSubtitleRevision = intentRevisions.subtitleTrackSelection
+    // "Nothing selected" is only a choice when there was something to
+    // select. A session that has not listed its tracks yet also reports no
+    // selection, and that one must keep the replacement's defaults.
+    let priorAudioWasOff = priorAudio == nil && !audioTracks.isEmpty
+    let priorSubtitleWasOff = priorSubtitle == nil && !subtitleTracks.isEmpty
     let resumeBeforeRelease = shouldResumeNativePlayerBeforeStop
     let statuses = playbackStatus
     guard
@@ -334,6 +341,31 @@ extension Player {
       return recastInterruption(for: lease) ?? .superseded
     }
     if let interruption = recastInterruption(for: lease) {
+      return interruption
+    }
+
+    // The replacement starts from the stream's default selection. Turn the
+    // types that were off back off before it plays rather than with the
+    // other track restoration below: libVLC pins an empty selection for the
+    // session and applies it ahead of the demuxer, so it needs no track
+    // list. Any later and a default subtitle is selected first, which on a
+    // renderer forces a video transcode that then has to be torn down.
+    if
+      priorAudioWasOff,
+      let interruption = restoreDeselection(
+        of: .audio,
+        revision: priorAudioRevision,
+        lease: lease
+      ) {
+      return interruption
+    }
+    if
+      priorSubtitleWasOff,
+      let interruption = restoreDeselection(
+        of: .subtitle,
+        revision: priorSubtitleRevision,
+        lease: lease
+      ) {
       return interruption
     }
 
@@ -705,39 +737,40 @@ extension Player {
     return recastInterruption(for: lease)
   }
 
-  /// Finds the track in `candidates` that best corresponds to `track` from a
-  /// previous session, or from before its unstable id was recreated.
-  /// Ambiguous metadata never chooses whichever rendition happened to arrive
-  /// first.
-  static func matchingTrack(for track: Track, in candidates: [Track]) -> Track? {
-    // An unstable id is a per-session counter: the same string can name a
-    // different rendition in another session.
-    if track.isIDStable, let exact = candidates.first(where: { $0.id == track.id }) {
-      return exact
+  /// Turns a track type off on the replacement session, unless a newer
+  /// selection of that type has been made since the recast captured it.
+  ///
+  /// - Returns: The outcome that ends the recast, or `nil` to continue.
+  private func restoreDeselection(
+    of type: TrackType,
+    revision: UInt64,
+    lease: RecastReplacementLease
+  ) -> RecastOutcome? {
+    let currentRevision = type == .audio
+      ? intentRevisions.audioTrackSelection
+      : intentRevisions.subtitleTrackSelection
+    guard currentRevision == revision else { return nil }
+    if let interruption = recastInterruption(for: lease) {
+      return interruption
     }
-    let candidates = candidates.filter {
-      $0.type == track.type
-        && ($0.codec == track.codec || $0.codec == 0 || track.codec == 0)
+    let permit: RecastMutationPermit
+    switch eventBridge.reserveRecastMutation(for: lease) {
+    case .permitted(let value): permit = value
+    case .interrupted(let interruption): return recastOutcome(for: interruption)
     }
-    let language = track.language?.lowercased()
-    if let language, !language.isEmpty {
-      let exactMetadataMatches = candidates.filter {
-        $0.language?.lowercased() == language && $0.name == track.name
-      }
-      if exactMetadataMatches.count == 1 {
-        return exactMetadataMatches[0]
-      }
+    guard !Task.isCancelled else {
+      eventBridge.abandonRecast(lease)
+      return .cancelled
     }
-    if let language, !language.isEmpty {
-      let languageMatches = candidates.filter {
-        $0.language?.lowercased() == language
-      }
-      if languageMatches.count == 1 {
-        return languageMatches[0]
-      }
+    if type == .audio {
+      selectedAudioTrack = nil
+    } else {
+      selectedSubtitleTrack = nil
     }
-    let nameMatches = candidates.filter { $0.name == track.name }
-    return nameMatches.count == 1 ? nameMatches[0] : nil
+    if let interruption = eventBridge.finishRecastMutation(permit) {
+      return recastOutcome(for: interruption)
+    }
+    return nil
   }
 
   /// - Parameter timeout: The defensive ceiling. Injectable so the outcome

@@ -476,6 +476,84 @@ extension Logic {
       #expect(coordinator.didBecomeReady(controllerB, output: outputB))
     }
 
+    /// libVLC closes and reopens the display on the same player whenever the
+    /// stream changes resolution, which every adaptive stream does. The
+    /// closed output's cancel used to retire its whole handle-and-media
+    /// binding, so the reopened output was refused a controller and PiP stayed
+    /// unavailable for the rest of the media.
+    @Test
+    func `rebuilt output on the same binding gets a fresh controller after cancel`() {
+      let coordinator = Self.makeCoordinator(wait: .nanoseconds(0))
+      let first = Controller()
+      let second = Controller()
+      let third = Controller()
+      let firstOutput = Self.output(1251, 115, 115)
+      let rebuiltOutput = Self.output(1251, 115, 116)
+      let rebuiltAgain = Self.output(1251, 115, 117)
+
+      #expect(Self.makeFreshReady(coordinator, controller: first, output: firstOutput))
+      // No handoff is staged for a same-player rebuild, so an active
+      // controller is not carried across; it is closed and cancelled.
+      #expect(!coordinator.preserve(first, from: firstOutput))
+      coordinator.didCancel(first, output: firstOutput)
+
+      #expect(
+        Self.marker(coordinator.takePreservedControllerOutcome(for: rebuiltOutput))
+          == .createFresh
+      )
+      #expect(coordinator.didClaimFreshController(second, output: rebuiltOutput))
+      #expect(coordinator.didBecomeReady(second, output: rebuiltOutput))
+      #expect(coordinator.isCurrentReady(second, output: rebuiltOutput))
+
+      // The retired output itself stays retired.
+      #expect(!coordinator.didBecomeReady(first, output: firstOutput))
+      #expect(coordinator.isCurrentReady(second, output: rebuiltOutput))
+
+      // And the next rebuild works the same way.
+      coordinator.didCancel(second, output: rebuiltOutput)
+      #expect(Self.makeFreshReady(coordinator, controller: third, output: rebuiltAgain))
+    }
+
+    /// The same applies to an output that closes before its controller ever
+    /// became ready.
+    @Test
+    func `rebuilt output gets a fresh controller after an unprepared one is cancelled`() {
+      let coordinator = Self.makeCoordinator(wait: .nanoseconds(0))
+      let first = Controller()
+      let second = Controller()
+      let firstOutput = Self.output(1261, 116, 118)
+      let rebuiltOutput = Self.output(1261, 116, 119)
+
+      #expect(
+        Self.marker(coordinator.takePreservedControllerOutcome(for: firstOutput))
+          == .createFresh
+      )
+      #expect(coordinator.didClaimFreshController(first, output: firstOutput))
+      coordinator.didCancel(first, output: firstOutput)
+
+      #expect(Self.makeFreshReady(coordinator, controller: second, output: rebuiltOutput))
+    }
+
+    /// Media-list navigation changes the media behind a live output without
+    /// changing its identity. That path retires the binding explicitly and
+    /// must keep failing closed.
+    @Test
+    func `explicitly retired binding still refuses a rebuilt output`() {
+      let coordinator = Self.makeCoordinator(wait: .nanoseconds(0))
+      let controller = Controller()
+      let firstOutput = Self.output(1271, 117, 120)
+      let rebuiltOutput = Self.output(1271, 117, 121)
+
+      #expect(Self.makeFreshReady(coordinator, controller: controller, output: firstOutput))
+      #expect(coordinator.retireBindings(forNativeHandle: 1271))
+      coordinator.didCancel(controller, output: firstOutput)
+
+      #expect(
+        Self.marker(coordinator.takePreservedControllerOutcome(for: rebuiltOutput))
+          == .superseded
+      )
+    }
+
     @Test
     func `same handle media change and unstaged second output fail closed`() {
       let coordinator = Self.makeCoordinator()
