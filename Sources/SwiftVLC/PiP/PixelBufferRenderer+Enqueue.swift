@@ -52,9 +52,22 @@ struct PixelBufferEnqueueState: @unchecked Sendable {
   var latestVoutGeneration: UInt64?
   var voutTransitionCount: UInt64 = 0
   var status: PixelBufferRendererTelemetryStatus = .idle
+  /// Timestamp of the newest sample the layer still holds from a synchronous
+  /// submission. Cleared by a flush, since nothing queued then precedes the
+  /// next sample.
+  var lastSubmittedSampleTime: CMTime?
+  /// When the layer first refused a synchronous submission in the current
+  /// unbroken run of refusals.
+  var notReadySince: ContinuousClock.Instant?
+  /// Flushes issued because a sample was dated before the one queued ahead of
+  /// it, or because the layer accepted nothing for the stall interval.
+  var timelineFlushCount: UInt64 = 0
+  var stallFlushCount: UInt64 = 0
 
   mutating func beginPlaybackGeneration(_ generation: UInt64) {
     pending = nil
+    lastSubmittedSampleTime = nil
+    notReadySince = nil
     flushRecoveryRetryCount = 0
     flushRecoveryGeneration = nil
     latestPlaybackGeneration = generation
@@ -287,17 +300,65 @@ extension PixelBufferRenderer {
         enqueueState.withLock {
           $0.flushCount &+= 1
           $0.status = .recovering
+          $0.lastSubmittedSampleTime = nil
         }
       }
 
-      guard displayLayerAPI.isReadyForMoreMediaData(layer) else {
-        if acceptsFullIdentity(pending) {
-          enqueueState.withLock {
-            $0.backpressureDropCount &+= 1
-            $0.status = .backpressured
-          }
+      // The layer presents in timestamp order, and every sample is dated with
+      // the control timebase's time as it is submitted. When that timebase is
+      // moved back (a skip, a seek, a resynchronisation) a sample still queued
+      // from before the move is suddenly dated in the future and holds every
+      // later one until the timebase catches up: a frozen picture for the
+      // whole distance, with audio running. This sample being dated before
+      // its predecessor is that move, seen from here; drop what is queued so
+      // it is the next one shown.
+      let presentationTime = CMSampleBufferGetPresentationTimeStamp(sample)
+      let precedesQueuedSample = enqueueState.withLock { state -> Bool in
+        guard
+          presentationTime.isNumeric,
+          let last = state.lastSubmittedSampleTime
+        else { return false }
+        return CMTimeCompare(presentationTime, last) < 0
+      }
+      if precedesQueuedSample {
+        guard acceptsFullIdentity(pending) else { return false }
+        displayLayerAPI.flush(layer)
+        guard acceptsFullIdentity(pending) else { return false }
+        enqueueState.withLock {
+          $0.flushCount &+= 1
+          $0.timelineFlushCount &+= 1
+          $0.lastSubmittedSampleTime = nil
         }
-        return false
+      }
+
+      if !displayLayerAPI.isReadyForMoreMediaData(layer) {
+        guard acceptsFullIdentity(pending) else { return false }
+        // Refusing a frame now and then is ordinary backpressure. Refusing
+        // every frame for this long while the decoder keeps producing means
+        // the queue is held by something that will not clear on its own, and
+        // nothing else on this path would ever flush it.
+        let now = currentInstant()
+        let stalled = enqueueState.withLock { state -> Bool in
+          state.backpressureDropCount &+= 1
+          state.status = .backpressured
+          guard let since = state.notReadySince else {
+            state.notReadySince = now
+            return false
+          }
+          guard since.duration(to: now) >= stallFlushInterval else { return false }
+          // One flush per interval, however many frames arrive meanwhile.
+          state.notReadySince = now
+          return true
+        }
+        guard stalled else { return false }
+        displayLayerAPI.flush(layer)
+        guard acceptsFullIdentity(pending) else { return false }
+        enqueueState.withLock {
+          $0.flushCount &+= 1
+          $0.stallFlushCount &+= 1
+          $0.lastSubmittedSampleTime = nil
+        }
+        guard displayLayerAPI.isReadyForMoreMediaData(layer) else { return false }
       }
       guard acceptsFullIdentity(pending) else { return false }
 
@@ -306,6 +367,10 @@ extension PixelBufferRenderer {
       // can mutate lifecycle state without a self-deadlock.
       displayLayerAPI.enqueue(layer, sample)
       recordDeliveredSample(pending)
+      enqueueState.withLock {
+        $0.notReadySince = nil
+        $0.lastSubmittedSampleTime = presentationTime.isNumeric ? presentationTime : nil
+      }
       return true
     }
   }

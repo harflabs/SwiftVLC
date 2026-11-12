@@ -120,13 +120,26 @@ final class PixelBufferRenderer: Sendable {
   /// frame interval.
   let flushRecoveryRetryDelay: DispatchTimeInterval
 
+  /// How long the layer may refuse every synchronously submitted frame before
+  /// its queue is flushed. Matches the bound libVLC's own sample-buffer
+  /// display uses for the same condition.
+  let stallFlushInterval: Duration
+
+  /// The clock the stall bound is measured against. Injectable so tests do
+  /// not wait out a real interval.
+  let currentInstant: @Sendable () -> ContinuousClock.Instant
+
   init(
     displayLayer: AVSampleBufferDisplayLayer? = nil,
     enqueueQueue: DispatchQueue? = nil,
     displayLayerAPI: PixelBufferDisplayLayerAPI = .live,
     displayPreparationAPI: PixelBufferDisplayPreparationAPI = .live,
-    flushRecoveryRetryDelay: DispatchTimeInterval = .milliseconds(16)
+    flushRecoveryRetryDelay: DispatchTimeInterval = .milliseconds(16),
+    stallFlushInterval: Duration = .milliseconds(300),
+    currentInstant: @escaping @Sendable () -> ContinuousClock.Instant = { .now }
   ) {
+    self.stallFlushInterval = stallFlushInterval
+    self.currentInstant = currentInstant
     state = Mutex(State(displayLayer: displayLayer))
     self.enqueueQueue = enqueueQueue ?? DispatchQueue(
       label: "org.swiftvlc.pixel-buffer-renderer.enqueue"
