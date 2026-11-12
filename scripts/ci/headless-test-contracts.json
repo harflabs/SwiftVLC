@@ -10,10 +10,11 @@
     "Extension-12 output regressions are mandatory in the rebuilt-engine job. The published-engine job can skip only the three exact identities listed below.",
     "The abandoned video output regression requires native patch 0057, which the published engine lacks, and a window server, which neither CI lane has. Only its exact identity and engine skip reason receive an allowance; it runs locally against a rebuilt engine.",
     "The rate change regression requires native CoreAudio patch 0064 and a real audio output, which neither CI lane has. Only its exact identity and skip reason receive an allowance; it runs locally against a rebuilt engine.",
+    "The 1.1.0 final review added thirteen real-playback regressions that need a window server, a real audio output, mDNS, or paced playback against real outputs: seeks without a video output, an A-B loop armed behind a seek, a pause undone during rebuffering, stop-then-play and list skips on one handle, load during playback (two), parsing media a player opened, a media switch keeping the instance video output, Bonjour discovery off the main thread, and recast deselection (three). They keep the canPlayMedia gate, so the uncontracted skip ceiling moves from 175 to 188 and the declared gate ceiling from 120 to 130; all of them run in the local suite, which is the gate for those scenarios.",
     "The terminal outcome, paused time and extended video output regressions require native patches 0065 through 0070, which the published engine lacks. The rebuilt-engine job requires their three headless suites through --require-suite. Three further scenarios need a window server or a real audio output, which neither CI lane has: only their exact identities and skip reasons receive an allowance, and they run locally against a rebuilt engine."
   ],
-  "maximum_uncontracted_reported_skips": 175,
-  "maximum_declared_playback_gates": 120,
+  "maximum_uncontracted_reported_skips": 188,
+  "maximum_declared_playback_gates": 130,
   "reviewed_conditional_skips": [
     {
       "classname": "SwiftVLCTests.Integration.AppleAudioSessionPolicyTests",
@@ -98,6 +99,12 @@
       "name": "`a selected subtitle rendition crosses a discontinuity`()",
       "skip_reason": "Requires native video output",
       "reason": "requires native adaptive patch 0070; mandatory in the native job."
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.InexactSampleAspectPlaybackTests",
+      "name": "`A 817 by 816 sample aspect decodes through direct PiP`()",
+      "skip_reason": "Requires the rebuilt release XCFramework",
+      "reason": "requires native patch 0067; mandatory in the native job."
     },
     {
       "classname": "SwiftVLCTests.Integration.TerminalOutcomePlaybackTests",
@@ -231,8 +238,13 @@
     },
     {
       "classname": "SwiftVLCTests.Integration.PlayerSeekLeaseTests",
-      "minimum_passed": 24,
+      "minimum_passed": 22,
       "reason": "generation-scoped seek leases, supersession, and bounded ownership"
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.PlayerSeekExternalOverlapTests",
+      "minimum_passed": 2,
+      "reason": "external seeks overlapping wrapper work drain without settling a wrapper request"
     },
     {
       "classname": "SwiftVLCTests.Integration.PlayerSeekRequestLifecycleTests",

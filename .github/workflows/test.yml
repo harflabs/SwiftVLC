@@ -130,6 +130,7 @@ jobs:
             --require-suite SwiftVLCTests.Integration.TerminalOutcomePlaybackTests 2 \
             --require-suite SwiftVLCTests.Integration.PausedTimePlaybackTests 1 \
             --require-suite SwiftVLCTests.Integration.ExtendedVideoOutputPlaybackTests 3 \
+            --require-suite SwiftVLCTests.Integration.InexactSampleAspectPlaybackTests 1 \
             --require-suite SwiftVLCTests.Integration.VideoToolboxSeekPlaybackTests 1 \
             --contract scripts/ci/headless-test-contracts.json \
             --test-source-root Tests/SwiftVLCTests \
