@@ -373,11 +373,17 @@ extension Player {
   func nativeSeekDrainDidClear() {
     reconcileCommittedNativeSeekProgress()
     guard !isShutdown, !nativeSeekMonitor.hasSeekDrainPending else { return }
-    if activeNativeSeek?.isTombstoned == true {
-      activeNativeSeek?.deadlineTask?.cancel()
-      activeNativeSeek?.pollingTask?.cancel()
-      lateNativeSeekObservation = activeNativeSeek
+    if let tombstone = activeNativeSeek, tombstone.isTombstoned {
+      tombstone.deadlineTask?.cancel()
+      tombstone.pollingTask?.cancel()
+      lateNativeSeekObservation = tombstone
       activeNativeSeek = nil
+      // Samples retained through the timeout were stamped while the episode
+      // was in flight and cannot be ordered against its native end. The lane
+      // is open again, so the next raw sample is authoritative on its own.
+      discardQuarantinedSeekTimeline(
+        nativeSeekToken: tombstone.command.nativeSeekToken
+      )
     }
     dispatchQueuedNativeSeekIfPossible()
     dispatchNextPendingFrameStepIfNeeded()
