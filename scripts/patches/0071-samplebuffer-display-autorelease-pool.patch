@@ -1,0 +1,28 @@
+# Drain autoreleased renderer objects on the video output thread.
+#
+# The video output thread has no autorelease pool. AVSampleBufferVideoRenderer
+# autoreleases an object on every readiness query, enqueue and flush, and the
+# display makes about four such calls per picture, so they accumulated until
+# the thread exited: roughly 160 bytes per picture, tens of megabytes per
+# hour of playback. Each prepare now runs in its own pool.
+--- a/modules/video_output/apple/VLCSampleBufferDisplay.m
++++ b/modules/video_output/apple/VLCSampleBufferDisplay.m
+@@ -2486,6 +2486,10 @@
+ static void Prepare (vout_display_t *vd, picture_t *pic,
+                      const vlc_render_subpicture *subpicture, vlc_tick_t date)
+ {
++    /* The video output thread has no autorelease pool of its own, and the
++     * renderer autoreleases an object on every readiness query, enqueue and
++     * flush: without one they accumulate until the thread exits. */
++    @autoreleasepool {
+     PrepareDisplay(vd);
+     VLCSampleBufferDisplay *sys =
+         (__bridge VLCSampleBufferDisplay *)vd->sys;
+@@ -2508,6 +2512,7 @@
+                                      snapshot:currentSubpicture];
+     else if (subpictureChanged)
+         DrawSubpicture(sys, currentSubpicture);
++    }
+ }
+ 
+ static void Display(vout_display_t *vd, picture_t *pic)

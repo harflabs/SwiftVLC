@@ -1,0 +1,61 @@
+# Keep rate, delay and pause across an in-place display restart.
+#
+# A format change (an adaptive resolution switch, a new SPS) restarts the
+# display of a video output that is in use. The restart reset the output to
+# rate 1, no delay and not paused, while the resource layer reported the
+# output unchanged, so its decoder (patch 0014) did not reapply its state:
+# the display paced at 1x during 2x playback, and ran unpaused across a
+# paused seek, until the next rate or pause change.
+#
+# Measured on a video-only stream that changes resolution after two seconds,
+# played at 2x: 1.00x after the switch before, 2.00x with this patch
+# (ExtendedVideoOutputPlaybackTests).
+--- a/src/video_output/video_output.c
++++ b/src/video_output/video_output.c
+@@ -3274,14 +3274,25 @@
+         return -1;
+     }
+     vlc_mutex_unlock(&sys->window_lock);
++
++    /* A format change restarts a display that is in use. Its decoder keeps
++     * driving the same rate, delay and pause state and is not told that the
++     * display restarted (the resource reports it unchanged), so that state
++     * must survive the restart. Otherwise the display paces at 1x and runs
++     * unpaused until the next rate or pause change. */
++    const bool restarting = sys->display != NULL;
++    const float restart_rate = sys->rate;
++    const vlc_tick_t restart_delay = sys->delay;
++    const bool restart_paused = sys->pause.is_on;
++    const vlc_tick_t restart_pause_date = sys->pause.date;
+ 
+     if (sys->display != NULL)
+         vout_StopDisplay(cfg->vout);
+ 
+     vout_ReinitInterlacingSupport(cfg->vout, &sys->interlacing);
+ 
+-    sys->delay = 0;
+-    sys->rate = 1.f;
++    sys->delay = restarting ? restart_delay : 0;
++    sys->rate = restarting ? restart_rate : 1.f;
+     sys->str_id = cfg->str_id;
+     sys->clock_id = 0;
+ 
+@@ -3297,13 +3308,16 @@
+         vlc_clock_AddListener(sys->clock, &clock_event_cbs, vout);
+     vlc_clock_Unlock(sys->clock);
+ 
+-    sys->delay = 0;
+-
+     if (vout_Start(vout, vctx, cfg))
+     {
+         msg_Err(cfg->vout, "video output display creation failed");
+         goto error_display;
+     }
++    if (restarting && restart_paused)
++    {
++        sys->pause.is_on = true;
++        sys->pause.date = restart_pause_date;
++    }
+     atomic_store(&sys->control_is_terminated, false);
+     if (vlc_clone(&sys->thread, Thread, vout))
+         goto error_thread;

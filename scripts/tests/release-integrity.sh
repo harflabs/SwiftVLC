@@ -2078,6 +2078,13 @@ expected_manifest_tail = [
     "15a9145c5d1862e314f251f94e2e58604e290068ce76e9cc42e414a5de4abf89  0062-aout-delay-correctness.patch",
     "5f46ff439a86888f2988411d4e7d3656fb491e3f645e96deb70e7e6274efc40d  0063-adaptive-discontinuity-drain-and-timeline.patch",
     "537310a19cc6bcade9c18f4fd23062149d3797d2433450fe888f7461441ca5a3  0064-coreaudio-timing-report-interval.patch",
+    "ece47d1d5a58a1fbfd31ca62cd4ee4a7b1ae98ec96425aaaef11cbcc49effe0e  0065-natural-end-after-presentation.patch",
+    "65e915f1fccbe06938ee5d2438e495bf6c802363d22e852446674b9b36646ccc  0066-paused-time-reporting.patch",
+    "8a8f0f7fe1bc3355d6377c0a087f57030e53c096c34a10a83373f452b3693563  0067-vmem-extended-aspect.patch",
+    "0b9ddb08ca72b57a97f0ab4c72586c3942eb386dcbf5820fa7e5c9786310b077  0068-stale-paused-frame-demand.patch",
+    "fae00091141c13451e358279ebc997f9085533fbbfed6bde515ef25dba8e123a  0069-vout-restart-keeps-output-state.patch",
+    "6305ca8b33b15b8491acc8ea38d55c0453495f2cd8f2280eb7dbeb192df3ea50  0070-adaptive-subtitle-discontinuity-reference.patch",
+    "3389ded8ce79c36f3862b04da2df9ba3896f1ad8228f1fbe1bbb980a23fbb1e4  0071-samplebuffer-display-autorelease-pool.patch",
 ]
 if manifest_lines[-len(expected_manifest_tail):] != expected_manifest_tail:
     sys.exit(
@@ -2085,7 +2092,7 @@ if manifest_lines[-len(expected_manifest_tail):] != expected_manifest_tail:
         "output identity 0041, adaptive ES recycling 0042, then text-subtitle "
         "callback 0043, deferred-resume correction 0044, playlist policy 0045, "
         "failure recovery 0046, LGPL2 live555 0047/0048, paused-seek clock 0049, seek video output 0050, subtitle demand 0051, H264 recovery 0052, clock origin 0053, resume ordering 0054, "
-        "then playback reliability 0055 through 0064: "
+        "then playback reliability 0055 through 0071: "
         f"got {manifest_lines[-len(expected_manifest_tail):]}"
     )
 

@@ -1,8 +1,10 @@
 /* Inject subsystem failure/recovery notifications into the integrated input
  * event handler, then let real paused media resume and reach natural EOF.
- * This tests terminal public events, including another unresolved decoder and
- * an unrelated demux failure. Output-factory recovery call sites are covered
- * separately by the compiled source contracts. */
+ * The dummy video output presents every picture, and an input that presented
+ * something ends naturally whatever failed on the way: a recovered failure,
+ * an unresolved one, another unresolved decoder, an unrelated demux failure.
+ * Inputs that present nothing are covered by TerminalOutcomePlaybackTests;
+ * output-factory recovery call sites by the compiled source contracts. */
 #include "config.h"
 #include <vlc_common.h>
 #include <vlc/libvlc.h>
@@ -83,11 +85,7 @@ static int run(libvlc_instance_t *instance, const char *path, int scenario)
     int reason = atomic_load(&stopping);
     int count = atomic_load(&failures);
     int kind = atomic_load(&last_failure);
-    int expected = scenario == 3 ? libvlc_playback_failure_demux
-                                 : libvlc_playback_failure_renderer;
-    bool passed = scenario == 0
-                ? reason == libvlc_stopping_reason_eos && count == 0
-                : reason == libvlc_stopping_reason_error && count == 1 && kind == expected;
+    bool passed = reason == libvlc_stopping_reason_eos && count == 0;
     printf("%s scenario=%d reason=%d errors=%d kind=%d\n",
            passed ? "PASS" : "FAIL", scenario, reason, count, kind);
     libvlc_media_player_stop_async(mp);

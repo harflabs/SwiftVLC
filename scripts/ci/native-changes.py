@@ -14,6 +14,7 @@ def needs_build(paths):
         "Tests/SwiftVLCTests/Player/TimestampJumpResumePlaybackTests.swift",
         "Tests/SwiftVLCTests/Player/HLSDiscontinuityPlaybackTests.swift",
         "Tests/SwiftVLCTests/Player/RateChangePlaybackTests.swift",
+        "Tests/SwiftVLCTests/Player/PlaybackOutcomeNativeTests.swift",
         "Tests/SwiftVLCTests/Support/SeekVideoSink.swift",
         "Tests/SwiftVLCTests/Fixtures/paused-seek.mp4",
         "Package.swift", ".github/workflows/test.yml",

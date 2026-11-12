@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the playback-reliability patches 0055-0064 in a patched VLC tree.
+"""Check the playback-reliability patches 0055-0071 in a patched VLC tree.
 
 Each guard is one connected code fragment and is mutation-checked, so a patch
 that is dropped, reverted or only partly applied cannot pass silently.
@@ -41,13 +41,42 @@ CHECKS = (
     ('modules/demux/adaptive/PlaylistManager.cpp', '0063 the deferred PCR reset waits for an empty output',
      r'es_out_Control\(p_demux->out, ES_OUT_IS_EMPTY, &b_empty\);\s*if\(!b_empty\)\s*\{[^}]*\}\s*'
      r'demux\.discontinuity_draining = false;\s*es_out_Control\(p_demux->out, ES_OUT_RESET_PCR\);'),
-    ('modules/demux/adaptive/Streams.cpp', '0063 a new sequence gets its own synchronization reference',
-     r'fakeEsOut\(\)->setSegmentStartTimes\(currentTimeContext\);\s*fakeEsOut\(\)->setSynchronizationReference\(\s*'
-     r'SynchronizationReference\(currentSequence, Times\(\)\)\);'),
+    ('modules/demux/adaptive/Streams.cpp',
+     '0063 a new sequence gets its own synchronization reference; 0070 only on self-anchoring streams',
+     r'fakeEsOut\(\)->setSegmentStartTimes\(currentTimeContext\);\s*if\(contiguous\)\s*'
+     r'fakeEsOut\(\)->setSynchronizationReference\(\s*SynchronizationReference\(currentSequence, Times\(\)\)\);'),
     ('modules/audio_output/apple/coreaudio_common.c', '0064 timing is reported every 100 ms',
      r'#define TIMING_REPORT_DELAY_TICKS VLC_TICK_FROM_MS\(100\)'),
     ('src/audio_output/dec.c', '0062 stream delay uses the output position at rate != 1',
      r'clock_audio_ts = rate_audio_ts \+ \(system_ts - rate_system_ts\)\s*\* stream->timing\.rate;'),
+    ('src/player/player.c', '0065 a recorded failure is an error only once it is terminal',
+     r'return input && input->error_reported \? input->error\s*: VLC_PLAYER_ERROR_NONE;'),
+    ('src/player/input.c', '0065 only an input that presented nothing fails at its end',
+     r'if \(!input->error_reported\s*&& !atomic_load_explicit\(&input->presented,\s*memory_order_relaxed\)\)'),
+    ('src/player/input.c', '0065 an input that exposed no stream fails as a demux failure',
+     r'if \(error == VLC_PLAYER_ERROR_NONE && !input->has_content\)\s*error = VLC_PLAYER_ERROR_DEMUX;'),
+    ('src/player/input.c', '0065 the stopping reason follows the reported error',
+     r'input->stopping_reason = input->error_reported\s*\? VLC_PLAYER_MEDIA_STOPPING_ERROR\s*'
+     r': VLC_PLAYER_MEDIA_STOPPING_EOS;'),
+    ('src/player/player.c', '0066 a paused time read reports the pending seek target',
+     r'vlc_player_input_GetTime\(\s*input, input->state == VLC_PLAYER_STATE_PAUSED, vlc_tick_now\(\)\);'),
+    ('src/video_output/video_output.c', '0066 only the first paused render after a flush is a forced point',
+     r'\|\| \(sys->pause\.is_on && sys->paused_point_pending\)\)\s*system_now = VLC_TICK_MAX;'),
+    ('src/clock/clock.c', '0066 a forced-point marker is never used as a date',
+     r'else if \(unlikely\(now == VLC_TICK_MAX\)\)\s*now = vlc_tick_now\(\);'),
+    ('modules/video_output/vmem.c', '0067 the extended output accepts the nearest pixel',
+     r'return 2 \* width_error <= \(source_num > source_den \? source_num : source_den\);'),
+    ('modules/video_output/vmem.c', '0067 aspect and crop changes never ask for a picture reset',
+     r'case VOUT_DISPLAY_CHANGE_SOURCE_ASPECT:\s*case VOUT_DISPLAY_CHANGE_SOURCE_CROP:\s*'
+     r'case VOUT_DISPLAY_CHANGE_SOURCE_PLACE:\s*return VLC_SUCCESS;'),
+    ('src/input/input.c', '0068 a frame demand is honoured only while paused',
+     r'priv->next_frame_need_data = param\.val\.b_bool\s*&& priv->i_state == PAUSE_S;'),
+    ('src/video_output/video_output.c', '0069 a display restart keeps the rate',
+     r'sys->rate = restarting \? restart_rate : 1\.f;'),
+    ('src/video_output/video_output.c', '0069 a display restart keeps the pause',
+     r'if \(restarting && restart_paused\)\s*\{\s*sys->pause\.is_on = true;'),
+    ('modules/video_output/apple/VLCSampleBufferDisplay.m', '0071 each prepare drains an autorelease pool',
+     r'const vlc_render_subpicture \*subpicture, vlc_tick_t date\)\s*\{\s*@autoreleasepool \{\s*PrepareDisplay\(vd\);'),
 )
 
 

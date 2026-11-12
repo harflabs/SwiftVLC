@@ -1,0 +1,112 @@
+# Report the right time while paused.
+#
+# Patch 0049 published every picture rendered while paused as a forced clock
+# point. That is right for the first picture after a seek, but the same code
+# also runs for the periodic redisplay of a paused picture: when that picture
+# is older than the audio position (a video track that ended early, a
+# long-lived frame of a slideshow or screen recording) the published time
+# jumped back to its timestamp as soon as playback paused. Only the first
+# render after a flush is a forced point now.
+#
+# A seek while paused without a video output (audio only, or video whose
+# output never opened) publishes no point until playback resumes, so the time
+# and position getters kept returning the position before the seek. While
+# paused they now return the pending seek target until a real point arrives,
+# as relative seeks already do internally.
+#
+# A paused render still in flight when the main clock resumes carries the
+# forced-point marker instead of a date; it no longer reaches the monotonic
+# fallback as a date.
+--- a/src/player/player.c
++++ b/src/player/player.c
+@@ -1703,7 +1703,12 @@
+     if (!input)
+         return VLC_TICK_INVALID;
+ 
+-    return vlc_player_input_GetTime(input, false, vlc_tick_now());
++    /* While paused, a seek without a video output (audio only, or video whose
++     * output never opened) publishes no point until playback resumes, and the
++     * last point still describes the position before the seek. Report the
++     * pending target instead. */
++    return vlc_player_input_GetTime(
++        input, input->state == VLC_PLAYER_STATE_PAUSED, vlc_tick_now());
+ }
+ 
+ double
+@@ -1711,7 +1716,8 @@
+ {
+     struct vlc_player_input *input = vlc_player_get_input_locked(player);
+ 
+-    return input ? vlc_player_input_GetPos(input, false, vlc_tick_now()) : -1.f;
++    return input ? vlc_player_input_GetPos(
++        input, input->state == VLC_PLAYER_STATE_PAUSED, vlc_tick_now()) : -1.f;
+ }
+ 
+ void
+--- a/src/video_output/video_output.c
++++ b/src/video_output/video_output.c
+@@ -84,6 +84,8 @@
+     bool clock_nowait; /* protected by vlc_clock_Lock()/vlc_clock_Unlock() */
+     bool wait_interrupted;
+     bool first_picture;
++    /* No picture was rendered since the display started or was flushed. */
++    bool paused_point_pending;
+ 
+     vlc_clock_t     *clock;
+     vlc_clock_listener_id *clock_listener_id;
+@@ -1816,10 +1818,14 @@
+         sys->displayed.date = system_now;
+     }
+ 
+-    /* Every picture rendered while paused is an exact output point, including
+-     * the first picture after a seek. Let it override the dormant audio clock
+-     * without interpolating or advancing that clock. */
+-    if (render_type == RENDER_PICTURE_NEXT || sys->pause.is_on)
++    /* The first picture rendered while paused after a seek is an exact output
++     * point. Let it override the dormant audio clock without interpolating or
++     * advancing that clock. Later renders of a paused picture are redisplays:
++     * the picture can be much older than the audio position (a video track
++     * that ended early, a long-lived frame of a slideshow or screen
++     * recording), so they must not move the published time back to it. */
++    if (render_type == RENDER_PICTURE_NEXT
++     || (sys->pause.is_on && sys->paused_point_pending))
+         system_now = VLC_TICK_MAX;
+     else
+         system_now = vlc_tick_now();
+@@ -1849,6 +1855,7 @@
+         vout_SendStrictFrameTerminal(&strict_terminal);
+         return VLC_EGENERIC;
+     }
++    sys->paused_point_pending = false;
+     const bool capture_strict_timing = render_type == RENDER_PICTURE_NEXT
+         && !submission_unproven && vout_IsStrictFrameTarget(sys);
+     struct vlc_clock_frame_step_capture capture = { 0 };
+@@ -2133,6 +2140,7 @@
+     picture_fifo_Lock(sys->decoder_fifo);
+     picture_fifo_Flush(sys->decoder_fifo, date, below);
+     picture_fifo_Unlock(sys->decoder_fifo);
++    sys->paused_point_pending = true;
+ 
+     vlc_queuedmutex_lock(&sys->display_lock);
+     if (sys->display != NULL)
+@@ -2777,6 +2785,7 @@
+ 
+     sys->pause.is_on = false;
+     sys->pause.date  = VLC_TICK_INVALID;
++    sys->paused_point_pending = true;
+ 
+     sys->spu_blend               = NULL;
+ 
+--- a/src/clock/clock.c
++++ b/src/clock/clock.c
+@@ -711,6 +711,10 @@
+      * Its reference must use the same frozen origin as PCR and decoder start. */
+     if (main_clock->paused)
+         now = main_clock->pause_date;
++    else if (unlikely(now == VLC_TICK_MAX))
++        /* A paused render still in flight when the clock resumed carries the
++         * forced-point marker, not a date. */
++        now = vlc_tick_now();
+ 
+     if (clock->priority < main_clock->wait_sync_ref_priority
+      && ctx == main_clock->context

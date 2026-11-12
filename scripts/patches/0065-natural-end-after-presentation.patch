@@ -1,0 +1,163 @@
+# An input that presented something and reached its end ended naturally.
+#
+# Patch 0020 records the first failure of any stream and patch 0046 clears it
+# again on recovery. Two consequences were wrong for every failure that never
+# recovers while the input keeps playing (no drawable was ever attached, a
+# selected track has no decoder, an external subtitle file is missing):
+#
+# - vlc_player_GetError() returned the recorded failure at once, so
+#   libvlc_media_player_get_state() reported Error for the rest of a healthy
+#   session and callers that branch on Playing/Paused refused to resume or
+#   seek;
+# - a clean END_S was converted into an error, so a file that played to its
+#   last sample ended with EncounteredError instead of end of stream.
+#
+# A recorded failure is now an error only once it ended the input. At END_S an
+# input that published at least one output clock point ended naturally; only
+# an input that never presented anything fails, with its unresolved failure
+# or, when it exposed no elementary stream and no sub-item at all (corrupt or
+# unrecognised data), a demux failure. A late END_S after a user stop no
+# longer rewrites the user's stopping reason. A terminal ERROR_S is attributed
+# to the access or demux failure that caused it, not to an unrelated stream
+# that failed earlier.
+--- a/src/player/player.h
++++ b/src/player/player.h
+@@ -68,6 +68,11 @@
+     enum vlc_player_error error;
+     bool error_reported;
+     struct vlc_player_input_failures failures;
++    /* An output clock published a point, so something was presented. Set by
++     * output threads without the player lock. */
++    atomic_bool presented;
++    /* The input exposed an elementary stream or sub-items. */
++    bool has_content;
+     enum vlc_player_media_stopping_reason stopping_reason;
+     float rate;
+     int capabilities;
+--- a/src/player/input_failure.h
++++ b/src/player/input_failure.h
+@@ -61,4 +61,20 @@
+         default: return VLC_PLAYER_ERROR_GENERIC;
+     }
+ }
++
++/* A terminal input error comes from the access or the demux. An unrelated
++ * stream that failed earlier (a decoder without an output, a missing
++ * subtitle file) must not relabel it. */
++static inline enum vlc_player_error
++vlc_player_input_TerminalFailure(const struct vlc_player_input_failures *state)
++{
++    for (unsigned i = 0; i < state->length; ++i)
++    {
++        if (state->order[i] == VLC_INPUT_FAILURE_DEMUX)
++            return VLC_PLAYER_ERROR_DEMUX;
++        if (state->order[i] == VLC_INPUT_FAILURE_SOURCE)
++            return VLC_PLAYER_ERROR_SOURCE;
++    }
++    return vlc_player_input_CurrentFailure(state);
++}
+ #endif
+--- a/src/player/input.c
++++ b/src/player/input.c
+@@ -386,18 +386,35 @@
+             break;
+         case END_S:
+             input->playing = false;
+-            if (input->error != VLC_PLAYER_ERROR_NONE)
++            /* A late END_S after a user stop keeps the user's reason. */
++            if (input->state != VLC_PLAYER_STATE_STOPPING)
+             {
+-                input->stopping_reason = VLC_PLAYER_MEDIA_STOPPING_ERROR;
+-                if (!input->error_reported)
++                /* An input that presented something and reached its end
++                 * ended naturally, even if one of its streams failed on the
++                 * way (no video output, an unsupported or missing track).
++                 * Only an input that never presented anything failed: it
++                 * reports its unresolved failure, or a demux failure when
++                 * it exposed no stream and no sub-item at all. */
++                if (!input->error_reported
++                 && !atomic_load_explicit(&input->presented,
++                                          memory_order_relaxed))
+                 {
+-                    vlc_player_SendEvent(input->player, on_error_changed,
+-                                         input->error);
+-                    input->error_reported = true;
++                    enum vlc_player_error error =
++                        vlc_player_input_CurrentFailure(&input->failures);
++                    if (error == VLC_PLAYER_ERROR_NONE && !input->has_content)
++                        error = VLC_PLAYER_ERROR_DEMUX;
++                    if (error != VLC_PLAYER_ERROR_NONE)
++                    {
++                        input->error = error;
++                        vlc_player_SendEvent(input->player, on_error_changed,
++                                             input->error);
++                        input->error_reported = true;
++                    }
+                 }
++                input->stopping_reason = input->error_reported
++                    ? VLC_PLAYER_MEDIA_STOPPING_ERROR
++                    : VLC_PLAYER_MEDIA_STOPPING_EOS;
+             }
+-            else
+-                input->stopping_reason = VLC_PLAYER_MEDIA_STOPPING_EOS;
+             vlc_player_input_HandleState(input, VLC_PLAYER_STATE_STOPPING,
+                                          VLC_TICK_INVALID);
+             vlc_player_destructor_AddStoppingInput(input->player, input);
+@@ -407,6 +424,8 @@
+             if (input->started && !input->error_reported)
+             {
+                 /* Contrary to the input_thead_t, an error is not a state */
++                input->error =
++                    vlc_player_input_TerminalFailure(&input->failures);
+                 if (input->error == VLC_PLAYER_ERROR_NONE)
+                     input->error = VLC_PLAYER_ERROR_GENERIC;
+                 vlc_player_SendEvent(input->player, on_error_changed, input->error);
+@@ -1051,6 +1070,9 @@
+     {
+         if (event->output_clock.system_ts != VLC_TICK_INVALID)
+         {
++            if (!atomic_load_explicit(&input->presented, memory_order_relaxed))
++                atomic_store_explicit(&input->presented, true,
++                                      memory_order_relaxed);
+             const struct vlc_player_timer_point point = {
+                 .position = 0,
+                 .rate = event->output_clock.rate,
+@@ -1203,6 +1225,7 @@
+             vlc_player_input_HandleProgramEvent(input, &event->program);
+             break;
+         case INPUT_EVENT_ES:
++            input->has_content = true;
+             vlc_player_input_HandleEsEvent(input, &event->es);
+             break;
+         case INPUT_EVENT_TITLE:
+@@ -1252,6 +1275,7 @@
+                                  input_GetItem(input->thread));
+             break;
+         case INPUT_EVENT_SUBITEMS:
++            input->has_content = true;
+             vlc_player_SendEvent(player, on_media_subitems_changed,
+                                  input_GetItem(input->thread), event->subitems);
+             input_item_node_Delete(event->subitems);
+@@ -1363,6 +1387,8 @@
+     input->error = VLC_PLAYER_ERROR_NONE;
+     input->error_reported = false;
+     input->failures = (struct vlc_player_input_failures) {0};
++    atomic_init(&input->presented, false);
++    input->has_content = false;
+     input->stopping_reason = VLC_PLAYER_MEDIA_STOPPING_ERROR;
+     input->rate = 1.f;
+     input->capabilities = 0;
+--- a/src/player/player.c
++++ b/src/player/player.c
+@@ -1608,7 +1608,10 @@
+ vlc_player_GetError(vlc_player_t *player)
+ {
+     struct vlc_player_input *input = vlc_player_get_input_locked(player);
+-    return input ? input->error : VLC_PLAYER_ERROR_NONE;
++    /* A recorded failure is an error only once it ended the input. Until
++     * then the input keeps playing and may still recover or end naturally. */
++    return input && input->error_reported ? input->error
++                                          : VLC_PLAYER_ERROR_NONE;
+ }
+ 
+ int

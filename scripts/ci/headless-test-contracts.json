@@ -9,7 +9,8 @@
     "The paused HTTP seek regression requires native patch 0049, which the published engine lacks. Only its exact identity and skip reason receive an allowance in the published-engine job. The rebuilt-engine job enables SWIFTVLC_NATIVE_SEEK_TESTS and requires both RemoteMP4SeekTests tests to pass through --require-suite; a skip there fails accounting.",
     "Extension-12 output regressions are mandatory in the rebuilt-engine job. The published-engine job can skip only the three exact identities listed below.",
     "The abandoned video output regression requires native patch 0057, which the published engine lacks, and a window server, which neither CI lane has. Only its exact identity and engine skip reason receive an allowance; it runs locally against a rebuilt engine.",
-    "The rate change regression requires native CoreAudio patch 0064 and a real audio output, which neither CI lane has. Only its exact identity and skip reason receive an allowance; it runs locally against a rebuilt engine."
+    "The rate change regression requires native CoreAudio patch 0064 and a real audio output, which neither CI lane has. Only its exact identity and skip reason receive an allowance; it runs locally against a rebuilt engine.",
+    "The terminal outcome, paused time and extended video output regressions require native patches 0065 through 0070, which the published engine lacks. The rebuilt-engine job requires their three headless suites through --require-suite. Three further scenarios need a window server or a real audio output, which neither CI lane has: only their exact identities and skip reasons receive an allowance, and they run locally against a rebuilt engine."
   ],
   "maximum_uncontracted_reported_skips": 175,
   "maximum_declared_playback_gates": 120,
@@ -91,6 +92,66 @@
       "name": "`discontinuities present every frame and keep the playlist time`(audio:)",
       "skip_reason": "Requires native video output",
       "reason": "requires native adaptive patch 0063; mandatory in the native job."
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.HLSDiscontinuityPlaybackTests",
+      "name": "`a selected subtitle rendition crosses a discontinuity`()",
+      "skip_reason": "Requires native video output",
+      "reason": "requires native adaptive patch 0070; mandatory in the native job."
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.TerminalOutcomePlaybackTests",
+      "name": "`a failed side stream leaves playback and its natural end intact`()",
+      "skip_reason": "Requires the rebuilt native playback outcome contract",
+      "reason": "requires native patch 0065; mandatory in the native job."
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.TerminalOutcomePlaybackTests",
+      "name": "`data that exposes no stream fails instead of ending`()",
+      "skip_reason": "Requires the rebuilt native playback outcome contract",
+      "reason": "requires native patch 0065; mandatory in the native job."
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.PausedTimePlaybackTests",
+      "name": "`pausing on a stale picture keeps the playback time`()",
+      "skip_reason": "Requires the rebuilt native paused time contract",
+      "reason": "requires native patch 0066; mandatory in the native job."
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.ExtendedVideoOutputPlaybackTests",
+      "name": "`a forced aspect ratio keeps the extended output running`()",
+      "skip_reason": "Requires the rebuilt native video output contract",
+      "reason": "requires native patch 0067; mandatory in the native job."
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.ExtendedVideoOutputPlaybackTests",
+      "name": "`an inexact sample aspect ratio is displayed`()",
+      "skip_reason": "Requires the rebuilt native video output contract",
+      "reason": "requires native patch 0067; mandatory in the native job."
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.ExtendedVideoOutputPlaybackTests",
+      "name": "`the rate survives a display restart`()",
+      "skip_reason": "Requires the rebuilt native video output contract",
+      "reason": "requires native patch 0069; mandatory in the native job."
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.LocalOutputOutcomePlaybackTests",
+      "name": "`video without an output still ends naturally`()",
+      "skip_reason": "Requires the rebuilt release XCFramework and a window server",
+      "reason": "requires native patch 0065 and a window server; run locally against a rebuilt engine"
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.LocalOutputOutcomePlaybackTests",
+      "name": "`video that was never shown fails at its end`()",
+      "skip_reason": "Requires the rebuilt release XCFramework and a window server",
+      "reason": "requires native patch 0065 and a window server; run locally against a rebuilt engine"
+    },
+    {
+      "classname": "SwiftVLCTests.Integration.LocalOutputOutcomePlaybackTests",
+      "name": "`paused seeks on audio settle on their target`()",
+      "skip_reason": "Requires the rebuilt release XCFramework and an audio device",
+      "reason": "requires native patch 0066 and a real audio output; run locally against a rebuilt engine"
     },
     {
       "classname": "SwiftVLCTests.Integration.TimestampJumpResumePlaybackTests",
