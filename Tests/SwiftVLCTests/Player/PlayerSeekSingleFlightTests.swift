@@ -145,8 +145,12 @@ extension Integration {
       #expect(await wrapper.outcome == .settled)
     }
 
+    /// Overlapping untagged starts cannot be told apart, so samples stamped
+    /// while they are unresolved stay quarantined. The episode itself is no
+    /// longer held until a timeline replacement: its coalesced end and first
+    /// watched point publish observed playback and reopen the lane.
     @Test
-    func `Overlapping external starts retain fail closed drain and quarantine raw clocks`() async {
+    func `Overlapping external starts quarantine raw clocks until their coalesced end drains`() async {
       let player = makePlayingPlayer()
 
       // e1 opens the external quarantine. These raw EventBridge callbacks are
@@ -154,38 +158,49 @@ extension Integration {
       // until this test yields below.
       player.nativeSeekMonitor._noteSeekStartedForTesting()
       player.eventBridge._broadcastForTesting(
-        .timeChanged(.seconds(33)),
+        .timeChanged(.seconds(31)),
         nativeHandleGeneration: player.eventBridge.currentNativeHandleGeneration,
         playbackGeneration: player.sessionGeneration
       )
       player.eventBridge._broadcastForTesting(
-        .positionChanged(0.33),
+        .positionChanged(0.31),
         nativeHandleGeneration: player.eventBridge.currentNativeHandleGeneration,
         playbackGeneration: player.sessionGeneration
       )
 
-      // e2 starts before e1 has produced an end. The one untagged end and
-      // delayed e1 point cannot identify either episode and must not be
-      // relabeled as an e2 landing.
+      // e2 starts before e1 has produced an end, so only one untagged end can
+      // follow. Until it and a watched point arrive nothing is published.
       player.nativeSeekMonitor._noteSeekStartedForTesting()
-      player.nativeSeekMonitor._noteSeekEndedForTesting()
-      player.nativeSeekMonitor._noteTimeUpdatedForTesting(
-        timeMilliseconds: 33000,
-        position: 0.33
-      )
       await drainMainActor()
-
       #expect(player.currentTime == .seconds(10))
       #expect(abs(player.position - 0.1) < 0.000_001)
       #expect(player.nativeSeekMonitor.externalSeekEpoch == 2)
       #expect(player.latestAppliedExternalSeekEpoch == 0)
       #expect(player.nativeSeekMonitor.hasSeekDrainPending)
 
+      player.nativeSeekMonitor._noteSeekEndedForTesting()
+      await drainMainActor()
+      #expect(player.currentTime == .seconds(10))
+      #expect(player.nativeSeekMonitor.hasSeekDrainPending)
+
+      player.nativeSeekMonitor._noteTimeUpdatedForTesting(
+        timeMilliseconds: 33000,
+        position: 0.33
+      )
+      await drainMainActor()
+
+      // The watched point is observed playback for the newest epoch; the
+      // samples stamped inside the overlap never become visible.
+      #expect(player.currentTime == .seconds(33))
+      #expect(abs(player.position - 0.33) < 0.000_001)
+      #expect(player.latestAppliedExternalSeekEpoch == 2)
+      #expect(!player.nativeSeekMonitor.hasSeekDrainPending)
+
       player._nativeJumpTimeOverrideForTesting = { _ in 0 }
-      let queued = player.requestJump(by: .seconds(10))
-      #expect(queued.initialOutcome == .pending)
-      #expect(player.activeNativeSeek == nil)
-      #expect(player.queuedNativeSeek != nil)
+      let next = player.requestJump(by: .seconds(10))
+      #expect(next.initialOutcome == .pending)
+      #expect(player.activeNativeSeek != nil)
+      #expect(player.queuedNativeSeek == nil)
     }
 
     @Test

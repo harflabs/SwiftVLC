@@ -33,8 +33,10 @@ final class NativeSeekContext: Sendable {
     var activeExternalEpoch: UInt64?
     var awaitingUpdateExternalEpoch: UInt64?
     /// Two untagged external starts overlapped before an authoritative
-    /// watched point. No later end/point can identify either episode, so the
-    /// lane remains fail-closed until an attachment/timeline boundary.
+    /// watched point. No later end/point can identify either request, so
+    /// neither may settle a wrapper token. The lane and raw clock stay closed
+    /// only until the coalesced native end and its first watched point, which
+    /// drain the overlap as the newest external episode.
     var externalEpisodeAmbiguous = false
     var frameGeneration: UInt64 = 1
     var activeFrameRequestID: UInt64?

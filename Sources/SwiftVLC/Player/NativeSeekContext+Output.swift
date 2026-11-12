@@ -106,8 +106,19 @@ extension NativeSeekContext {
         state.seekEndedAwaitingPoint,
         state.externalEpisodeAmbiguous {
         // An end after overlapping tokenless starts cannot identify which
-        // episode produced this point. Retain drain ownership until reset.
-        return (nil, nil, nil, nil)
+        // request produced this point, so it can never settle a wrapper
+        // token: every wrapper command from the overlapped epochs was already
+        // superseded and none can stage while the drain is pending. It is
+        // still a real post-seek clock point. timer.c keeps one `seeking`
+        // flag per source and reports a single end for all coalesced starts,
+        // so nothing native remains open after it. Holding the lane and the
+        // raw clock until a timeline replacement would freeze the mirror for
+        // the rest of the session (an A-B loop bounce overlapping a user
+        // seek is enough). Drain it as the newest external episode instead.
+        state.externalEpisodeAmbiguous = false
+        state.activeExternalEpoch = nil
+        state.awaitingUpdateToken = nil
+        state.awaitingUpdateExternalEpoch = state.externalSeekEpoch
       }
       if
         state.seekEndedAwaitingPoint,

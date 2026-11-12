@@ -317,9 +317,19 @@ extension Integration {
       expectNoDifference(dispatchedOffsets, [10000])
     }
 
+    /// An untagged end/point after overlapping starts can never settle a
+    /// wrapper request. It used to hold the lane and the raw clock closed until
+    /// a timeline replacement as well, which froze the mirror for the rest of
+    /// the session once an A-B loop bounce overlapped a user seek. The overlap
+    /// now drains on the coalesced end's first watched point: that point is
+    /// published as an external landing, later raw samples flow again, and the
+    /// newest queued intent dispatches as its own exact episode.
     @Test
-    func `External start overlapping wrapper work remains fail closed until reset`() async {
+    func `External start overlapping wrapper work drains without settling wrapper requests`() async {
       let player = makePlayingPlayer()
+      let bridge = player.eventBridge
+      let nativeGeneration = bridge.currentNativeHandleGeneration
+      let playbackGeneration = player.sessionGeneration
       var dispatchedOffsets: [Int64] = []
       player._nativeJumpTimeOverrideForTesting = { offset in
         dispatchedOffsets.append(offset)
@@ -341,34 +351,93 @@ extension Integration {
       expectNoDifference(dispatchedOffsets, [10000])
       #expect(player.queuedNativeSeek?.externalEpoch == 1)
 
+      // While the overlap is unresolved a raw sample cannot be attributed.
+      bridge._broadcastForTesting(
+        .timeChanged(.seconds(12)),
+        nativeHandleGeneration: nativeGeneration,
+        playbackGeneration: playbackGeneration
+      )
+      await drainMainActor()
+      #expect(player.currentTime == .seconds(10))
+
       player.nativeSeekMonitor._noteSeekEndedForTesting()
+      // The end alone proves nothing has landed yet.
+      expectNoDifference(dispatchedOffsets, [10000])
+      #expect(player.nativeSeekMonitor.hasSeekDrainPending)
       player.nativeSeekMonitor._noteTimeUpdatedForTesting(
         timeMilliseconds: 25000,
         position: 0.25
       )
       await drainMainActor()
 
-      // The untagged end/point may belong either to wrapper A or external e1.
-      // It cannot release C, even if repeated or allowed to age.
-      expectNoDifference(dispatchedOffsets, [10000])
-      #expect(player.activeNativeSeek == nil)
-      #expect(player.queuedNativeSeek?.nativeSeekToken == 3)
-      #expect(player.nativeSeekMonitor.hasSeekDrainPending)
-      #expect(c.initialOutcome == .pending)
+      // The point belongs to wrapper A or external e1; it settles neither
+      // wrapper request, but it is observed playback and releases C.
+      expectNoDifference(dispatchedOffsets, [10000, 30000])
+      #expect(player.activeNativeSeek?.command.nativeSeekToken == 3)
+      #expect(player.queuedNativeSeek == nil)
+      #expect(player.pendingSeekSettlement?.resolver.resolvedOutcome == nil)
 
       player.nativeSeekMonitor._noteSeekEndedForTesting()
       player.nativeSeekMonitor._noteTimeUpdatedForTesting(
-        timeMilliseconds: 40000,
-        position: 0.4
+        timeMilliseconds: 55000,
+        position: 0.55
       )
       await drainMainActor()
-      expectNoDifference(dispatchedOffsets, [10000])
-      #expect(player.nativeSeekMonitor.hasSeekDrainPending)
-
-      player.handleEvent(.stateChanged(.stopped))
-      #expect(await c.outcome == .superseded)
+      #expect(await c.outcome == .settled)
+      #expect(player.currentTime == .seconds(55))
       #expect(!player.nativeSeekMonitor.hasSeekDrainPending)
-      #expect(player.queuedNativeSeek == nil)
+
+      // The raw clock is live again for the rest of the session.
+      bridge._broadcastForTesting(
+        .timeChanged(.seconds(56)),
+        nativeHandleGeneration: nativeGeneration,
+        playbackGeneration: playbackGeneration
+      )
+      for _ in 0..<50 where player.currentTime != .seconds(56) {
+        await Task.yield()
+      }
+      #expect(player.currentTime == .seconds(56))
+    }
+
+    /// With no wrapper intent waiting, the drained overlap publishes its
+    /// observed point and reopens both the raw clock and the lane.
+    @Test
+    func `Overlapping external starts publish their landing and reopen the raw clock`() async {
+      let player = makePlayingPlayer()
+      let bridge = player.eventBridge
+      let nativeGeneration = bridge.currentNativeHandleGeneration
+      let playbackGeneration = player.sessionGeneration
+      var dispatchedOffsets: [Int64] = []
+      player._nativeJumpTimeOverrideForTesting = { offset in
+        dispatchedOffsets.append(offset)
+        return 0
+      }
+
+      player.nativeSeekMonitor._noteExternalSeekStartedForTesting()
+      player.nativeSeekMonitor._noteExternalSeekStartedForTesting()
+      player.nativeSeekMonitor._noteSeekEndedForTesting()
+      player.nativeSeekMonitor._noteTimeUpdatedForTesting(
+        timeMilliseconds: 20000,
+        position: 0.2
+      )
+      await drainMainActor()
+
+      #expect(player.currentTime == .seconds(20))
+      #expect(!player.nativeSeekMonitor.hasSeekDrainPending)
+
+      bridge._broadcastForTesting(
+        .timeChanged(.seconds(21)),
+        nativeHandleGeneration: nativeGeneration,
+        playbackGeneration: playbackGeneration
+      )
+      for _ in 0..<50 where player.currentTime != .seconds(21) {
+        await Task.yield()
+      }
+      #expect(player.currentTime == .seconds(21))
+
+      let request = player.requestJump(by: .seconds(5))
+      expectNoDifference(dispatchedOffsets, [5000])
+      #expect(request.initialOutcome == .pending)
     }
 
     @Test

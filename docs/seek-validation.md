@@ -175,7 +175,9 @@ prove the specified defects; the originally reported media and interaction must
 also be replayed when available. VFR, discontinuities and unusual edit lists need
 additional fixture coverage before claiming universal frame accuracy. Native
 watchers still use sole-episode attribution rather than native seek request IDs;
-ambiguous external overlapping controls remain fail-closed.
+overlapping external controls never settle a wrapper request; the overlap
+drains as an external landing on the first watched point after its coalesced
+native end, which reopens the raw clock and the seek lane.
 
 Timeout is intentionally observational: a latest accepted seek may execute after
 its waiter has received `.timedOut`. A new seek or media/lifecycle replacement
