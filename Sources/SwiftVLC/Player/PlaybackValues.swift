@@ -218,7 +218,7 @@ public struct SubtitleScale: Sendable, Hashable, Comparable, ExpressibleByFloatL
 ///
 /// ```swift
 /// equalizer.preampGain = .flat              // 0 dB
-/// equalizer.preampGain = +5.0               // any value in -20 ... +20
+/// equalizer.preampGain = 5.0                // any value in -20 ... +20
 /// equalizer.preampGain = .init(+30)         // clamped to +20
 /// ```
 public struct EqualizerGain: Sendable, Hashable, Comparable, ExpressibleByFloatLiteral {
