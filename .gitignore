@@ -45,7 +45,17 @@ Showcase/iOS/ValidationHarness/streams.local.json
 SwiftVLC Device Reports/
 /scripts/qualification/reports/
 
-# Local working documents (not part of the repo)
+# Local working documents and investigation material (not part of the repo)
 CLAUDE.md
 PLAN.md
 PROGRESS.md
+/audit/
+/diagnostics/
+
+# Self-signed pair that the local RTSP test server (mediamtx) writes into the
+# directory it is started from
+/auto.crt
+/auto.key
+
+# Debug log a Firebase CLI run leaves behind
+/firebase-debug.log
