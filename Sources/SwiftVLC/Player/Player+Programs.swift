@@ -826,9 +826,8 @@ extension Player {
           try await Task.sleep(for: timeout)
           return .timedOut
         } catch {
-          // `Task.sleep` throws only on cancellation. The previous `try?`
-          // collapsed this into the timeout path, so a cancelled caller was
-          // told the same thing as one that waited the full ceiling.
+          // `Task.sleep` throws only on cancellation, which is a distinct
+          // outcome from waiting out the full ceiling.
           return .cancelled
         }
       }

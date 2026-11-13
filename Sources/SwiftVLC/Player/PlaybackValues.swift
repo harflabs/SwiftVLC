@@ -1,5 +1,3 @@
-// MARK: - PlaybackPosition
-
 /// A fractional position in the current media, in `0.0 ... 1.0`.
 ///
 /// Passing this to `Player.seek(to:)` clamps values outside this range to
@@ -38,8 +36,6 @@ public struct PlaybackPosition: Sendable, Hashable, Comparable, ExpressibleByFlo
     lhs.rawValue < rhs.rawValue
   }
 }
-
-// MARK: - Volume
 
 /// Audio output volume, in `0.0 ... 2.0` (silent through 200%).
 ///
@@ -86,8 +82,6 @@ public struct Volume: Sendable, Hashable, Comparable, ExpressibleByFloatLiteral 
     lhs.rawValue < rhs.rawValue
   }
 }
-
-// MARK: - PlaybackRate
 
 /// Playback rate as a multiplier of normal speed.
 ///
@@ -143,8 +137,6 @@ public struct PlaybackRate: Sendable, Hashable, Comparable, ExpressibleByFloatLi
     lhs.rawValue < rhs.rawValue
   }
 }
-
-// MARK: - SubtitleScale
 
 /// Subtitle text scale factor, in `0.1 ... 5.0` (10 % to 500 %).
 ///
@@ -219,8 +211,6 @@ public struct SubtitleScale: Sendable, Hashable, Comparable, ExpressibleByFloatL
     lhs.rawValue < rhs.rawValue
   }
 }
-
-// MARK: - EqualizerGain
 
 /// A dB-gain value used by ``Equalizer`` for the preamp and per-band
 /// amplification. Range is `-20.0 ... +20.0` dB; libVLC clamps any

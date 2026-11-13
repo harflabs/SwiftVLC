@@ -361,7 +361,6 @@ public final class VLCInstance: Sendable {
       parameter: "arguments.count"
     )
 
-    // Convert Swift strings to C strings for libvlc_new.
     // strdup allocates; freed in defer after libvlc_new copies them.
     let cArgs = resolvedArguments.map { strdup($0) }
     defer { cArgs.forEach { Darwin.free($0) } }
