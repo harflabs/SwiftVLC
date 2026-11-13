@@ -4,10 +4,9 @@ Find media and renderer devices through libVLC discovery services.
 
 ## Discovering media sources
 
-``MediaDiscoverer`` wraps a named libVLC service. Depending on the
-bundled plugins and host platform, services may include UPnP, SMB,
-local directories, or podcasts. List the available services, then start
-one:
+``MediaDiscoverer`` wraps a named libVLC service — UPnP, SMB, local
+directories, or podcasts, depending on the bundled plugins and the host
+platform. List the services in a category, then start one:
 
 ```swift
 let services = MediaDiscoverer.availableServices(category: .lan)
@@ -24,14 +23,17 @@ if let list = discoverer.mediaList {
 }
 ```
 
-Categories:
-
 | ``DiscoveryCategory`` | What it finds |
 |---|---|
-| `.devices` | Physical devices (portable music players, disc drives) |
-| `.lan` | LAN discoverers such as UPnP, SMB, SAP, or Bonjour when available |
-| `.podcasts` | Podcast directories |
-| `.localDirectories` | System Music/Video/Pictures folders |
+| ``DiscoveryCategory/devices`` | Physical devices (portable music players, disc drives) |
+| ``DiscoveryCategory/lan`` | LAN discoverers such as UPnP, SMB, SAP, or Bonjour when available |
+| ``DiscoveryCategory/podcasts`` | Podcast directories |
+| ``DiscoveryCategory/localDirectories`` | System Music/Video/Pictures folders |
+
+Bonjour-backed services are started on a SwiftVLC-owned run-loop thread,
+because `NSNetServiceBrowser` delivers results through the run loop of
+whichever thread created it. Start and stop them from wherever is
+convenient; SwiftVLC places them correctly.
 
 ## Casting to a renderer
 
@@ -93,47 +95,46 @@ for await event in events {
 }
 ```
 
-Obtaining the stream before `start()` makes the lifecycle explicit, but it is
-not required for correctness. A new ``RendererDiscoverer/events`` stream first
-replays `.itemAdded` for the discoverer's current renderer inventory and then
-delivers later transitions. This covers renderer callbacks that libVLC can emit
-synchronously inside `start()`, as well as a UI that begins observing after
-discovery is already running. Stopping discovery clears that inventory and
-delivers matching `.itemDeleted` transitions to existing streams, so restarting
-cannot resurrect renderer items owned by the retired native discovery module.
+Taking the stream before `start()` makes the lifecycle explicit but is not
+required: a new ``RendererDiscoverer/events`` stream first replays
+``RendererEvent/itemAdded(_:)`` for the discoverer's current inventory and
+then delivers later transitions. That covers both renderer callbacks
+libVLC emits synchronously inside `start()` and a UI that begins observing
+after discovery is already running. Stopping discovery clears the
+inventory and delivers the matching
+``RendererEvent/itemDeleted(_:)`` transitions, so a restart cannot
+resurrect items owned by the retired native module.
 
-libVLC applies renderer selection before a native media player's first
-play. SwiftVLC preserves that rule at the public API boundary: use
-``Player/setRenderer(_:)`` before starting playback on a ``Player``. To
-retarget after playback has started, await
-``Player/recastAndWaitForOutcome(to:)``. It keeps the same ``Player`` while
-replacing the native handle and restarting the current media. Pass `nil` to
-return active playback to local output, or to `setRenderer(_:)` before the
-first play. ``Player/recast(to:)`` remains the version-1-compatible action
-when the terminal outcome is intentionally ignored.
-Inspect the returned ``RecastOutcome``: only `.settled` means the replacement
-and requested transport restoration completed. A nonthrowing timeout, failure,
-cancellation, or superseding operation must not be presented as a successful
-cast.
+### Selecting a renderer
 
-For a media generation already staged for a deferred fresh handle, recast only
-updates the renderer configuration; it does not spend another generation or
-start playback. The same no-autoplay rule applies to a previously used handle
-that is now idle, stopped, or failed: the renderer is staged and the next
-explicit `play()` creates the fresh handle. Active opening, buffering, and
-playing sessions are replaced and restarted. A paused session is restarted and
-does not settle until its pause is acknowledged.
+libVLC applies renderer selection before a native player's first play, and
+SwiftVLC preserves that rule: call ``Player/setRenderer(_:)`` before
+starting playback. To retarget after playback has started, await
+``Player/recastAndWaitForOutcome(to:)``, which keeps the same ``Player``
+while replacing the native handle and restarting the current media. Pass
+`nil` to either to return to local output. ``Player/recast(to:)`` is the
+version-1-compatible action that discards the terminal outcome.
+
+Only ``RecastOutcome/settled`` means the replacement and the requested
+transport restoration completed. A non-throwing timeout, failure,
+cancellation, or supersession must never be presented as a successful
+cast. Even `.settled` means SwiftVLC's replacement transaction completed;
+it does **not** prove a physical receiver rendered anything.
+
+Recast does not autoplay. For media already staged for a deferred fresh
+handle, and for a previously used handle that is now idle, stopped, or
+failed, it only updates the renderer configuration and the next explicit
+``Player/play()`` creates the handle. Active opening, buffering, and
+playing sessions are replaced and restarted; a paused session is restarted
+and does not settle until its pause is acknowledged.
 
 Position and track restoration are local wrapper guarantees, not receiver
-acknowledgements. A track type that was turned off stays off on the new
-session. Stable track ids are preferred exactly; an adaptive stream's
-per-session ids (``Track/isIDStable`` is `false`) are never trusted across
-sessions. Metadata fallback considers only tracks of the same type and codec and
-is used only when language/name identifies one unique candidate, so discovery
-order can never choose between ambiguous renditions. A `.settled` result means SwiftVLC's
-replacement transaction completed. It does **not** prove that a physical
-receiver rendered audio/video or acknowledged a command; qualify that behavior
-with the real-device release checklist.
+acknowledgements. A track type that was turned off stays off. Stable track
+ids are matched exactly; an adaptive stream's per-session ids
+(``Track/isIDStable`` is `false`) are never trusted across sessions.
+Metadata fallback considers only tracks of the same type and codec, and
+only when language or name identifies one unique candidate, so discovery
+order can never pick between ambiguous renditions.
 
 ## Answering the Chromecast trust question
 
@@ -182,16 +183,14 @@ let outcome = try await player.recastAndWaitForOutcome(to: renderer)
 trust.isConnectingToCastDevice = false
 ```
 
-Three things to know:
-
-- libVLC blocks the connection until the question is answered, so always
-  answer or dismiss every question you receive.
+- libVLC blocks the connection until the question is answered, so answer
+  or dismiss every question you receive.
 - The same question is raised for *any* TLS peer libVLC cannot validate,
   including an HTTPS stream with a self-signed certificate. SwiftVLC never
-  accepts it on your behalf; scope acceptance to your cast flow as above, or
-  show it to the user.
-- The acceptance is remembered only for that one connection. The question
-  comes back on every cast, including a recast to the same device.
+  accepts it on your behalf: scope acceptance to your cast flow as above,
+  or show it to the user.
+- Acceptance is remembered only for that one connection. The question
+  returns on every cast, including a recast to the same device.
 
 libVLC can also ask a "Performance warning" question before it converts media
 for a renderer. ``VLCInstance/defaultArguments`` turns that question off. It
@@ -263,3 +262,11 @@ if renderer.canVideo && renderer.type == "chromecast" {
 - ``Player/setRenderer(_:)``
 - ``Player/recast(to:)``
 - ``Player/recastAndWaitForOutcome(to:)``
+- ``RecastOutcome``
+
+### Trust prompts
+- ``DialogHandler``
+- ``DialogEvent``
+- ``QuestionRequest``
+- ``QuestionRequest/isCertificateTrustQuestion``
+- ``QuestionType``

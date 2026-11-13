@@ -1,10 +1,11 @@
 name: Claude Code
 
 on:
-  # PR conversation comments still support `@claude`. Do not subscribe this
-  # workflow to pull_request_review(_comment): GitHub evaluates contributor
-  # approval before the job-level mention filter, so routine Copilot reviews
-  # otherwise create zero-job `action_required` runs.
+  # PR conversation comments are the supported `@claude` entry point. Do not
+  # subscribe this workflow to pull_request_review(_comment): GitHub evaluates
+  # contributor approval before the job-level mention filter, so routine
+  # Copilot reviews would create zero-job `action_required` runs.
+  # (scripts/tests/release-integrity.sh enforces this.)
   issue_comment:
     types: [created]
   issues:
@@ -25,8 +26,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          fetch-depth: 1
 
       - name: Run Claude Code
         id: claude

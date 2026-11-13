@@ -786,7 +786,6 @@ public final class PiPController: NSObject {
     displayLayer.controlTimebase = tb
     controlTimebase = tb
 
-    // Give the renderer access to the timebase for frame PTS
     renderer.setTimebase(tb)
   }
 

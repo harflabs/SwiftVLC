@@ -192,7 +192,6 @@ extension PiPController {
   private func handleObservedPlayerState(rate: Float) {
     let active = player.isActive
 
-    // State transition: sync the timebase rate.
     if active != lastObservedNativeActive {
       lastObservedNativeActive = active
       let didAcceptNativeState = handleObservedPlaybackActivity(active)

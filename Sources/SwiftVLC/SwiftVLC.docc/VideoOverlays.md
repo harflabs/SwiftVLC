@@ -4,14 +4,13 @@ Text marquees, image logos, color adjustments, and 360/VR viewpoints.
 
 ## Ownership-aware overlays
 
-``Marquee``, ``Logo``, and ``VideoAdjustments`` are `~Copyable` and
-`~Escapable`. They hold a pointer into the player and are scoped to the
-player's lifetime, which means the compiler rejects any attempt to
-store them in a property, return them from a function, or capture them
-in a `Task`.
+``Marquee``, ``Logo``, and ``VideoAdjustments`` hold a pointer into the
+player. They are `~Copyable` and `~Escapable` and scoped to the player's
+lifetime, so the compiler rejects any attempt to store them in a
+property, return them from a function, or capture them in a `Task`.
 
-Use them either one-off through a property, or inside a `with*` scope
-for batched mutations:
+Reach for one through a property for a single change, or inside a `with*`
+scope for a batch:
 
 ```swift
 player.marquee.isEnabled = true
@@ -26,9 +25,9 @@ player.withLogo { logo in
 
 ## Marquee (text overlay)
 
-``Marquee`` displays a text string on top of the video. It supports
-strftime-style placeholders refreshed at the interval configured by
-``Marquee/refresh``:
+``Marquee`` draws a text string over the video. It supports
+strftime-style placeholders, refreshed at the interval set by
+``Marquee/refresh`` (milliseconds):
 
 ```swift
 player.withMarquee { m in

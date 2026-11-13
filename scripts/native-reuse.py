@@ -19,12 +19,13 @@ def non_native_path(path):
                             ".github/", "docs/", "scripts/ci/", "scripts/tests/",
                             "scripts/qualification/", "scripts/libvlc-manifests/",
                             "scripts/av-sync-harness/")) or path in {
-        "README.md", "CHANGELOG.md", "CONTRIBUTING.md", "CLAUDE.md", "AGENTS.md",
-        "LICENSE", ".gitignore", ".swiftlint.yml", ".swiftformat",
+        "README.md", "ARCHITECTURE.md", "CHANGELOG.md", "CONTRIBUTING.md", "CLAUDE.md", "AGENTS.md",
+        "LICENSE", ".gitignore", ".swiftlint.yml", ".swiftformat", "codecov.yml",
         "scripts/release.sh", "scripts/release-runner.py", "scripts/release-status.py",
         "scripts/release-source-digest.py", "scripts/release-version-policy.py",
         "scripts/native-reuse.py", "scripts/check-qualification.sh",
         "scripts/check-engine-coverage.sh", "scripts/ci-run-with-timeouts.py",
+        "scripts/doc-coverage.sh",
     }
 
 

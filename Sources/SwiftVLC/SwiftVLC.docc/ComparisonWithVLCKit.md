@@ -1,9 +1,7 @@
 # SwiftVLC vs VLCKit
 
-Both libraries embed VLC's playback engine into Apple apps, but the
-integration they hand back to the developer looks very different.
-This page walks through where they diverge and which trade-offs apply
-to each.
+Both libraries embed VLC's playback engine into Apple apps. The
+integration they hand back to the developer differs substantially.
 
 ## What they are
 
@@ -91,29 +89,15 @@ See <doc:ConcurrencyModel> for the full isolation map.
 |---|---|---|
 | Playback events | Delegate + `NSNotificationCenter` | `AsyncStream<PlayerEvent>` |
 | State changes | KVO / delegate callbacks | `@Observable` properties |
-| Errors | `NSError` codes and out-params | `throws(VLCError)`, typed and exhaustive |
+| Errors | `NSError` codes and out-params | `throws(VLCError)`, typed — no casting in `catch` |
 | Logging | Delegate protocol | `AsyncStream<LogEntry>` with level filtering |
 | Dialog prompts | Delegate protocol | `AsyncStream<DialogEvent>` |
 
 Multiple consumers can subscribe to SwiftVLC streams concurrently. Each
-subscription is independent and is offered events broadcast after its
-creation, subject to its own filter and buffering policy.
-
-The policy is chosen per stream, by what losing an event would cost:
-
-- ``Player/events(policy:filter:)`` is the raw firehose and defaults to
-  newest-64, because it carries ~30 Hz clock samples. Pass `.unbounded`
-  to keep every event.
-- ``Player/timingEvents`` is deliberately coalesced: only the newest
-  clock sample means anything.
-- ``Player/controlEvents``, ``Player/stateTransitions``,
-  ``PiPController/pipEvents`` and ``DialogHandler/dialogs`` are unbounded.
-  Their events are one-shot, and a dropped one does not come round again — a
-  terminal state or a dialog prompt that VLC is blocked waiting for a reply to.
-- ``RendererDiscoverer/events`` is also unbounded, and each new stream first
-  replays the discoverer's complete current renderer inventory. This keeps a
-  late-subscribing device picker coherent even when libVLC found a renderer
-  synchronously during `start()`.
+subscription is independent, and each stream's buffering policy is chosen
+by what losing an event would cost: the raw firehose is lossy, one-shot
+lanes such as ``Player/controlEvents`` and ``DialogHandler/dialogs`` are
+unbounded. See <doc:ConcurrencyModel>.
 
 ## SwiftUI
 
@@ -184,23 +168,15 @@ Both are maintained, and choosing one does not deprecate the other.
 
 ## Not in the same process
 
-The two projects coexisting is a fact about the ecosystem, not about
-linking. **Do not link SwiftVLC and VLCKit into the same process.** Each
-ships its own complete
-libVLC, and a process that loads two of them is undefined behavior:
-duplicate Objective-C classes resolved arbitrarily at launch, two plugin
-registries, and callbacks able to cross between two half-initialized
-runtimes. The libvlc archive has to exist exactly once among the images a
-process loads — see <doc:IntegrationTopology> for the rule and the
-supported layered topology.
+**Do not link SwiftVLC and VLCKit into the same process.** Each ships its
+own complete libVLC, and a process that loads two of them is undefined
+behavior: duplicate Objective-C classes resolved arbitrarily at launch,
+two plugin registries, and callbacks able to cross between two
+half-initialized runtimes. The libvlc archive must exist exactly once
+among the images a process loads — see <doc:IntegrationTopology>.
 
-Migrating is therefore a replacement rather than a gradual mix: move a
-target from one wrapper to the other, don't run both side by side inside
-one app. Two apps, two extensions, or an app and its extension are
-separate processes and are unaffected.
-
-Nothing here is a claim about same-process compatibility, and SwiftVLC
-does not test for it. If that ever becomes supported it will be backed
-by fixtures covering symbols, Objective-C classes, plugin registration,
-playback, and teardown on every platform — not by a sentence in a
-comparison guide.
+Migration is therefore a replacement, not a gradual mix: move a target
+from one wrapper to the other rather than running both side by side. Two
+apps, two extensions, or an app and its extension are separate processes
+and are unaffected. SwiftVLC does not test same-process coexistence and
+makes no claim about it.

@@ -12,18 +12,15 @@ try list.append(Media(url: url2))
 try list.insert(Media(url: url3), at: 1)
 ```
 
-If the source URL is itself a playlist container, such as `.pls` or
-classic `.m3u`, add that ``Media`` to a ``MediaList`` and play it with
-``MediaListPlayer`` so libVLC can expand the playlist entries. Do not
-pass those playlist container URLs directly to ``Player/play(url:)``.
-HLS `.m3u8` URLs are the exception: they are streaming manifests and
-can be played directly by ``Player``.
+When the source URL is itself a playlist container — `.pls` or classic
+`.m3u` — add that ``Media`` to a ``MediaList`` and play it through
+``MediaListPlayer``, which lets libVLC expand the entries. Passing such a
+URL straight to ``Player/play(url:)`` does not work. HLS `.m3u8` is the
+exception: it is a streaming manifest and ``Player`` plays it directly.
 
-``MediaList`` is `Sendable` and thread-safe. Every mutation acquires
-the underlying libVLC lock automatically.
-
-For batch reads that must see a consistent snapshot, hold the lock
-across the whole scope with ``MediaList/withLocked(_:)``:
+``MediaList`` is `Sendable` and thread-safe; every mutation takes the
+underlying libVLC lock. For batch reads that need a consistent snapshot,
+hold the lock across the whole scope with ``MediaList/withLocked(_:)``:
 
 ```swift
 let mrls = list.withLocked { view in
@@ -48,9 +45,14 @@ listPlayer.play()
 
 A `Player` has one live list-player owner. Assigning the same player to a
 second `MediaListPlayer` transfers ownership without stopping its current
-playback. Setting `mediaList = nil` also leaves the attached player's current
-playback running; set `mediaPlayer = nil` or call `stop()` when the player
-itself should stop.
+playback. Setting ``MediaListPlayer/mediaList`` to `nil` also leaves that
+playback running; set ``MediaListPlayer/mediaPlayer`` to `nil` or call
+``MediaListPlayer/stop()`` when the player itself should stop.
+
+While a list player is attached, the ``Player`` does not synthesize
+``PlayerEvent/endReached-enum.case``: list advancement stops the native
+handle between items through calls the player cannot tell apart from a
+natural end. Track item boundaries through the list player instead.
 
 Control is per-item:
 
@@ -86,9 +88,16 @@ listPlayer.stop()
 - ``MediaList/withLocked(_:)``
 - ``MediaList/LockedView``
 
+### Attaching
+- ``MediaListPlayer/mediaPlayer``
+- ``MediaListPlayer/mediaList``
+- ``MediaListPlayer/playbackMode``
+
 ### Control
 - ``MediaListPlayer/play()``
 - ``MediaListPlayer/play(at:)``
+- ``MediaListPlayer/play(_:)``
 - ``MediaListPlayer/next()``
 - ``MediaListPlayer/previous()``
+- ``MediaListPlayer/togglePause()``
 - ``MediaListPlayer/stop()``

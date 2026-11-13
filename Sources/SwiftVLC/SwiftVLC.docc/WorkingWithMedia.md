@@ -22,9 +22,8 @@ the player from the main actor.
 ## Parsing metadata
 
 Parsing reads the container to discover duration, tracks, and
-``Metadata``. It runs asynchronously and honors cooperative
-cancellation: canceling the enclosing `Task` aborts the parse
-promptly.
+``Metadata``. It runs asynchronously and honours cooperative
+cancellation: cancelling the enclosing `Task` aborts the parse promptly.
 
 ```swift
 let media = try Media(url: url)
@@ -35,8 +34,13 @@ print(metadata.duration ?? "—")
 print(metadata.artworkURL?.absoluteString ?? "no artwork")
 ```
 
-Common metadata keys are exposed as typed properties on ``Metadata``.
-Access every libVLC metadata key through the subscript:
+Media that is already parsed — including media a ``Player`` has opened —
+returns its metadata without another request. libVLC runs one parse per
+media at a time, so a second call made while one is in flight is not
+joined to it and throws ``VLCError/parseFailed(reason:)``.
+
+Common keys are typed properties on ``Metadata``; every libVLC key is
+reachable through the subscript:
 
 ```swift
 let now = metadata[.nowPlaying]
@@ -45,8 +49,9 @@ let encoded = metadata[.encodedBy]
 
 ## Tracks
 
-A media reports its tracks once parsing has completed, or once the
-player has loaded it:
+``Media/parse(timeout:instance:)`` returns metadata only. Read the track
+list separately, once parsing has completed or the player has loaded the
+media:
 
 ```swift
 let audio = media.tracks().filter { $0.type == .audio }
@@ -97,15 +102,20 @@ media.addOption(":network-caching=1500")
 
 Options only affect media that has not yet started playing.
 
-For resume playback, load the full media and call
-`try player.requestSeek(to: .seconds(savedElapsed))` once the player is seekable
-and its duration is known. Observe the request's outcome before treating its
-target as landed. The `:start-time` option creates a clipped timeline: a
-60-second file with `:start-time=20` has a 40-second duration, and seeking to
-5 seconds displays content from 25 seconds into the original file.
+To resume playback, load the full media and seek once the player is
+seekable and its duration is known:
 
-For HTTP and HTTPS streams, use the typed initializer when the request needs
-a per-media identity:
+```swift
+let request = try player.requestSeek(to: .seconds(savedElapsed))
+guard await request.outcome == .settled else { return }
+```
+
+Do not reach for `:start-time` instead. It clips the timeline: a
+60-second file with `:start-time=20` reports a 40-second duration, and
+seeking to 5 seconds shows content from 25 seconds into the original.
+
+For HTTP and HTTPS streams, use the typed initializer when the request
+needs a per-media identity:
 
 ```swift
 let media = try Media(
@@ -138,8 +148,20 @@ if let stats = player.statistics {
 }
 ```
 
-Values are snapshots at the moment of the call. Capture them on a
-timer to display rates over time.
+Values are snapshots at the moment of the call. Sample them on a timer to
+display rates over time.
+
+## Thumbnails
+
+``Media/thumbnail(at:width:height:crop:seekMode:timeout:instance:)``
+decodes one frame and returns PNG data, without a player:
+
+```swift
+let png = try await media.thumbnail(at: .seconds(60), width: 320)
+```
+
+It is cancellable up to the point libVLC accepts the request; see
+<doc:ConcurrencyModel>.
 
 ## Topics
 
@@ -166,6 +188,10 @@ timer to display rates over time.
 - ``Player/addExternalTrack(from:type:select:)``
 - ``MediaSlave``
 - ``MediaSlaveType``
+
+### Thumbnails
+- ``Media/thumbnail(at:width:height:crop:seekMode:timeout:instance:)``
+- ``ThumbnailSeekMode``
 
 ### Options and statistics
 - ``Media/addOption(_:)``
