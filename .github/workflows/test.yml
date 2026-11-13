@@ -55,9 +55,7 @@ jobs:
     needs: native-changes
     if: needs.native-changes.outputs.build == 'true'
     runs-on: macos-26
-    # Above the sum of the step ceilings below (199 minutes), which the engine
-    # build dominates.
-    timeout-minutes: 210
+    timeout-minutes: 200
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -107,12 +105,8 @@ jobs:
             --archive Vendor/libvlc.xcframework/macos-arm64_x86_64/libvlc.a \
             --server "$RUNNER_TEMP/mediamtx/mediamtx" \
             --output .build/ci-results/rtsp
-      # The native-gated suites make this the longest Swift run in CI: 570s of
-      # its own 600s wall on the last green build, so any slower runner killed
-      # it. The idle ceiling below is what catches a genuine hang; the wall only
-      # has to leave room for a slow host.
       - name: Test Swift behavior against the new engine
-        timeout-minutes: 18
+        timeout-minutes: 12
         env:
           CI: "true"
           # Stream Swift/Foundation output to the idle watchdog even when piped.
@@ -124,7 +118,7 @@ jobs:
             -I "$RUNNER_TEMP/native-root/swiftvlc-libvlc-build/vlc/include" \
             -c scripts/ci/seek-videotoolbox-test-support.c \
             -o "$RUNNER_TEMP/seek-videotoolbox-test-support.o"
-          ./scripts/ci-run-with-timeouts.py 900 180 \
+          ./scripts/ci-run-with-timeouts.py 600 180 \
             xcrun --toolchain "$TOOLCHAINS" swift test --no-parallel \
             --cache-path "$RUNNER_TEMP/native-swift-cache" \
             -Xswiftc -DSWIFTVLC_NATIVE_VIDEOTOOLBOX_TESTS \
