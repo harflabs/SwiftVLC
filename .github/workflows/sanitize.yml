@@ -1,18 +1,18 @@
 name: Sanitizers
 
-# Sanitizer runs are slower than the regular test job (TSan instruments
-# every memory access, ~3-5x slowdown; ASan ~2x slowdown). Pull requests run
-# the deterministic race/lifecycle suites without instrumentation; the two
-# expensive sanitizer variants run after merge, manually, and weekly.
+# Sanitizers are far slower than the regular test job — TSan instruments
+# every memory access (~3-5x), ASan roughly 2x — so they stay off the
+# everyday pull-request path and run after merge, manually, and weekly.
 #
-# Scoped to the race/lifecycle/memory test suites — these are the suites
-# that exist *because* of races. Running the full test suite under
-# sanitizers would inflate CI minutes without proportional benefit.
+# The filter at the bottom of this file is scoped to the suites that exist
+# *because* of races, lifetimes and native ownership. Running the whole
+# suite under sanitizers would inflate CI minutes without proportional
+# benefit; those suites still run uninstrumented in test.yml on every PR.
 on:
   workflow_dispatch:
-  # Release candidates run once through their protected PR. Other pull
-  # requests create only a skipped workflow row and consume no macOS runner;
-  # their deterministic race suites remain in Tests as described above.
+  # Release candidates run once through their protected PR before
+  # publication. Every other pull request leaves only a skipped workflow
+  # row and consumes no macOS runner (see the job `if:` below).
   pull_request:
     branches: [main]
   push:
@@ -27,10 +27,16 @@ on:
       - 'Sources/SwiftVLC/Playlist/**'
       - 'Sources/SwiftVLC/Audio/Equalizer.swift'
       - 'Sources/SwiftVLC/Video/VideoView.swift'
+      # One glob per name the `--filter` below selects, so a push that edits
+      # only a sanitized suite still runs it.
       - 'Tests/SwiftVLCTests/**Race**'
       - 'Tests/SwiftVLCTests/**Stress**'
       - 'Tests/SwiftVLCTests/**Memory**'
       - 'Tests/SwiftVLCTests/**Lifecycle**'
+      - 'Tests/SwiftVLCTests/**Ownership**'
+      - 'Tests/SwiftVLCTests/**Dialog**'
+      - 'Tests/SwiftVLCTests/**ThumbnailAlias**'
+      - 'Tests/SwiftVLCTests/**VideoSurfaceMigration**'
       - 'Package.swift'
       - '.github/workflows/sanitize.yml'
   schedule:
@@ -129,25 +135,22 @@ jobs:
         timeout-minutes: 2
         run: xcrun --toolchain "$TOOLCHAINS" swift package clean
 
-      # Run only the suites that exist *because* of races/lifecycle/memory
-      # concerns. The general test suite runs unsanitized in `test.yml`.
-      #
       # Playback-driven race suites (PlayerCleanupRaceTests,
       # AudioOutputRaceTests, …) are gated on `TestCondition.canPlayMedia`
       # and self-skip under CI=true, so the sanitizers never see them here.
       # PlaybackFreeTeardownRaceTests exists to cover the stop, native-
-      # handle-swap, and offloaded-deinit paths without playback so they
+      # handle-swap and offloaded-deinit paths without playback, so those do
       # run under both sanitizers. The residual gap is real-playback
       # stop/teardown, which remains device/local-only.
       #
-      # `--no-parallel` per the same rationale as the test job: serialized
-      # runs avoid main-actor contention that masks real races as timeouts.
+      # `--no-parallel` for the same reason as the test job: serialized runs
+      # avoid main-actor contention that masks real races as timeouts.
       #
-      # The 25-minute wall clock is generous because sanitizer-instrumented
-      # builds are 3-5x slower; the per-suite time limits inside the tests
-      # are NOT scaled, so a sanitizer pass that legitimately needs more
-      # time per test will fail with a clearer signal than a wall-clock kill.
-      - name: Run sanitized race tests
+      # The 25-minute wall clock is deliberately loose because instrumented
+      # builds are 3-5x slower, while the per-test time limits inside the
+      # suites are NOT scaled — a sanitizer pass that legitimately needs more
+      # time per test fails with a clearer signal than a wall-clock kill.
+      - name: Run sanitized race, lifetime and ownership suites
         timeout-minutes: 25
         env:
           CI: "true"

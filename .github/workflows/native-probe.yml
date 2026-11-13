@@ -16,6 +16,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The `retained-run` input selects exactly one of the two jobs below:
+  # empty probes the declared public engine, non-empty reconstructs the
+  # retained source of an earlier failed Tests run.
   released-native-probe:
     if: ${{ !inputs.retained-run }}
     runs-on: macos-26
@@ -48,13 +51,17 @@ jobs:
           retention-days: 14
 
   retained-source-probe:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.retained-run != '' }}
+    if: ${{ inputs.retained-run != '' }}
     runs-on: macos-26
     timeout-minutes: 25
+    # `actions: read` lets check-retained-native-probe.py pull the retained
+    # run's artifacts with `gh run download`.
     permissions:
       contents: read
       actions: read
     steps:
+      # Full history: the probe checks out the exact compiled revision
+      # recorded in the retained build log as a detached worktree.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
