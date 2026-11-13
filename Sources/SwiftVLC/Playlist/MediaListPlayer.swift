@@ -50,6 +50,15 @@ public final class MediaListPlayer {
   /// native list-player handle that owns that retain.
   private var nativePlayerBindingLease: NativePlayerHandleLease?
   private var _mediaList: MediaList?
+  /// Snapshot of the list taken before each start or navigation command. Holding
+  /// it keeps every stream-backed item's factory registered while libVLC may
+  /// start one of them, even if its list entry is removed meanwhile. Released
+  /// when the attached player stops after that start, because libVLC may still
+  /// open a stream until then.
+  private var playbackItems: [Media] = []
+  /// Increments with every snapshot, so a late `.stopped` cannot release a newer one.
+  private var playbackGeneration = 0
+  private var stoppedObserver: Task<Void, Never>?
   private var _playbackMode: PlaybackMode = .default
   private let instance: VLCInstance
   #if DEBUG
@@ -205,6 +214,44 @@ public final class MediaListPlayer {
     }
   }
 
+  /// Holds every item of the attached list until this start's playback stops.
+  private func retainPlaybackItems() {
+    playbackGeneration &+= 1
+    stoppedObserver?.cancel()
+    stoppedObserver = nil
+    playbackItems = _mediaList?.withLocked { view in
+      (0..<view.count).compactMap { view.media(at: $0) }
+    } ?? []
+    observeStoppedBoundary()
+  }
+
+  /// Releases the snapshot when the attached player stops after this start,
+  /// through `stop()` or by reaching the end. A `.stopped` only counts after the
+  /// start became active, so a late one from an earlier stop cannot release it.
+  /// Without a player there is nothing to observe; the snapshot then stays until
+  /// the next start or until this list player is released.
+  private func observeStoppedBoundary() {
+    guard let player = _mediaPlayer else { return }
+    let generation = playbackGeneration
+    stoppedObserver = Task { [weak self, weak player] in
+      guard let player else { return }
+      var started = false
+      waiting: for await state in player.stateTransitions {
+        switch state {
+        case .opening, .buffering, .playing, .paused:
+          started = true
+        case .stopped where started:
+          break waiting
+        default:
+          continue
+        }
+      }
+      guard !Task.isCancelled, let self, playbackGeneration == generation else { return }
+      playbackItems = []
+      stoppedObserver = nil
+    }
+  }
+
   /// Starts playing the media list from the beginning.
   public func play() {
     guard (try? prepareAttachedPlayerForPlayback()) == true else { return }
@@ -213,7 +260,11 @@ public final class MediaListPlayer {
       let reservation = reservePlaybackStart()
     else { return }
     let hasPlayableItem = _mediaList?.isEmpty == false
+    retainPlaybackItems()
     let result = dispatchNativeTransport(.play, on: reservation.nativeListPlayer)
+    if result != 0 {
+      playbackItems = []
+    }
     settlePlaybackStart(
       reservation,
       accepted: result == 0 && hasPlayableItem
@@ -316,12 +367,14 @@ public final class MediaListPlayer {
     guard let reservation = reservePlaybackStart() else {
       throw .invalidState("The attached Player changed before playback dispatch")
     }
+    retainPlaybackItems()
     let result = dispatchNativeTransport(
       .playAt(index),
       on: reservation.nativeListPlayer
     )
     settlePlaybackStart(reservation, accepted: result == 0)
     guard result == 0 else {
+      playbackItems = []
       throw .operationFailed("Play item at index \(index)")
     }
   }
@@ -339,12 +392,15 @@ public final class MediaListPlayer {
     guard let reservation = reservePlaybackStart() else {
       throw .invalidState("The attached Player changed before playback dispatch")
     }
+    retainPlaybackItems()
+    playbackItems.append(copy media)
     let result = dispatchNativeTransport(
       .playMedia(media.pointer),
       on: reservation.nativeListPlayer
     )
     settlePlaybackStart(reservation, accepted: result == 0)
     guard result == 0 else {
+      playbackItems = []
       throw .operationFailed("Play media item")
     }
   }
@@ -379,9 +435,11 @@ public final class MediaListPlayer {
     guard let reservation = reservePlaybackStart() else {
       throw .invalidState("The attached Player changed before playback dispatch")
     }
+    retainPlaybackItems()
     let result = dispatchNativeTransport(.next, on: reservation.nativeListPlayer)
     settlePlaybackStart(reservation, accepted: result == 0)
     guard result == 0 else {
+      playbackItems = []
       throw .operationFailed("Advance to next item")
     }
   }
@@ -395,9 +453,11 @@ public final class MediaListPlayer {
     guard let reservation = reservePlaybackStart() else {
       throw .invalidState("The attached Player changed before playback dispatch")
     }
+    retainPlaybackItems()
     let result = dispatchNativeTransport(.previous, on: reservation.nativeListPlayer)
     settlePlaybackStart(reservation, accepted: result == 0)
     guard result == 0 else {
+      playbackItems = []
       throw .operationFailed("Go to previous item")
     }
   }

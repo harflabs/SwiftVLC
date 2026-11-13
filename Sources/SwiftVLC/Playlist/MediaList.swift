@@ -15,6 +15,12 @@ import CLibVLC
 /// Pair with a ``MediaListPlayer`` to play the items in sequence.
 public final class MediaList: Sendable {
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_media_list_t*
+  /// Stream factories of stream-backed items, keyed by their libvlc media,
+  /// with the number of list entries that share that media. The list keeps
+  /// them alive because libVLC holds the native items after the caller drops
+  /// its `Media`. Guarded by the libVLC list lock.
+  nonisolated(unsafe) var streamRegistrations:
+    [OpaquePointer: (registration: MediaStreamRegistration, occurrences: Int)] = [:]
 
   /// Creates an empty media list.
   public init() {
@@ -63,6 +69,7 @@ public final class MediaList: Sendable {
     guard libvlc_media_list_add_media(pointer, media.pointer) == 0 else {
       throw .operationFailed("Append media to list")
     }
+    keepStreamRegistration(of: media)
   }
 
   /// Inserts a media item at the specified index.
@@ -79,6 +86,24 @@ public final class MediaList: Sendable {
     guard libvlc_media_list_insert_media(pointer, media.pointer, index) == 0 else {
       throw .operationFailed("Insert media at index \(index)")
     }
+    keepStreamRegistration(of: media)
+  }
+
+  /// Counts one more list entry of a stream-backed item. Call with the libVLC lock held.
+  private func keepStreamRegistration(of media: borrowing Media) {
+    guard let registration = media.streamRegistration else { return }
+    streamRegistrations[media.pointer, default: (registration, 0)].occurrences += 1
+  }
+
+  /// Drops one list entry of an item, and its registration with the last one.
+  /// Call with the libVLC lock held.
+  private func releaseStreamRegistration(of item: OpaquePointer) {
+    guard let occurrences = streamRegistrations[item]?.occurrences else { return }
+    if occurrences > 1 {
+      streamRegistrations[item]?.occurrences = occurrences - 1
+    } else {
+      streamRegistrations[item] = nil
+    }
   }
 
   /// Removes the media item at the specified index.
@@ -92,8 +117,17 @@ public final class MediaList: Sendable {
       throw .invalidInput("index must be in 0..<\(count)")
     }
     let index = try checkedInt32(index, parameter: "index")
+    let item = libvlc_media_list_item_at_index(pointer, index)
+    defer {
+      if let item {
+        libvlc_media_release(item)
+      }
+    }
     guard libvlc_media_list_remove_index(pointer, index) == 0 else {
       throw .operationFailed("Remove media at index \(index)")
+    }
+    if let item {
+      releaseStreamRegistration(of: item)
     }
   }
 

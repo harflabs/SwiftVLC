@@ -100,6 +100,8 @@ public struct MediaSlave: Sendable, Hashable {
 public final class Media: Sendable {
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_media_t*
   let thumbnailCoordinator: ThumbnailCoordinator
+  /// Set for media created from a ``MediaByteStream``; unregisters the stream factory on deinit.
+  let streamRegistration: MediaStreamRegistration?
 
   /// Creates media from a URL.
   ///
@@ -119,6 +121,7 @@ public final class Media: Sendable {
     }
     pointer = media
     thumbnailCoordinator = ThumbnailCoordinator.shared(for: media)
+    streamRegistration = nil
   }
 
   /// Creates media from a URL with per-media HTTP identity headers.
@@ -153,6 +156,7 @@ public final class Media: Sendable {
     }
     pointer = media
     thumbnailCoordinator = ThumbnailCoordinator.shared(for: media)
+    streamRegistration = nil
   }
 
   /// Parses the media's metadata and track list, awaiting the result.
@@ -230,9 +234,13 @@ public final class Media: Sendable {
           return
         }
 
-        let flags = libvlc_media_parse_flag_t(
-          rawValue: libvlc_media_parse_local.rawValue | libvlc_media_parse_network.rawValue
-        )
+        // Media read through a `MediaByteStream` has no path libVLC can classify as
+        // local or network, so its parse request is skipped unless forced.
+        var flagBits = libvlc_media_parse_local.rawValue | libvlc_media_parse_network.rawValue
+        if streamRegistration != nil {
+          flagBits |= libvlc_media_parse_forced.rawValue
+        }
+        let flags = libvlc_media_parse_flag_t(rawValue: flagBits)
         let rc = libvlc_media_parse_request(instancePtr, media, flags, timeoutMs)
         if rc != 0 {
           operation.finishWithoutRequest(
@@ -347,10 +355,21 @@ public final class Media: Sendable {
   ///
   /// The caller must have already called `libvlc_media_retain` or obtained
   /// the pointer from an API that returns a retained reference.
-  /// `Media` will call `libvlc_media_release` on deinit.
-  init(retaining ptr: OpaquePointer) {
+  /// `Media` will call `libvlc_media_release` on deinit. A stream-backed
+  /// media keeps its stream factory registered through the new wrapper.
+  convenience init(retaining ptr: OpaquePointer) {
+    self.init(
+      retaining: ptr,
+      streamRegistration: MediaStreamRegistration.registration(forMedia: ptr)
+    )
+  }
+
+  /// Wraps a retained pointer of media created from a ``MediaByteStream``,
+  /// keeping the stream factory registered for as long as this wrapper lives.
+  init(retaining ptr: OpaquePointer, streamRegistration: MediaStreamRegistration?) {
     pointer = ptr
     thumbnailCoordinator = ThumbnailCoordinator.shared(for: ptr)
+    self.streamRegistration = streamRegistration
   }
 
   /// Creates media from an open file descriptor.
@@ -366,6 +385,7 @@ public final class Media: Sendable {
     }
     pointer = media
     thumbnailCoordinator = ThumbnailCoordinator.shared(for: media)
+    streamRegistration = nil
   }
 
   /// Applies a libVLC option to this media before playback starts.
