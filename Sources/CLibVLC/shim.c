@@ -342,9 +342,11 @@ static void swiftvlc_log_bridge(void *data, int level,
                                  const char *fmt, va_list args) {
     struct swiftvlc_log_context *context = (struct swiftvlc_log_context *)data;
 
+    // Format the message
     char buf[1024];
     vsnprintf(buf, sizeof(buf), fmt, args);
 
+    // Get module name
     const char *module = NULL;
     const char *header = NULL;
     unsigned line = 0;
