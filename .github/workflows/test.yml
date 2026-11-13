@@ -30,9 +30,10 @@ concurrency:
 
 jobs:
   # Decides whether this change has to pay for the compiled-native lane
-  # below. scripts/ci/native-changes.py owns the input list; note that
-  # `.github/workflows/test.yml` is itself one of those inputs, so editing
-  # this file triggers a full native build.
+  # below. scripts/ci/native-changes.py owns the input list. This file counts
+  # only when an edit alters the lane itself — this job, `native-build`, or
+  # anything above `jobs:` — so comments and the other jobs cost no engine
+  # build.
   native-changes:
     runs-on: ubuntu-latest
     timeout-minutes: 3
