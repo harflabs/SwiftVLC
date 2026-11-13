@@ -7,10 +7,10 @@ duplicating the libVLC runtime.
 
 SwiftVLC's `libvlc` binary dependency is a large static archive: the
 whole libVLC core, every plugin, and their Objective-C support classes,
-all linked into whichever image consumes it. A static archive has no
-identity at load time — if two images in the same app each link it, the
-process carries two complete libVLC runtimes. That is undefined
-behavior, not just wasted size:
+linked into whichever image consumes it. A static archive has no identity
+at load time, so if two images in the same app each link it, the process
+carries two complete libVLC runtimes. That is undefined behavior, not
+just wasted size:
 
 - The Objective-C runtime sees every libVLC class twice and picks one
   arbitrarily (`Class X is implemented in both …` at launch).
@@ -82,7 +82,7 @@ The script builds both apps for the iOS and tvOS simulators, then runs
 counting which images define `_libvlc_new`. It passes only when exactly
 one image defines it — `MediaCore.framework/MediaCore` — and the app
 executable defines none. With `--launch` it also boots a simulator and
-checks the app's runtime output: both feature libraries observe the
-same ``VLCInstance/shared`` object, and the launch log contains no
-duplicate Objective-C class warnings. CI runs the build-and-audit half
-on every pull request that touches `Package.swift` or `Sources/`.
+checks the app's runtime output: both feature libraries observe the same
+``VLCInstance/shared`` object, and the launch log contains no duplicate
+Objective-C class warnings. CI runs the build-and-audit half whenever
+`Package.swift` or the fixtures change.

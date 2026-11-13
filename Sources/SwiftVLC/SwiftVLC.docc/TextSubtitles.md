@@ -1,11 +1,11 @@
 # Text subtitles
 
-Render text subtitles in your own interface instead of libvlc.
+Render text subtitles in your own interface instead of libVLC's.
 
 ## Enable subtitle capture
 
-Call ``Player/textSubtitleStream()`` before playback starts. If you do not call
-it, libVLC renders subtitles normally.
+Call ``Player/textSubtitleStream()`` before playback starts. Without it,
+libVLC renders subtitles itself.
 
 ```swift
 let player = Player()
@@ -25,14 +25,15 @@ let presentation = Task { @MainActor in
 try player.play(Media(url: movieURL))
 ```
 
-Calling the method after playback starts throws ``VLCError/invalidState(_:)``.
-It throws ``VLCError/operationFailed(_:)`` when the linked libVLC build does not
-support subtitle capture. Capture remains enabled for the player's lifetime.
+Calling it after playback starts throws ``VLCError/invalidState(_:)``; a
+linked libVLC build without subtitle-capture support throws
+``VLCError/operationFailed(_:)``. Once enabled, capture stays on for the
+player's lifetime.
 
 ## Select a track
 
-Select embedded subtitle tracks as you normally would. Listen for track
-changes, refresh the tracks, and choose one:
+Track selection is unchanged. Listen for track changes, refresh, and
+choose one:
 
 ```swift
 let events = player.events
