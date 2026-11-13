@@ -57,52 +57,90 @@ struct PixelBufferSourceGeometry: Equatable, Sendable {
     return sourceOrientationRawValue <= 7
   }
 
-  /// Chooses an exact square-pixel delivery size without approximating PAR.
+  /// Chooses the square-pixel delivery size.
+  ///
   /// Prefer expanding the affected axis so visible source resolution is not
-  /// discarded. If that quotient is non-integral, the reciprocal contraction
-  /// is accepted only when it is exact; otherwise setup fails closed.
+  /// discarded, then the reciprocal contraction, each only when its quotient
+  /// is an integer. When neither is, the expanded axis is rounded to the
+  /// nearest pixel: plenty of real material carries a sample aspect that no
+  /// reasonable surface can express exactly (1920x816 at 817:816 would need a
+  /// 4085x1734 one), and refusing it showed no picture at all. The rounded
+  /// size is at most half a pixel from the exact one, which is the bound the
+  /// vmem output accepts — see ``isWithinSquarePixelTolerance(width:height:)``.
   var squarePixelDeliveryDimensions: (width: UInt32, height: UInt32)? {
     guard isValid else { return nil }
     if sarNumerator == sarDenominator {
       return (visibleWidth, visibleHeight)
     }
 
-    if sarNumerator > sarDenominator {
-      if
-        let width = exactScale(
-          visibleWidth,
-          multiplier: sarNumerator,
-          divisor: sarDenominator
-        ) {
-        return (width, visibleHeight)
+    let expandsWidth = sarNumerator > sarDenominator
+    let exactWidth = exactScale(
+      visibleWidth,
+      multiplier: sarNumerator,
+      divisor: sarDenominator
+    )
+    let exactHeight = exactScale(
+      visibleHeight,
+      multiplier: sarDenominator,
+      divisor: sarNumerator
+    )
+    if expandsWidth {
+      if let exactWidth {
+        return (exactWidth, visibleHeight)
       }
-      if
-        let height = exactScale(
-          visibleHeight,
-          multiplier: sarDenominator,
-          divisor: sarNumerator
-        ) {
-        return (visibleWidth, height)
+      if let exactHeight {
+        return (visibleWidth, exactHeight)
       }
-    } else {
-      if
-        let height = exactScale(
-          visibleHeight,
-          multiplier: sarDenominator,
-          divisor: sarNumerator
-        ) {
-        return (visibleWidth, height)
-      }
-      if
-        let width = exactScale(
-          visibleWidth,
-          multiplier: sarNumerator,
-          divisor: sarDenominator
-        ) {
-        return (width, visibleHeight)
-      }
+      return roundedScale(
+        visibleWidth,
+        multiplier: sarNumerator,
+        divisor: sarDenominator
+      ).map { ($0, visibleHeight) }
     }
-    return nil
+    if let exactHeight {
+      return (visibleWidth, exactHeight)
+    }
+    if let exactWidth {
+      return (exactWidth, visibleHeight)
+    }
+    return roundedScale(
+      visibleHeight,
+      multiplier: sarDenominator,
+      divisor: sarNumerator
+    ).map { (visibleWidth, $0) }
+  }
+
+  /// Whether a delivery size shows the source at its display aspect to within
+  /// half a pixel on one axis.
+  ///
+  /// The same inequality the vmem output applies to the size a format
+  /// callback returns: with the source display aspect reduced to `num:den`,
+  /// `2 * |width * den - height * num| <= max(num, den)`.
+  func isWithinSquarePixelTolerance(width: UInt32, height: UInt32) -> Bool {
+    guard isValid, width > 0, height > 0 else { return false }
+    var numerator = UInt64(visibleWidth) * UInt64(sarNumerator)
+    var denominator = UInt64(visibleHeight) * UInt64(sarDenominator)
+    let divisor = Self.greatestCommonDivisor(numerator, denominator)
+    numerator /= divisor
+    denominator /= divisor
+
+    let lhs = UInt64(width).multipliedFullWidth(by: denominator)
+    let rhs = UInt64(height).multipliedFullWidth(by: numerator)
+    // Reduced terms of real video stay far below 64 bits; anything that does
+    // not is refused rather than compared with wrapped arithmetic.
+    guard lhs.high == 0, rhs.high == 0 else { return false }
+    let difference = lhs.low > rhs.low ? lhs.low - rhs.low : rhs.low - lhs.low
+    let doubled = difference.multipliedReportingOverflow(by: 2)
+    guard !doubled.overflow else { return false }
+    return doubled.partialValue <= max(numerator, denominator)
+  }
+
+  private static func greatestCommonDivisor(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {
+    var (a, b) = (lhs, rhs)
+    while b != 0 {
+      (a, b) = (b, a % b)
+    }
+    return max(a, 1)
   }
 
   private func exactScale(
@@ -113,6 +151,20 @@ struct PixelBufferSourceGeometry: Equatable, Sendable {
     let product = UInt64(value) * UInt64(multiplier)
     guard product.isMultiple(of: UInt64(divisor)) else { return nil }
     let quotient = product / UInt64(divisor)
+    guard quotient > 0, quotient <= UInt64(UInt32.max) else { return nil }
+    return UInt32(quotient)
+  }
+
+  /// Nearest integer quotient, halves rounding up.
+  private func roundedScale(
+    _ value: UInt32,
+    multiplier: UInt32,
+    divisor: UInt32
+  ) -> UInt32? {
+    let product = UInt64(value) * UInt64(multiplier)
+    let biased = product.addingReportingOverflow(UInt64(divisor) / 2)
+    guard !biased.overflow else { return nil }
+    let quotient = biased.partialValue / UInt64(divisor)
     guard quotient > 0, quotient <= UInt64(UInt32.max) else { return nil }
     return UInt32(quotient)
   }

@@ -20,12 +20,11 @@ extension Integration {
       }
     }
 
-    // MARK: - Start a real discoverer (localDirectories)
+    // MARK: - Start a real discoverer
 
     @Test
-    func `Start localDirectories discoverer succeeds`() throws {
-      let services = MediaDiscoverer.availableServices(category: .localDirectories)
-      guard let service = services.first else { return }
+    func `Start bundled discoverer succeeds`() throws {
+      let service = try DiscoveryTestService.startable()
       let discoverer = try MediaDiscoverer(name: service.name)
       // Exercising lines 37-40: start() method
       try discoverer.start()
@@ -36,8 +35,7 @@ extension Integration {
 
     @Test
     func `isRunning is true after start`() throws {
-      let services = MediaDiscoverer.availableServices(category: .localDirectories)
-      guard let service = services.first else { return }
+      let service = try DiscoveryTestService.startable()
       let discoverer = try MediaDiscoverer(name: service.name)
       #expect(discoverer.isRunning == false)
       try discoverer.start()
@@ -50,8 +48,7 @@ extension Integration {
 
     @Test
     func `isRunning is false after stop`() throws {
-      let services = MediaDiscoverer.availableServices(category: .localDirectories)
-      guard let service = services.first else { return }
+      let service = try DiscoveryTestService.startable()
       let discoverer = try MediaDiscoverer(name: service.name)
       try discoverer.start()
       discoverer.stop()
@@ -63,8 +60,7 @@ extension Integration {
 
     @Test
     func `mediaList is non-nil after start`() throws {
-      let services = MediaDiscoverer.availableServices(category: .localDirectories)
-      guard let service = services.first else { return }
+      let service = try DiscoveryTestService.startable()
       let discoverer = try MediaDiscoverer(name: service.name)
       try discoverer.start()
       // Exercising lines 56-58: mediaList getter
@@ -77,8 +73,7 @@ extension Integration {
 
     @Test
     func `mediaList returns MediaList with valid count`() throws {
-      let services = MediaDiscoverer.availableServices(category: .localDirectories)
-      guard let service = services.first else { return }
+      let service = try DiscoveryTestService.startable()
       let discoverer = try MediaDiscoverer(name: service.name)
       try discoverer.start()
       if let list = discoverer.mediaList {
@@ -114,8 +109,7 @@ extension Integration {
 
     @Test
     func `Init and immediately deinit is safe`() throws {
-      let services = MediaDiscoverer.availableServices(category: .localDirectories)
-      guard let service = services.first else { return }
+      let service = try DiscoveryTestService.startable()
       var discoverer: MediaDiscoverer? = try MediaDiscoverer(name: service.name)
       discoverer = nil
       _ = discoverer // silence warning
@@ -125,8 +119,7 @@ extension Integration {
 
     @Test
     func `Start stop start cycle works`() throws {
-      let services = MediaDiscoverer.availableServices(category: .localDirectories)
-      guard let service = services.first else { return }
+      let service = try DiscoveryTestService.startable()
       let discoverer = try MediaDiscoverer(name: service.name)
       try discoverer.start()
       #expect(discoverer.isRunning == true)
@@ -150,8 +143,7 @@ extension Integration {
 
     @Test
     func `Deinit while running is safe`() throws {
-      let services = MediaDiscoverer.availableServices(category: .localDirectories)
-      guard let service = services.first else { return }
+      let service = try DiscoveryTestService.startable()
       var discoverer: MediaDiscoverer? = try MediaDiscoverer(name: service.name)
       try discoverer?.start()
       discoverer = nil
@@ -161,8 +153,7 @@ extension Integration {
 
     @Test
     func `mediaList before start may be nil`() throws {
-      let services = MediaDiscoverer.availableServices(category: .localDirectories)
-      guard let service = services.first else { return }
+      let service = try DiscoveryTestService.startable()
       let discoverer = try MediaDiscoverer(name: service.name)
       // Before start, mediaList may or may not be nil depending on libVLC version
       _ = discoverer.mediaList
@@ -172,8 +163,7 @@ extension Integration {
 
     @Test
     func `Stop without start does not crash`() throws {
-      let services = MediaDiscoverer.availableServices(category: .localDirectories)
-      guard let service = services.first else { return }
+      let service = try DiscoveryTestService.startable()
       let discoverer = try MediaDiscoverer(name: service.name)
       discoverer.stop()
     }
@@ -182,8 +172,7 @@ extension Integration {
 
     @Test
     func `LAN discoverer can be started`() throws {
-      let services = MediaDiscoverer.availableServices(category: .lan)
-      guard let service = services.first else { return }
+      let service = try #require(MediaDiscoverer.availableServices(category: .lan).first)
       let discoverer = try MediaDiscoverer(name: service.name)
       try discoverer.start()
       #expect(discoverer.isRunning == true)

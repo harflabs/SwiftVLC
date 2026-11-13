@@ -1,25 +1,21 @@
 # Getting started
 
-This guide walks through adding SwiftVLC to a project, loading a
-media, and rendering it on screen.
+Add SwiftVLC to a project, load media, and render it on screen.
 
 ## Add the package
 
-The quickest path is through Xcode. Choose **File → Add Package
-Dependencies** and paste the repository URL; Xcode resolves the latest
-release automatically.
+In Xcode, choose **File → Add Package Dependencies** and paste the
+repository URL:
 
 ```
 https://github.com/harflabs/SwiftVLC.git
 ```
 
-To add it from a `Package.swift` manifest, pin to the current release.
-The version string lives on the
-[releases page](https://github.com/harflabs/SwiftVLC/releases).
+From a `Package.swift` manifest:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/harflabs/SwiftVLC.git", from: "1.0.0")
+    .package(url: "https://github.com/harflabs/SwiftVLC.git", from: "1.1.0")
 ],
 targets: [
     .target(name: "MyApp", dependencies: ["SwiftVLC"])
@@ -32,8 +28,8 @@ macOS 15, tvOS 18, visionOS 2, and Mac Catalyst 18.
 ## Prepare libVLC at launch
 
 The first libVLC instance does one-time plugin and decoder setup. Start
-that work when your app launches so the first playback screen does not
-pay the cost while SwiftUI is pushing the view:
+that work at launch so the first playback screen does not pay for it
+while SwiftUI is pushing the view:
 
 ```swift
 import SwiftUI
@@ -72,20 +68,17 @@ struct PlayerView: View {
 }
 ```
 
-``VideoView`` hosts the player's output, and ``Player`` publishes its
-state through `@Observable`, which is enough for SwiftUI to redraw as
+``VideoView`` hosts the player's output and ``Player`` publishes its
+state through `@Observable`, which is all SwiftUI needs to redraw as
 playback progresses.
 
-``Player/play(url:)`` expects a direct media stream or file URL. It
-does not auto-resolve `.pls` or classic `.m3u` playlist containers; use
-``MediaListPlayer`` or resolve the playlist to its inner stream URL
-before handing it to ``Player``. HLS `.m3u8` URLs are supported here
-because they are streaming manifests rather than playlists of separate
-media URLs.
+``Player/play(url:)`` expects a direct media stream or file URL. HLS
+`.m3u8` manifests work here; `.pls` and classic `.m3u` playlist
+containers do not — see <doc:MediaPlaylists>.
 
 ## Drive the UI from state
 
-Most controls read a handful of observable properties directly:
+Most controls read observable properties directly:
 
 ```swift
 Text(player.state.description)
@@ -100,9 +93,8 @@ Button(player.isPlaying ? "Pause" : "Play") {
 
 ## Handle errors as typed throws
 
-Every failure introduced by SwiftVLC's typed throwing operations is a
-``VLCError``, so `catch` clauses for those calls can match individual
-cases:
+SwiftVLC's throwing operations all throw ``VLCError``, so `catch`
+clauses can match individual cases:
 
 ```swift
 do {
@@ -114,11 +106,13 @@ do {
 }
 ```
 
-See <doc:HandlingErrors> for the full case list.
+`play(url:)` only reports what libVLC rejects synchronously. An
+unreachable host or undecodable media fails later — see
+<doc:HandlingErrors>.
 
 ## Next steps
 
 - <doc:PlaybackEssentials>: the shape of ``Player``.
 - <doc:WorkingWithMedia>: parsing metadata, tracks, and slaves.
-- <doc:DisplayingVideo>: aspect ratios and layer lifecycle.
+- <doc:DisplayingVideo>: aspect ratios and snapshots.
 - <doc:PictureInPicture>: background playback and floating windows.

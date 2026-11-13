@@ -209,6 +209,7 @@ class ReleaseOperationsTests(unittest.TestCase):
             harness = root / "scripts/av-sync-harness/analyze.py"
             harness.parent.mkdir(parents=True)
             harness.write_text("# measurement tooling, not a build input")
+            (root / "ARCHITECTURE.md").write_text("# prose, not a build input")
             git("add", "."); git("commit", "-qm", "Swift")
             self.assertEqual(reuse.verify(root, base), base)
             for name in ("Sources/CLibVLC/shim.c", "scripts/patches/0001.patch", "unknown-build-input"):

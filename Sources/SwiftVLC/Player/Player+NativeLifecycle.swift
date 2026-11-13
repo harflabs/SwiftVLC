@@ -350,6 +350,11 @@ extension Player {
     if let previous, previous !== registration {
       previous.unbind(generation: previousGeneration)
     }
+    // A ratio forced before this claim is still stored on the native handle,
+    // and the first vmem output would inherit it as it opens.
+    if !isShutdown {
+      applyAspectRatio()
+    }
     return true
   }
 
@@ -406,6 +411,11 @@ extension Player {
       directPiPVideoCallbackRegistration = nil
       directPiPVideoCallbackGeneration &+= 1
       directPiPVideoCallbackSlot?.deactivate()
+      // Hands a withheld ratio back to libVLC, unless an output opened through
+      // these callbacks is still running.
+      if !isShutdown {
+        applyAspectRatio()
+      }
     }
 
     if let generation {

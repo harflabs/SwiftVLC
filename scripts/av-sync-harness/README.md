@@ -1,8 +1,9 @@
 # A/V sync and video-freeze harness (macOS)
 
 Measures what is actually on screen while SwiftVLC plays, instead of trusting
-libVLC's own counters (which count pictures *submitted*, not displayed). It is
-the evidence behind `docs/playback-reliability-validation.md`.
+libVLC's own counters (which count pictures *submitted*, not displayed). It
+produced the evidence for the playback patches in `scripts/patches/`, each of
+which states its own findings in its header.
 
 ## What it measures
 `avh` plays a fixture whose frames carry a 20-bit frame-index barcode through the

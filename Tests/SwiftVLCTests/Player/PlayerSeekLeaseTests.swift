@@ -317,60 +317,13 @@ extension Integration {
       expectNoDifference(dispatchedOffsets, [10000])
     }
 
-    @Test
-    func `External start overlapping wrapper work remains fail closed until reset`() async {
-      let player = makePlayingPlayer()
-      var dispatchedOffsets: [Int64] = []
-      player._nativeJumpTimeOverrideForTesting = { offset in
-        dispatchedOffsets.append(offset)
-        return 0
-      }
-
-      let a = player.requestJump(by: .seconds(10))
-      let b = player.requestJump(by: .seconds(20))
-      player.nativeSeekMonitor._noteExternalSeekStartedForTesting()
-      await drainMainActor()
-
-      #expect(await a.outcome == .superseded)
-      #expect(await b.outcome == .superseded)
-      #expect(player.activeNativeSeek == nil)
-      #expect(player.queuedNativeSeek == nil)
-      #expect(player.nativeSeekMonitor.hasSeekDrainPending)
-
-      let c = player.requestJump(by: .seconds(30))
-      expectNoDifference(dispatchedOffsets, [10000])
-      #expect(player.queuedNativeSeek?.externalEpoch == 1)
-
-      player.nativeSeekMonitor._noteSeekEndedForTesting()
-      player.nativeSeekMonitor._noteTimeUpdatedForTesting(
-        timeMilliseconds: 25000,
-        position: 0.25
-      )
-      await drainMainActor()
-
-      // The untagged end/point may belong either to wrapper A or external e1.
-      // It cannot release C, even if repeated or allowed to age.
-      expectNoDifference(dispatchedOffsets, [10000])
-      #expect(player.activeNativeSeek == nil)
-      #expect(player.queuedNativeSeek?.nativeSeekToken == 3)
-      #expect(player.nativeSeekMonitor.hasSeekDrainPending)
-      #expect(c.initialOutcome == .pending)
-
-      player.nativeSeekMonitor._noteSeekEndedForTesting()
-      player.nativeSeekMonitor._noteTimeUpdatedForTesting(
-        timeMilliseconds: 40000,
-        position: 0.4
-      )
-      await drainMainActor()
-      expectNoDifference(dispatchedOffsets, [10000])
-      #expect(player.nativeSeekMonitor.hasSeekDrainPending)
-
-      player.handleEvent(.stateChanged(.stopped))
-      #expect(await c.outcome == .superseded)
-      #expect(!player.nativeSeekMonitor.hasSeekDrainPending)
-      #expect(player.queuedNativeSeek == nil)
-    }
-
+    /// An untagged end/point after overlapping starts can never settle a
+    /// wrapper request. It used to hold the lane and the raw clock closed until
+    /// a timeline replacement as well, which froze the mirror for the rest of
+    /// the session once an A-B loop bounce overlapped a user seek. The overlap
+    /// now drains on the coalesced end's first watched point: that point is
+    /// published as an external landing, later raw samples flow again, and the
+    /// newest queued intent dispatches as its own exact episode.
     @Test
     func `Delayed wrapper landing cannot cross a synchronous external epoch`() async throws {
       let player = makePlayingPlayer()

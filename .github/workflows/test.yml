@@ -29,6 +29,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Decides whether this change has to pay for the compiled-native lane
+  # below. scripts/ci/native-changes.py owns the input list. This file counts
+  # only when an edit alters the lane itself — this job, `native-build`, or
+  # anything above `jobs:` — so comments and the other jobs cost no engine
+  # build.
   native-changes:
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -126,7 +131,11 @@ jobs:
             --require-suite SwiftVLCTests.Integration.SeekOutputPlaybackTests 3 \
             --require-suite SwiftVLCTests.Integration.ResumeTimelinePlaybackTests 3 \
             --require-suite SwiftVLCTests.Integration.TimestampJumpResumePlaybackTests 1 \
-            --require-suite SwiftVLCTests.Integration.HLSDiscontinuityPlaybackTests 1 \
+            --require-suite SwiftVLCTests.Integration.HLSDiscontinuityPlaybackTests 2 \
+            --require-suite SwiftVLCTests.Integration.TerminalOutcomePlaybackTests 2 \
+            --require-suite SwiftVLCTests.Integration.PausedTimePlaybackTests 1 \
+            --require-suite SwiftVLCTests.Integration.ExtendedVideoOutputPlaybackTests 3 \
+            --require-suite SwiftVLCTests.Integration.InexactSampleAspectPlaybackTests 1 \
             --require-suite SwiftVLCTests.Integration.VideoToolboxSeekPlaybackTests 1 \
             --contract scripts/ci/headless-test-contracts.json \
             --test-source-root Tests/SwiftVLCTests \
@@ -156,11 +165,10 @@ jobs:
             Vendor/libvlc.xcframework
           retention-days: 14
 
-  # Style and formatting gate. Cheap (<1 min) and runs in parallel with
-  # the test job so a style violation surfaces immediately without
-  # waiting for the test suite. swiftlint+swiftformat configs live in
-  # `.swiftlint.yml` and `.swiftformat`; both run with --strict so
-  # warnings are treated as errors.
+  # Style gate plus the cheap pure-Python/Bash tooling checks. Runs in
+  # parallel with `test` so a violation surfaces without waiting for the
+  # Swift suite. SwiftLint and SwiftFormat read `.swiftlint.yml` and
+  # `.swiftformat`, both with --strict, so warnings fail the job.
   lint:
     runs-on: macos-26
     timeout-minutes: 10
@@ -201,10 +209,11 @@ jobs:
           "$tool_dir/bin/swiftlint" --version
           "$tool_dir/bin/swiftformat" --version
 
-      # Both run scoped to the Swift source roots. Without scoping,
-      # swiftlint scans `scripts/.build-libvlc/` (the upstream VLC source
-      # tree, multi-GB of C and headers), which makes it run for many
-      # minutes and consume gigabytes of RAM.
+      # Both are scoped to the Swift source roots. `.swiftformat` carries no
+      # exclusions, so an unscoped run walks `.build/`, `Vendor/` and the
+      # multi-GB upstream VLC tree under `scripts/.build-libvlc/` — minutes
+      # of wall clock and gigabytes of RAM. `.swiftlint.yml` excludes those
+      # itself; keep both scoped so the two tools stay in step.
       - name: SwiftLint
         timeout-minutes: 2
         run: swiftlint lint --strict --quiet Sources Tests Showcase
@@ -243,10 +252,9 @@ jobs:
         run: ./scripts/tests/build-libvlc-build-root.sh
 
       # Reports engine patches that are in the tree but not in the exact binary
-      # release declared by the checkout. Warns rather
-      # than fails: patches legitimately land before the release carrying them,
-      # so failing would wedge every PR. See the script header for the
-      # regression that made this worth surfacing.
+      # release declared by this checkout. Warns rather than fails: a patch
+      # legitimately lands before the release that carries it, so failing here
+      # would wedge every PR.
       - name: Engine patch coverage
         timeout-minutes: 2
         env:
@@ -271,25 +279,22 @@ jobs:
         timeout-minutes: 4
         run: python3 -B -m unittest discover -s scripts/qualification/tests -p 'test_*.py'
 
-  # Showcase apps build gate. Catches API breakage that the SwiftVLC
-  # test suite wouldn't notice — e.g. renaming a public symbol used
-  # only by the Showcase, or breaking the Showcase's Mac/iOS/tvOS/visionOS
-  # build settings. We compile (not test) every scheme.
+  # Showcase build gate: catches API breakage the SwiftVLC test suite cannot
+  # see — a renamed public symbol used only by the Showcase, or broken
+  # per-platform build settings. Compiles every scheme; never runs one.
   #
-  # Schemes are pinned in the Showcase Xcode project to a published
-  # `SwiftVLC` version. `setup-dev.sh` flips it to the local repo
-  # checkout so the Showcase compiles against the in-PR code rather
-  # than the last release.
+  # The Showcase Xcode project pins a published `SwiftVLC` version;
+  # `setup-dev.sh` repoints it at this checkout so it compiles against the
+  # in-PR code rather than the last release.
   showcase:
     # Pull requests compile the iOS Showcase in `ios-build` below. The full
     # four-platform matrix also runs on release candidates, before publication.
     if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release-candidates/')) }}
-    # Xcode's package graph resolver checks Package.swift's tools-version
-    # with Xcode's built-in SwiftPM, not the open-source toolchain passed
-    # through `-toolchain`. SwiftVLC's manifest requires Swift 6.3, so the
-    # Showcase matrix must run on an image with Xcode 26.4+.
     permissions:
       contents: write
+    # Xcode's package-graph resolver reads Package.swift's tools-version with
+    # Xcode's own SwiftPM, not the toolchain passed through `-toolchain`. The
+    # manifest requires Swift 6.3, so this needs an Xcode 26.4+ image.
     runs-on: macos-26
     timeout-minutes: 40
     strategy:
@@ -362,18 +367,16 @@ jobs:
   # Simulator destination compiles both Sources and Tests for iOS and fails
   # CI on any iOS-only break.
   ios-build:
-    # xcodebuild resolves the package with Xcode's built-in SwiftPM, which
-    # must understand the manifest's Swift 6.3 tools-version — needs Xcode
-    # 26.4+, hence macos-26 (same rationale as the showcase job above).
+    # macos-26 for Xcode 26.4+, same rationale as the showcase job above.
     runs-on: macos-26
     # Reading a draft release requires push-level repository access. GitHub
     # downgrades fork pull-request tokens to read-only, and draft authorization
     # below independently requires the exact same-repository candidate PR.
     permissions:
       contents: write
-    # Pull requests have 67 minutes of explicit per-step ceilings below. Keep
-    # one provisioned runner, but leave enough job-level headroom for every
-    # bounded step to complete instead of cutting the job off at 30 minutes.
+    # The explicit per-step ceilings below add up to 79 minutes on a pull
+    # request; scripts/tests/release-integrity.sh requires at least five
+    # minutes of job-level headroom above that sum.
     timeout-minutes: 85
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -459,9 +462,10 @@ jobs:
             CODE_SIGNING_ALLOWED=NO
 
       # Reuse this already-provisioned Xcode/Vendor job for the one Showcase
-      # build required on a pull request. The other Apple platforms run in the
+      # build a pull request needs; the other Apple platforms run in the
       # post-merge/manual matrix above.
-      # Build both SDK variants: simulator-only compilation erases every
+      #
+      # Both SDK variants: a simulator-only compile erases every
       # `#if targetEnvironment(simulator) ... #else` device branch and can let
       # a broken physical qualification path reach main. Neither build boots a
       # simulator or adds another billed runner.
@@ -501,11 +505,9 @@ jobs:
   tvos-test:
     # Run tvOS behavior tests on release candidates before publication.
     if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release-candidates/')) }}
-    # Same rationale as ios-build: xcodebuild resolves the package with
-    # Xcode's built-in SwiftPM, which must understand the manifest's Swift
-    # 6.3 tools-version — needs Xcode 26.4+, hence macos-26.
     permissions:
       contents: write
+    # macos-26 for Xcode 26.4+, same rationale as the showcase job above.
     runs-on: macos-26
     timeout-minutes: 40
     steps:
@@ -572,21 +574,22 @@ jobs:
             CODE_SIGNING_ALLOWED=NO
 
   test:
-    # This existing required check cannot pass if new native integration fails.
     needs: [native-changes, native-build]
+    # `always()` keeps this required check from being skipped along with
+    # native-build; the first step below re-imposes the real gate, so the
+    # check still cannot pass when native integration fails.
     if: ${{ always() }}
-    # Pin the runner family and SDK. SwiftVLC requires Swift 6.3 (Package.swift tools-version), and the current
-    # 6.3 patch is Swift 6.3.1 in Xcode 26.4.1. GHA runner toolchains
-    # can lag, so we install the Swift 6.3.1 open-source toolchain from
-    # swift.org and activate it via the TOOLCHAINS env var.
+    # macos-26 pins the SDKs, linker and simulators. The package requires
+    # Swift 6.3 (Package.swift tools-version) and runner toolchains lag, so
+    # the steps below install Swift 6.3.1 from swift.org and run it over
+    # these SDKs through `xcrun --toolchain "$TOOLCHAINS"`.
     runs-on: macos-26
     # See ios-build: write-level contents permission makes the draft visible;
     # it does not replace the resolver's exact candidate identity checks.
     permissions:
       contents: write
-    # Absolute ceiling — the job CANNOT run longer than this. The wrapper
-    # script and step timeouts below enforce tighter bounds; this is the
-    # last line of defense if those fail.
+    # Last line of defence only. The wrapper script and the per-step
+    # timeouts below enforce the bounds that normally apply.
     timeout-minutes: 35
 
     steps:
@@ -604,24 +607,15 @@ jobs:
           test "$SELECTION" = success
           test "$NATIVE" = success || test "$NATIVE" = skipped
 
-      # Pin Xcode for SDKs / linker / simulators. Current GHA runners
-      # can lag behind the package's tools-version 6.3 manifest, so we
-      # install the Swift 6.3.1 open-source toolchain separately below
-      # and invoke it through
-      # `xcrun --toolchain`.
       - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
         timeout-minutes: 5
         with:
           xcode-version: "26.4"
 
-      # Install Swift 6.3.1 open-source toolchain from swift.org.
-      # Exports $TOOLCHAINS — later steps use `xcrun --toolchain` to run
-      # Swift 6.3.1 on top of the already-set-up Xcode SDKs.
-      #
-      # Pinned to v1.14.0 (latest as of 2026-04-27) rather than @latest
-      # or @v1 so a compromised or breaking release of the action cannot
-      # silently affect our CI. Bump deliberately via Dependabot or a
-      # manual PR.
+      # Exports $TOOLCHAINS for the `xcrun --toolchain` calls below. The SHA
+      # pin is not optional: release-integrity.sh rejects any action in this
+      # workflow that is not pinned to a full commit SHA, so a breaking or
+      # compromised upstream release cannot reach CI silently.
       - uses: SwiftyLab/setup-swift@38f54a76b70d989321de9dc7c840618c08cf56e9 # v1.14.0
         timeout-minutes: 8
         with:
@@ -687,26 +681,23 @@ jobs:
         timeout-minutes: 2
         run: xcrun --toolchain "$TOOLCHAINS" swift package clean
 
-      # swift test is run through ci-run-with-timeouts.py which enforces
-      # both a wall-clock ceiling and an idle watchdog. If either fires
-      # the entire process group is SIGKILLed.
+      # ci-run-with-timeouts.py enforces both a wall-clock ceiling and an idle
+      # watchdog; if either fires the whole process group is SIGKILLed.
       #
-      #   wall_clock = 600s  (10 min)  — enough for fresh xcf download
-      #                                  + cold build + test run on a
-      #                                  slow runner; well inside the
-      #                                  20-minute job ceiling.
-      #   idle       = 180s  (3 min)   — swift test emits a line per
-      #                                  test / suite; 3 min of silence
-      #                                  stops the test process. Unbuffered
-      #                                  output below prevents false silence.
+      #   wall_clock = 600s (10 min) — a fresh xcframework download plus a
+      #                                cold build and full run on a slow
+      #                                runner, inside the 12-minute step
+      #                                ceiling below.
+      #   idle       = 180s (3 min)  — swift test emits a line per test or
+      #                                suite, so three minutes of silence means
+      #                                a hang. NSUnbufferedIO below keeps
+      #                                buffering from faking that silence.
       #
-      # --no-parallel is load-bearing: `Player` is `@MainActor`, so
-      # integration tests that drive libVLC to `.playing` all compete
-      # for the same actor under Swift Testing's default parallel mode.
-      # On a GHA runner that contention stretches a 200 ms test into a
-      # multi-second timeout. Running serially takes ~45 s for the whole
-      # suite with zero flakes — fractions of a cent in GHA billing and
-      # vastly more predictable than paying for periodic retries.
+      # --no-parallel is load-bearing: `Player` is `@MainActor`, so integration
+      # tests that drive libVLC to `.playing` all contend for the same actor
+      # under Swift Testing's default parallel mode. On a GHA runner that
+      # contention stretches a 200 ms test into a multi-second timeout, and
+      # retries cost more than the serialized run does.
       - name: Run tests (wall-clock + idle timeouts)
         id: swift-tests
         timeout-minutes: 12
@@ -716,9 +707,6 @@ jobs:
           CI: "true"
           # Buffered test results must not look like an idle native deadlock.
           NSUnbufferedIO: "YES"
-        # `xcrun --toolchain "$TOOLCHAINS" swift test` routes through the
-        # Swift 6.3.1 toolchain installed above, while still using the
-        # Xcode-provided SDKs/simulators.
         run: |
           mkdir -p .build/ci-results
           ./scripts/ci-run-with-timeouts.py 600 180 \

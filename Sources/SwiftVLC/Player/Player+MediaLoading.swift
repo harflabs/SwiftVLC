@@ -28,7 +28,15 @@ extension Player {
     // relabel a delayed predecessor as the new playback generation. Stop the
     // retiring input, adopt the new media in Swift, and leave native assignment
     // to `prepareDrawableForPlayback()`, which installs it on a fresh handle.
+    //
+    // The same deferral applies to a handle that is still running an input,
+    // hosted output or not. libVLC treats new media on a started player as a
+    // track change: it opens and plays it as soon as the previous input has
+    // stopped, without the state events of a fresh start. `load(_:)` only
+    // loads, so the running input is stopped here and the media waits for
+    // `play()` on a fresh handle, exactly as it does behind a video view.
     let defersNativeMediaUntilFreshHandle = nativeHandleMayHaveHostedOutput
+      || nativeHandleHoldsUnsettledPlayback
 
     // Any recast still restoring the outgoing session no longer owns it.
     sessionGeneration = eventBridge.synchronizePlaybackGeneration(
@@ -227,6 +235,26 @@ extension Player {
       return true
     case .idle, .stopped:
       return false
+    }
+  }
+
+  /// Whether assigning media to the attached handle would start it playing,
+  /// or the handle is already waiting to be replaced.
+  ///
+  /// libVLC's started flag can precede its first state event, so a start it
+  /// has accepted but not yet reported counts as well. Every non-resting
+  /// state is included rather than only the started ones: deferring from a
+  /// handle that is merely stopping costs a handle, while assigning to one
+  /// that is running plays media the caller only loaded.
+  var nativeHandleHoldsUnsettledPlayback: Bool {
+    if nativePlayerNeedsReplacementBeforePlayback {
+      return true
+    }
+    switch nativeHandlePlaybackState {
+    case .opening, .buffering, .playing, .paused, .stopping, .error:
+      return true
+    case .idle, .stopped:
+      return libvlc_media_player_is_playing(pointer)
     }
   }
 

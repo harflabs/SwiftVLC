@@ -250,8 +250,45 @@ final class PiPPlaybackDelegateProxy: NSObject, AVPictureInPictureSampleBufferPl
   /// arbitrary threads, and blocking one of them on main is what lets a
   /// teardown already waiting on that thread deadlock.
   func resolveTimeRangeForPlayback() -> CMTimeRange {
-    guard let snapshot = currentCallbackSnapshot() else { return .invalid }
+    guard
+      let snapshot = retainedCallbackSnapshot(),
+      let playerPointer = snapshot.playerPointer
+    else { return .invalid }
+    defer { handleRetention.release(playerPointer) }
     return Self.timeRange(for: snapshot)
+  }
+
+  /// How the time-range query keeps the native handle alive. Replaceable so a
+  /// test can observe that the retain happens while the snapshot is locked.
+  struct HandleRetention {
+    let retain: (OpaquePointer) -> Void
+    let release: (OpaquePointer) -> Void
+
+    static var live: Self {
+      Self(
+        retain: { _ = libvlc_media_player_retain($0) },
+        release: { libvlc_media_player_release($0) }
+      )
+    }
+  }
+
+  var handleRetention = HandleRetention.live
+
+  /// Reads the snapshot and retains its handle under the same lock
+  /// acquisition; the caller owes one release.
+  ///
+  /// `Player` republishes or clears this snapshot before it releases a native
+  /// handle, and that release then runs on another queue. A pointer merely
+  /// copied out of the lock could therefore be freed while libVLC was still
+  /// being asked about it. Retained here, a query that got in first keeps the
+  /// handle alive until it returns, and one that comes later finds no handle.
+  private func retainedCallbackSnapshot() -> PiPCallbackSnapshot? {
+    let retention = handleRetention
+    return owner?.callbackSnapshot.withLock { snapshot -> PiPCallbackSnapshot? in
+      guard let playerPointer = snapshot.playerPointer else { return nil }
+      retention.retain(playerPointer)
+      return snapshot
+    }
   }
 
   /// Reads the whole snapshot under a single lock acquisition, so the pointer

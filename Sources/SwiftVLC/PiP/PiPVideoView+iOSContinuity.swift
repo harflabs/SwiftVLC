@@ -647,9 +647,15 @@ final class IOSNativePiPContinuityCoordinator: @unchecked Sendable {
         let ready = state.ready,
         ready.output == output,
         ready.controllerIdentity == ObjectIdentifier(controller) {
+        // Only this exact output is retired. The cancel is the proof that its
+        // controller is closed, so a later output of the same handle and
+        // media may create a fresh one: libVLC reopens the display on the
+        // same player whenever the stream changes resolution. Retiring the
+        // whole binding here left PiP unavailable for the rest of the media.
+        // Media changes the output identity cannot see are retired explicitly
+        // through `retireControllers(forNativeHandle:)`.
         state.supersededOutputs.insert(output)
         state.ready = nil
-        state.supersededBindings.insert(output.binding)
         return (nil, false)
       }
       if
@@ -657,7 +663,6 @@ final class IOSNativePiPContinuityCoordinator: @unchecked Sendable {
         authorization.output == output,
         authorization.controllerIdentity == ObjectIdentifier(controller) {
         state.supersededOutputs.insert(output)
-        state.supersededBindings.insert(output.binding)
         state.freshAuthorization = nil
         return (nil, false)
       }

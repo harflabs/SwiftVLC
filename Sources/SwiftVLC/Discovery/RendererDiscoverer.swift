@@ -6,13 +6,16 @@ import CLibVLC
 /// come and go. Cast to a discovered renderer by passing its
 /// ``RendererItem`` to ``Player/setRenderer(_:)``.
 ///
+/// The bundled libVLC ships two services. `Bonjour_renderer` finds Chromecast
+/// devices; `upnp_renderer`, which ``availableServices(instance:)`` lists
+/// first, finds UPnP/DLNA renderers and never a Chromecast. Select the one you
+/// need by name.
+///
 /// ```swift
-/// let services = RendererDiscoverer.availableServices()
-/// guard let service = services.first else { return }
 /// let player = Player()
 /// try player.play(url: mediaURL)
 ///
-/// let discoverer = try RendererDiscoverer(name: service.name)
+/// let discoverer = try RendererDiscoverer(name: "Bonjour_renderer")
 /// let events = discoverer.events
 /// try discoverer.start()
 ///
@@ -33,12 +36,19 @@ import CLibVLC
 ///     }
 /// }
 /// ```
+///
+/// Casting to a Chromecast additionally requires a ``DialogHandler`` that
+/// accepts libVLC's certificate-trust question
+/// (``QuestionRequest/isCertificateTrustQuestion``); without one the
+/// connection is refused. See <doc:DiscoveryAndCasting>.
 public final class RendererDiscoverer: Sendable {
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_renderer_discoverer_t*
   private let instance: VLCInstance
   private let eventHub: CurrentInventoryEventHub<RendererItem, UInt, RendererEvent>
   private nonisolated(unsafe) let opaque: UnsafeMutableRawPointer
-  /// Accessed only on `DiscoveryLifecycle`'s serial queue.
+  /// Where this service's native start, stop, and release must run.
+  private let lane: DiscoveryLifecycle.Lane
+  /// Accessed only on ``lane``.
   private nonisolated(unsafe) var isStarted = false
 
   /// Stream of renderer discovery events. A new independent stream is returned
@@ -100,6 +110,7 @@ public final class RendererDiscoverer: Sendable {
     }
 
     pointer = p
+    lane = DiscoveryLifecycle.lane(forServiceNamed: name)
     // Retain the instance so it outlives the discoverer. See the
     // matching note in `MediaDiscoverer`.
     self.instance = instance
@@ -117,7 +128,7 @@ public final class RendererDiscoverer: Sendable {
     nonisolated(unsafe) let box = opaque
     let instance = self.instance
     let eventHub = self.eventHub
-    DiscoveryLifecycle.async {
+    DiscoveryLifecycle.async(on: lane) {
       let em = libvlc_renderer_discoverer_event_manager(discoverer)!
       for eventType in RendererEventAttachment.eventTypes {
         libvlc_event_detach(em, eventType, rendererCallback, box)
@@ -131,6 +142,10 @@ public final class RendererDiscoverer: Sendable {
   }
 
   /// Starts renderer discovery.
+  ///
+  /// Safe to call from any thread or task. Bonjour-backed discovery is
+  /// started on a run-loop thread SwiftVLC owns, because the system delivers
+  /// its results through the run loop of the thread that started it.
   /// - Throws: `VLCError.operationFailed` if discovery cannot start, or
   ///   `VLCError.invalidState` if this discoverer is already running.
   public func start() throws(VLCError) {
@@ -139,7 +154,7 @@ public final class RendererDiscoverer: Sendable {
       case alreadyStarted
       case failed
     }
-    let result = DiscoveryLifecycle.sync { () -> StartResult in
+    let result = DiscoveryLifecycle.sync(on: lane) { () -> StartResult in
       guard !isStarted else { return .alreadyStarted }
       guard libvlc_renderer_discoverer_start(pointer) == 0 else {
         // A module can announce an item synchronously and still fail its open.
@@ -166,7 +181,7 @@ public final class RendererDiscoverer: Sendable {
   /// each currently known renderer. The streams remain open and can observe a
   /// later ``start()`` on this discoverer.
   public func stop() {
-    DiscoveryLifecycle.sync {
+    DiscoveryLifecycle.sync(on: lane) {
       if isStarted {
         libvlc_renderer_discoverer_stop(pointer)
         isStarted = false

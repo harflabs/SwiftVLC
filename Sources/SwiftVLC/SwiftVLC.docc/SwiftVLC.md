@@ -5,30 +5,7 @@ A Swift 6 wrapper around libVLC 4.0 for SwiftUI apps.
 ## Overview
 
 SwiftVLC binds directly to libVLC's C API, with no Objective-C
-intermediary. The resulting surface uses `@Observable` for player
-state, `AsyncStream` for events, and typed throws for errors, so
-playback integrates with SwiftUI the same way any other `@Observable`
-model does.
-
-- **Observable state.** ``Player`` is `@Observable` and `@MainActor`.
-  SwiftUI views track `state`, `currentTime`, `duration`, and the
-  track lists without manual bridging.
-- **Typed errors.** Failures originating in SwiftVLC use
-  `throws(VLCError)`, so the compiler sees the full library error surface.
-  Scoped closure helpers use `rethrows` and propagate errors from the
-  caller's closure unchanged.
-- **Structured events.** Playback, discovery, logging, and dialog
-  prompts all surface through `AsyncStream`. Multiple consumers can
-  subscribe concurrently.
-- **Ownership-aware overlays.** ``Marquee``, ``Logo``, and
-  ``VideoAdjustments`` are `~Copyable` `~Escapable` views scoped to
-  the player's lifetime, so the compiler rejects any code that would
-  store a dangling pointer.
-- **Tested against real libVLC.** A comprehensive Swift Testing suite
-  exercises the full C bridge with no mocks or fakes; CI runs it on
-  pull requests and on `main`.
-
-### First play
+intermediary.
 
 ```swift
 import SwiftUI
@@ -44,13 +21,23 @@ struct ContentView: View {
 }
 ```
 
-### Where next
+- **Observable state.** ``Player`` is `@Observable` and `@MainActor`.
+  SwiftUI views track ``Player/state``, ``Player/currentTime``,
+  ``Player/duration``, and the track lists without manual bridging.
+- **Typed errors.** SwiftVLC's throwing operations use
+  `throws(VLCError)`. Scoped closure helpers use `rethrows` and
+  propagate the caller's own errors unchanged. See <doc:HandlingErrors>.
+- **Structured events.** Playback, discovery, logging, and dialog
+  prompts surface through `AsyncStream`. Multiple consumers can
+  subscribe concurrently; each gets an independent subscription.
+- **Ownership-aware overlays.** ``Marquee``, ``Logo``, and
+  ``VideoAdjustments`` are `~Copyable` `~Escapable` views scoped to the
+  player's lifetime, so the compiler rejects code that would store a
+  dangling pointer.
+- **Tested against real libVLC.** The Swift Testing suite exercises the
+  C bridge with no mocks; CI runs it on pull requests and on `main`.
 
-If you're new to the library, read <doc:GettingStarted>. From there,
-<doc:PlaybackEssentials> covers the shape of ``Player`` and
-<doc:DisplayingVideo> covers the rendering side. The feature guides
-below walk through Picture-in-Picture, playlists, casting, and the
-audio and video overlay APIs.
+New to the library? Start with <doc:GettingStarted>.
 
 ## Topics
 
@@ -84,14 +71,38 @@ audio and video overlay APIs.
 - ``Player``
 - ``PlayerState``
 - ``PlayerEvent``
+- ``PlayerEventEnvelope``
+- ``PlayerEventLane``
+- ``EventBufferingPolicy``
+- ``PlayerRole``
+- ``VLCInstance``
+- ``AppleAudioSessionPolicy``
+
+### Transport results
+
+- ``SeekRequest``
+- ``SeekOutcome``
+- ``FrameStepRequest``
+- ``FrameStepOutcome``
+- ``PlayerStopOutcome``
+- ``RecastOutcome``
+- ``PlaybackTerminalOutcome``
+- ``PlaybackTerminalCause``
+- ``PlaybackFailureKind``
+- ``PlaybackFinalTimeline``
+- ``PlaybackGeneration``
+
+### Playback health
+
 - ``PlaybackHealthSnapshot``
 - ``PlaybackHealthState``
 - ``PlaybackHealthEvent``
+- ``PlaybackHealthEventKind``
 - ``PlaybackHealthCounters``
-- ``PlayerRole``
-- ``SeekRequest``
-- ``SeekOutcome``
-- ``VLCInstance``
+- ``PlaybackHealthFailure``
+- ``PlaybackStallReason``
+- ``PlaybackWaitingReason``
+- ``PlaybackStatus``
 
 ### Media
 
@@ -103,6 +114,7 @@ audio and video overlay APIs.
 - ``MetadataKey``
 - ``Track``
 - ``TrackType``
+- ``FrameRateRatio``
 - ``MediaStatistics``
 
 ### Playlists
@@ -133,11 +145,25 @@ audio and video overlay APIs.
 - ``StereoMode``
 - ``MixMode``
 
+### Text subtitles
+
+- ``TextSubtitleSnapshot``
+- ``TextSubtitleRegion``
+- ``TextSubtitlePlacement``
+- ``WebVTTPlacement``
+
 ### Picture-in-Picture
 
 - ``PiPVideoView``
 - ``PiPController``
 - ``PiPController/DeferredPauseOutcome``
+- ``PiPStartResult``
+- ``PiPEvent``
+- ``PiPEventEnvelope``
+- ``PiPStopCause``
+- ``PiPStopReason``
+- ``PiPSnapshot``
+- ``PiPOverlaySupport``
 
 ### Chapters, titles, and programs
 

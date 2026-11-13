@@ -238,6 +238,13 @@ extension Player {
   }
 
   /// Video aspect ratio override.
+  ///
+  /// Applies to video rendered into a view (``VideoView``, ``PiPVideoView``).
+  /// A directly constructed ``PiPController`` receives the picture through
+  /// libVLC's video callbacks and always shows it at the source aspect: a
+  /// forced ``AspectRatio/ratio(_:_:)`` stays readable here as set, but is not
+  /// applied while that controller renders the player. Shape
+  /// ``PiPController/layer`` in your own view hierarchy instead.
   public var aspectRatio: AspectRatio {
     get {
       access(keyPath: \.aspectRatio)

@@ -22,8 +22,7 @@ emitter provided one.
 
 ## Multiple consumers
 
-Multiple tasks can subscribe at the same time, and each stream filters
-independently:
+Several tasks can subscribe at once, each filtering independently:
 
 ```swift
 Task { for await e in instance.logStream(minimumLevel: .error) {
@@ -35,8 +34,9 @@ Task { for await e in instance.logStream(minimumLevel: .debug) {
 }}
 ```
 
-The underlying libVLC callback is installed lazily on the first
-subscription and removed when the last consumer's stream terminates.
+The libVLC callback is installed lazily on the first subscription and
+removed when the last consumer's stream terminates, so an app that never
+subscribes pays nothing.
 
 ## Severity levels
 
@@ -52,23 +52,22 @@ comparison:
 
 ## Severity reclassification
 
-A small set of upstream libVLC messages declare themselves as
-``LogLevel/error`` even though they are emitted as part of normal probe or
-self-healing recovery paths. For example, when Apple's hardware decoder is asked to handle
-a codec it doesn't accept, libVLC logs the rejection at error level
-before falling back to software. SwiftVLC reclassifies these structural
-probe failures to ``LogLevel/warning`` so that subscribers filtering at
-``LogLevel/error`` only see entries where playback actually broke.
+A few upstream libVLC messages declare themselves ``LogLevel/error`` even
+though they come from normal probe or self-healing paths — when Apple's
+hardware decoder is offered a codec it does not accept, for instance,
+libVLC logs the rejection at error level before falling back to software.
+SwiftVLC reclassifies those structural probe failures to
+``LogLevel/warning``, so a subscriber filtering at ``LogLevel/error`` sees
+only entries where playback actually broke.
 
-The reclassification is applied once on the libVLC log thread, before
-entries reach any subscriber. It runs in constant time for the common
-case and only inspects the message string for entries that arrive at
-``LogLevel/error``. Terminal failures such as `"Codec 'XXXX' (...) is not
-supported."` (the "no decoder found" message from the core decoder
-cascade) are untouched and remain at ``LogLevel/error``. Recoverable
-paused-seek prefetch and PCR rebuffer diagnostics remain visible at
-``LogLevel/warning``; neighboring PCR messages that do not match libVLC's
-complete recovery templates remain errors.
+Reclassification happens once on the libVLC log thread, before any
+subscriber sees the entry, and inspects the message string only for
+entries that arrive at ``LogLevel/error``. Terminal failures are
+untouched: `"Codec 'XXXX' (...) is not supported."`, the core decoder
+cascade's "no decoder found", stays at ``LogLevel/error``. Recoverable
+paused-seek prefetch and PCR rebuffer diagnostics are visible at
+``LogLevel/warning``, while neighbouring PCR messages that do not match
+libVLC's complete recovery templates remain errors.
 
 ## Ending a stream
 

@@ -225,6 +225,17 @@ extension Player {
           storeDidReachEndWithoutNestedObservation(false)
         }
       ) else { return false }
+    guard
+      performObservableMutation(
+        keyPath: \.failure,
+        ifPlaybackGeneration: expectedPlaybackGeneration,
+        nativeHandleGeneration: expectedNativeHandleGeneration,
+        timelineRevision: resetTimelineRevision,
+        lifecycleControlEpoch: expectedLifecycleControlEpoch,
+        mutation: {
+          storeFailureWithoutNestedObservation(nil)
+        }
+      ) else { return false }
     guard stillOwnsReset(), let resetTimelineRevision else { return false }
     eventBridge.updateAuthoritativeTimeline(
       time: .zero,

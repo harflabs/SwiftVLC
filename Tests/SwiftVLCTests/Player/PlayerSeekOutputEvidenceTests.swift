@@ -30,6 +30,33 @@ extension Integration {
       #expect(!player.nativeSeekMonitor.hasSeekDrainPending)
     }
 
+    /// libVLC reports a zero frame duration when the decoded format carries no
+    /// frame rate. That says nothing about the landing, so it must not shrink
+    /// the precise bound to the timestamp rounding allowance.
+    @Test(arguments: [29900, 30000, 30020, 30100, 30200] as [Int64])
+    func `Video evidence with an unknown frame duration keeps a usable precise bound`(
+      landedMilliseconds: Int64
+    )
+      async throws {
+      let player = makePausedSeekPlayer()
+      player._nativeSetTimeOverrideForTesting = { _, _ in 0 }
+      player._nativeSeekLandingOverrideForTesting = { (30000, 0.5) }
+      let request = try player.requestSeek(to: .seconds(30))
+      let token = try #require(player.activeNativeSeek?.command.nativeSeekToken)
+      player.nativeSeekMonitor.requireVideoOutput(for: token)
+      player.nativeSeekMonitor._noteSeekStartedForTesting()
+      player.nativeSeekMonitor._noteSeekEndedForTesting()
+      player.nativeSeekMonitor._noteVideoOutputForTesting(
+        timeMilliseconds: landedMilliseconds,
+        position: Double(landedMilliseconds) / 60000,
+        frameDurationMicroseconds: 0
+      )
+      await drainMainActor()
+      #expect(await request.outcome == ((30000...30101).contains(landedMilliseconds) ? .settled : .inaccurate))
+      #expect(player.currentTime == .milliseconds(landedMilliseconds))
+      #expect(player.activeNativeSeek == nil)
+    }
+
     @Test(arguments: [false, true])
     func `Late video corrects a timed out seek without resolving it again`(timeoutBeforeEnd: Bool) async throws {
       let player = makePausedSeekPlayer()
@@ -226,6 +253,102 @@ extension Integration {
       await drainMainActor()
       #expect(player.currentTime == .seconds(25))
       #expect(await request.outcome == .timedOut)
+    }
+
+    /// Before a paused seek's first output libVLC can answer the getter from
+    /// the input's last reported time. That is the pre-seek position read back
+    /// a few milliseconds off the frozen output clock, not a landing.
+    @Test
+    func `A stale paused read beside the baseline does not settle a far seek`() async throws {
+      let player = makePausedSeekPlayer()
+      player._nativeSetTimeOverrideForTesting = { _, _ in 0 }
+      player._seekOverridesForTesting.hasSelectedVideo = false
+      player._nativeSeekLandingOverrideForTesting = { (1981, 1.981 / 60) }
+
+      let request = try player.requestSeek(to: .seconds(20))
+      let token = try #require(player.activeNativeSeek?.command.nativeSeekToken)
+      player.nativeSeekMonitor._noteSeekEndedForTesting()
+      await drainMainActor()
+      player.pollPausedNativeSeek(token: token)
+      player.pollPausedNativeSeek(token: token)
+
+      #expect(player.currentTime == .seconds(20))
+      #expect(player.pendingSeekSettlement?.resolver.resolvedOutcome == nil)
+      #expect(player.activeNativeSeek?.command.nativeSeekToken == token)
+
+      // The same stable pair is a landing once it is clear of the baseline.
+      player._nativeSeekLandingOverrideForTesting = { (19000, 19.0 / 60) }
+      player.pollPausedNativeSeek(token: token)
+      player.pollPausedNativeSeek(token: token)
+      #expect(await request.outcome == .settled)
+      #expect(player.currentTime == .seconds(19))
+    }
+
+    /// With no output a paused input publishes no point until resume. A getter
+    /// that keeps answering with the pre-seek position must not hold the lane
+    /// for that long: the ended seek settles on its published target.
+    @Test(arguments: [2000, 1981] as [Int64])
+    func `A paused clock that stays stale settles on the target and frees the lane`(
+      staleMilliseconds: Int64
+    )
+      async throws {
+      let player = makePausedSeekPlayer()
+      var dispatchedTargets: [Int64] = []
+      player._nativeSetTimeOverrideForTesting = { milliseconds, _ in
+        dispatchedTargets.append(milliseconds)
+        return 0
+      }
+      player._seekOverridesForTesting.hasSelectedVideo = false
+      player._nativeSeekLandingOverrideForTesting = {
+        (staleMilliseconds, Double(staleMilliseconds) / 60000)
+      }
+
+      let first = try player.requestSeek(to: .seconds(20))
+      let second = try player.requestSeek(to: .seconds(40))
+      #expect(dispatchedTargets == [20000])
+      player.nativeSeekMonitor._noteSeekEndedForTesting()
+
+      #expect(await first.outcome == .superseded)
+      // The queued successor dispatches as soon as the stale bound releases
+      // the first episode, well inside the two-second observation window.
+      #expect(try await poll(timeout: .seconds(1.5)) { dispatchedTargets == [20000, 40000] })
+      #expect(player.currentTime == .seconds(40))
+
+      player.nativeSeekMonitor._noteSeekEndedForTesting()
+      #expect(await second.outcome == .settled)
+      #expect(player.currentTime == .seconds(40))
+      #expect(abs(player.position - 40.0 / 60) < 0.000_001)
+      #expect(player.activeNativeSeek == nil)
+      #expect(player.queuedNativeSeek == nil)
+      #expect(!player.nativeSeekMonitor.hasSeekDrainPending)
+    }
+
+    /// The jitter window only rejects reads beside the baseline of a far
+    /// request. An honest off-target landing still publishes what was observed,
+    /// and a request aimed inside the window keeps the plain changed-read rule.
+    @Test(arguments: [(30000, 25000), (2300, 2250)] as [(Int64, Int64)])
+    func `An honest paused landing settles on the observed time`(
+      targetMilliseconds: Int64,
+      landedMilliseconds: Int64
+    )
+      async throws {
+      let player = makePausedSeekPlayer()
+      player._nativeSetTimeOverrideForTesting = { _, _ in 0 }
+      player._seekOverridesForTesting.hasSelectedVideo = false
+      player._nativeSeekLandingOverrideForTesting = {
+        (landedMilliseconds, Double(landedMilliseconds) / 60000)
+      }
+
+      let request = try player.requestSeek(to: .milliseconds(targetMilliseconds), fast: true)
+      let token = try #require(player.activeNativeSeek?.command.nativeSeekToken)
+      player.nativeSeekMonitor._noteSeekEndedForTesting()
+      await drainMainActor()
+      player.pollPausedNativeSeek(token: token)
+      player.pollPausedNativeSeek(token: token)
+
+      #expect(await request.outcome == .settled)
+      #expect(player.currentTime == .milliseconds(landedMilliseconds))
+      #expect(player.activeNativeSeek == nil)
     }
 
     private func drainMainActor() async {

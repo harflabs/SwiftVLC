@@ -49,14 +49,18 @@ TARGET="$(xcrun swiftc -print-target-info \
   | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["target"]["triple"])')"
 BIN_DIR="$(xcrun swift build --target "$MODULE" ${BUILD_FLAGS[@]+"${BUILD_FLAGS[@]}"} --show-bin-path)"
 SDK="$(xcrun --sdk macosx --show-sdk-path)"
-MODULES_DIR="$BIN_DIR/Modules"
 FRAMEWORKS_DIR="$BIN_DIR/PackageFrameworks"
 
+# SwiftPM's own build system writes `.swiftmodule` files into <bin>/Modules;
+# Swift Build, the default in newer toolchains, writes them into <bin> itself.
+# Search both, so the gate does not silently stop finding the module when the
+# toolchain switches. A search path that does not exist is ignored.
 xcrun swift-symbolgraph-extract \
   -module-name "$MODULE" \
   -target "$TARGET" \
   -sdk "$SDK" \
-  -I "$MODULES_DIR" \
+  -I "$BIN_DIR/Modules" \
+  -I "$BIN_DIR" \
   -I Sources/CLibVLC/include \
   -F "$FRAMEWORKS_DIR" \
   -minimum-access-level public \

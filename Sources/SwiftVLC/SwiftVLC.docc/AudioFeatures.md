@@ -10,11 +10,14 @@ player.isMuted = false
 try player.setAudioDelay(.milliseconds(30)) // positive = audio plays later
 ```
 
-Volume is normalized, so `0.0 ... 1.0` covers the useful range; values
-above `1.0` software-amplify beyond normal (capped at 2.0 / 200%) and
-can distort on quietly-mastered content.
+``Volume`` is normalized: `0.0 ... 1.0` covers the useful range, and
+values above `1.0` software-amplify (``Volume/max`` is `2.0`, +6 dB),
+which can distort quietly-mastered content.
+``Player/setAudioVolume(_:)`` throws when libVLC rejects the change —
+notably while casting, where there is no local audio output. See
+<doc:DiscoveryAndCasting>.
 
-The audio delay (like ``Player/setSubtitleDelay(_:)``) is a player
+The audio delay, like ``Player/setSubtitleDelay(_:)``, is a player
 setting: it holds across ``Player/stop()``, replay, and the next media
 until you set it again, and one set while stopped applies when playback
 starts.
@@ -45,8 +48,9 @@ system-initiated device changes (e.g. headphones connecting).
 
 ## Equalizer
 
-``Equalizer`` is a 10-band graphic EQ with preamp and preset support.
-Build one, tune it, and attach it to a player:
+``Equalizer`` is a graphic EQ with preamp and preset support;
+``Equalizer/bandCount`` reports the band count (10 in the bundled
+libVLC). Build one, tune it, and attach it to a player:
 
 ```swift
 let eq = Equalizer()
@@ -56,13 +60,16 @@ player.equalizer = eq
 ```
 
 Typed gain accessors wrap raw `Float` values in ``EqualizerGain``.
-Each value is clamped to libVLC's `-20.0 ... +20.0` dB range:
+Each value is clamped to libVLC's `-20.0 ... 20.0` dB range:
 
 ```swift
 eq.preampGain = .flat
-try eq.setBandGains([+3.0, +2.0, .flat, -1.0, -2.0, -2.0, -1.0, .flat, +1.0, +2.0])
-try eq.setGain(+6.0, forBand: 3)
+try eq.setBandGains([3.0, 2.0, .flat, -1.0, -2.0, -2.0, -1.0, .flat, 1.0, 2.0])
+try eq.setGain(6.0, forBand: 3)
 ```
+
+``EqualizerGain`` is `ExpressibleByFloatLiteral` but not
+`AdditiveArithmetic`, so write `3.0`, never `+3.0`.
 
 Use a built-in preset by index:
 
@@ -78,11 +85,14 @@ Pass `nil` to disable: `player.equalizer = nil`.
 
 Two independent properties shape the output signal:
 
-- ``Player/stereoMode`` picks a stereo transformation (standard,
-  reversed, mono, or Dolby Surround).
-- ``Player/mixMode`` selects the channel count of the final mix,
-  including stereo, 4.0, 5.1, 7.1, and binaural rendering for
-  headphones.
+- ``Player/stereoMode`` picks a stereo transformation: ``StereoMode``
+  covers standard and reversed stereo, left- or right-channel only,
+  mono, and Dolby Surround.
+- ``Player/mixMode`` selects the final mix: ``MixMode`` covers stereo,
+  4.0, 5.1, 7.1, and binaural rendering for headphones.
+
+Both have an `unset` case, the no-override value that leaves the choice
+to libVLC.
 
 ```swift
 player.stereoMode = .mono        // collapse to mono

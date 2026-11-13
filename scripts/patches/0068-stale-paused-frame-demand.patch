@@ -1,0 +1,35 @@
+# Drop a paused frame demand that arrives after the resume.
+#
+# While a paused seek waits for its picture, the video decoder asks the input
+# for more data from its own thread. A request that leaves the decoder just
+# before a resume can be processed after the resume cleared the flag, and
+# nothing clears it again: the next pause would then keep demuxing at full
+# speed for as long as it lasts. The request is honoured only while the input
+# is paused, and the flag is cleared when a pause begins.
+#
+# Found by inspection of the control ordering; the interleaving was not
+# reproduced (144 pause, seek and immediate-resume cycles did not hit it).
+--- a/src/input/input.c
++++ b/src/input/input.c
+@@ -3265,6 +3265,7 @@
+                 case PAUSE_S:
+                     if( priv->i_state == PLAYING_S )
+                     {
++                        priv->next_frame_need_data = false;
+                         ControlPause(p_input, i_control_date, true);
+                         b_force_update = true;
+                     }
+@@ -3682,7 +3683,12 @@
+             b_force_update = true;
+             break;
+         case INPUT_CONTROL_NEED_DATA_FRAME_NEXT:
+-            priv->next_frame_need_data = param.val.b_bool;
++            /* The video decoder posts this from its own thread. A request
++             * that left it just before a resume arrives after the resume
++             * cleared the flag; kept, it would make the next pause demux at
++             * full speed for as long as it lasts. */
++            priv->next_frame_need_data = param.val.b_bool
++                                      && priv->i_state == PAUSE_S;
+             break;
+         case INPUT_CONTROL_SEEK_FRAME_PREVIOUS:
+             SeekFramePrevious(p_input, param.frame_previous_seek.pts,

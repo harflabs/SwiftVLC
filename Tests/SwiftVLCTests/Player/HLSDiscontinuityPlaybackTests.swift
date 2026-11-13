@@ -57,5 +57,42 @@ extension Integration {
       await player.shutdown()
       withExtendedLifetime(sink) {}
     }
+
+    /// Patch 0063 cleared every stream's synchronization reference at a
+    /// discontinuity. A WebVTT rendition cannot anchor the new sequence
+    /// itself: it waited for the video stream's reference while holding back
+    /// the demux deadline the video stream needed to publish one, so audio
+    /// and video stopped for good just before the discontinuity (patch 0070).
+    @Test
+    func `a selected subtitle rendition crosses a discontinuity`() async throws {
+      let instance = try VLCInstance(arguments: VLCInstance.defaultArguments + [
+        "--aout=dummy", "--no-hw-dec", "--quiet"
+      ])
+      let player = Player(instance: instance)
+      let sink = SeekVideoSink()
+      do {
+        // Two 12-second sequences whose timestamps restart, with a WebVTT
+        // rendition that has the same discontinuity.
+        let url = try #require(Bundle.module.url(
+          forResource: "master", withExtension: "m3u8",
+          subdirectory: "Fixtures/seek-oracle/hls-subtitle-discontinuity"
+        ))
+        try player.load(Media(url: url))
+        try installSeekVideoSink(sink, on: player)
+        try player.play()
+        try #require(await poll(timeout: .seconds(10)) {
+          sink.count > 5 && !player.subtitleTracks.isEmpty
+        })
+        player.selectedSubtitleTrack = player.subtitleTracks.first
+        try #require(await poll(timeout: .seconds(3)) { player.selectedSubtitleTrack != nil })
+        // 24 seconds of media: the stall never reaches the end.
+        #expect(try await poll(every: .milliseconds(100), timeout: .seconds(35)) {
+          player.state == .stopped
+        })
+        #expect(player.didReachEnd)
+      } catch { await player.shutdown(); throw error }
+      await player.shutdown()
+      withExtendedLifetime(sink) {}
+    }
   }
 }

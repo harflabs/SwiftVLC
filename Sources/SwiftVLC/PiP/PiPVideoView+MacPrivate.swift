@@ -313,7 +313,10 @@ final class MacPrivatePiPPresenter {
 
     let contentViewController = NSViewController()
     drawableView.removeFromSuperview()
-    drawableView.frame = NSRect(origin: .zero, size: normalizedContentSize(from: hostView.bounds.size))
+    drawableView.frame = NSRect(
+      origin: .zero,
+      size: Self.fitting(pictureSize(for: player, hostView: hostView), in: hostView.bounds.size)
+    )
     drawableView.autoresizingMask = [.width, .height]
     contentViewController.view = drawableView
     self.contentViewController = contentViewController
@@ -335,6 +338,7 @@ final class MacPrivatePiPPresenter {
     )
     didPresentDrawable = true
     onActiveChanged(true)
+    observePictureShape()
     return true
   }
 
@@ -491,7 +495,7 @@ final class MacPrivatePiPPresenter {
       on: pictureInPictureViewController
     )
     let didSetAspectRatio = setPrivateValue(
-      NSValue(size: normalizedContentSize(from: hostView.bounds.size)),
+      NSValue(size: pictureSize(for: player, hostView: hostView)),
       forKey: "aspectRatio",
       requiring: MacPrivatePiPSelector.setAspectRatio,
       on: pictureInPictureViewController
@@ -509,6 +513,56 @@ final class MacPrivatePiPPresenter {
       return CGSize(width: 16, height: 9)
     }
     return CGSize(width: ceil(size.width), height: ceil(size.height))
+  }
+
+  /// The shape of the Picture in Picture panel: the picture's, not the host
+  /// view's. A landscape video shown in a tall view would otherwise get a
+  /// tall panel with the picture letterboxed inside it. The host's shape is
+  /// only a fallback until the video's size is known.
+  private func pictureSize(for player: Player, hostView: NSView) -> CGSize {
+    if case .ratio(let width, let height) = player.aspectRatio, width > 0, height > 0 {
+      return normalizedContentSize(from: CGSize(width: width * 16, height: height * 16))
+    }
+    if let displaySize = player.videoDisplaySize {
+      return normalizedContentSize(from: displaySize)
+    }
+    return normalizedContentSize(from: hostView.bounds.size)
+  }
+
+  /// The largest size of `shape` that fits inside `bounds`.
+  private static func fitting(_ shape: CGSize, in bounds: CGSize) -> CGSize {
+    guard bounds.width >= 16, bounds.height >= 16 else { return shape }
+    let scale = min(bounds.width / shape.width, bounds.height / shape.height)
+    return CGSize(
+      width: max(16, (shape.width * scale).rounded()),
+      height: max(16, (shape.height * scale).rounded())
+    )
+  }
+
+  /// Follows the picture while the panel is open: the next item of a
+  /// playlist, an adaptive stream that changes shape, or a new forced aspect
+  /// ratio reshapes the panel instead of leaving bars in it.
+  private func observePictureShape() {
+    guard let player, pictureInPictureViewController != nil, !isClosing else { return }
+    withObservationTracking {
+      _ = player.videoSize
+      _ = player.aspectRatio
+    } onChange: { [weak self] in
+      Task { @MainActor [weak self] in
+        self?.applyPictureShape()
+        self?.observePictureShape()
+      }
+    }
+  }
+
+  private func applyPictureShape() {
+    guard let pictureInPictureViewController, let player, let hostView, !isClosing else { return }
+    setPrivateValue(
+      NSValue(size: pictureSize(for: player, hostView: hostView)),
+      forKey: "aspectRatio",
+      requiring: MacPrivatePiPSelector.setAspectRatio,
+      on: pictureInPictureViewController
+    )
   }
 
   private static func makePictureInPictureViewController() -> NSViewController? {

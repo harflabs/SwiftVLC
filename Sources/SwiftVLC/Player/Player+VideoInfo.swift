@@ -27,6 +27,57 @@ extension Player {
     return CGSize(width: Int(width), height: Int(height))
   }
 
+  /// The size the selected video track is meant to be displayed at:
+  /// ``videoSize`` with the track's sample aspect ratio and rotation applied.
+  ///
+  /// ``videoSize`` counts stored pixels. Anamorphic video (a 720x576 picture
+  /// shown at 16:9) and video recorded in portrait with a rotation flag have
+  /// a different shape on screen, which is what a window or a Picture in
+  /// Picture panel has to match. `nil` whenever ``videoSize`` is.
+  var videoDisplaySize: CGSize? {
+    access(keyPath: \.videoSize)
+    #if DEBUG
+    if let override = _videoDisplaySizeOverrideForTesting {
+      return override
+    }
+    #endif
+    guard nativeHandleRepresentsCurrentMedia, let track = libvlc_media_player_get_selected_track(pointer, libvlc_track_video) else {
+      return nil
+    }
+    defer { libvlc_media_track_release(track) }
+    guard let video = track.pointee.video?.pointee, video.i_width > 0, video.i_height > 0 else {
+      return nil
+    }
+    return Self.displaySize(
+      width: video.i_width,
+      height: video.i_height,
+      sampleAspectRatio: (video.i_sar_num, video.i_sar_den),
+      orientation: video.i_orientation
+    )
+  }
+
+  nonisolated static func displaySize(
+    width: UInt32,
+    height: UInt32,
+    sampleAspectRatio: (numerator: UInt32, denominator: UInt32),
+    orientation: libvlc_video_orient_t
+  ) -> CGSize {
+    var displayWidth = Double(width)
+    let displayHeight = Double(height)
+    // A missing ratio (0:0) means square pixels.
+    if sampleAspectRatio.numerator > 0, sampleAspectRatio.denominator > 0 {
+      displayWidth *= Double(sampleAspectRatio.numerator) / Double(sampleAspectRatio.denominator)
+    }
+    switch orientation {
+    case libvlc_video_orient_left_top, libvlc_video_orient_left_bottom,
+         libvlc_video_orient_right_top, libvlc_video_orient_right_bottom:
+      // Transposed and quarter-turn orientations swap the axes.
+      return CGSize(width: displayHeight, height: displayWidth)
+    default:
+      return CGSize(width: displayWidth, height: displayHeight)
+    }
+  }
+
   /// Whether a video track is currently selected with known decoded
   /// dimensions.
   ///

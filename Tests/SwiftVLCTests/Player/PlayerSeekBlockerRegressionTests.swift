@@ -286,6 +286,33 @@ extension Integration {
       }
     }
 
+    /// libVLC reports an unknown length as zero, and a start offset on an
+    /// unknown-length input as a negative one. Stored as a known duration,
+    /// either clamps every relative seek to the start of the media.
+    @Test(arguments: [Duration.zero, .seconds(-20)])
+    func `A non-positive native length is an unknown duration`(length: Duration) throws {
+      let player = Player(instance: TestInstance.makeAudioOnly())
+      player._setStateForTesting(
+        state: .playing,
+        isPlaybackRequestedActive: true,
+        currentTime: .seconds(20),
+        duration: .seconds(60),
+        position: 20.0 / 60,
+        isSeekable: true
+      )
+      var dispatchedTargets: [Int64] = []
+      player._nativeSetTimeOverrideForTesting = { milliseconds, _ in
+        dispatchedTargets.append(milliseconds)
+        return 0
+      }
+
+      player.handleEvent(.lengthChanged(length))
+      #expect(player.duration == nil)
+
+      _ = try player.requestSeek(by: .seconds(10))
+      #expect(dispatchedTargets == [30000])
+    }
+
     private func makePlayingPlayer() -> Player {
       let player = Player(instance: TestInstance.makeAudioOnly())
       player._setStateForTesting(

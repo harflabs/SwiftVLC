@@ -163,7 +163,6 @@ extension Track {
     isSelected = t.selected
     bitrate = Int(t.i_bitrate)
 
-    // Extract type-specific info, defaulting to nil for non-matching types.
     switch t.i_type {
     case libvlc_track_audio where t.audio != nil:
       let a = t.audio.pointee

@@ -51,8 +51,8 @@ coverage:
       # live restoration orchestration, which no CI run can enter.
       #
       # Reported but not enforced, so the gap stays visible on every PR instead
-      # of being silently dropped. Re-enforce this the moment CI can drive
-      # playback (see #79 / #97 on the release-qualification side).
+      # of being silently dropped. Re-enforce it the moment CI can drive
+      # playback.
       # The macOS native PiP backend is gated the same way, for a different
       # reason. Every path past `refreshPossible()` requires Apple's private
       # `PIPViewController` to load from `PIP.framework` *and* a real host
@@ -67,8 +67,9 @@ coverage:
       # into one result is asserted on whichever branch the host can reach.
       # What stays uncovered is the live private-framework orchestration.
       #
-      # Re-enforce this if the device qualification harness (#88) ever feeds
-      # coverage back, since that runs where the framework does load.
+      # Re-enforce it if the physical-device qualification harness
+      # (scripts/qualification) ever feeds coverage back, since that runs where
+      # the framework does load.
       # PiPController's state observer is gated for the first reason above:
       # every branch in it is conditioned on the player actively playing, so
       # on this host none of them execute. It was split into its own file

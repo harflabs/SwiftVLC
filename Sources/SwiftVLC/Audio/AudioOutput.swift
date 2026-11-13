@@ -28,8 +28,6 @@ public struct AudioDevice: Sendable, Identifiable, Hashable {
   }
 }
 
-// MARK: - VLCInstance extensions
-
 extension VLCInstance {
   /// Lists available audio output modules.
   public func audioOutputs() -> [AudioOutput] {
